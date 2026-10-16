@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Builds the portable native client: clients/native/build/Proteus.
+"""Builds the portable native client: build/Proteus.
 
 The folder runs without the repository: the client, the agent server, the
 reference module and the tracked profiles sit next to a launcher. A tar.gz
@@ -16,7 +16,10 @@ import tarfile
 from pathlib import Path
 
 NATIVE = Path(__file__).resolve().parent.parent
-ROOT = NATIVE.parent.parent
+ROOT = None
+MODULES = None
+EXTENSIONS = None
+from sources import resolve
 BUILD = NATIVE / "build"
 PORTABLE = BUILD / "Proteus"
 ASSETS = Path(__file__).resolve().parent / "portable"
@@ -50,17 +53,18 @@ def assemble(agent_profile, client_profile):
     staging = BUILD / "Proteus.next"
     shutil.rmtree(staging, ignore_errors=True)
     agent = ROOT / "target" / agent_profile
+    module = MODULES / "target" / agent_profile
     client = NATIVE / "target" / client_profile
     install_file(client / "proteus-native", staging / "bin/proteus-native", True)
     install_file(agent / "proteus", staging / "bin/proteus", True)
     install_file(
-        agent / "proteus-reference-module",
+        module / "proteus-reference-module",
         staging / "bin/proteus-reference-module",
         True,
     )
     for path in tracked_configs():
         install_file(ROOT / path, staging / "share" / path)
-    run([sys.executable, str(ROOT / "clients/extensions/package.py"), "--bundle",
+    run([sys.executable, str(EXTENSIONS / "package.py"), "--bundle",
          str(staging / "share/extensions")], ROOT)
     install_file(ICON, staging / "share/icons/proteus-native.png")
     install_file(ASSETS / "proteus-native", staging / "proteus-native", True)
@@ -95,15 +99,18 @@ def main():
         "--no-archive", action="store_true", help="skip the tar.gz archive"
     )
     args = parser.parse_args()
+    global ROOT, MODULES, EXTENSIONS
+    ROOT, MODULES, EXTENSIONS = resolve("harness"), resolve("modules"), resolve("extensions")
     profile = "debug" if args.debug else "release"
     flags = [] if args.debug else ["--release"]
     run(
-        ["cargo", "build", "--locked", *flags, "-p", "proteus-core", "-p", "proteus-reference-module"],
+        ["cargo", "build", "--locked", *flags, "-p", "proteus-core"],
         ROOT,
     )
+    run(["cargo", "build", "--locked", *flags, "-p", "proteus-reference-module"], MODULES)
     client_profile = "fast" if args.fast else profile
     client_flags = ["--profile", "fast"] if args.fast else flags
-    run(["cargo", "build", "--locked", *client_flags], NATIVE)
+    run(["cargo", "build", "--locked", *client_flags, "-p", "proteus-native"], NATIVE)
     assemble(profile, client_profile)
     print(f"Portable: {PORTABLE}")
     if not (args.no_archive or args.fast):

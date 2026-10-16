@@ -31,7 +31,7 @@ impl Drop for Fixture {
 }
 
 fn example() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/catalog")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/catalog")
 }
 fn source(path: &Path) -> Source {
     Source {

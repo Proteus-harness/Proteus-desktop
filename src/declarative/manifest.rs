@@ -122,7 +122,12 @@ pub fn bundled_root() -> PathBuf {
     let exe = std::env::current_exe().unwrap_or_default();
     let native = Path::new(env!("CARGO_MANIFEST_DIR"));
     if exe.starts_with(native.join("target")) {
-        return native.join("../extensions/packages");
+        let local = native.join("../Extensions/packages");
+        return if local.is_dir() {
+            local
+        } else {
+            native.join("build/sources/extensions/packages")
+        };
     }
     exe.parent()
         .and_then(Path::parent)

@@ -1,10 +1,29 @@
-# proteus-native
+# Proteus Desktop
 
 Основной клиент Proteus — нативное приложение на GPUI (`gpui-kit`). Работает
 с HTTP/SSE app-server через DTO из `proteus-contracts::app_protocol`; общие
-правила подключения и сессий — в `clients/common`.
+правила подключения и сессий — в `crates/client-common`.
 
-Пакет исключён из root workspace и собирается на Rust 1.95
+Источники разделены на четыре репозитория. Этот содержит приложение и
+`crates/client-common`; DTO берутся из закреплённого Git commit Proteus-harness.
+`repositories.json` задаёт revisions harness, модулей и расширений для поставки.
+`scripts/sources.py` читает PROTEUS_HARNESS_SOURCE / PROTEUS_MODULES_SOURCE /
+PROTEUS_EXTENSIONS_SOURCE, использует соседние checkout в раскладке Proteus или
+загружает закреплённые исходники в `build/sources`. Для самостоятельного clone
+достаточно этого репозитория и доступа Git к публичным зависимостям.
+
+```bash
+python3 scripts/test.py
+python3 scripts/run.py /path/to/project --config PROFILE
+python3 scripts/portable.py --fast
+./build/Proteus/proteus-native /path/to/project
+```
+
+Для расширений нужен Python 3 без дополнительных pip-пакетов. Их автор —
+Proteus Project. История приложения и общих правил клиента сохранена из
+Proteus-agent (ныне Proteus-harness).
+
+Workspace приложения отделён от harness и собирается на Rust 1.95
 (`rust-toolchain.toml`). Для линковки на Linux нужны dev-пакеты xcb,
 xkbcommon (с x11), fontconfig и freetype; в Fedora:
 
@@ -18,7 +37,6 @@ tree-sitter) оптимизируются (`opt-level = 2`), сам клиент
 окно не тормозило, а пересборка оставалась быстрой:
 
 ```bash
-cd clients/native
 cargo build --release
 ./target/release/proteus-native [workspace] [--config <profile|path>]
 ./target/release/proteus-native [workspace] --origin <url> --token <token>
@@ -92,9 +110,9 @@ cargo build --release
 ## Portable
 
 ```bash
-python3 clients/native/scripts/portable.py           # release с архивом
-python3 clients/native/scripts/portable.py --fast    # локальная пересборка
-python3 clients/native/scripts/portable.py --debug   # быстрее всего собрать
+python3 scripts/portable.py           # release с архивом
+python3 scripts/portable.py --fast    # локальная пересборка
+python3 scripts/portable.py --debug   # быстрее всего собрать
 ```
 
 `--fast` собирает клиент профилем `fast`: оптимизация как в release, но без
@@ -104,8 +122,8 @@ LTO и инкрементально, поэтому правка клиента 
 подтормаживать, для оценки плавности он не подходит.
 
 Скрипт собирает `proteus`, `proteus-reference-module` и клиент, затем
-складывает `clients/native/build/Proteus/` и архив
-`clients/native/build/Proteus-native-linux-<arch>.tar.gz`:
+складывает `build/Proteus/` и архив
+`build/Proteus-native-linux-<arch>.tar.gz`:
 
 - `proteus-native` — запуск: ставит профили из `share/configs` в
   `${PROTEUS_CONFIG_HOME:-~/.config/Proteus-agent}/configs` (именованные
@@ -160,22 +178,21 @@ MCP-конфигурации; пакет и MCP-сервер сразу запи
 черновика и «Сохранить», пока в настройках нет других несохранённых правок.
 Нужен системный `git`, без новых сетевых сервисов; установка работает
 локально, не собирает программы и не скачивает их зависимости. [Формат и
-готовый пример каталога](../../examples/catalog/README.md).
+готовый пример каталога](examples/catalog/README.md).
 
 Все 12 поставляемых расширений используют тот же публичный процессный
-механизм. Их исходники и упаковщик находятся в [clients/extensions](../extensions/README.md),
-автор — `Proteus Project`. Включены по умолчанию. Исходники подготовлены для
-отдельного репозитория; Git-репозитории пока не разделены.
+механизм. Их исходники и упаковщик находятся в [Proteus-desktop-extensions](https://github.com/Qweasd123tg/Proteus-desktop-extensions),
+автор — `Proteus Project`. Включены по умолчанию. Исходники находятся в отдельном репозитории и поставляются по закреплённой ревизии.
 
 Portable читает пакеты из `share/extensions`; сборка из `target` — из
-`clients/extensions/packages`. Переменная `PROTEUS_EXTENSIONS_DIR` заменяет
+`../Extensions/packages` при общей раскладке. Переменная `PROTEUS_EXTENSIONS_DIR` заменяет
 источник поставляемого набора. Пользовательская папка с тем же id перекрывает
 поставляемую, включая ошибочный пакет: ошибка показывается явно.
 ZIP с существующим id атомарно обновляет пользовательский пакет; настройки
 порядка, включения и значков сохраняются. При удалении пользовательской версии
 поставляемая восстанавливается выключенной. Перезапуск клиента не нужен.
 
-[Протокол v2, поверхности и виджеты](../extensions/PROTOCOL.md).
+[Протокол v2, поверхности и виджеты](https://github.com/Qweasd123tg/Proteus-desktop-extensions/blob/main/PROTOCOL.md).
 Программа получает HTTP-доступ к app-server, а при `session_events: true` —
 снимок состояния активного чата и изменения метаданных ленты без текста ответа.
 Квоты, аналитика и файлы запрашиваются через HTTP самим процессом. Общие
@@ -267,7 +284,7 @@ ZIP с существующим id атомарно обновляет поль�
 - `terminal` — общий headless эмулятор на `alacritty_terminal`: PTY,
   цветные строки, xterm-клавиши и bracketed paste. Доступен процессам
   через виджет `terminal`;
-- `clients/extensions/packages` — логика файлов, аналитики и остальных
+- `Proteus-desktop-extensions/packages` — логика файлов, аналитики и остальных
   поставляемых расширений; `ui/extensions/declarative` — общий рендерер
   протокола и жизненный цикл процессов. Аналитика выбирает сохранённую
   сессию без переключения чата; архитектура относится к активному чату.

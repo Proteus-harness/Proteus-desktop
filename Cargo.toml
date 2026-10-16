@@ -1,3 +1,7 @@
+[workspace]
+resolver = "2"
+members = ["crates/client-common"]
+
 [package]
 name = "proteus-native"
 version = "0.0.0-dev"
@@ -24,8 +28,8 @@ gpui-kit = { version = "0.7.1", features = [
     "tree-sitter-typescript",
     "tree-sitter-yaml",
 ] }
-proteus-client-common = { path = "../common" }
-proteus-contracts = { path = "../../crates/proteus-contracts" }
+proteus-client-common = { path = "crates/client-common" }
+proteus-contracts = { git = "https://github.com/Qweasd123tg/Proteus-harness.git", rev = "d9fe8c75f502d8086aaa28cfd4e46bade00db2ad" }
 anyhow = "1"
 async-channel = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
