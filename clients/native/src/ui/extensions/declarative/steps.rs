@@ -10,8 +10,84 @@ use std::rc::Rc;
 use gpui_kit::component::*;
 use gpui_kit::*;
 
-use super::SelectorBadge;
 use crate::ui::{motion, prefs};
+
+pub(super) struct Stepper {
+    pub options: Vec<String>,
+    pub selected: usize,
+    scrub: Option<usize>,
+    track: Rc<Cell<Bounds<Pixels>>>,
+    thumb: Rc<Cell<Option<f32>>>,
+    changed: Rc<dyn Fn(usize, &mut App)>,
+}
+
+impl Stepper {
+    pub(super) fn step(&mut self, offset: isize, cx: &mut Context<Self>) {
+        self.scrub = Some(
+            self.selected
+                .saturating_add_signed(offset)
+                .min(self.options.len().saturating_sub(1)),
+        );
+        self.finish_scrub(cx);
+    }
+    pub fn new(
+        options: Vec<String>,
+        selected: usize,
+        changed: impl Fn(usize, &mut App) + 'static,
+    ) -> Self {
+        Self {
+            options,
+            selected,
+            scrub: None,
+            track: Rc::default(),
+            thumb: Rc::default(),
+            changed: Rc::new(changed),
+        }
+    }
+    fn scrub_to(&mut self, position: usize, cx: &mut Context<Self>) {
+        self.scrub = Some(position);
+        cx.notify();
+    }
+    fn finish_scrub(&mut self, cx: &mut Context<Self>) {
+        if let Some(position) = self.scrub.take() {
+            self.selected = position;
+            (self.changed)(position, cx);
+            cx.notify();
+        }
+    }
+}
+impl Render for Stepper {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let count = self.options.len();
+        let shown = self
+            .scrub
+            .unwrap_or(self.selected)
+            .min(count.saturating_sub(1));
+        v_flex()
+            .w_full()
+            .gap_1()
+            .child(
+                div()
+                    .text_xs()
+                    .child(self.options.get(shown).cloned().unwrap_or_default()),
+            )
+            .child(self.pill(count, shown, cx))
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
+                let offset = match event.keystroke.key.as_str() {
+                    "left" => -1,
+                    "right" => 1,
+                    _ => return,
+                };
+                let next = this
+                    .selected
+                    .saturating_add_signed(offset)
+                    .min(this.options.len().saturating_sub(1));
+                this.scrub = Some(next);
+                this.finish_scrub(cx);
+                cx.stop_propagation();
+            }))
+    }
+}
 
 /// Height of the track.
 const PILL: f32 = 28.;
@@ -22,7 +98,7 @@ const TICK: (f32, f32) = (2., 10.);
 /// Share of the way the thumb covers each frame while it moves.
 const EASE: f32 = 0.35;
 
-impl SelectorBadge {
+impl Stepper {
     pub(super) fn pill(&self, count: usize, shown: usize, cx: &mut Context<Self>) -> Stateful<Div> {
         let theme = cx.theme();
         let corner = theme.radius;

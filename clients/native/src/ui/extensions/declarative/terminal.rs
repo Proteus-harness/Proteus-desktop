@@ -14,7 +14,6 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use super::super::Host;
 use crate::terminal::{Base, Grid, Key, Run, Signal, Terminal, encode};
 use crate::ui::kit;
 
@@ -39,17 +38,8 @@ pub(super) struct TerminalView {
 }
 
 impl TerminalView {
-    pub(super) fn new(host: Host, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub(super) fn new(cwd: PathBuf, _window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus = cx.focus_handle();
-        // The host is busy building this view; read the workspace later.
-        cx.defer_in(window, move |this, _, cx| {
-            this.cwd = Some(
-                host.workspace_path(cx)
-                    .or_else(std::env::home_dir)
-                    .unwrap_or_else(|| PathBuf::from("/")),
-            );
-            cx.notify();
-        });
         let weak = cx.weak_entity();
         let keys = focus.clone();
         let intercept = cx.intercept_keystrokes(move |event, window, cx| {
@@ -65,7 +55,7 @@ impl TerminalView {
         });
         Self {
             focus,
-            cwd: None,
+            cwd: Some(cwd),
             state: State::Waiting,
             area: Rc::default(),
             scroll_rest: 0.,
