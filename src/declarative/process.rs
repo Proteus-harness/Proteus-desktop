@@ -194,7 +194,9 @@ mod tests {
             dir: std::env::temp_dir(),
             revision: 0,
             manifest: Manifest {
-                protocol: 2,
+                protocol: super::super::protocol::PROTOCOL,
+                required_features: Vec::new(),
+                metadata: Default::default(),
                 id: "test".into(),
                 title: "Test".into(),
                 author: String::new(),

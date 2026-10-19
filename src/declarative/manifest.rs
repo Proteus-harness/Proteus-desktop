@@ -14,6 +14,8 @@ pub const MANIFEST: &str = "extension.json";
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
     pub protocol: u32,
+    #[serde(default)]
+    pub required_features: Vec<String>,
     /// Equals the folder name; tab ids and preferences use it.
     pub id: String,
     pub title: String,
@@ -30,6 +32,9 @@ pub struct Manifest {
     #[serde(default)]
     pub session_events: bool,
     pub surfaces: Surfaces,
+    /// Optional author-namespaced descriptive data; it never enables behavior.
+    #[serde(default, rename = "_meta")]
+    pub metadata: proteus_contracts::extension_metadata::ExtensionMetadata,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
@@ -235,6 +240,12 @@ pub fn parse(text: &str) -> Result<Manifest> {
             super::protocol::PROTOCOL
         );
     }
+    let mut required = std::collections::BTreeSet::new();
+    for feature in &manifest.required_features {
+        if !super::protocol::FEATURES.contains(&feature.as_str()) || !required.insert(feature) {
+            bail!("unsupported or duplicate required extension feature {feature:?}");
+        }
+    }
     if !valid_id(&manifest.id) {
         bail!("id must be lowercase latin letters, digits and dashes");
     }
@@ -301,18 +312,18 @@ mod tests {
         write(
             &root,
             "todo",
-            r#"{"protocol": 2, "id": "todo", "title": "Задачи", "command": ["python3", "main.py"],
+            r#"{"protocol": 3, "id": "todo", "title": "Задачи", "command": ["python3", "main.py"],
                 "surfaces": {"panel": {"title": "Задачи"}, "badge": {}}}"#,
         );
         write(
             &root,
             "other",
-            r#"{"protocol": 2, "id": "todo", "title": "x", "command": ["x"], "surfaces": {"document": {}}}"#,
+            r#"{"protocol": 3, "id": "todo", "title": "x", "command": ["x"], "surfaces": {"document": {}}}"#,
         );
         write(
             &root,
             "bad",
-            r#"{"protocol": 2, "id": "bad", "title": "x", "command": ["x"], "surfaces": {}}"#,
+            r#"{"protocol": 3, "id": "bad", "title": "x", "command": ["x"], "surfaces": {}}"#,
         );
         std::fs::create_dir_all(root.join("empty")).unwrap();
 
@@ -342,11 +353,29 @@ mod tests {
     }
 
     #[test]
+    fn metadata_is_optional_but_required_features_and_behavior_are_checked() {
+        let mut value = serde_json::json!({"protocol":3,"id":"demo","title":"Demo","command":["run"],
+            "required_features":["session.settings.v1"], "surfaces":{"page":{}},
+            "_meta":{"org.example/catalog":{"version":"future"}}});
+        parse(&value.to_string()).unwrap();
+        value["required_features"] = serde_json::json!(["future.required.v1"]);
+        assert!(
+            parse(&value.to_string())
+                .unwrap_err()
+                .to_string()
+                .contains("required extension feature")
+        );
+        value["required_features"] = serde_json::json!([]);
+        value["unknown_behavior"] = serde_json::json!(true);
+        assert!(parse(&value.to_string()).is_err());
+    }
+
+    #[test]
     fn user_package_overrides_bundled_and_broken_update_stays_visible() {
         let root = std::env::temp_dir().join(format!("proteus-sources-{}", uuid::Uuid::new_v4()));
         let bundled = root.join("bundled");
         let user = root.join("user");
-        let text = r#"{"protocol":2,"id":"quota","title":"Quota","command":["python3","main.py"],"surfaces":{"badge":{"narrow":true,"place":"rail_end"}}}"#;
+        let text = r#"{"protocol":3,"id":"quota","title":"Quota","command":["python3","main.py"],"surfaces":{"badge":{"narrow":true,"place":"rail_end"}}}"#;
         write(&bundled, "quota", text);
         write(&user, "quota", &text.replace("Quota", "Updated"));
         let (found, errors) = discover_sources(&bundled, Some(&user));
@@ -356,7 +385,7 @@ mod tests {
         write(
             &user,
             "quota",
-            &text.replace("\"protocol\":2", "\"protocol\":1"),
+            &text.replace("\"protocol\":3", "\"protocol\":1"),
         );
         let (found, errors) = discover_sources(&bundled, Some(&user));
         assert!(found.is_empty());

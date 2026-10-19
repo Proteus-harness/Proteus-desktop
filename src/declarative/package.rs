@@ -65,7 +65,7 @@ mod tests {
 
     use super::*;
 
-    const MANIFEST_TEXT: &str = r#"{"protocol": 2, "id": "todo", "title": "Задачи", "command": ["./run"],
+    const MANIFEST_TEXT: &str = r#"{"protocol": 3, "id": "todo", "title": "Задачи", "command": ["./run"],
         "surfaces": {"panel": {"title": "Задачи"}}}"#;
 
     fn archive(files: &[(&str, &str, u32)]) -> Vec<u8> {

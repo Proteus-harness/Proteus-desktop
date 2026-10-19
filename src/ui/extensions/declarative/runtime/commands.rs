@@ -54,13 +54,7 @@ impl Runtime {
             let session = request.session.clone();
             let result = cx
                 .background_executor()
-                .spawn(async move {
-                    match request.setting {
-                        SessionSetting::Mode { value } => api.set_mode(&session, value),
-                        SessionSetting::Model { value } => api.set_model(&session, &value),
-                        SessionSetting::Effort { value } => api.set_effort(&session, value),
-                    }
-                })
+                .spawn(async move { api.set_session_setting(&session, request.setting) })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.setting_running = false;

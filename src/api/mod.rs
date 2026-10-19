@@ -10,13 +10,14 @@ use proteus_contracts::app_protocol::config_builder::{ConfigBuilderSnapshot, Con
 use proteus_contracts::app_protocol::http::{
     ApprovalRequest, CancelRequest, DeleteQueuedMessageRequest, DeleteSessionRequest,
     NewSessionRequest, ResumeSessionRequest, SendRequest, SessionOpened, SetConfigBuilderRequest,
-    SetModelRequest, SetPermissionModeRequest, SetReasoningEffortRequest, UserInputRequest,
+    SetSessionSettingRequest, UserInputRequest,
 };
+use proteus_contracts::app_protocol::settings::SessionSettingUpdate;
 use proteus_contracts::app_protocol::{
     AppBootstrap, AppContextMapSnapshot, AppServerEvent, AppSessionSummary, StdioOutput,
 };
 use proteus_contracts::contracts::UserInputResponse;
-use proteus_contracts::domain::{MessageId, PermissionMode};
+use proteus_contracts::domain::MessageId;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -144,46 +145,23 @@ impl Api {
         self.get("/context", Some(session_dir))
     }
 
-    pub fn set_mode(&self, session_dir: &Path, mode: PermissionMode) -> Result<ConfigSummary> {
-        let body = SetPermissionModeRequest {
-            id: Some(request_id("mode")),
-            mode,
-            session_dir: session_dir.to_path_buf(),
-        };
-        self.control("/mode", session_dir, &body)
-    }
-
-    pub fn set_model(&self, session_dir: &Path, model: &str) -> Result<ConfigSummary> {
-        let body = SetModelRequest {
-            id: Some(request_id("model")),
-            model: model.to_owned(),
-            session_dir: session_dir.to_path_buf(),
-        };
-        self.control("/model", session_dir, &body)
-    }
-
-    /// `None` returns to the profile default, `Some("none")` disables reasoning.
-    pub fn set_effort(&self, session_dir: &Path, effort: Option<String>) -> Result<ConfigSummary> {
-        let body = SetReasoningEffortRequest {
-            id: Some(request_id("effort")),
-            effort,
-            session_dir: session_dir.to_path_buf(),
-        };
-        self.control("/effort", session_dir, &body)
-    }
-
-    /// Settings commands answer with the updated config when the server has it.
-    fn control<B: Serialize>(
+    pub fn set_session_setting(
         &self,
-        path: &str,
         session_dir: &Path,
-        body: &B,
+        setting: SessionSettingUpdate,
     ) -> Result<ConfigSummary> {
-        let output: Value = self.command(path, None, body)?;
-        match output.get("config") {
-            Some(config) => Ok(serde_json::from_value(config.clone())?),
-            None => self.config(session_dir),
-        }
+        let body = SetSessionSettingRequest {
+            id: Some(request_id("setting")),
+            session_dir: session_dir.to_path_buf(),
+            setting,
+        };
+        let output: Value = self.command("/session/setting", None, &body)?;
+        Ok(serde_json::from_value(
+            output
+                .get("config")
+                .ok_or_else(|| anyhow!("session setting response is missing config"))?
+                .clone(),
+        )?)
     }
 
     pub fn config_builder(&self, session_dir: &Path) -> Result<ConfigBuilderSnapshot> {

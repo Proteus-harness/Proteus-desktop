@@ -211,6 +211,10 @@ impl Runtime {
             Ok((process, signals)) => {
                 process.send(&Outgoing::Hello {
                     protocol: PROTOCOL,
+                    features: crate::declarative::protocol::FEATURES
+                        .iter()
+                        .map(|feature| (*feature).into())
+                        .collect(),
                     workspace,
                     server,
                 });

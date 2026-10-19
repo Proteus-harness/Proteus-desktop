@@ -1,5 +1,5 @@
 {
-  "protocol": 2,
+  "protocol": 3,
   "id": "catalog-demo",
   "title": "Демо каталога",
   "description": "Пример установки из git-каталога",

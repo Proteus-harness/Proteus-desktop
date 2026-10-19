@@ -1,5 +1,5 @@
 {
-  "protocol": 2,
+  "protocol": 3,
   "id": "sessions-overview",
   "title": "Обзор сессий",
   "description": "Пример расширения: сессии рабочей папки и счётчик нажатий.",

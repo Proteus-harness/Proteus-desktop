@@ -6,13 +6,15 @@
 
 use std::path::PathBuf;
 
+pub use proteus_contracts::app_protocol::settings::SessionSettingUpdate as SessionSetting;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::presentation::Face;
 use super::widget::Node;
 
-pub const PROTOCOL: u32 = 2;
+pub const PROTOCOL: u32 = 3;
+pub const FEATURES: &[&str] = &["session.settings.v1"];
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -35,6 +37,7 @@ pub enum Outgoing {
     /// First message: how to reach the agent server on its own.
     Hello {
         protocol: u32,
+        features: Vec<String>,
         workspace: PathBuf,
         server: Server,
     },
@@ -141,20 +144,6 @@ fn yes() -> bool {
     true
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
-pub enum SessionSetting {
-    Mode {
-        value: proteus_contracts::domain::PermissionMode,
-    },
-    Model {
-        value: String,
-    },
-    Effort {
-        value: Option<String>,
-    },
-}
-
 /// Parses one line from the process.
 pub fn parse(line: &str) -> anyhow::Result<Incoming> {
     let message: Incoming = serde_json::from_str(line)?;
@@ -203,6 +192,14 @@ mod tests {
         assert!(matches!(view, Ok(Incoming::View { .. })));
         assert!(parse(r#"{"type": "view", "view": "panel", "root": {"type": "nope"}}"#).is_err());
         assert!(parse(r#"{"type": "log", "text": "x"}"#).is_err());
+        // Value types belong to the advertised setting, not the native router.
+        assert!(matches!(
+            parse(
+                r#"{"type":"set_session","id":"a","session_dir":"/s","setting":{"id":"org.example/flag","value":true}}"#
+            ),
+            Ok(Incoming::SetSession { .. })
+        ));
+        assert!(parse(r#"{"type":"set_session","id":"a","session_dir":"/s","setting":{"type":"mode","value":"auto"}}"#).is_err());
     }
 
     #[test]
