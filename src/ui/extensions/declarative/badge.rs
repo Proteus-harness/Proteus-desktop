@@ -84,6 +84,9 @@ impl Render for DeclarativeBadge {
                     Rc::new(move || {
                         div()
                             .relative()
+                            .flex()
+                            .items_center()
+                            .justify_center()
                             .size(prefs::scaled(22.))
                             .child(Icon::new(icon).small().text_color(color))
                             .children(count.filter(|count| *count > 0).map(|count| {
