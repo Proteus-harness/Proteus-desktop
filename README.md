@@ -181,7 +181,7 @@ MCP-конфигурации; пакет и MCP-сервер сразу запи
 готовый пример каталога](examples/catalog/README.md).
 
 Все 12 поставляемых расширений используют тот же публичный процессный
-механизм. Их исходники и упаковщик находятся в [Proteus-desktop-extensions](https://github.com/Qweasd123tg/Proteus-desktop-extensions),
+механизм. Их исходники и упаковщик находятся в [Proteus-desktop-extensions](https://github.com/Proteus-harness/Proteus-desktop-extensions),
 автор — `Proteus Project`. Включены по умолчанию. Исходники находятся в отдельном репозитории и поставляются по закреплённой ревизии.
 
 Portable читает пакеты из `share/extensions`; сборка из `target` — из
@@ -192,7 +192,7 @@ ZIP с существующим id атомарно обновляет поль�
 порядка, включения и значков сохраняются. При удалении пользовательской версии
 поставляемая восстанавливается выключенной. Перезапуск клиента не нужен.
 
-[Протокол v3, поверхности и виджеты](https://github.com/Qweasd123tg/Proteus-desktop-extensions/blob/main/PROTOCOL.md).
+[Протокол v3, поверхности и виджеты](https://github.com/Proteus-harness/Proteus-desktop-extensions/blob/main/PROTOCOL.md).
 Программа получает HTTP-доступ к app-server, а при `session_events: true` —
 снимок состояния активного чата и изменения метаданных ленты без текста ответа.
 Квоты, аналитика и файлы запрашиваются через HTTP самим процессом. Общие
