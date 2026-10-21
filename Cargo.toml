@@ -29,7 +29,7 @@ gpui-kit = { version = "0.7.1", features = [
     "tree-sitter-yaml",
 ] }
 proteus-client-common = { path = "crates/client-common" }
-proteus-contracts = { git = "https://github.com/Proteus-harness/Proteus-core.git", rev = "8d63c3863425c90c21d4b0e1c79d705fcb770d12" }
+proteus-contracts = { git = "https://github.com/Proteus-harness/Proteus-core.git", rev = "b42e14cf2b194e32c4da5169daa1e061078a9c43" }
 anyhow = "1"
 async-channel = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }

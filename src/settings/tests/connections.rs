@@ -38,6 +38,31 @@ fn renamed_server_keeps_its_switch_and_saved_entry() {
 }
 
 #[test]
+fn editing_and_saving_mcp_connection_preserves_its_sandbox_policy() {
+    let mut baseline = baseline();
+    baseline.addons.mcp_servers[0] = serde_json::from_value(json!({
+        "name":"db", "command":"db-mcp",
+        "sandbox":{
+            "mode":"restricted", "read_executable":true,
+            "read_only":["/usr", "."], "read_write":["state"], "network":false,
+        },
+    }))
+    .unwrap();
+    let policy = baseline.addons.mcp_servers[0].sandbox.clone();
+    let mut draft = baseline.clone();
+    draft
+        .set_mcp_text(0, McpText::Command, "db-mcp-new")
+        .unwrap();
+    draft.set_mcp_text(0, McpText::Args, "--stdio").unwrap();
+    draft.set_mcp("db", true);
+    let update = draft.changes(&baseline).addon_settings.unwrap();
+    let saved: proteus_contracts::app_protocol::addons::AppAddonsUpdate =
+        serde_json::from_value(serde_json::to_value(update).unwrap()).unwrap();
+    assert_eq!(saved.mcp_servers[0].command, "db-mcp-new");
+    assert_eq!(saved.mcp_servers[0].sandbox, policy);
+}
+
+#[test]
 fn new_server_is_checked_before_saving_and_parses_its_fields() {
     let addons = addons_snapshot();
     let baseline = baseline();
