@@ -8,7 +8,7 @@ fn known_tools_name_the_action_and_its_subject() {
         "exec_command",
         &json!({"cmd": "ls -la", "max_output_tokens": 400}),
     );
-    assert_eq!(command.label, "Команда");
+    assert_eq!(command.label, "exec_command");
     assert_eq!(command.subject.as_deref(), Some("ls -la"));
     assert_eq!(
         other_args(

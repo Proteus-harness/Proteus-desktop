@@ -1,4 +1,4 @@
-//! How tool calls read in the thread: an action label, the subject it acts on
+//! How tool calls read in the thread: the tool name, the subject it acts on
 //! and the remaining arguments. Tool names are matched only here, so a
 //! replaced toolset degrades to the generic headline instead of breaking.
 
@@ -30,31 +30,24 @@ const SUBJECT_LIMIT: usize = 300;
 const ARG_LIMIT: usize = 160;
 const MAX_ARGS: usize = 6;
 
-/// Action label and the argument shown as its subject; `""` means no subject.
-fn known_tool(name: &str) -> Option<(&'static str, &'static str)> {
+/// The argument a known tool acts on; `""` means the tool has no subject.
+fn known_subject(name: &str) -> Option<&'static str> {
     Some(match name {
-        "exec_command" => ("Команда", "cmd"),
-        "shell" => ("Команда", "command"),
-        "write_stdin" => ("Ввод в команду", "chars"),
-        "read_file" => ("Чтение", "path"),
-        "read_many_files" => ("Чтение", "paths"),
-        "write_file" => ("Запись", "path"),
-        "edit_file" => ("Правка", "path"),
-        "list_dir" => ("Список файлов", "path"),
-        "find_files" => ("Поиск файлов", "pattern"),
-        "grep" => ("Поиск", "pattern"),
-        "git_status" => ("Статус git", ""),
-        "git_diff" => ("Изменения git", "path"),
-        "git_log" => ("История git", ""),
-        "web_search" => ("Поиск в сети", "query"),
-        "request_permissions" => ("Запрос прав", "justification"),
-        "view_image" => ("Изображение", "path"),
-        APPLY_PATCH => ("Правка", ""),
-        UPDATE_PLAN => ("План", ""),
+        "exec_command" => "cmd",
+        "shell" => "command",
+        "write_stdin" => "chars",
+        "read_file" | "write_file" | "edit_file" | "list_dir" | "git_diff" | "view_image" => "path",
+        "read_many_files" => "paths",
+        "find_files" | "grep" => "pattern",
+        "web_search" => "query",
+        "request_permissions" => "justification",
+        "git_status" | "git_log" | APPLY_PATCH | UPDATE_PLAN => "",
         _ => return None,
     })
 }
 
+/// The headline is labelled with the tool's own name: it is what the model
+/// called and what logs, approvals and settings show.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Headline {
     pub label: String,
@@ -66,8 +59,8 @@ pub struct Headline {
 }
 
 pub fn headline(name: &str, args: &Value) -> Headline {
-    let known = known_tool(name);
-    let label = known.map_or_else(|| name.to_owned(), |(label, _)| label.to_owned());
+    let known = known_subject(name);
+    let label = name.to_owned();
     if name == APPLY_PATCH
         && let Some(patch) = patch_text(args)
     {
@@ -93,8 +86,8 @@ pub fn headline(name: &str, args: &Value) -> Headline {
         }
     }
     let key = match known {
-        Some((_, "")) => None,
-        Some((_, key)) => Some(key.to_owned()),
+        Some("") => None,
+        Some(key) => Some(key.to_owned()),
         None => generic_subject_key(args),
     };
     let subject = key

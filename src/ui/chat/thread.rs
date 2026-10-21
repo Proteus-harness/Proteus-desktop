@@ -9,7 +9,7 @@ use proteus_contracts::app_protocol::AppTranscriptSubagent;
 use super::Chat;
 use super::images::{SentImages, render_sent_images};
 use super::tool_chain::render_chain_header;
-use super::tool_row::{render_tool, tool_line};
+use super::tool_row::{render_tool, status_icon, tool_line};
 use crate::transcript::{Entry, Role};
 use crate::ui::fade::faded;
 use crate::ui::kit::Pressable as _;
@@ -249,10 +249,17 @@ fn render_subagent(
     cx: &mut Context<Chat>,
 ) -> AnyElement {
     let theme = cx.theme();
-    let mut meta = format!("{} · инструментов: {}", agent.status, agent.tools.len());
+    let mut meta = format!("инструментов: {}", agent.tools.len());
     if let Some(iterations) = agent.iterations {
         meta.push_str(&format!(" · шагов: {iterations}"));
     }
+    // Agent lifecycle statuses mapped onto the tool status icons.
+    let status = match agent.status.as_str() {
+        "running" => "running",
+        "completed" | "done" => "done",
+        "errored" | "failed" => "failed",
+        _ => "interrupted",
+    };
     let app: &App = cx;
     let tools = reveal(reveal_key(cx.entity_id(), key), expanded, app, || {
         v_flex()
@@ -275,6 +282,7 @@ fn render_subagent(
                 .text_sm()
                 .cursor_pointer()
                 .pressable(cx)
+                .child(status_icon(status, cx))
                 .child(Icon::new(IconName::Bot).small())
                 .child(div().flex_none().font_semibold().child(agent.role.clone()))
                 .child(

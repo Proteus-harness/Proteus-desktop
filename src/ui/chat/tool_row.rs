@@ -136,12 +136,16 @@ fn tool_details(key: u64, tool: &AppTranscriptTool, cx: &App) -> Div {
         .then(|| tool_display::plan_steps(args))
         .filter(|steps| !steps.is_empty());
     let details = match (patch, plan) {
-        (Some(files), _) => details.children(
-            files
-                .iter()
-                .enumerate()
-                .map(|(ix, file)| patch_file(key, ix, file, cx)),
-        ),
+        (Some(files), _) => {
+            // A single file is already named, with its stats, in the headline.
+            let named = files.len() > 1;
+            details.children(
+                files
+                    .iter()
+                    .enumerate()
+                    .map(|(ix, file)| patch_file(key, ix, file, named, cx)),
+            )
+        }
         (None, Some(steps)) => details.child(plan_list(&steps, cx)),
         (None, None) => details.children(argument_details(key, tool, cx)),
     };
@@ -170,8 +174,8 @@ fn tool_details(key: u64, tool: &AppTranscriptTool, cx: &App) -> Div {
     details.children(result)
 }
 
-/// Tool name, the full subject when the headline had to cut it, and the
-/// remaining arguments as `key: value` lines.
+/// The full subject when the headline had to cut it, and the remaining
+/// arguments as `key: value` lines.
 fn argument_details(key: u64, tool: &AppTranscriptTool, cx: &App) -> Vec<AnyElement> {
     let theme = cx.theme();
     let args = tool_args(tool);
@@ -207,19 +211,10 @@ fn argument_details(key: u64, tool: &AppTranscriptTool, cx: &App) -> Vec<AnyElem
                 .child(div().min_w_0().child(faded(value)))
                 .into_any_element()
         });
-    let name = div()
-        .text_xs()
-        .font_family(mono.clone())
-        .text_color(theme.muted_foreground)
-        .child(tool.name.clone())
-        .into_any_element();
-    std::iter::once(name)
-        .chain(full_subject)
-        .chain(rows)
-        .collect()
+    full_subject.into_iter().chain(rows).collect()
 }
 
-fn patch_file(key: u64, ix: usize, file: &PatchFile, cx: &App) -> Div {
+fn patch_file(key: u64, ix: usize, file: &PatchFile, named: bool, cx: &App) -> Div {
     let theme = cx.theme();
     let body = SharedString::from(file.body.clone());
     let header = h_flex()
@@ -232,13 +227,15 @@ fn patch_file(key: u64, ix: usize, file: &PatchFile, cx: &App) -> Div {
                 .text_color(theme.muted_foreground)
                 .child(file.operation.label()),
         )
-        .child(
-            div()
-                .min_w_0()
-                .font_family(theme.mono_font_family.clone())
-                .child(faded(file.path.clone())),
-        )
-        .when(file.additions + file.deletions > 0, |header| {
+        .when(named, |header| {
+            header.child(
+                div()
+                    .min_w_0()
+                    .font_family(theme.mono_font_family.clone())
+                    .child(faded(file.path.clone())),
+            )
+        })
+        .when(named && file.additions + file.deletions > 0, |header| {
             header.child(diff_stats((file.additions, file.deletions), cx))
         })
         .child(div().flex_1())
