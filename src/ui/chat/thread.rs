@@ -27,6 +27,14 @@ impl Chat {
         self.remeasure_row(key, cx);
     }
 
+    /// Shows the long blocks of row `key` in full, or cut again.
+    pub(super) fn toggle_full(&mut self, key: u64, cx: &mut Context<Self>) {
+        if !self.full_rows.remove(&key) {
+            self.full_rows.insert(key);
+        }
+        self.remeasure_row(key, cx);
+    }
+
     /// Measures the row of entry `key` again on the next layout.
     pub(super) fn remeasure_row(&mut self, key: u64, cx: &mut Context<Self>) {
         let row = self
@@ -66,6 +74,7 @@ impl Chat {
         }
         let missing = self.sent_images.missing(&entry.images);
         let expanded = self.expanded.contains(&entry.key);
+        let full = self.full_rows.contains(&entry.key);
         let fresh = self.fresh_rows.is_fresh(entry.key);
         let key = entry.key;
         let last = ix + 1 == entries.len();
@@ -104,11 +113,11 @@ impl Chat {
                         .gap_1()
                         .child(header)
                         .when(chain_open, |column| {
-                            column.child(render_tool(entry.key, tool, expanded, cx))
+                            column.child(render_tool(entry.key, tool, expanded, full, cx))
                         })
                         .into_any_element()
                 }
-                _ => render_tool(entry.key, tool, expanded, cx),
+                _ => render_tool(entry.key, tool, expanded, full, cx),
             },
             (Role::System, None, Some(agent)) => render_subagent(entry.key, agent, expanded, cx),
             (Role::System, None, None) => render_note(entry, cx),

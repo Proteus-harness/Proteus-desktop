@@ -9,7 +9,9 @@ mod composer;
 pub(super) mod context_usage;
 mod images;
 mod notice;
+mod plan_panel;
 mod pump;
+mod question_card;
 mod replies;
 mod requests;
 mod scroller;
@@ -71,6 +73,8 @@ pub(super) struct Chat {
     sent_images: SentImages,
     replies: Replies,
     expanded: HashSet<u64>,
+    /// Rows whose long output the user asked to see in full.
+    full_rows: HashSet<u64>,
     /// Folded tool runs the user opened, by the key of their first row.
     open_chains: HashSet<u64>,
     /// Rows pushed by live events, for enter motion.
@@ -78,6 +82,8 @@ pub(super) struct Chat {
     /// Approval and question cards that just arrived, for enter motion.
     fresh_requests: Recent,
     user_input: UserInputDrafts,
+    /// The plan above the composer shows all its steps.
+    plan_open: bool,
     notice: Notice,
     extras: ComposerExtras,
     /// Sizes the row heights were measured with.
@@ -117,7 +123,12 @@ impl Chat {
                         SendMode::Enter => !shift,
                         SendMode::CtrlEnter => secondary,
                     };
-                    if sends {
+                    if !sends {
+                        return;
+                    }
+                    let empty = this.composer.read(cx).value().trim().is_empty()
+                        && this.attachments.is_empty();
+                    if !(empty && this.confirm_pending(window, cx)) {
                         this.send(window, cx);
                     }
                 },
@@ -147,10 +158,12 @@ impl Chat {
             sent_images: SentImages::default(),
             replies: Replies::default(),
             expanded: HashSet::new(),
+            full_rows: HashSet::new(),
             open_chains: HashSet::new(),
             fresh_rows: Recent::default(),
             fresh_requests: Recent::default(),
             user_input: UserInputDrafts::default(),
+            plan_open: false,
             notice: Notice::default(),
             extras,
             view: prefs::current(cx).view,

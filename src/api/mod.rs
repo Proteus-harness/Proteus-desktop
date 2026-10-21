@@ -16,7 +16,7 @@ use proteus_contracts::app_protocol::settings::SessionSettingUpdate;
 use proteus_contracts::app_protocol::{
     AppBootstrap, AppContextMapSnapshot, AppServerEvent, AppSessionSummary, StdioOutput,
 };
-use proteus_contracts::contracts::UserInputResponse;
+use proteus_contracts::contracts::{ApprovalCacheScope, UserInputResponse};
 use proteus_contracts::domain::MessageId;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -103,13 +103,19 @@ impl Api {
         self.command("/cancel", Some(session_dir), &body)
     }
 
-    pub fn approve(&self, session_dir: &Path, approval_id: &str, approved: bool) -> Result<Value> {
+    pub fn approve(
+        &self,
+        session_dir: &Path,
+        approval_id: &str,
+        approved: bool,
+        cache: ApprovalCacheScope,
+    ) -> Result<Value> {
         let body = ApprovalRequest {
             id: Some(request_id("approval")),
             approval_id: approval_id.to_owned(),
             approved,
             note: None,
-            cache: Default::default(),
+            cache,
         };
         self.command("/approval", Some(session_dir), &body)
     }

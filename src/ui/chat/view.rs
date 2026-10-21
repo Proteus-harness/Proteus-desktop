@@ -31,22 +31,45 @@ impl Render for Chat {
                 "thread-enter",
                 true,
             ))
-            .children(self.render_requests(window, cx))
-            .child(self.render_composer(cx))
+            .capture_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                let keystroke = &event.keystroke;
+                let handled = match keystroke.key.as_str() {
+                    "escape" => this.deny_pending(cx),
+                    key if !keystroke.modifiers.modified() => key
+                        .parse::<usize>()
+                        .is_ok_and(|digit| this.pick_option(digit, window, cx)),
+                    _ => false,
+                };
+                if handled {
+                    cx.stop_propagation();
+                }
+            }))
+            .child(self.render_composer(window, cx))
     }
 }
 
-/// The thread fades out above the composer instead of ending at a hard edge.
+/// The thread fades out above the composer instead of ending at a hard
+/// edge. Two layers ease the fade: a long faint one and a short one that
+/// only closes the last pixels.
 fn fade(background: Hsla) -> impl IntoElement {
+    let layer = |height: f32, from: f32| {
+        div()
+            .absolute()
+            .bottom_0()
+            .left_0()
+            .right_0()
+            .h(px(height))
+            .bg(linear_gradient(
+                180.,
+                linear_color_stop(background.opacity(0.), 0.),
+                linear_color_stop(background.opacity(from), 1.),
+            ))
+    };
     div()
         .absolute()
         .bottom_0()
         .left_0()
         .right_0()
-        .h_8()
-        .bg(linear_gradient(
-            180.,
-            linear_color_stop(background.opacity(0.), 0.),
-            linear_color_stop(background, 1.),
-        ))
+        .child(layer(64., 0.6))
+        .child(layer(20., 1.))
 }

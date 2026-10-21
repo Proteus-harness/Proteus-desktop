@@ -45,6 +45,23 @@ pub fn clip(text: &str, max_chars: usize) -> String {
     }
 }
 
+/// The first lines of `text`, at most `max_chars` of it, without a mark of
+/// what is left out: the caller fades the end out instead.
+pub fn peek_block(text: &str, max_lines: usize, max_chars: usize) -> String {
+    let mut out = String::new();
+    for line in text.lines().take(max_lines) {
+        if out.len() + line.len() > max_chars {
+            let room = max_chars.saturating_sub(out.len());
+            out.push_str(&line[..line.floor_char_boundary(room)]);
+            break;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out.truncate(out.trim_end().len());
+    out
+}
+
 /// Leading part of a long tool result, kept short enough for the thread.
 pub fn clip_block(text: &str, max_lines: usize, max_chars: usize) -> String {
     let mut out = String::new();
@@ -115,6 +132,13 @@ mod tests {
         assert_eq!(clip("hello", 10), "hello");
         assert_eq!(clip("héllo world", 5), "héllo…");
         assert_eq!(clip("\nfirst\nsecond", 10), "first …");
+    }
+
+    #[test]
+    fn peek_block_keeps_the_first_lines() {
+        assert_eq!(peek_block("a\nb\nc", 2, 100), "a\nb");
+        assert_eq!(peek_block("abcdef\nz", 5, 3), "abc");
+        assert_eq!(peek_block("ab\ncdef", 5, 4), "ab\nc");
     }
 
     #[test]

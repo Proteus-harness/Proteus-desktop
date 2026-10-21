@@ -12,10 +12,13 @@ fn known_tools_name_the_action_and_its_subject() {
     assert_eq!(command.subject.as_deref(), Some("ls -la"));
     assert_eq!(
         other_args(
-            &json!({"cmd": "ls", "max_output_tokens": 400, "skip": null}),
+            &json!({"workdir": "/w", "cmd": "ls", "max_output_tokens": 400, "skip": null, "justification": "j"}),
             command.subject_key.as_deref()
         ),
-        vec![("max_output_tokens".to_owned(), "400".to_owned())]
+        vec![
+            ("justification".to_owned(), "j".to_owned()),
+            ("workdir".to_owned(), "/w".to_owned())
+        ]
     );
     let files = headline(
         "read_many_files",
@@ -34,7 +37,7 @@ fn unknown_tools_keep_their_name_and_find_a_conventional_subject() {
     assert_eq!(note.subject.as_deref(), Some("Use nextest"));
     assert_eq!(headline("probe", &json!({"body": "a\nb"})).subject, None);
     let multi = headline("exec_command", &json!({"cmd": "cat <<EOF\nhi\nEOF"}));
-    assert_eq!(multi.subject.as_deref(), Some("cat <<EOF …"));
+    assert_eq!(multi.subject.as_deref(), Some("cat <<EOF ↵ hi ↵ EOF"));
 }
 
 #[test]

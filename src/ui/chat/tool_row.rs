@@ -15,10 +15,12 @@ use crate::ui::kit::Hint as _;
 use crate::ui::kit::Pressable as _;
 use crate::ui::motion::{Spinner, chevron, reveal};
 
-const RESULT_LINES: usize = 40;
-const RESULT_CHARS: usize = 8_000;
-const DIFF_LINES: usize = 400;
-const DIFF_CHARS: usize = 40_000;
+/// Lines of a long block shown until the user asks for all of them.
+const PEEK_LINES: usize = 12;
+const PEEK_CHARS: usize = 2_000;
+/// Even a block shown in full stops somewhere.
+const FULL_LINES: usize = 400;
+const FULL_CHARS: usize = 40_000;
 /// Subjects longer than this are repeated in full when the row is expanded.
 const SHORT_SUBJECT: usize = 100;
 
@@ -99,9 +101,15 @@ pub(super) fn render_tool(
     key: u64,
     tool: &AppTranscriptTool,
     expanded: bool,
+    full: bool,
     cx: &mut Context<Chat>,
 ) -> AnyElement {
     let muted = cx.theme().muted_foreground;
+    let fold = Fold {
+        key,
+        full,
+        chat: cx.entity().downgrade(),
+    };
     let app: &App = cx;
     // The gap above the details is part of them, so it opens and closes
     // with them instead of jumping at the end.
@@ -109,7 +117,7 @@ pub(super) fn render_tool(
         super::thread::reveal_key(cx.entity_id(), key),
         expanded,
         app,
-        || tool_details(key, tool, app).pt_1().into_any_element(),
+        || tool_details(&fold, tool, app).pt_1().into_any_element(),
     );
     v_flex()
         .child(
@@ -124,7 +132,96 @@ pub(super) fn render_tool(
         .into_any_element()
 }
 
-fn tool_details(key: u64, tool: &AppTranscriptTool, cx: &App) -> Div {
+/// Long blocks of one row are shown cut, with a fade, until the user asks
+/// for all of them.
+struct Fold {
+    key: u64,
+    full: bool,
+    chat: WeakEntity<Chat>,
+}
+
+impl Fold {
+    /// `block` built from `text`; a long one is cut short unless shown in
+    /// full, with a button switching between the two. `part` tells the
+    /// blocks of a row apart.
+    fn block(&self, part: usize, text: &str, build: impl FnOnce(String) -> Div, cx: &App) -> Div {
+        let lines = text.lines().count();
+        let long = lines > PEEK_LINES || text.len() > PEEK_CHARS;
+        if !long {
+            return build(text.trim_end().to_owned());
+        }
+        let shown = if self.full {
+            format::clip_block(text, FULL_LINES, FULL_CHARS)
+        } else {
+            format::peek_block(text, PEEK_LINES, PEEK_CHARS)
+        };
+        let peeked = shown.lines().count();
+        let theme = cx.theme();
+        let chat = self.chat.clone();
+        let key = self.key;
+        let label = if self.full {
+            "Свернуть".to_owned()
+        } else {
+            match lines.saturating_sub(peeked) {
+                0 => "Показать всё".to_owned(),
+                hidden => format!("Показать всё · ещё строк: {hidden}"),
+            }
+        };
+        v_flex()
+            .gap_1()
+            .child(
+                div()
+                    .relative()
+                    .child(build(shown))
+                    .when(!self.full, |block| {
+                        block.child(bottom_fade(theme.muted, theme.radius))
+                    }),
+            )
+            .child(
+                h_flex()
+                    .id(ElementId::NamedInteger(
+                        format!("tool-more-{part}").into(),
+                        key,
+                    ))
+                    .gap_1()
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .cursor_pointer()
+                    .hover(|row| row.text_color(theme.foreground))
+                    .child(
+                        Icon::new(if self.full {
+                            IconName::ChevronUp
+                        } else {
+                            IconName::ChevronDown
+                        })
+                        .xsmall(),
+                    )
+                    .child(label)
+                    .on_click(move |_, _, cx| {
+                        chat.update(cx, |chat, cx| chat.toggle_full(key, cx)).ok();
+                    }),
+            )
+    }
+}
+
+/// The end of a cut block melts into its background.
+fn bottom_fade(background: Hsla, radius: Pixels) -> Div {
+    div()
+        .absolute()
+        .left_0()
+        .right_0()
+        .bottom_0()
+        .h(px(56.))
+        .rounded_b(radius)
+        .bg(linear_gradient(
+            180.,
+            linear_color_stop(background.opacity(0.), 0.),
+            linear_color_stop(background, 0.9),
+        ))
+}
+
+fn tool_details(fold: &Fold, tool: &AppTranscriptTool, cx: &App) -> Div {
+    let key = fold.key;
     let args = tool_args(tool);
     let details = v_flex().pl_5().gap_2();
     let patch = (tool.name == tool_display::APPLY_PATCH)
@@ -143,11 +240,11 @@ fn tool_details(key: u64, tool: &AppTranscriptTool, cx: &App) -> Div {
                 files
                     .iter()
                     .enumerate()
-                    .map(|(ix, file)| patch_file(key, ix, file, named, cx)),
+                    .map(|(ix, file)| patch_file(fold, ix, file, named, cx)),
             )
         }
         (None, Some(steps)) => details.child(plan_list(&steps, cx)),
-        (None, None) => details.children(argument_details(key, tool, cx)),
+        (None, None) => details.children(argument_details(fold, tool, cx)),
     };
     let failed = matches!(tool.status.as_str(), "failed" | "denied");
     let show_result = failed
@@ -160,23 +257,26 @@ fn tool_details(key: u64, tool: &AppTranscriptTool, cx: &App) -> Div {
         .as_deref()
         .filter(|result| show_result && !result.trim().is_empty())
         .map(|result| {
-            code_block(
-                row_id("tool-result", key),
-                format::clip_block(result, RESULT_LINES, RESULT_CHARS),
+            fold.block(
+                0,
+                result,
+                |text| {
+                    code_block(row_id("tool-result", key), text, cx).when(failed, |block| {
+                        block
+                            .border_1()
+                            .border_color(cx.theme().danger.opacity(0.5))
+                    })
+                },
                 cx,
             )
-            .when(failed, |block| {
-                block
-                    .border_1()
-                    .border_color(cx.theme().danger.opacity(0.5))
-            })
         });
     details.children(result)
 }
 
 /// The full subject when the headline had to cut it, and the remaining
 /// arguments as `key: value` lines.
-fn argument_details(key: u64, tool: &AppTranscriptTool, cx: &App) -> Vec<AnyElement> {
+fn argument_details(fold: &Fold, tool: &AppTranscriptTool, cx: &App) -> Vec<AnyElement> {
+    let key = fold.key;
     let theme = cx.theme();
     let args = tool_args(tool);
     let headline = tool_display::headline(&tool.name, args);
@@ -186,9 +286,10 @@ fn argument_details(key: u64, tool: &AppTranscriptTool, cx: &App) -> Vec<AnyElem
         .and_then(Value::as_str)
         .filter(|text| text.contains('\n') || text.chars().count() > SHORT_SUBJECT)
         .map(|text| {
-            code_block(
-                row_id("tool-subject", key),
-                format::clip_block(text, RESULT_LINES, RESULT_CHARS),
+            fold.block(
+                1,
+                text,
+                |text| code_block(row_id("tool-subject", key), text, cx),
                 cx,
             )
             .into_any_element()
@@ -214,8 +315,9 @@ fn argument_details(key: u64, tool: &AppTranscriptTool, cx: &App) -> Vec<AnyElem
     full_subject.into_iter().chain(rows).collect()
 }
 
-fn patch_file(key: u64, ix: usize, file: &PatchFile, named: bool, cx: &App) -> Div {
+fn patch_file(fold: &Fold, ix: usize, file: &PatchFile, named: bool, cx: &App) -> Div {
     let theme = cx.theme();
+    let key = fold.key;
     let body = SharedString::from(file.body.clone());
     let header = h_flex()
         .gap_2()
@@ -254,21 +356,16 @@ fn patch_file(key: u64, ix: usize, file: &PatchFile, named: bool, cx: &App) -> D
         .gap_1()
         .child(header)
         .when(!file.body.is_empty(), |file| {
-            file.child(diff_block(&body, cx))
+            file.child(fold.block(2 + ix, &body, |text| diff_block(&text, cx), cx))
         })
 }
 
-/// Patch hunks with added and removed lines tinted; long patches are cut.
+/// Patch hunks with added and removed lines tinted.
 fn diff_block(body: &str, cx: &App) -> Div {
     let theme = cx.theme();
     let mut text = String::new();
     let mut highlights = Vec::new();
-    let total = body.lines().count();
-    for (shown, line) in body.lines().enumerate() {
-        if shown == DIFF_LINES || text.len() + line.len() > DIFF_CHARS {
-            text.push_str(&format!("… ещё строк: {}", total - shown));
-            break;
-        }
+    for line in body.lines() {
         let color = match DiffLine::of(line) {
             DiffLine::Added => Some(theme.success),
             DiffLine::Removed => Some(theme.danger),

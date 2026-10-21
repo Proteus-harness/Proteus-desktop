@@ -3,6 +3,7 @@
 use gpui_kit::*;
 use proteus_contracts::app_protocol::config::ConfigSummary;
 use proteus_contracts::app_protocol::http::SendRequest;
+use proteus_contracts::contracts::{ApprovalCacheScope, UserInputRequest, UserInputResponse};
 use proteus_contracts::domain::{MessageId, RunOptions};
 
 use super::context_usage::ContextUsage;
@@ -87,18 +88,55 @@ impl Chat {
         self.call(cx, move |api| api.cancel(&dir, &run_id), |_, _, _| {});
     }
 
+    /// Answers an approval; `cache` lets the server repeat a yes without
+    /// asking.
     pub(super) fn resolve_approval(
         &mut self,
         approval_id: String,
         approved: bool,
+        cache: ApprovalCacheScope,
         cx: &mut Context<Self>,
     ) {
         let dir = self.session.dir.clone();
         self.call(
             cx,
-            move |api| api.approve(&dir, &approval_id, approved),
+            move |api| api.approve(&dir, &approval_id, approved, cache),
             |_, _, _| {},
         );
+    }
+
+    /// Enter in an empty composer answers what the agent waits on: allows
+    /// the first approval once or moves on from the open question.
+    pub(super) fn confirm_pending(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some(pending) = self.session.pending.as_ref() else {
+            return false;
+        };
+        if let Some(approval) = pending.approvals.first() {
+            let id = approval.approval_id.clone();
+            self.resolve_approval(id, true, ApprovalCacheScope::None, cx);
+            return true;
+        }
+        let Some(request) = pending.user_inputs.first() else {
+            return false;
+        };
+        let request_id = request.request_id.clone();
+        self.next_question(&request_id, window, cx);
+        true
+    }
+
+    /// Esc denies the first approval.
+    pub(super) fn deny_pending(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(approval) = self
+            .session
+            .pending
+            .as_ref()
+            .and_then(|pending| pending.approvals.first())
+        else {
+            return false;
+        };
+        let id = approval.approval_id.clone();
+        self.resolve_approval(id, false, ApprovalCacheScope::None, cx);
+        true
     }
 
     pub(super) fn delete_queued(&mut self, message_id: MessageId, cx: &mut Context<Self>) {
@@ -110,26 +148,37 @@ impl Chat {
         );
     }
 
-    pub(super) fn submit_user_input(&mut self, request_id: String, cx: &mut Context<Self>) {
-        let Some(request) = self.session.pending.as_ref().and_then(|pending| {
-            pending
-                .user_inputs
-                .iter()
-                .find(|request| request.request_id == request_id)
-        }) else {
+    /// Sends the answers given so far; `dismiss` sends none at all.
+    pub(super) fn submit_user_input(
+        &mut self,
+        request_id: &str,
+        dismiss: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(request) = self.user_input_request(request_id) else {
             return;
         };
-        let Some(response) = self.user_input.response(request, cx) else {
-            self.show_notice("Ответьте на все вопросы перед отправкой.", cx);
-            return;
+        let response = if dismiss {
+            UserInputResponse::empty()
+        } else {
+            self.user_input.response(request, cx)
         };
-        let dir = self.session.dir.clone();
+        let (dir, request_id) = (self.session.dir.clone(), request_id.to_owned());
         self.clear_notice(cx);
         self.call(
             cx,
             move |api| api.answer_user_input(&dir, &request_id, response),
             |_, _, _| {},
         );
+    }
+
+    pub(super) fn user_input_request(&self, request_id: &str) -> Option<&UserInputRequest> {
+        self.session
+            .pending
+            .as_ref()?
+            .user_inputs
+            .iter()
+            .find(|request| request.request_id == request_id)
     }
 
     pub(in crate::ui) fn apply_config(&mut self, config: ConfigSummary, cx: &mut Context<Self>) {

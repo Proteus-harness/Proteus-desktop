@@ -12,7 +12,32 @@ use crate::ui::kit::Hint as _;
 use crate::ui::{format, prefs};
 
 impl Chat {
-    pub(super) fn render_composer(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    /// The composer with what the agent waits on and its plan right above.
+    pub(super) fn render_composer(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let plan = self.render_plan(cx);
+        let requests = self.render_requests(window, cx);
+        h_flex()
+            .w_full()
+            .justify_center()
+            .px_6()
+            .pb_4()
+            .pt_2()
+            .child(
+                v_flex()
+                    .w_full()
+                    .max_w(prefs::chat_width(cx))
+                    .gap_2()
+                    .children(plan)
+                    .children(requests)
+                    .child(self.render_input_box(cx)),
+            )
+    }
+
+    fn render_input_box(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let session = &self.session;
         let running = session.running();
@@ -60,50 +85,41 @@ impl Chat {
                 .on_click(cx.listener(|this, _, _, cx| this.stop(cx)))
         });
 
-        h_flex()
+        v_flex()
             .w_full()
-            .justify_center()
-            .px_6()
-            .pb_4()
-            .pt_2()
+            .gap_1()
+            .p_2()
+            .rounded(theme.radius_lg)
+            .border_1()
+            .border_color(theme.input)
+            // Raised off the conversation in either light or dark themes.
+            .bg(theme.background.blend(theme.foreground.opacity(0.04)))
+            .children(queued.iter().map(|message| render_queued(message, cx)))
+            .children(self.render_attachments(cx))
             .child(
-                v_flex()
-                    .w_full()
-                    .max_w(prefs::chat_width(cx))
-                    .gap_1()
-                    .p_2()
-                    .rounded(theme.radius_lg)
-                    .border_1()
-                    .border_color(theme.input)
-                    // Raised off the conversation in either light or dark themes.
-                    .bg(theme.background.blend(theme.foreground.opacity(0.04)))
-                    .children(queued.iter().map(|message| render_queued(message, cx)))
-                    .children(self.render_attachments(cx))
-                    .child(
-                        Textarea::new(&self.composer)
-                            .text_size(prefs::chat_text(cx))
-                            .appearance(false)
-                            .bordered(false)
-                            .on_paste(move |item, _, cx| {
-                                chat.update(cx, |this, cx| this.attach_clipboard(item, cx))
-                                    .unwrap_or(false)
-                            }),
-                    )
+                Textarea::new(&self.composer)
+                    .text_size(prefs::chat_text(cx))
+                    .appearance(false)
+                    .bordered(false)
+                    .on_paste(move |item, _, cx| {
+                        chat.update(cx, |this, cx| this.attach_clipboard(item, cx))
+                            .unwrap_or(false)
+                    }),
+            )
+            .child(
+                h_flex()
+                    .flex_wrap()
+                    .gap_x_2()
+                    .gap_y_1()
+                    .child(attach)
+                    .child(h_flex().flex_1().min_w_0().children(start))
                     .child(
                         h_flex()
-                            .flex_wrap()
-                            .gap_x_2()
-                            .gap_y_1()
-                            .child(attach)
-                            .child(h_flex().flex_1().min_w_0().children(start))
-                            .child(
-                                h_flex()
-                                    .ml_auto()
-                                    .gap_2()
-                                    .children(end)
-                                    .children(stop)
-                                    .child(send),
-                            ),
+                            .ml_auto()
+                            .gap_2()
+                            .children(end)
+                            .children(stop)
+                            .child(send),
                     ),
             )
     }

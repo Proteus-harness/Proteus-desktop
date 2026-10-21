@@ -29,6 +29,8 @@ const SUBJECT_KEYS: [&str; 8] = [
 const SUBJECT_LIMIT: usize = 300;
 const ARG_LIMIT: usize = 160;
 const MAX_ARGS: usize = 6;
+/// Arguments that tune how a tool runs and say nothing about what it does.
+const TUNING_ARGS: &[&str] = &["yield_time_ms", "max_output_tokens"];
 
 /// The argument a known tool acts on; `""` means the tool has no subject.
 fn known_subject(name: &str) -> Option<&'static str> {
@@ -106,8 +108,17 @@ pub fn other_args(args: &Value, subject_key: Option<&str>) -> Vec<(String, Strin
     let Some(map) = args.as_object() else {
         return Vec::new();
     };
-    map.iter()
-        .filter(|(key, value)| !value.is_null() && Some(key.as_str()) != subject_key)
+    // Sorted so live rows and snapshot rows list arguments in the same order.
+    let mut args: Vec<_> = map
+        .iter()
+        .filter(|(key, value)| {
+            !value.is_null()
+                && Some(key.as_str()) != subject_key
+                && !TUNING_ARGS.contains(&key.as_str())
+        })
+        .collect();
+    args.sort_by(|a, b| a.0.cmp(b.0));
+    args.into_iter()
         .take(MAX_ARGS)
         .map(|(key, value)| (key.clone(), arg_preview(value)))
         .collect()
@@ -218,17 +229,16 @@ fn subject_text(key: &str, value: &Value) -> Option<String> {
     Some(limit(text, SUBJECT_LIMIT))
 }
 
+/// Several lines become one, joined by `↵`; the row fades out what does
+/// not fit.
 fn single_line(text: &str) -> Option<String> {
-    let mut lines = text.trim().lines();
-    let first = lines.next()?.trim_end();
-    if first.is_empty() {
-        return None;
-    }
-    Some(if lines.next().is_some() {
-        format!("{first} …")
-    } else {
-        first.to_owned()
-    })
+    let line = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ↵ ");
+    (!line.is_empty()).then_some(line)
 }
 
 fn arg_preview(value: &Value) -> String {
@@ -245,7 +255,7 @@ fn arg_preview(value: &Value) -> String {
 
 fn limit(text: String, max_chars: usize) -> String {
     match text.char_indices().nth(max_chars) {
-        Some((cut, _)) => format!("{}…", &text[..cut]),
+        Some((cut, _)) => text[..cut].to_owned(),
         None => text,
     }
 }
