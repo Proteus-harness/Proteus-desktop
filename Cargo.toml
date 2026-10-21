@@ -4,7 +4,7 @@ members = ["crates/client-common"]
 
 [package]
 name = "proteus-native"
-version = "0.0.0-dev"
+version = "0.1.0-alpha.2"
 edition = "2024"
 publish = false
 description = "Experimental native GPUI client for the Proteus app server"
@@ -29,7 +29,7 @@ gpui-kit = { version = "0.7.1", features = [
     "tree-sitter-yaml",
 ] }
 proteus-client-common = { path = "crates/client-common" }
-proteus-contracts = { git = "https://github.com/Proteus-harness/Proteus-core.git", rev = "b42e14cf2b194e32c4da5169daa1e061078a9c43" }
+proteus-contracts = { git = "https://github.com/Proteus-harness/Proteus-core.git", rev = "5938d1ea661db5928b93ceb2fcf273786438c102" }
 anyhow = "1"
 async-channel = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }

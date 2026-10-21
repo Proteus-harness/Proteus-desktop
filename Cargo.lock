@@ -5361,7 +5361,7 @@ dependencies = [
 
 [[package]]
 name = "proteus-client-common"
-version = "0.0.0-dev"
+version = "0.1.0-alpha.2"
 dependencies = [
  "proteus-contracts",
  "serde",
@@ -5371,8 +5371,8 @@ dependencies = [
 
 [[package]]
 name = "proteus-contracts"
-version = "0.0.0-dev"
-source = "git+https://github.com/Proteus-harness/Proteus-core.git?rev=b42e14cf2b194e32c4da5169daa1e061078a9c43#b42e14cf2b194e32c4da5169daa1e061078a9c43"
+version = "0.1.0-alpha.2"
+source = "git+https://github.com/Proteus-harness/Proteus-core.git?rev=5938d1ea661db5928b93ceb2fcf273786438c102#5938d1ea661db5928b93ceb2fcf273786438c102"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5389,7 +5389,7 @@ dependencies = [
 
 [[package]]
 name = "proteus-native"
-version = "0.0.0-dev"
+version = "0.1.0-alpha.2"
 dependencies = [
  "alacritty_terminal",
  "anyhow",

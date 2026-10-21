@@ -131,7 +131,7 @@ LTO и инкрементально, поэтому правка клиента 
 
 Скрипт собирает `proteus`, `proteus-reference-module` и клиент, затем
 складывает `build/Proteus/` и архив
-`build/Proteus-native-linux-<arch>.tar.gz`:
+`build/Proteus-<version>-linux-<arch>.tar.gz`:
 
 - `proteus-native` — запуск: ставит профили из `share/configs` в
   `${PROTEUS_CONFIG_HOME:-~/.config/Proteus-agent}/configs` (именованные
@@ -145,6 +145,56 @@ LTO и инкрементально, поэтому правка клиента 
 - `bin/` — клиент, сервер агента и reference-модуль одной сборки;
 - `share/extensions/` — 12 самостоятельных пакетов расширений, включая SDK.
   Для них нужен Python 3; сторонних Python-зависимостей нет.
+- `share/licenses/` — лицензии четырёх репозиториев и Apache LICENSE/NOTICE
+  заимствованного кода; лицензия AGPL и соответствующие исходники отдельного
+  DCP-процесса находятся в `share/modules/dcp`;
+- `share/release-sources.json` — версия, фактические commits всех четырёх
+  исходных checkout, их dirty-состояние, платформа и версии инструментов сборки.
+
+## Проверки И Alpha-Релизы
+
+Обычные push в ветку и pull request **не запускают Actions**. В Core, Modules
+и Extensions есть только ручной `Manual checks`. В этом репозитории workflow
+`Check or release Linux portable` имеет два входа:
+
+- **Run workflow** проверяет закреплённые исходники всех четырёх репозиториев.
+  Флаг `build` дополнительно собирает и проверяет релизные архивы, сохраняет
+  их как Actions artifact на 14 дней; ручной запуск никогда не публикует релиз;
+- **push тега `v<version>` только в Desktop** выполняет те же проверки,
+  собирает Linux x86_64 portable и публикует GitHub prerelease. Тег обязан
+  точно совпадать с версией в `Cargo.toml`; package-версии Core и reference
+  module также должны совпадать. Неправильный тег останавливает сборку.
+
+Workflow использует `ubuntu-24.04`, Rust 1.95.0, Node.js 22.23.4 и Python
+3.12.15. Сторонние Actions закреплены полными commit SHA. Кэшируются Cargo
+и npm dependencies. `scripts/release.py prepare` загружает именно commits из
+`repositories.json`, игнорируя соседние checkout и внешние source overrides;
+проверки отклоняют изменённые исходники и несовпадение SHA. Матрица запускает
+существующие test runners, в том числе реальные process/sandbox fixtures.
+Core gate также собирает самостоятельный Rust SDK starter с собственными
+Git pin и lock-файлом и запускает его через conformance tool и реальные
+процессные вызовы; зависимость от исходного workspace для сборки starter не нужна.
+Перед ними bubblewrap обязан успешно создать namespaces. Только на временном
+CI runner снимается мешающий этому AppArmor userns sysctl; runtime-изоляция
+процессов продолжает исполняться через bubblewrap без fallback.
+
+После сборки `scripts/release.py smoke` распаковывает архив в другой каталог
+и проверяет CLI/Desktop `--version`, launcher, restricted-профиль с fake model,
+запись файла, hooks, replay, HTTP-аутентификацию, DCP/WASM и упакованные
+расширения. Используются отдельный HOME и синтетические сессии, без ключей модели.
+Это headless-проверка; запуск окна и работу с живой моделью проверяют отдельно.
+
+В `build/release/` и GitHub prerelease попадают versioned portable, архив
+точных tracked-исходников четырёх репозиториев, `release-sources.json`,
+`release-smoke.json`, `LICENSES.txt` и `SHA256SUMS`. Smoke-отчёт привязан к SHA256
+проверенного архива. Публикация сначала загружает файлы в draft и только затем
+открывает prerelease; сбой загрузки оставляет draft для повторного запуска.
+Уже опубликованный релиз workflow не перезаписывает.
+
+Первая платформа поставки — Linux x86_64 с glibc 2.39+ и системными библиотеками
+GPUI. Node.js, Python, git, ripgrep и bubblewrap устанавливаются отдельно.
+Для разработки остаётся обычный `python3 scripts/portable.py --fast`; он не
+запускает Actions и не публикует релиз.
 
 ## Расширения без пересборки
 

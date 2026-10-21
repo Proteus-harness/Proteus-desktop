@@ -1,0 +1,183 @@
+name: Check or release Linux portable
+
+on:
+  workflow_dispatch:
+    inputs:
+      build:
+        description: 'Also build and smoke-test release archives (never publishes)'
+        type: boolean
+        default: false
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: delivery-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_BUILD_JOBS: '2'
+  RUST_TEST_THREADS: '4'
+  CARGO_INCREMENTAL: '0'
+  PYTHONDONTWRITEBYTECODE: '1'
+  PROTEUS_RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+
+jobs:
+  verify:
+    name: Check pinned ${{ matrix.section }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        section: [core, modules, extensions, desktop]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12.15'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22.23.4'
+          package-manager-cache: false
+      - name: Install Linux build and sandbox dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y build-essential pkg-config clang lld libssl-dev bubblewrap ripgrep libxcb1-dev libxcb-shape0-dev libxcb-xfixes0-dev libxcb-render0-dev libxcb-randr0-dev libxcb-xkb-dev libxkbcommon-dev libxkbcommon-x11-dev libfontconfig1-dev libfreetype6-dev libwayland-dev libvulkan-dev libegl1-mesa-dev
+      - name: Require working bubblewrap namespaces
+        run: |
+          # This is an ephemeral hosted runner. Ubuntu AppArmor otherwise blocks
+          # unprivileged user namespaces before our runtime sandbox can start.
+          if test -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          bwrap --unshare-all --die-with-parent --ro-bind / / --proc /proc --dev /dev -- /usr/bin/true
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal --component rustfmt
+          rustup default 1.95.0
+      - name: Fetch exact delivery pins, ignoring sibling checkouts
+        run: python3 scripts/release.py prepare
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.npm
+          key: deps-${{ runner.os }}-${{ runner.arch }}-rust1.95-node22-${{ hashFiles('**/Cargo.lock', '**/package-lock.json', 'repositories.json') }}
+          restore-keys: deps-${{ runner.os }}-${{ runner.arch }}-rust1.95-node22-
+      - name: Validate clean source pins and release version
+        run: python3 scripts/release.py check --tag "$PROTEUS_RELEASE_TAG"
+      - name: Existing workspace and package gates
+        run: python3 scripts/release.py gates --section '${{ matrix.section }}'
+
+  build:
+    needs: verify
+    if: github.event_name == 'push' || inputs.build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12.15'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22.23.4'
+          package-manager-cache: false
+      - name: Install Linux build and sandbox dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y build-essential pkg-config clang lld libssl-dev bubblewrap ripgrep libxcb1-dev libxcb-shape0-dev libxcb-xfixes0-dev libxcb-render0-dev libxcb-randr0-dev libxcb-xkb-dev libxkbcommon-dev libxkbcommon-x11-dev libfontconfig1-dev libfreetype6-dev libwayland-dev libvulkan-dev libegl1-mesa-dev
+      - name: Require working bubblewrap namespaces
+        run: |
+          # This is an ephemeral hosted runner. Ubuntu AppArmor otherwise blocks
+          # unprivileged user namespaces before our runtime sandbox can start.
+          if test -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          bwrap --unshare-all --die-with-parent --ro-bind / / --proc /proc --dev /dev -- /usr/bin/true
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal --component rustfmt
+          rustup default 1.95.0
+      - name: Fetch exact delivery pins, ignoring sibling checkouts
+        run: python3 scripts/release.py prepare
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.npm
+          key: deps-${{ runner.os }}-${{ runner.arch }}-rust1.95-node22-${{ hashFiles('**/Cargo.lock', '**/package-lock.json', 'repositories.json') }}
+          restore-keys: deps-${{ runner.os }}-${{ runner.arch }}-rust1.95-node22-
+      - name: Validate clean source pins and release version
+        run: python3 scripts/release.py check --tag "$PROTEUS_RELEASE_TAG"
+      - name: Build portable and versioned archive
+        run: python3 scripts/portable.py
+      - name: Relocate archive and exercise synthetic runtime
+        run: python3 scripts/release.py smoke
+      - name: Package exact sources, provenance, notices and checksums
+        run: python3 scripts/release.py assets
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-x86_64-release
+          path: build/release/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  publish:
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: linux-x86_64-release
+          path: release
+      - name: Verify transferred assets
+        working-directory: release
+        run: sha256sum --check SHA256SUMS
+      - name: Publish prerelease after all checks and uploads
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<'NOTES'
+          Experimental alpha-поставка Proteus для Linux x86_64.
+          Распакуйте архив и запустите `Proteus/proteus-native`.
+
+          Включены Desktop, Core, reference-модуль, DCP, профили и расширения клиента.
+          Rust SDK и самостоятельный tool starter находятся в Proteus-core:
+          https://github.com/Proteus-harness/Proteus-core/blob/main/docs/guides/rust-module-sdk.md
+
+          Нужны графическая Linux-сессия, glibc 2.39+, библиотеки GPUI,
+          Node.js 22+, Python 3, git и ripgrep. Для restricted-профилей также
+          нужны bubblewrap и рабочие user namespaces. Node.js и Python устанавливаются отдельно.
+
+          Манифест содержит точные commits четырёх репозиториев и платформу сборки.
+          SHA256SUMS покрывает архивы, provenance и результаты синтетических проверок.
+          Включены MIT/Apache notices и исходники/лицензии отдельного DCP (AGPL).
+          SDK, config, API, wire и история остаются experimental.
+          Headless-проверки не подтверждают работу нативного окна или качество живой модели.
+          NOTES
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft >/dev/null 2>&1; then
+            test "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true
+          else
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag               --target "$GITHUB_SHA" --draft --prerelease --title "Proteus $RELEASE_TAG"               --notes-file release-notes.md
+          fi
+          gh release upload "$RELEASE_TAG" release/* --repo "$GITHUB_REPOSITORY" --clobber
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease             --notes-file release-notes.md

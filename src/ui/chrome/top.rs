@@ -137,11 +137,10 @@ fn logo_menu(
                 )
                 .separator();
         }
-        menu.label(concat!("Proteus native ", env!("CARGO_PKG_VERSION")))
-            .item(
-                PopupMenuItem::new("Выход")
-                    .icon(Icon::new(Lucide::LogOut))
-                    .on_click(|_, _, cx| cx.quit()),
-            )
+        menu.label(crate::version::LABEL).item(
+            PopupMenuItem::new("Выход")
+                .icon(Icon::new(Lucide::LogOut))
+                .on_click(|_, _, cx| cx.quit()),
+        )
     }
 }

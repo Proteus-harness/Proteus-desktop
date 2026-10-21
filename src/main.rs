@@ -18,6 +18,7 @@ mod terminal;
 mod tool_display;
 mod transcript;
 mod ui;
+mod version;
 
 use gpui_kit::*;
 
@@ -27,6 +28,10 @@ use ui::Launcher;
 const APP_ID: &str = "dev.proteus.native";
 
 fn main() {
+    if version::requested() {
+        println!("{}", version::LABEL);
+        return;
+    }
     graphics::prepare_environment();
     let launch = match Launch::from_args() {
         Ok(options) => options,

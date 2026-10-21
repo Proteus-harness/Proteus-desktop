@@ -21,6 +21,7 @@ MODULES = None
 EXTENSIONS = None
 from sources import resolve
 from portable_dcp import assemble as assemble_dcp
+from release_metadata import install_notices, version, write_manifest
 BUILD = NATIVE / "build"
 PORTABLE = BUILD / "Proteus"
 ASSETS = Path(__file__).resolve().parent / "portable"
@@ -68,6 +69,8 @@ def assemble(agent_profile, client_profile):
         install_file(ROOT / path, staging / "share" / path)
     run([sys.executable, str(EXTENSIONS / "package.py"), "--bundle",
          str(staging / "share/extensions")], ROOT)
+    install_notices(staging, NATIVE, ROOT, MODULES, EXTENSIONS)
+    write_manifest(staging, NATIVE, ROOT, MODULES, EXTENSIONS)
     install_file(ICON, staging / "share/icons/proteus-native.png")
     install_file(ASSETS / "proteus-native", staging / "proteus-native", True)
     install_file(ASSETS / "install-shortcut", staging / "install-shortcut", True)
@@ -77,7 +80,7 @@ def assemble(agent_profile, client_profile):
 
 def archive():
     machine = os.uname().machine
-    path = BUILD / f"Proteus-native-linux-{machine}.tar.gz"
+    path = BUILD / f"Proteus-{version(NATIVE)}-linux-{machine}.tar.gz"
     with tarfile.open(path, "w:gz") as tar:
         tar.add(PORTABLE, arcname="Proteus")
     return path
