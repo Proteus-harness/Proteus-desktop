@@ -107,6 +107,6 @@ fn rail_button(
         .when(!active, |button| {
             button.hover(move |style| style.bg(hover).text_color(foreground))
         })
-        .child(icon)
+        .child(icon.with_size(gpui_kit::component::Size::Medium))
         .when_some(hint, |button, hint| button.tip_text(hint))
 }

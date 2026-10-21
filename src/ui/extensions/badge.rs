@@ -53,6 +53,12 @@ impl Details {
     }
 }
 
+/// Whether the icon of `id` sits in the rail, where it takes the size of
+/// the rail's own buttons.
+pub(super) fn in_rail(id: &str, cx: &App) -> bool {
+    super::find(id).is_some_and(|manifest| super::badge_place(manifest, cx).is_rail())
+}
+
 fn badge_box() -> Div {
     div()
         .h_7()
@@ -95,7 +101,9 @@ pub(super) fn pressable_badge(
                 as Press
         })
     });
+    let rail = in_rail(id, cx);
     badge_box()
+        .when(rail, |badge| badge.size_8().px_0())
         .id(ElementId::Name(format!("badge-{id}").into()))
         .rounded(theme.radius)
         .text_color(theme.muted_foreground)

@@ -293,6 +293,7 @@ impl SettingsView {
                         .ghost()
                         .small()
                         .loading(self.reloading)
+                        .loading_icon(IconName::LoaderCircle)
                         .disabled(self.saving || self.reloading)
                         .hint("Перечитать профиль", cx)
                         .on_click(cx.listener(|this, _, _, cx| {
@@ -315,6 +316,7 @@ impl SettingsView {
                     .primary()
                     .small()
                     .loading(self.saving)
+                    .loading_icon(IconName::LoaderCircle)
                     .disabled(!self.can_save())
                     .hint_keys("Записать изменения в профиль", Some("Ctrl+S"), cx)
                     .on_click(cx.listener(|this, _, _, cx| this.save(cx))),

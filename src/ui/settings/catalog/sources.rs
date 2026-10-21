@@ -96,6 +96,7 @@ fn sources(view: &Entity<SettingsView>, cx: &App) -> AnyElement {
                             .ghost()
                             .xsmall()
                             .loading(fetching)
+                            .loading_icon(IconName::LoaderCircle)
                             .disabled(fetching)
                             .hint("Скачать заново", cx)
                             .on_click(move |_, _, cx| {

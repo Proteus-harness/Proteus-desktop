@@ -6,6 +6,7 @@ use std::collections::HashSet;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::Input;
+use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -222,7 +223,6 @@ impl SettingsView {
                 self.nav_keys(v_flex().id("settings-pages"))
                     .flex_1()
                     .min_h_0()
-                    .overflow_y_scroll()
                     .px_2()
                     .pb_3()
                     .gap_0p5()
@@ -237,8 +237,9 @@ impl SettingsView {
                         list.child(heading("Расширения"))
                             .children(installed.into_iter().map(|page| item(page, cx)))
                     })
+                    .overflow_y_scrollbar()
             } else {
-                self.render_hits(cx)
+                self.render_hits(cx).overflow_y_scrollbar()
             })
             .children(profile.map(|(path, writable)| {
                 let name = std::path::Path::new(&path)
@@ -275,7 +276,6 @@ impl SettingsView {
         Self::hits_keys(v_flex().id("settings-hits"))
             .flex_1()
             .min_h_0()
-            .overflow_y_scroll()
             .px_2()
             .pt_1()
             .pb_3()

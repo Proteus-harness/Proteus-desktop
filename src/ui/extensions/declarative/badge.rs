@@ -76,6 +76,12 @@ impl Render for DeclarativeBadge {
         if let Some(error) = view.error(cx) {
             details = details.line(format!("Ошибка: {error}"));
         }
+        // Icons in the rail match the rail's own buttons.
+        let icon_size = if super::super::badge::in_rail(id, cx) {
+            gpui_kit::component::Size::Medium
+        } else {
+            gpui_kit::component::Size::Small
+        };
         let face: Rc<dyn Fn() -> AnyElement> = if let Some(presentation) = presentation {
             match &presentation.face {
                 Face::Icon { tone, count } => {
@@ -88,7 +94,7 @@ impl Render for DeclarativeBadge {
                             .items_center()
                             .justify_center()
                             .size(prefs::scaled(22.))
-                            .child(Icon::new(icon).small().text_color(color))
+                            .child(Icon::new(icon).with_size(icon_size).text_color(color))
                             .children(count.filter(|count| *count > 0).map(|count| {
                                 div()
                                     .absolute()
@@ -150,7 +156,7 @@ impl Render for DeclarativeBadge {
                         .child(div().text_color(color).child(text.clone()))
                         .into_any_element()
                 }),
-                None => Rc::new(move || Icon::new(icon).small().into_any_element()),
+                None => Rc::new(move || Icon::new(icon).with_size(icon_size).into_any_element()),
             }
         };
         let press = manifest.surfaces.popup.as_ref().map(|_| {

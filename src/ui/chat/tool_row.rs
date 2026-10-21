@@ -405,9 +405,9 @@ pub(super) fn plan_list(steps: &[PlanStep], cx: &App) -> Div {
         .text_sm()
         .children(steps.iter().map(|step| {
             let (icon, color) = match step.status {
-                StepStatus::Completed => (IconName::CircleCheck, theme.success),
-                StepStatus::InProgress => (IconName::LoaderCircle, theme.warning),
-                StepStatus::Pending => (IconName::Minus, theme.muted_foreground),
+                StepStatus::Completed => (Lucide::CircleCheck, theme.success),
+                StepStatus::InProgress => (Lucide::CircleDot, theme.warning),
+                StepStatus::Pending => (Lucide::Minus, theme.muted_foreground),
             };
             h_flex()
                 .gap_2()

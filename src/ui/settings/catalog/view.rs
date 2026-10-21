@@ -215,6 +215,7 @@ impl SettingsView {
                             .ghost()
                             .small()
                             .loading(loading)
+                            .loading_icon(IconName::LoaderCircle)
                             .disabled(loading || sources == 0)
                             .hint("Скачать источники заново", cx)
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -474,6 +475,7 @@ impl SettingsView {
                 }
             })
             .loading(working)
+            .loading_icon(IconName::LoaderCircle)
             .disabled(!self.catalog_idle() || blocked.is_some())
             .when_some(blocked, |button, reason| button.hint(reason, cx))
             .on_click(cx.listener(move |this, _, _, cx| {
@@ -521,6 +523,7 @@ impl SettingsView {
                                 .primary()
                                 .small()
                                 .loading(!self.catalogs.loading.is_empty())
+                                .loading_icon(IconName::LoaderCircle)
                                 .disabled(!self.catalogs.loading.is_empty())
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     let sources = OPEN.iter().map(|open| open.source()).collect();

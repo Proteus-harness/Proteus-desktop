@@ -114,7 +114,7 @@ impl Workspace {
         let dragging = frame.dragging.is_some();
         let zone = dragging.then(|| drop_zone(place, frame.hovered, cx));
         let strip = if vertical {
-            v_flex().min_w_7()
+            v_flex().min_w_8()
         } else {
             h_flex().h_7()
         };
@@ -146,11 +146,12 @@ impl Workspace {
     }
 }
 
-/// Holder of one icon, with a hairline of room along the row.
+/// Holder of one icon, with a hairline of room along the row; in the rail
+/// the room matches the gap between the rail's own buttons.
 fn item_box(vertical: bool) -> Div {
     let item = div().flex_none();
     if vertical {
-        item.py(px(1.))
+        item.py(px(2.))
     } else {
         item.px(px(1.))
     }
@@ -172,7 +173,7 @@ impl RenderOnce for Gap {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let share = glide(self.id, self.open, BASE, window, cx);
         let gap = if self.vertical {
-            v_flex().min_w_7().h(self.length * share)
+            v_flex().min_w_8().h(self.length * share)
         } else {
             h_flex().h_7().w(self.length * share)
         };

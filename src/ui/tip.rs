@@ -1,7 +1,7 @@
 //! Hover tooltips anchored to the hovered element. GPUI's own `.tooltip()`
-//! opens next to the pointer; gpui-kit components already anchor theirs to the
-//! trigger through a window overlay, and this module gives plain elements the
-//! same behaviour with one overlay of our own.
+//! opens next to the pointer; this module anchors tooltips to the trigger
+//! through one overlay of our own, for plain elements and gpui-kit buttons
+//! alike, and hides them on a press of any mouse button.
 
 use std::{cell::Cell, rc::Rc, time::Duration};
 
@@ -9,8 +9,8 @@ use gpui_kit::base::animation::{EffectTransition, ease_in_out_cubic, ease_out_cu
 use gpui_kit::base::{ElementExt as _, TooltipOverlay, TooltipRequest, TooltipTransition};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::{
-    AnyElement, AnyView, App, AppContext as _, Bounds, ElementId, Entity, Global, IntoElement,
-    ParentElement as _, Pixels, SharedString, StatefulInteractiveElement, Window, div, px,
+    AnyElement, AnyView, App, AppContext as _, Bounds, ElementId, Entity, Global,
+    InteractiveElement, IntoElement, ParentElement as _, Pixels, SharedString, Window, div, px,
 };
 
 use super::motion;
@@ -88,34 +88,37 @@ fn update(
     }
 }
 
-pub(crate) trait Tip: StatefulInteractiveElement + gpui_kit::ParentElement + Sized {
+/// Tooltips of plain elements and of gpui-kit buttons alike: every tooltip of
+/// the client goes through the one overlay, so they look and behave the same.
+pub(crate) trait Tip: InteractiveElement + gpui_kit::ParentElement + Sized {
     /// Shows `build` beside this element while the pointer rests on it. A
-    /// press hides it until the pointer leaves, so it never covers the menu
-    /// or drag the press starts.
-    fn tip(self, build: impl Fn(&mut Window, &mut App) -> AnyView + 'static) -> Self {
+    /// press of any button hides it until the pointer leaves, so it never
+    /// covers the menu or drag the press starts.
+    fn tip(mut self, build: impl Fn(&mut Window, &mut App) -> AnyView + 'static) -> Self {
         let build = Rc::new(build);
         let bounds: Rc<Cell<Bounds<Pixels>>> = Rc::default();
         let (measured, pressed) = (bounds.clone(), bounds.clone());
-        self.on_prepaint(move |rect, _, _| measured.set(rect))
-            .on_hover(move |hovered, window, cx| {
-                let hovered = *hovered;
-                let build = build.clone();
-                let trigger = bounds.get();
-                if !hovered {
-                    PRESSED.set(None);
-                } else if PRESSED.get() == Some(trigger) {
-                    return;
+        // Through the interactivity: a disabled button sets no hover
+        // listener of its own, and its tooltip still tells what it does.
+        self.interactivity().on_hover(move |hovered, window, cx| {
+            let hovered = *hovered;
+            let build = build.clone();
+            let trigger = bounds.get();
+            if !hovered {
+                PRESSED.set(None);
+            } else if PRESSED.get() == Some(trigger) {
+                return;
+            }
+            update(cx, window, move |overlay, window, cx| {
+                if hovered {
+                    let request = TooltipRequest::new(trigger, move |window, cx| build(window, cx));
+                    overlay.request_show(request, window, cx);
+                } else {
+                    overlay.request_hide(window, cx);
                 }
-                update(cx, window, move |overlay, window, cx| {
-                    if hovered {
-                        let request =
-                            TooltipRequest::new(trigger, move |window, cx| build(window, cx));
-                        overlay.request_show(request, window, cx);
-                    } else {
-                        overlay.request_hide(window, cx);
-                    }
-                });
-            })
+            });
+        });
+        self.on_prepaint(move |rect, _, _| measured.set(rect))
             // Capture: the element's own controls may stop the press.
             .capture_any_mouse_down(move |_, window, cx| {
                 PRESSED.set(Some(pressed.get()));
@@ -142,4 +145,4 @@ pub(crate) trait Tip: StatefulInteractiveElement + gpui_kit::ParentElement + Siz
     }
 }
 
-impl<E: StatefulInteractiveElement + gpui_kit::ParentElement> Tip for E {}
+impl<E: InteractiveElement + gpui_kit::ParentElement> Tip for E {}

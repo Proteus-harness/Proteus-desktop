@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use gpui_kit::*;
 
 /// Ticks per second while the window is active, and while it is not.
-const ACTIVE_FPS: f32 = 24.;
+const ACTIVE_FPS: f32 = 30.;
 const IDLE_FPS: f32 = 8.;
 
 thread_local! {

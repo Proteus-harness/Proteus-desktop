@@ -14,6 +14,7 @@ use gpui_kit::component::switch::Switch;
 use gpui_kit::{App, ElementId, MouseButton, SharedString, StatefulInteractiveElement, Styled};
 
 use super::prefs;
+use super::tip::Tip as _;
 use crate::preferences::Hints;
 use crate::shortcuts::{self, Command};
 
@@ -134,7 +135,7 @@ pub(crate) trait Hint: Sized {
 impl Hint for Button {
     fn hint_keys(self, text: &str, keys: Option<&str>, cx: &App) -> Self {
         match hint_text(text, keys, cx) {
-            Some(text) => self.tooltip(text),
+            Some(text) => self.tip_text(text),
             None => self,
         }
     }
