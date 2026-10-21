@@ -8,7 +8,7 @@ Rust toolchain задан rust-toolchain.toml.
 ## Границы
 
 Клиент использует публичный HTTP/SSE app-server и DTO proteus-contracts из
-закреплённой Git-ревизии Proteus-harness. Не импортируйте Core или реализации
+закреплённой Git-ревизии Proteus-core. Не импортируйте Core или реализации
 модулей в UI. Поставляемые расширения живут в Proteus-desktop-extensions и
 используют тот же публичный процессный протокол, что и пользовательские.
 В клиенте остаются общий рендерер и нативные примитивы; логику конкретного
@@ -23,9 +23,10 @@ legacy aliases или dual-read. Текущий сценарий — довер�
 
 ## Источники И Проверка
 
-repositories.json закрепляет harness, модули и стандартные расширения для
+repositories.json закрепляет Core, модули и стандартные расширения для
 поставки. scripts/sources.py использует явный PROTEUS_*_SOURCE, соседние
-checkout при общей раскладке или загружает закреплённые revisions в build/sources.
+checkout ../Proteus-core, ../Proteus-modules, ../Proteus-desktop-extensions или
+загружает закреплённые revisions в build/sources.
 Cargo dependencies также закреплены commit, без обязательных соседних путей.
 
 - `python3 scripts/test.py` проверяет workspace и реальные сообщения отдельно

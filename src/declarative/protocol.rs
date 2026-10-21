@@ -215,7 +215,8 @@ mod tests {
         let root = std::env::var_os("PROTEUS_TEST_EXTENSIONS_SOURCE")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| {
-                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../Extensions")
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../Proteus-desktop-extensions")
             });
         assert!(
             root.join("package.py").is_file(),

@@ -127,7 +127,7 @@ pub fn bundled_root() -> PathBuf {
     let exe = std::env::current_exe().unwrap_or_default();
     let native = Path::new(env!("CARGO_MANIFEST_DIR"));
     if exe.starts_with(native.join("target")) {
-        let local = native.join("../Extensions/packages");
+        let local = native.join("../Proteus-desktop-extensions/packages");
         return if local.is_dir() {
             local
         } else {

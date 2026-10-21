@@ -20,6 +20,7 @@ ROOT = None
 MODULES = None
 EXTENSIONS = None
 from sources import resolve
+from portable_dcp import assemble as assemble_dcp
 BUILD = NATIVE / "build"
 PORTABLE = BUILD / "Proteus"
 ASSETS = Path(__file__).resolve().parent / "portable"
@@ -62,6 +63,7 @@ def assemble(agent_profile, client_profile):
         staging / "bin/proteus-reference-module",
         True,
     )
+    assemble_dcp(MODULES, staging)
     for path in tracked_configs():
         install_file(ROOT / path, staging / "share" / path)
     run([sys.executable, str(EXTENSIONS / "package.py"), "--bundle",

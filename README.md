@@ -5,11 +5,12 @@
 правила подключения и сессий — в `crates/client-common`.
 
 Источники разделены на четыре репозитория. Этот содержит приложение и
-`crates/client-common`; DTO берутся из закреплённого Git commit Proteus-harness.
-`repositories.json` задаёт revisions harness, модулей и расширений для поставки.
+`crates/client-common`; DTO берутся из закреплённого Git commit Proteus-core.
+`repositories.json` задаёт revisions Core, модулей и расширений для поставки.
 `scripts/sources.py` читает PROTEUS_HARNESS_SOURCE / PROTEUS_MODULES_SOURCE /
-PROTEUS_EXTENSIONS_SOURCE, использует соседние checkout в раскладке Proteus или
-загружает закреплённые исходники в `build/sources`. Для самостоятельного clone
+PROTEUS_EXTENSIONS_SOURCE, использует соседние checkout `../Proteus-core`,
+`../Proteus-modules` и `../Proteus-desktop-extensions` или загружает закреплённые
+исходники в `build/sources`. Для самостоятельного clone
 достаточно этого репозитория и доступа Git к публичным зависимостям.
 
 ```bash
@@ -20,10 +21,14 @@ python3 scripts/portable.py --fast
 ```
 
 Для расширений нужен Python 3 без дополнительных pip-пакетов. Их автор —
-Proteus Project. История приложения и общих правил клиента сохранена из
-Proteus-agent (ныне Proteus-harness).
+Proteus Project. Default-профиль включает DCP: для запуска portable нужен
+системный Node.js 22+, а для сборки — также npm. Упаковщик собирает DCP в
+отдельной staging-папке и включает `bin/proteus-dcp`, исходники, лицензии и
+production-зависимости в `share/modules/dcp`; Node.js устанавливается отдельно.
+История приложения и общих правил клиента сохранена из
+Proteus-agent (ныне Proteus-core).
 
-Workspace приложения отделён от harness и собирается на Rust 1.95
+Workspace приложения отделён от Core и собирается на Rust 1.95
 (`rust-toolchain.toml`). Для линковки на Linux нужны dev-пакеты xcb,
 xkbcommon (с x11), fontconfig и freetype; в Fedora:
 
@@ -34,7 +39,10 @@ sudo dnf install libxcb-devel libxkbcommon-devel libxkbcommon-x11-devel \
 
 В debug-сборке зависимости (GPUI, shaping,
 tree-sitter) оптимизируются (`opt-level = 2`), сам клиент — нет, чтобы
-окно не тормозило, а пересборка оставалась быстрой:
+окно не тормозило, а пересборка оставалась быстрой. Dev/test сохраняют line
+tables для backtraces без тяжёлой debug-информации переменных, как Core и
+Modules; для её получения задайте `CARGO_PROFILE_DEV_DEBUG=2` и
+`CARGO_PROFILE_TEST_DEBUG=2`:
 
 ```bash
 cargo build --release
@@ -185,7 +193,7 @@ MCP-конфигурации; пакет и MCP-сервер сразу запи
 автор — `Proteus Project`. Включены по умолчанию. Исходники находятся в отдельном репозитории и поставляются по закреплённой ревизии.
 
 Portable читает пакеты из `share/extensions`; сборка из `target` — из
-`../Extensions/packages` при общей раскладке. Переменная `PROTEUS_EXTENSIONS_DIR` заменяет
+`../Proteus-desktop-extensions/packages` при общей раскладке. Переменная `PROTEUS_EXTENSIONS_DIR` заменяет
 источник поставляемого набора. Пользовательская папка с тем же id перекрывает
 поставляемую, включая ошибочный пакет: ошибка показывается явно.
 ZIP с существующим id атомарно обновляет пользовательский пакет; настройки
