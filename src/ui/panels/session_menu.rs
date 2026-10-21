@@ -138,7 +138,12 @@ impl Workspace {
         });
     }
 
-    fn delete_session(&mut self, dir: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+    pub(in crate::ui) fn delete_session(
+        &mut self,
+        dir: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.close_tab(&tabs::chat(&dir), window, cx);
         let target = dir.clone();
         self.call(

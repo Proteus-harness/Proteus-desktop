@@ -1,5 +1,6 @@
-//! The bar above the tabs: the logo menu, the open folder and extension
-//! icons at both ends, drawn inside the window's own title bar.
+//! The bar above the tabs: the logo menu and extension icons at both ends,
+//! drawn inside the window's own title bar. The project lives above the
+//! composer and in the session list.
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
@@ -9,7 +10,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::logo::logo;
-use super::projects::{Projects, WorkspaceRequest, folder_name};
+use super::projects::Projects;
 use super::title::title_bar;
 use crate::preferences::BadgePlace;
 use crate::ui::chat::ChatState;
@@ -27,54 +28,18 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
         let workspace = cx.weak_entity();
-        let projects = self.switchable.then(|| {
-            let (open, choose) = (workspace.clone(), workspace.clone());
-            Projects::new(
-                Some(self.workspace_path.clone()),
-                move |path, _, cx| {
-                    open.update(cx, |_, cx| cx.emit(WorkspaceRequest::Open(path)))
-                        .ok();
-                },
-                move |_, cx| {
-                    choose
-                        .update(cx, |_, cx| cx.emit(WorkspaceRequest::Choose))
-                        .ok();
-                },
-            )
-        });
         let ready = matches!(self.status, Status::Ready);
         let busy = self
             .chats
             .values()
             .any(|chat| matches!(chat.view.read(cx).session.state(), ChatState::Busy(_)));
-        let folder = folder_name(&self.workspace_path);
-        let place: SharedString = self.workspace_path.display().to_string().into();
-        let folder = match projects.clone() {
-            Some(projects) => kit::button("top-folder")
-                .ghost()
-                .small()
-                .label(folder)
-                .tooltip(place)
-                .dropdown_menu_with_anchor(Anchor::TopLeft, move |menu, _, cx| {
-                    projects.items(menu, cx)
-                })
-                .into_any_element(),
-            None => div()
-                .id("top-folder")
-                .px_2()
-                .text_sm()
-                .child(folder)
-                .tip_text(place)
-                .into_any_element(),
-        };
         let left = h_flex()
             .gap_1()
             .items_center()
             .child(logo_button(
                 busy,
-                logo_menu(projects, ready.then_some(workspace)),
+                logo_menu(None, ready.then_some(workspace)),
             ))
-            .child(folder)
             .when(ready, |left| {
                 left.child(self.render_badge_strip(BadgePlace::HeaderStart, cx))
             });
@@ -106,7 +71,7 @@ fn logo_button(
     kit::button("top-logo")
         .ghost()
         .small()
-        .tooltip(if busy {
+        .tip_text(if busy {
             "Proteus · агент работает"
         } else {
             "Proteus"
@@ -115,7 +80,8 @@ fn logo_button(
         .dropdown_menu_with_anchor(Anchor::TopLeft, menu)
 }
 
-/// Projects, the settings of a running workspace, the version and quitting.
+/// Projects of the picker screen, the settings of a running workspace, the
+/// version and quitting.
 fn logo_menu(
     projects: Option<Projects>,
     settings: Option<WeakEntity<Workspace>>,

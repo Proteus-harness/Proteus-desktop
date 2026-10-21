@@ -15,6 +15,7 @@ mod motion;
 mod notifications;
 mod panels;
 mod prefs;
+mod project_chip;
 mod settings;
 mod tabs;
 mod theme;

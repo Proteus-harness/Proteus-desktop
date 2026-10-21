@@ -43,10 +43,20 @@ use replies::Replies;
 use scroller::ChatScroller;
 use user_input::UserInputDrafts;
 
-/// Content the host adds to the composer row, e.g. extension icons: the
-/// left end (`false`) or the right one next to sending (`true`). It gets the
-/// chat's entity id, so the host can show it in one chat only.
-pub(super) type ComposerExtras = Rc<dyn Fn(EntityId, bool, &App) -> Option<AnyElement>>;
+/// Content the host adds around the composer, e.g. extension icons. It gets
+/// the chat's entity id, so the host can show it in one chat only.
+pub(super) type ComposerExtras = Rc<dyn Fn(EntityId, ComposerSlot, &App) -> Option<AnyElement>>;
+
+/// Where host content goes around the composer.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ComposerSlot {
+    /// A line right above the input box.
+    Above,
+    /// The left end of the row under the input.
+    Start,
+    /// The right end, next to sending.
+    End,
+}
 
 pub(super) enum ChatEvent {
     SessionStateChanged,
@@ -173,6 +183,14 @@ impl Chat {
         chat.load_config(cx);
         chat.load_context(cx);
         chat
+    }
+
+    /// Nothing was said or typed here yet, so the chat can go unnoticed.
+    pub fn is_blank(&self, cx: &App) -> bool {
+        self.session.transcript.entries().is_empty()
+            && !self.session.running()
+            && self.composer.read(cx).value().trim().is_empty()
+            && self.attachments.is_empty()
     }
 
     pub fn focus(&self, window: &mut Window, cx: &mut App) {

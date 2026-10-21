@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 use gpui_kit::*;
 
-use super::chat::{Chat, ChatEvent, ComposerExtras};
+use super::chat::{Chat, ChatEvent, ComposerExtras, ComposerSlot};
 use super::extensions::{HostEvent, OpenDocument};
 use super::format;
 use super::workspace::{Status, Workspace};
@@ -176,15 +176,16 @@ impl Workspace {
         id
     }
 
-    /// Extension icons go under the composer of the active chat only.
+    /// The project line goes above every chat's composer; extension icons
+    /// under the composer of the active chat only.
     fn composer_extras(&self, cx: &Context<Self>) -> ComposerExtras {
         let workspace = cx.weak_entity();
-        Rc::new(move |chat, end, cx| {
+        Rc::new(move |chat, slot, cx| {
             let workspace = workspace.upgrade()?.read(cx);
-            let place = if end {
-                BadgePlace::ComposerEnd
-            } else {
-                BadgePlace::ComposerStart
+            let place = match slot {
+                ComposerSlot::Above => return Some(workspace.render_project_chip(chat, cx)),
+                ComposerSlot::Start => BadgePlace::ComposerStart,
+                ComposerSlot::End => BadgePlace::ComposerEnd,
             };
             (workspace.active_chat_view()?.entity_id() == chat)
                 .then(|| workspace.render_badge_strip(place, cx).into_any_element())

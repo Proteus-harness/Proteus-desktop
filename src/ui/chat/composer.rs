@@ -5,7 +5,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use proteus_contracts::app_protocol::AppQueuedUserMessage;
 
-use super::Chat;
+use super::{Chat, ComposerSlot};
 use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
@@ -20,6 +20,11 @@ impl Chat {
     ) -> impl IntoElement {
         let plan = self.render_plan(cx);
         let requests = self.render_requests(window, cx);
+        // The project line gives way to cards the agent waits on.
+        let above = requests
+            .is_none()
+            .then(|| (self.extras)(cx.entity_id(), ComposerSlot::Above, cx))
+            .flatten();
         h_flex()
             .w_full()
             .justify_center()
@@ -33,6 +38,7 @@ impl Chat {
                     .gap_2()
                     .children(plan)
                     .children(requests)
+                    .children(above)
                     .child(self.render_input_box(cx)),
             )
     }
@@ -47,8 +53,8 @@ impl Chat {
             .as_ref()
             .map(|pending| pending.queued_user_messages.as_slice())
             .unwrap_or_default();
-        let start = (self.extras)(cx.entity_id(), false, cx);
-        let end = (self.extras)(cx.entity_id(), true, cx);
+        let start = (self.extras)(cx.entity_id(), ComposerSlot::Start, cx);
+        let end = (self.extras)(cx.entity_id(), ComposerSlot::End, cx);
 
         let keys = match prefs::current(cx).send {
             crate::preferences::SendMode::Enter => "Enter",

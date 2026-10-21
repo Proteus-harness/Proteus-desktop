@@ -13,6 +13,7 @@ use super::chats::OpenChat;
 use super::chrome::WorkspaceRequest;
 use super::extensions::{OpenDocument, SurfaceView};
 use super::panels::{Renaming, SessionList};
+use super::project_chip::ProjectPicker;
 use super::settings::SettingsView;
 use super::tabs::{SplitResize, TabDrop, TabMotion};
 use crate::api::Api;
@@ -35,7 +36,7 @@ struct Boot {
     sessions: Vec<AppSessionSummary>,
     /// Chats of the saved layout whose sessions still exist, resumed.
     restored: Vec<PathBuf>,
-    /// Session to open when no chat was restored.
+    /// Session to open when no chat was restored or a new one was asked for.
     startup: Option<PathBuf>,
 }
 
@@ -51,7 +52,22 @@ fn boot(options: &LaunchOptions, saved: Vec<PathBuf>) -> Result<Boot> {
         })
         .collect();
     let mut startup = None;
-    if restored.is_empty() {
+    if options.new_chat {
+        // The server opens a fresh session at launch; reuse it while it is empty.
+        let fresh = api.bootstrap()?.session_dir.filter(|dir| {
+            sessions
+                .iter()
+                .any(|summary| &summary.session_dir == dir && summary.message_count == 0)
+        });
+        startup = Some(match fresh {
+            Some(dir) => api.resume(&dir)?.session_dir,
+            None => {
+                let opened = api.new_session(None)?.session_dir;
+                sessions = api.sessions()?;
+                opened
+            }
+        });
+    } else if restored.is_empty() {
         let bootstrap = api.bootstrap()?;
         startup = Some(
             match select_startup_session(None, bootstrap.session_dir, &sessions) {
@@ -96,6 +112,8 @@ pub struct Workspace {
     pub(super) renaming: Option<Renaming>,
     /// Search and keyboard cursor of the session list.
     pub(super) session_list: SessionList,
+    /// Content of the project picker above the composer.
+    pub(super) project_picker: Entity<ProjectPicker>,
     /// Open chat tabs by tab id.
     pub(super) chats: HashMap<String, OpenChat>,
     /// Chats being resumed, and how they open.
@@ -150,6 +168,10 @@ impl Workspace {
         subscriptions.push(list_events);
 
         let workspace_path = options.workspace.clone();
+        let project_picker = {
+            let (workspace, current) = (cx.weak_entity(), workspace_path.clone());
+            cx.new(|cx| ProjectPicker::new(workspace, current, window, cx))
+        };
         let switchable = matches!(options.target, Target::Spawn { .. });
         let saved: Vec<PathBuf> = super::prefs::current(cx)
             .tabs
@@ -182,6 +204,7 @@ impl Workspace {
             show_archived: false,
             renaming: None,
             session_list,
+            project_picker,
             chats: HashMap::new(),
             opening: HashMap::new(),
             active_chat: None,

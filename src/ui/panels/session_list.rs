@@ -2,6 +2,7 @@
 //! by title, arrows move the cursor, Enter opens the session under it and
 //! F2 renames it. Esc clears the filter, then gives the keys back to the chat.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -52,6 +53,10 @@ pub(in crate::ui) struct SessionList {
     pub shown: Vec<(PathBuf, usize)>,
     pub scroll: ScrollHandle,
     pub focus: FocusHandle,
+    /// Project folders folded shut.
+    pub collapsed: HashSet<PathBuf>,
+    /// Project folders showing all their chats, not only the latest.
+    pub expanded: HashSet<PathBuf>,
 }
 
 impl SessionList {
@@ -79,6 +84,8 @@ impl SessionList {
             shown: Vec::new(),
             scroll: ScrollHandle::new(),
             focus: cx.focus_handle(),
+            collapsed: HashSet::new(),
+            expanded: HashSet::new(),
         };
         (list, events)
     }

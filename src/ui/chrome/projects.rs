@@ -17,6 +17,8 @@ const RECENT_SHOWN: usize = 8;
 /// The workspace asks the window to show another folder in its place.
 pub(in crate::ui) enum WorkspaceRequest {
     Open(PathBuf),
+    /// Open the folder and start a fresh chat there.
+    NewChat(PathBuf),
     Choose,
 }
 

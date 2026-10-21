@@ -5,7 +5,6 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use chrono::{Local, NaiveDate, TimeZone as _};
 use proteus_contracts::app_protocol::AppSessionSummary;
 use serde::{Deserialize, Serialize};
 
@@ -84,10 +83,11 @@ impl SessionMarks {
         self.0.get(&key(dir))?.title.as_deref()
     }
 
-    /// The list as shown: pinned sessions first, then the rest by how long
-    /// ago they changed, in server order within a period; archived ones
-    /// only when asked for or searched, after everything else. A search
-    /// keeps the sessions whose title holds it, case aside.
+    /// The list as shown: pinned sessions first, then the rest in folders
+    /// of their projects, the project that changed last on top and server
+    /// order within a project; archived ones only when asked for or
+    /// searched, after everything else. A search keeps the sessions whose
+    /// title holds it, case aside.
     pub fn arrange<'a>(&self, sessions: &'a [AppSessionSummary], view: &View) -> Listing<'a> {
         let search = view.search.trim().to_lowercase();
         let mut listing = Listing::default();
@@ -105,21 +105,23 @@ impl SessionMarks {
             } else if row.mark.pinned {
                 listing.pinned.push(row);
             } else {
-                let period = Period::of(summary.updated_at_ms.and_then(local_day), view.today);
+                let path = summary.workspace_path.as_path();
                 match listing
-                    .recent
+                    .projects
                     .iter_mut()
-                    .find(|group| group.period == period)
+                    .find(|project| project.path == path)
                 {
-                    Some(group) => group.rows.push(row),
-                    None => listing.recent.push(Group {
-                        period,
+                    Some(project) => project.rows.push(row),
+                    None => listing.projects.push(Project {
+                        path,
                         rows: vec![row],
                     }),
                 }
             }
         }
-        listing.recent.sort_by_key(|group| group.period);
+        listing
+            .projects
+            .sort_by_key(|project| std::cmp::Reverse(project.updated_at_ms()));
         listing
     }
 }
@@ -128,44 +130,6 @@ impl SessionMarks {
 pub struct View<'q> {
     pub archived: bool,
     pub search: &'q str,
-    pub today: NaiveDate,
-}
-
-fn local_day(updated_at_ms: u64) -> Option<NaiveDate> {
-    let ms = i64::try_from(updated_at_ms).ok()?;
-    Some(Local.timestamp_millis_opt(ms).single()?.date_naive())
-}
-
-/// How long ago a session changed, as the list groups it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Period {
-    Today,
-    Yesterday,
-    Week,
-    Earlier,
-}
-
-impl Period {
-    fn of(day: Option<NaiveDate>, today: NaiveDate) -> Self {
-        let Some(day) = day else {
-            return Self::Earlier;
-        };
-        match (today - day).num_days() {
-            ..=0 => Self::Today,
-            1 => Self::Yesterday,
-            2..=6 => Self::Week,
-            _ => Self::Earlier,
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Today => "Сегодня",
-            Self::Yesterday => "Вчера",
-            Self::Week => "На неделе",
-            Self::Earlier => "Раньше",
-        }
-    }
 }
 
 pub struct Row<'a> {
@@ -184,16 +148,28 @@ impl Row<'_> {
     }
 }
 
-pub struct Group<'a> {
-    pub period: Period,
+/// The sessions of one workspace folder.
+pub struct Project<'a> {
+    pub path: &'a Path,
     pub rows: Vec<Row<'a>>,
+}
+
+impl Project<'_> {
+    /// When a session of the project last changed.
+    fn updated_at_ms(&self) -> u64 {
+        self.rows
+            .iter()
+            .filter_map(|row| row.summary.updated_at_ms)
+            .max()
+            .unwrap_or(0)
+    }
 }
 
 #[derive(Default)]
 pub struct Listing<'a> {
     pub pinned: Vec<Row<'a>>,
-    /// Non-empty periods, most recent first.
-    pub recent: Vec<Group<'a>>,
+    /// Projects with sessions to show, the one that changed last first.
+    pub projects: Vec<Project<'a>>,
     pub archived: Vec<Row<'a>>,
     /// Archived sessions, shown or not.
     pub archived_count: usize,
@@ -203,38 +179,28 @@ pub struct Listing<'a> {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use chrono::{Local, NaiveDate, TimeZone as _};
     use proteus_contracts::app_protocol::AppSessionSummary;
 
-    use super::{Period, SessionMarks, View};
-
-    fn today() -> NaiveDate {
-        NaiveDate::from_ymd_opt(2026, 10, 14).unwrap()
-    }
+    use super::{SessionMarks, View};
 
     fn view(archived: bool, search: &str) -> View<'_> {
-        View {
-            archived,
-            search,
-            today: today(),
-        }
+        View { archived, search }
     }
 
     fn summary(dir: &str) -> AppSessionSummary {
-        changed(dir, None, None)
+        changed(dir, "/w", None, None)
     }
 
-    /// A session changed at local noon `days_ago` before [`today`].
-    fn changed(dir: &str, days_ago: Option<u64>, preview: Option<&str>) -> AppSessionSummary {
-        let updated_at_ms = days_ago.map(|days| {
-            let day = today() - chrono::Days::new(days);
-            let noon = day.and_hms_opt(12, 0, 0).unwrap();
-            Local.from_local_datetime(&noon).unwrap().timestamp_millis()
-        });
+    fn changed(
+        dir: &str,
+        workspace: &str,
+        updated_at_ms: Option<u64>,
+        preview: Option<&str>,
+    ) -> AppSessionSummary {
         serde_json::from_value(serde_json::json!({
             "session_dir": dir,
             "session_id": "00000000-0000-0000-0000-000000000000",
-            "workspace_path": "/w",
+            "workspace_path": workspace,
             "message_count": 1,
             "preview": preview,
             "updated_at_ms": updated_at_ms,
@@ -250,8 +216,14 @@ mod tests {
 
     /// Rows in the order they are shown.
     fn shown(listing: &super::Listing<'_>) -> Vec<PathBuf> {
-        let recent = listing.recent.iter().flat_map(|group| &group.rows);
-        dirs(listing.pinned.iter().chain(recent).chain(&listing.archived))
+        let projects = listing.projects.iter().flat_map(|project| &project.rows);
+        dirs(
+            listing
+                .pinned
+                .iter()
+                .chain(projects)
+                .chain(&listing.archived),
+        )
     }
 
     #[test]
@@ -298,47 +270,36 @@ mod tests {
     }
 
     #[test]
-    fn recent_sessions_group_by_period() {
+    fn sessions_group_by_project_latest_first() {
         let sessions = [
-            changed("/s/old", Some(30), None),
-            changed("/s/today", Some(0), None),
-            changed("/s/week", Some(6), None),
-            changed("/s/yesterday", Some(1), None),
-            changed("/s/unknown", None, None),
-            changed("/s/morning", Some(0), None),
+            changed("/s/a1", "/a", Some(10), None),
+            changed("/s/b1", "/b", Some(30), None),
+            changed("/s/a2", "/a", Some(20), None),
+            changed("/s/c1", "/c", None, None),
         ];
         let listing = SessionMarks::default().arrange(&sessions, &view(false, ""));
-        let periods: Vec<_> = listing.recent.iter().map(|group| group.period).collect();
+        let projects: Vec<_> = listing
+            .projects
+            .iter()
+            .map(|project| project.path)
+            .collect();
         assert_eq!(
-            periods,
-            [
-                Period::Today,
-                Period::Yesterday,
-                Period::Week,
-                Period::Earlier
-            ]
+            projects,
+            [Path::new("/b"), Path::new("/a"), Path::new("/c")]
         );
         assert_eq!(
             shown(&listing),
-            [
-                "/s/today",
-                "/s/morning",
-                "/s/yesterday",
-                "/s/week",
-                "/s/old",
-                "/s/unknown"
-            ]
-            .map(PathBuf::from)
+            ["/s/b1", "/s/a1", "/s/a2", "/s/c1"].map(PathBuf::from)
         );
     }
 
     #[test]
     fn search_matches_titles_and_reaches_the_archive() {
         let sessions = [
-            changed("/s/a", Some(0), Some("Почини сборку релиза")),
-            changed("/s/b", Some(0), Some("Обзор тестов")),
-            changed("/s/c", Some(0), None),
-            changed("/s/d", Some(0), Some("Сборка")),
+            changed("/s/a", "/w", Some(0), Some("Почини сборку релиза")),
+            changed("/s/b", "/w", Some(0), Some("Обзор тестов")),
+            changed("/s/c", "/w", Some(0), None),
+            changed("/s/d", "/w", Some(0), Some("Сборка")),
         ];
         let mut marks = SessionMarks::default();
         marks.rename(Path::new("/s/c"), "Ночная СБОРКА");

@@ -1,29 +1,33 @@
-//! The session list panel: the workspace's sessions grouped by when they
-//! changed, with a filter by title.
+//! The session list panel: pinned chats, then every project's chats in a
+//! folder of its own, with a filter by title.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use chrono::Local;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::Input;
 use gpui_kit::component::menu::{ContextMenuExt as _, DropdownMenu as _};
+use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use proteus_contracts::app_protocol::AppSessionActivityStatus;
 
 use super::session_menu;
-use crate::sessions::{Row, View};
+use crate::sessions::{Project, Row, View};
+use crate::ui::chrome::folder_name;
 use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::motion::Spinner;
+use crate::ui::tip::Tip as _;
 use crate::ui::workspace::Workspace;
 use crate::ui::{format, motion, prefs};
 
 /// How long after the list arrives its rows still enter one by one.
 const ENTRANCE: Duration = Duration::from_millis(600);
+/// Chats a project folder shows before "show more".
+const PROJECT_ROWS: usize = 5;
 
 impl Workspace {
     pub(super) fn render_sessions(&mut self, window: &Window, cx: &mut Context<Self>) -> Div {
@@ -35,7 +39,6 @@ impl Workspace {
         let view = View {
             archived: self.show_archived,
             search: &self.session_list.search,
-            today: Local::now().date_naive(),
         };
         let listing = prefs::current(cx).sessions.arrange(&self.sessions, &view);
         let mut items: Vec<AnyElement> = Vec::new();
@@ -43,13 +46,14 @@ impl Workspace {
         let entering = self
             .sessions_arrived
             .is_some_and(|at| at.elapsed() < ENTRANCE);
-        let mut rows = |rows: &[Row], items: &mut Vec<AnyElement>| {
+        let mut rows = |rows: &[&Row], indent: bool, items: &mut Vec<AnyElement>| {
             for row in rows {
                 let dir = &row.summary.session_dir;
                 let ix = shown.len();
                 let look = Look {
                     selected: current.as_ref() == Some(dir),
                     cursor: cursor.as_ref() == Some(dir),
+                    indent,
                 };
                 let id = format!("session-enter-{}", dir.display());
                 shown.push((dir.clone(), items.len()));
@@ -66,23 +70,62 @@ impl Workspace {
         };
         if !listing.pinned.is_empty() {
             items.push(heading("Закреплённые", cx).into_any_element());
-            rows(&listing.pinned, &mut items);
+            rows(
+                &listing.pinned.iter().collect::<Vec<_>>(),
+                false,
+                &mut items,
+            );
         }
-        for group in &listing.recent {
-            items.push(heading(group.period.label(), cx).into_any_element());
-            rows(&group.rows, &mut items);
+        if !listing.projects.is_empty() {
+            items.push(heading("Проекты", cx).into_any_element());
+        }
+        for (gi, project) in listing.projects.iter().enumerate() {
+            let collapsed = !searching && self.session_list.collapsed.contains(project.path);
+            let all = searching || self.session_list.expanded.contains(project.path);
+            items.push(
+                self.render_project(gi, project, collapsed, cx)
+                    .into_any_element(),
+            );
+            if collapsed {
+                continue;
+            }
+            let visible: Vec<&Row> = project
+                .rows
+                .iter()
+                .enumerate()
+                .filter(|(ix, row)| {
+                    all || *ix < PROJECT_ROWS || current.as_ref() == Some(&row.summary.session_dir)
+                })
+                .map(|(_, row)| row)
+                .collect();
+            let hidden = project.rows.len() - visible.len();
+            rows(&visible, true, &mut items);
+            if !searching && project.rows.len() > PROJECT_ROWS {
+                items.push(
+                    self.render_more(gi, project.path, hidden, cx)
+                        .into_any_element(),
+                );
+            }
         }
         if searching {
             if !listing.archived.is_empty() {
                 items.push(heading("Архив", cx).into_any_element());
-                rows(&listing.archived, &mut items);
+                rows(
+                    &listing.archived.iter().collect::<Vec<_>>(),
+                    false,
+                    &mut items,
+                );
             }
         } else if listing.archived_count > 0 {
             items.push(
                 self.render_archive_toggle(listing.archived_count, cx)
                     .into_any_element(),
             );
-            rows(&listing.archived, &mut items);
+            rows(
+                &listing.archived.iter().collect::<Vec<_>>(),
+                false,
+                &mut items,
+            );
         }
         if searching && shown.is_empty() {
             items.push(
@@ -106,8 +149,9 @@ impl Workspace {
             .gap_0p5()
             .children(items);
         let list = self
-            .session_list_actions(v_flex().flex_1().min_h_0(), cx)
-            .child(list);
+            .session_list_actions(v_flex().flex_1().min_h_0().relative(), cx)
+            .child(list)
+            .vertical_scrollbar(&self.session_list.scroll);
         let filter = div().flex_none().px_2().pb_2().child(
             Input::new(&self.session_list.filter)
                 .small()
@@ -117,6 +161,111 @@ impl Workspace {
         self.session_panel_actions(v_flex().size_full(), cx)
             .child(filter)
             .child(list)
+    }
+
+    /// A project folder's header: folds its chats and starts a new one there.
+    fn render_project(
+        &self,
+        gi: usize,
+        project: &Project,
+        collapsed: bool,
+        cx: &Context<Self>,
+    ) -> impl IntoElement {
+        let theme = cx.theme();
+        let path = project.path.to_path_buf();
+        let current = path == self.workspace_path;
+        h_flex()
+            .id(("session-project", gi))
+            .group("project-row")
+            .relative()
+            .mt_1()
+            .px_2()
+            .py_1()
+            .gap_2()
+            .rounded(theme.radius)
+            .text_sm()
+            .text_color(theme.muted_foreground)
+            .cursor_pointer()
+            .hover(|row| row.bg(theme.list_hover).text_color(theme.foreground))
+            .child(
+                Icon::new(if collapsed {
+                    Lucide::Folder
+                } else {
+                    Lucide::FolderOpen
+                })
+                .small()
+                .flex_none(),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .when(current, |name| name.text_color(theme.foreground))
+                    .child(faded(folder_name(&path))),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .right_1()
+                    .invisible()
+                    .group_hover("project-row", |add| add.visible())
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .child(
+                        kit::button(("session-project-new", gi))
+                            .icon(Lucide::SquarePen)
+                            .ghost()
+                            .xsmall()
+                            .tip_text("Новый чат в этом проекте")
+                            .on_click(cx.listener({
+                                let path = path.clone();
+                                move |this, _, window, cx| {
+                                    cx.stop_propagation();
+                                    this.new_chat_in(path.clone(), window, cx);
+                                }
+                            })),
+                    ),
+            )
+            .tip_text(path.display().to_string())
+            .on_click(cx.listener(move |this, _, _, cx| {
+                let collapsed = &mut this.session_list.collapsed;
+                if !collapsed.remove(&path) {
+                    collapsed.insert(path.clone());
+                }
+                cx.notify();
+            }))
+    }
+
+    fn render_more(
+        &self,
+        gi: usize,
+        path: &Path,
+        hidden: usize,
+        cx: &Context<Self>,
+    ) -> impl IntoElement {
+        let theme = cx.theme();
+        let path: PathBuf = path.to_path_buf();
+        div()
+            .id(("session-more", gi))
+            .pl_7()
+            .pr_2()
+            .py_1()
+            .rounded(theme.radius)
+            .text_xs()
+            .text_color(theme.muted_foreground)
+            .cursor_pointer()
+            .hover(|row| row.text_color(theme.foreground))
+            .child(if hidden > 0 {
+                format!("Показать больше · {hidden}")
+            } else {
+                "Свернуть".to_string()
+            })
+            .on_click(cx.listener(move |this, _, _, cx| {
+                let expanded = &mut this.session_list.expanded;
+                if !expanded.remove(&path) {
+                    expanded.insert(path.clone());
+                }
+                cx.notify();
+            }))
     }
 
     fn render_archive_toggle(&self, count: usize, cx: &Context<Self>) -> impl IntoElement {
@@ -151,7 +300,11 @@ impl Workspace {
         look: Look,
         cx: &Context<Self>,
     ) -> impl IntoElement {
-        let Look { selected, cursor } = look;
+        let Look {
+            selected,
+            cursor,
+            indent,
+        } = look;
         let theme = cx.theme();
         let summary = row.summary;
         let mark = row.mark.clone();
@@ -183,6 +336,7 @@ impl Workspace {
             .group("session-row")
             .relative()
             .px_2()
+            .when(indent, |row| row.pl_7())
             .py_1p5()
             .gap_2()
             .rounded(theme.radius)
@@ -273,11 +427,13 @@ impl Workspace {
     }
 }
 
-/// How a row stands out: the open session, the keyboard cursor.
+/// How a row stands out: the open session, the keyboard cursor; and
+/// whether it sits inside a project folder.
 #[derive(Clone, Copy)]
 struct Look {
     selected: bool,
     cursor: bool,
+    indent: bool,
 }
 
 fn heading(label: &'static str, cx: &App) -> impl IntoElement {
