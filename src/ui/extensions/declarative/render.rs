@@ -92,7 +92,17 @@ impl DeclarativeView {
                 .flex_1()
                 .w_full()
                 .min_h_0()
-                .children(self.children(children, path, cx))
+                .children(children.iter().enumerate().map(|(index, child)| {
+                    let element = self.node(child, &format!("{path}.{index}"), cx);
+                    // The fill root has no padding so trees and editors reach
+                    // the edges; controls above them keep the usual inset.
+                    match child {
+                        Node::Stack { .. } | Node::Text { .. } | Node::Select { .. } => {
+                            div().px_2().pt_2().child(element).into_any_element()
+                        }
+                        _ => element,
+                    }
+                }))
                 .into_any_element(),
             Node::Input { id, .. } => div()
                 .p_2()
@@ -173,6 +183,9 @@ impl DeclarativeView {
             } => {
                 let base = match direction {
                     Direction::Column => v_flex(),
+                    Direction::Row if children.iter().all(inline) => {
+                        h_flex().flex_wrap().items_center()
+                    }
                     Direction::Row => h_flex().flex_wrap().items_start(),
                 };
                 let base = match gap {
@@ -370,19 +383,29 @@ impl DeclarativeView {
                 action,
                 value,
                 variant,
+                icon,
+                selected,
+                hint,
             } => {
                 let send = self.sender(action.clone(), value.clone());
                 let button = kit::button(ElementId::Name(format!("decl-button-{path}").into()))
                     .small()
-                    .label(label.clone())
+                    .when(!label.is_empty(), |button| button.label(label.clone()))
+                    .when_some(icon.as_deref(), |button, icon| {
+                        button.icon(super::icon(Some(icon)))
+                    })
+                    .selected(*selected)
                     .on_click(cx.listener(move |this, _, _, cx| send(this, cx)));
-                match variant {
+                let button = match variant {
                     Variant::Primary => button.primary(),
                     Variant::Default => button.outline(),
                     Variant::Ghost => button.ghost(),
                     Variant::Danger => button.danger(),
+                };
+                match hint {
+                    Some(hint) => button.tip_text(hint.clone()).into_any_element(),
+                    None => button.into_any_element(),
                 }
-                .into_any_element()
             }
             Node::Badge { label, tone } => {
                 let color = tone_color(*tone, cx);
@@ -449,6 +472,14 @@ impl DeclarativeView {
     ) -> impl Fn(&mut Self, &mut Context<Self>) + 'static {
         move |this, cx| this.act(action.clone(), value.clone(), cx)
     }
+}
+
+/// Short controls that line up on one baseline in a row.
+fn inline(node: &Node) -> bool {
+    matches!(
+        node,
+        Node::Button { .. } | Node::Text { .. } | Node::Badge { .. } | Node::Select { .. }
+    )
 }
 
 fn table(columns: &[String], rows: &[Vec<String>], cx: &App) -> Div {

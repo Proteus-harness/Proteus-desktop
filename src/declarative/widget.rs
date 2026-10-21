@@ -125,6 +125,15 @@ pub enum Node {
         value: Option<Value>,
         #[serde(default)]
         variant: Variant,
+        /// Icon name from the manifest icon set, shown before the label.
+        #[serde(default)]
+        icon: Option<String>,
+        /// Marks the active button of a group, such as the current tab.
+        #[serde(default)]
+        selected: bool,
+        /// Hover hint, useful for an icon-only button.
+        #[serde(default)]
+        hint: Option<String>,
     },
     Badge {
         label: String,

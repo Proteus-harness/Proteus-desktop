@@ -304,6 +304,12 @@ impl Render for ProjectPicker {
             .popover_style(cx)
             .p_1()
             .gap_1()
+            .capture_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                if event.keystroke.key == "escape" {
+                    this.close(window, cx);
+                    cx.stop_propagation();
+                }
+            }))
             .child(
                 div().p_1().child(
                     Input::new(&self.search)

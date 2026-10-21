@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -210,7 +211,8 @@ impl Render for DeclarativeView {
         };
         let muted = cx.theme().muted_foreground;
         let title = self.runtime.read(cx).title();
-        v_flex()
+        let fill = matches!(self.root, Some(Node::Fill { .. }));
+        let view = v_flex()
             .id(ElementId::Name(format!("declarative-{}", self.view).into()))
             .track_focus(&self.focus)
             .capture_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
@@ -276,12 +278,9 @@ impl Render for DeclarativeView {
             }))
             .w_full()
             .when(self.surface != SurfaceKind::Popup, |view| view.h_full())
-            .overflow_y_scroll()
             .p_3()
             .gap_3()
-            .when(matches!(self.root, Some(Node::Fill { .. })), |view| {
-                view.p_0().gap_0().overflow_hidden()
-            })
+            .when(fill, |view| view.p_0().gap_0())
             .when_some(error, |view, error| {
                 view.child(self.render_error(error, cx))
             })
@@ -296,7 +295,16 @@ impl Render for DeclarativeView {
                             .child(format!("{title}: жду ответа расширения…")),
                     )
                 },
-            )
+            );
+        if fill {
+            view.overflow_hidden().into_any_element()
+        } else {
+            view.overflow_y_scrollbar()
+                .id(ElementId::Name(
+                    format!("declarative-scroll-{}", self.view).into(),
+                ))
+                .into_any_element()
+        }
     }
 }
 

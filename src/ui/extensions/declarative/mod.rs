@@ -136,8 +136,8 @@ fn installed(id: &str) -> Option<&'static Installed> {
         .map(|entry| entry.installed)
 }
 
-/// Icons an extension may name in its manifest.
-fn icon(name: Option<&str>) -> Lucide {
+/// Icons an extension may name in its manifest or on a button.
+pub(super) fn icon(name: Option<&str>) -> Lucide {
     match name.unwrap_or("") {
         "activity" => Lucide::Activity,
         "network" => Lucide::Network,
@@ -152,13 +152,18 @@ fn icon(name: Option<&str>) -> Lucide {
         "chart" => Lucide::ChartColumn,
         "clock" => Lucide::Clock,
         "code" => Lucide::Code,
+        "copy" => Lucide::Copy,
         "database" => Lucide::Database,
+        "diff" => Lucide::FileDiff,
+        "file" => Lucide::File,
         "flask" => Lucide::FlaskConical,
         "gauge" => Lucide::Gauge,
         "git" => Lucide::GitBranch,
         "globe" => Lucide::Globe,
         "list" => Lucide::ListChecks,
         "notes" => Lucide::NotebookPen,
+        "refresh" => Lucide::RefreshCw,
+        "search" => Lucide::Search,
         "server" => Lucide::Server,
         "terminal" => Lucide::Terminal,
         _ => Lucide::Puzzle,
