@@ -20,6 +20,7 @@ ROOT = None
 MODULES = None
 EXTENSIONS = None
 from sources import resolve
+from limits import limit
 from portable_dcp import assemble as assemble_dcp
 from release_metadata import install_notices, version, write_manifest
 BUILD = NATIVE / "build"
@@ -104,6 +105,7 @@ def main():
         "--no-archive", action="store_true", help="skip the tar.gz archive"
     )
     args = parser.parse_args()
+    limit()
     global ROOT, MODULES, EXTENSIONS
     ROOT, MODULES, EXTENSIONS = resolve("harness"), resolve("modules"), resolve("extensions")
     profile = "debug" if args.debug else "release"
