@@ -15,7 +15,7 @@
   },
   "extensions": {
     "url": "https://github.com/Proteus-harness/Proteus-desktop-extensions.git",
-    "rev": "ffca1900d4055ae2c5edd85eb472dd00074313fa",
+    "rev": "a3b878ca167b55c83ac89da853d608ecea29905c",
     "env": "PROTEUS_EXTENSIONS_SOURCE",
     "local": "../Proteus-desktop-extensions",
     "marker": "package.py"
