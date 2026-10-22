@@ -81,27 +81,45 @@ impl Render for Tree {
                     .map(|index| {
                         let row = &this.rows[index];
                         let color = super::render::tone_color(row.tone, cx);
+                        let (muted, mono) = (
+                            cx.theme().muted_foreground,
+                            cx.theme().mono_font_family.clone(),
+                        );
                         let icon = match row.expanded {
                             Some(true) => IconName::FolderOpen,
                             Some(false) => IconName::Folder,
                             None => IconName::File,
                         };
+                        let chevron = row.expanded.map(|open| {
+                            if open {
+                                IconName::ChevronDown
+                            } else {
+                                IconName::ChevronRight
+                            }
+                        });
                         h_flex()
                             .id(("tree-row", index))
                             .w_full()
                             .h(prefs::scaled(26.))
                             .gap_1p5()
                             .pr_2()
-                            .pl(prefs::scaled(8. + row.depth as f32 * 14.))
+                            .pl(prefs::scaled(4. + row.depth as f32 * 14.))
                             .text_sm()
                             .text_color(color)
                             .cursor_pointer()
                             .pressable(cx)
                             .when(index == this.cursor || row.selected, |row| row.bg(selected))
                             .hover(move |row| row.bg(hover))
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .w(prefs::scaled(12.))
+                                    .text_color(muted)
+                                    .children(chevron.map(|chevron| Icon::new(chevron).xsmall())),
+                            )
                             .child(Icon::new(icon).small())
                             .child(div().flex_1().min_w_0().child(faded(row.label.clone())))
-                            .child(div().text_xs().child(row.detail.clone()))
+                            .child(div().text_xs().font_family(mono).child(row.detail.clone()))
                             .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
                                 this.cursor = index;
                                 // The first click already toggled a branch.

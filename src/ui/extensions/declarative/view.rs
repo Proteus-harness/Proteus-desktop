@@ -148,7 +148,11 @@ impl DeclarativeView {
         self.keys.clear();
         self.presentation = None;
         self.action_sequence = 0;
+        // Shells outlive a restarted process: the next tree with the same
+        // terminal id picks its PTY up again, and pruning drops the rest.
+        let terminals = std::mem::take(&mut self.fields.terminals);
         self.fields = super::fields::Fields::default();
+        self.fields.terminals = terminals;
         self.steps.clear();
         self.tabs.clear();
         cx.notify();
