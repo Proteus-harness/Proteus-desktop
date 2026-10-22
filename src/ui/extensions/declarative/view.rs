@@ -196,8 +196,28 @@ impl Render for DeclarativeView {
             self.prepare_fields(&root, window, cx);
         }
         if self.surface != SurfaceKind::Popup && self.focus.is_focused(window) {
-            if let Some(tree) = self.fields.trees.values().next() {
-                let focus = tree.read(cx).focus();
+            // Hand the container focus to the first keyboard control.
+            let fields = &self.fields;
+            let focus = fields
+                .trees
+                .values()
+                .next()
+                .map(|tree| tree.read(cx).focus())
+                .or_else(|| {
+                    fields
+                        .terminals
+                        .values()
+                        .next()
+                        .map(|terminal| terminal.read(cx).focus_handle(cx))
+                })
+                .or_else(|| {
+                    fields
+                        .codes
+                        .values()
+                        .next()
+                        .map(|code| code.read(cx).focus_handle(cx))
+                });
+            if let Some(focus) = focus {
                 cx.defer_in(window, move |_, window, cx| focus.focus(window, cx));
             }
         }

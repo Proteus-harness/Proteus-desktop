@@ -35,9 +35,14 @@ impl Tree {
             return;
         }
         let previous = self.rows.get(self.cursor).map(|row| row.id.as_str());
-        self.cursor = rows
-            .iter()
-            .position(|row| row.selected)
+        let selected = rows.iter().position(|row| row.selected);
+        let moved = selected.map(|index| rows[index].id.as_str())
+            != self
+                .rows
+                .iter()
+                .find(|row| row.selected)
+                .map(|row| row.id.as_str());
+        self.cursor = selected
             .or_else(|| {
                 rows.iter()
                     .position(|row| Some(row.id.as_str()) == previous)
@@ -45,6 +50,10 @@ impl Tree {
             .unwrap_or(self.cursor)
             .min(rows.len().saturating_sub(1));
         self.rows = rows;
+        if moved {
+            self.scroll
+                .scroll_to_item(self.cursor, ScrollStrategy::Nearest);
+        }
         cx.notify();
     }
 
@@ -95,14 +104,13 @@ impl Render for Tree {
                             .child(div().text_xs().child(row.detail.clone()))
                             .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
                                 this.cursor = index;
-                                this.act(
-                                    if event.click_count() > 1 {
-                                        "open"
-                                    } else {
-                                        "select"
-                                    },
-                                    cx,
-                                );
+                                // The first click already toggled a branch.
+                                let branch = this.rows[index].expanded.is_some();
+                                match event.click_count() {
+                                    1 => this.act("select", cx),
+                                    _ if branch => {}
+                                    _ => this.act("open", cx),
+                                }
                                 cx.notify();
                             }))
                             .into_any_element()
@@ -141,14 +149,37 @@ impl Render for Tree {
                         return;
                     }
                     "left" => {
-                        this.act("collapse", cx);
-                        cx.stop_propagation();
-                        return;
+                        let Some(row) = this.rows.get(this.cursor) else {
+                            return;
+                        };
+                        if row.expanded == Some(true) {
+                            this.act("collapse", cx);
+                            cx.stop_propagation();
+                            return;
+                        }
+                        let depth = row.depth;
+                        match this.rows[..this.cursor]
+                            .iter()
+                            .rposition(|row| row.depth < depth)
+                        {
+                            Some(parent) => this.cursor = parent,
+                            None => return,
+                        }
                     }
                     "right" => {
-                        this.act("expand", cx);
-                        cx.stop_propagation();
-                        return;
+                        let Some(row) = this.rows.get(this.cursor) else {
+                            return;
+                        };
+                        let child = this
+                            .rows
+                            .get(this.cursor + 1)
+                            .is_some_and(|next| next.depth > row.depth);
+                        if row.expanded != Some(true) || !child {
+                            this.act("expand", cx);
+                            cx.stop_propagation();
+                            return;
+                        }
+                        this.cursor += 1;
                     }
                     _ => return,
                 }
