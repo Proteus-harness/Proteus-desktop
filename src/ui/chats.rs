@@ -141,7 +141,7 @@ impl Workspace {
             window,
             cx,
             move |api| {
-                let opened = api.new_session(source.as_deref())?;
+                let opened = api.new_session(source.as_deref(), None)?;
                 Ok((opened, api.sessions()?))
             },
             move |this, (opened, sessions), window, cx| {

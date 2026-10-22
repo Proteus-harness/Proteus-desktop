@@ -47,15 +47,13 @@ impl Launcher {
             _workspace_requests: None,
         };
         if let Some(workspace) = workspace {
-            launcher.open(workspace, false, window, cx);
+            launcher.open(workspace, window, cx);
         }
         launcher
     }
 
     /// Shows `path` in the window; an open workspace and its server close.
-    /// With `new_chat` the new workspace starts a fresh chat instead of
-    /// restoring the last ones.
-    fn open(&mut self, path: PathBuf, new_chat: bool, window: &mut Window, cx: &mut Context<Self>) {
+    fn open(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         let workspace = match path.canonicalize() {
             Ok(path) if path.is_dir() => path,
             _ => {
@@ -78,18 +76,17 @@ impl Launcher {
             }
             let running = if failed { 0 } else { current.running_chats(cx) };
             if running > 0 {
-                self.confirm_switch(workspace, new_chat, running, window, cx);
+                self.confirm_switch(workspace, running, window, cx);
                 return;
             }
         }
-        self.replace(workspace, new_chat, window, cx);
+        self.replace(workspace, window, cx);
     }
 
     /// Asks before a folder switch ends runs that are still going.
     fn confirm_switch(
         &mut self,
         workspace: PathBuf,
-        new_chat: bool,
         running: usize,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -109,35 +106,25 @@ impl Launcher {
                 .cancel_text("Отмена")
                 .on_ok(move |_, window, cx| {
                     launcher
-                        .update(cx, |this, cx| {
-                            this.replace(workspace.clone(), new_chat, window, cx)
-                        })
+                        .update(cx, |this, cx| this.replace(workspace.clone(), window, cx))
                         .ok();
                     true
                 })
         });
     }
 
-    fn replace(
-        &mut self,
-        workspace: PathBuf,
-        new_chat: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn replace(&mut self, workspace: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         prefs::update(cx, |prefs| prefs.recent.touch(&workspace));
         let options = LaunchOptions {
             workspace,
             target: self.target.clone(),
-            new_chat,
         };
         let view = cx.new(|cx| Workspace::new(options, window, cx));
         self._workspace_requests = Some(cx.subscribe_in(
             &view,
             window,
             |this, _, request: &WorkspaceRequest, window, cx| match request {
-                WorkspaceRequest::Open(path) => this.open(path.clone(), false, window, cx),
-                WorkspaceRequest::NewChat(path) => this.open(path.clone(), true, window, cx),
+                WorkspaceRequest::Open(path) => this.open(path.clone(), window, cx),
                 WorkspaceRequest::Choose => this.choose_folder(window, cx),
             },
         ));
@@ -164,7 +151,7 @@ impl Launcher {
                 Stage::Ready(view) => {
                     view.update(cx, |view, cx| view.new_chat_in(path, window, cx))
                 }
-                Stage::Picking { .. } => this.open(path, false, window, cx),
+                Stage::Picking { .. } => this.open(path, window, cx),
             })
             .ok();
         })
@@ -198,7 +185,7 @@ impl Launcher {
                             .pressable(cx)
                             .hover(|row| row.bg(theme.list_hover))
                             .on_click(cx.listener(move |this, _, window, cx| {
-                                this.open(path.clone(), false, window, cx)
+                                this.open(path.clone(), window, cx)
                             }))
                     })
                     .when(!exists, |row| row.opacity(0.5))
@@ -299,7 +286,7 @@ impl Render for Launcher {
                     None,
                     move |path, window, cx| {
                         launcher
-                            .update(cx, |this, cx| this.open(path, false, window, cx))
+                            .update(cx, |this, cx| this.open(path, window, cx))
                             .ok();
                     },
                     move |window, cx| {

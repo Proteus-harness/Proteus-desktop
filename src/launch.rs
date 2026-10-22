@@ -17,8 +17,6 @@ pub enum Target {
 pub struct LaunchOptions {
     pub workspace: PathBuf,
     pub target: Target,
-    /// Start with a fresh chat instead of the last open ones.
-    pub new_chat: bool,
 }
 
 /// Command line: the workspace stays unset when the picker was requested.

@@ -3,6 +3,7 @@ mod badges;
 mod chat;
 mod chats;
 mod chrome;
+mod context;
 mod drag;
 mod extensions;
 mod fade;

@@ -42,7 +42,12 @@ impl Process {
             .command
             .split_first()
             .context("command is empty")?;
-        let mut command = Command::new(program);
+        // A relative path such as `bin/files` names a program inside the package.
+        let mut command = if program.contains('/') && !program.starts_with('/') {
+            Command::new(extension.dir.join(program))
+        } else {
+            Command::new(program)
+        };
         command
             .args(args)
             .current_dir(&extension.dir)

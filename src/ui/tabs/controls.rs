@@ -2,9 +2,10 @@
 //! menu, a right click the pane's own actions — closing it and locking its
 //! size.
 
+use crate::ui::context::RightClickMenu as _;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
-use gpui_kit::component::menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenu, PopupMenuItem};
+use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::*;
 use gpui_kit::*;
 
@@ -45,7 +46,8 @@ impl Workspace {
             .h_full()
             .px_1()
             .child(add)
-            .context_menu(move |popup, _, _| pane_menu(popup, id, closable, locked, &workspace))
+            .right_click_menu(move |popup, _, _| pane_menu(popup, id, closable, locked, &workspace))
+            .trigger_style(StyleRefinement::default().h_full().flex_none())
     }
 }
 

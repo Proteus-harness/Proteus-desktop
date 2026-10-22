@@ -103,7 +103,7 @@ impl Workspace {
         }
         let blank = blank.map(|(_, dir)| dir);
         if project == self.workspace_path {
-            return self.start_chat(None, blank, window, cx);
+            return self.start_chat(None, None, blank, window, cx);
         }
         let source = self
             .sessions
@@ -111,24 +111,16 @@ impl Workspace {
             .filter(|summary| summary.workspace_path == project)
             .max_by_key(|summary| summary.updated_at_ms)
             .map(|summary| summary.session_dir.clone());
-        match source {
-            Some(source) => self.start_chat(Some(source), blank, window, cx),
-            None if self.switchable => cx.emit(WorkspaceRequest::NewChat(project)),
-            None => self.report(
-                format!(
-                    "Сервер работает с папкой {}; другую папку открыть нельзя.",
-                    self.workspace_path.display()
-                ),
-                cx,
-            ),
-        }
+        self.start_chat(source, Some(project), blank, window, cx)
     }
 
-    /// Opens a new session with the folder and settings of `source`, or of
-    /// the server when there is none; `replace` is a blank chat to drop.
+    /// Opens a new session with the settings of `source`, or of the server
+    /// when there is none, in `workspace` or the source's folder; `replace`
+    /// is a blank chat to drop.
     fn start_chat(
         &mut self,
         source: Option<PathBuf>,
+        workspace: Option<PathBuf>,
         replace: Option<PathBuf>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -141,7 +133,7 @@ impl Workspace {
                 if let Some(source) = &source {
                     api.resume(source)?;
                 }
-                let opened = api.new_session(source.as_deref())?;
+                let opened = api.new_session(source.as_deref(), workspace.as_deref())?;
                 Ok((opened, api.sessions()?))
             },
             move |this, (opened, sessions), window, cx| {

@@ -2,10 +2,10 @@
 
 use crate::declarative::tree::Row;
 use crate::declarative::widget::Tone;
+use crate::ui::context::RightClickMenu as _;
 use crate::ui::{fade::faded, kit::Pressable as _, prefs};
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::checkbox::Checkbox;
-use gpui_kit::component::menu::ContextMenuExt as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -194,9 +194,10 @@ impl Render for Tree {
                             }));
                         match menu {
                             Some((items, view)) => element
-                                .context_menu(move |menu, _, _| {
+                                .right_click_menu(move |menu, _, _| {
                                     super::menu::fill(menu, &items, &view)
                                 })
+                                .trigger_style(StyleRefinement::default().w_full())
                                 .into_any_element(),
                             None => element.into_any_element(),
                         }

@@ -68,10 +68,17 @@ impl Api {
         self.command("/resume", None, &body)
     }
 
-    pub fn new_session(&self, source: Option<&Path>) -> Result<SessionOpened> {
+    /// Opens a session with the settings of `source` in `workspace`; each
+    /// falls back to the source's, then to the server's own.
+    pub fn new_session(
+        &self,
+        source: Option<&Path>,
+        workspace: Option<&Path>,
+    ) -> Result<SessionOpened> {
         let body = NewSessionRequest {
             id: Some(request_id("new-session")),
             source_session_dir: source.map(Path::to_path_buf),
+            workspace: workspace.map(Path::to_path_buf),
         };
         self.command("/new-session", None, &body)
     }

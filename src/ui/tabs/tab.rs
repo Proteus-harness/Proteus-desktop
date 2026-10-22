@@ -1,9 +1,9 @@
 //! One tab of a strip: its look, clicks, drag and context menu. Pinned
 //! tabs are compact and have no close button.
 
+use crate::ui::context::RightClickMenu as _;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
-use gpui_kit::component::menu::ContextMenuExt as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -235,6 +235,7 @@ impl Workspace {
                     cx.new(|_| dragged.clone())
                 }
             })
-            .context_menu(move |popup, _, _| menu.build(popup, &workspace))
+            .right_click_menu(move |popup, _, _| menu.build(popup, &workspace))
+            .trigger_style(StyleRefinement::default().h_full().flex_none())
     }
 }

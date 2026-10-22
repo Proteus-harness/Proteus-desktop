@@ -19,7 +19,7 @@ use super::tabs::{SplitResize, TabDrop, TabMotion};
 use crate::api::Api;
 use crate::attention::Tracker;
 use crate::connection::{self, BackendGuard};
-use crate::launch::{LaunchOptions, Target};
+use crate::launch::LaunchOptions;
 use crate::tabs::{self, PaneId};
 
 pub(super) enum Status {
@@ -52,28 +52,13 @@ fn boot(options: &LaunchOptions, saved: Vec<PathBuf>) -> Result<Boot> {
         })
         .collect();
     let mut startup = None;
-    if options.new_chat {
-        // The server opens a fresh session at launch; reuse it while it is empty.
-        let fresh = api.bootstrap()?.session_dir.filter(|dir| {
-            sessions
-                .iter()
-                .any(|summary| &summary.session_dir == dir && summary.message_count == 0)
-        });
-        startup = Some(match fresh {
-            Some(dir) => api.resume(&dir)?.session_dir,
-            None => {
-                let opened = api.new_session(None)?.session_dir;
-                sessions = api.sessions()?;
-                opened
-            }
-        });
-    } else if restored.is_empty() {
+    if restored.is_empty() {
         let bootstrap = api.bootstrap()?;
         startup = Some(
             match select_startup_session(None, bootstrap.session_dir, &sessions) {
                 Some(dir) => api.resume(Path::new(&dir))?.session_dir,
                 None => {
-                    let opened = api.new_session(None)?.session_dir;
+                    let opened = api.new_session(None, None)?.session_dir;
                     sessions = api.sessions()?;
                     opened
                 }
@@ -91,8 +76,6 @@ fn boot(options: &LaunchOptions, saved: Vec<PathBuf>) -> Result<Boot> {
 
 pub struct Workspace {
     pub(super) workspace_path: PathBuf,
-    /// The server was started here, so another folder can replace it.
-    pub(super) switchable: bool,
     pub(super) status: Status,
     api: Option<Api>,
     backend: Option<BackendGuard>,
@@ -172,7 +155,6 @@ impl Workspace {
             let (workspace, current) = (cx.weak_entity(), workspace_path.clone());
             cx.new(|cx| ProjectPicker::new(workspace, current, window, cx))
         };
-        let switchable = matches!(options.target, Target::Spawn { .. });
         let saved: Vec<PathBuf> = super::prefs::current(cx)
             .tabs
             .chats()
@@ -192,7 +174,6 @@ impl Workspace {
 
         Self {
             workspace_path,
-            switchable,
             status: Status::Starting,
             api: None,
             backend: None,

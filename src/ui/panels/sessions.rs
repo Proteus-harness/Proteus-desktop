@@ -4,10 +4,11 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use crate::ui::context::RightClickMenu as _;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::Input;
-use gpui_kit::component::menu::{ContextMenuExt as _, DropdownMenu as _};
+use gpui_kit::component::menu::DropdownMenu as _;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -434,9 +435,10 @@ impl Workspace {
                             .map(|line| div().text_xs().text_color(muted).child(line.clone())),
                     )
             })
-            .context_menu(move |menu, _, _| {
+            .right_click_menu(move |menu, _, _| {
                 session_menu::build(menu, &dir, mark.clone(), &workspace)
             })
+            .trigger_style(StyleRefinement::default().w_full())
     }
 }
 

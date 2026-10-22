@@ -5,7 +5,8 @@
 
 use std::rc::Rc;
 
-use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
+use crate::ui::context::RightClickMenu as _;
+use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -125,7 +126,8 @@ pub(super) fn pressable_badge(
                 cx.new(|_| dragged.clone())
             })
         })
-        .context_menu(move |menu, _, cx| badge_menu(menu, id, &menu_host, cx))
+        .right_click_menu(move |menu, _, cx| badge_menu(menu, id, &menu_host, cx))
+        .trigger_style(StyleRefinement::default().flex_none())
 }
 
 fn drag_key(id: &str) -> String {
