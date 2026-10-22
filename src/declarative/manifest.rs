@@ -59,6 +59,9 @@ pub struct PopupSurface {
     pub escape_action: Option<String>,
     #[serde(default = "popup_width")]
     pub width: f32,
+    /// The tallest the popup grows before its content scrolls.
+    #[serde(default = "popup_height")]
+    pub height: f32,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
@@ -67,6 +70,10 @@ pub struct PageSurface {}
 
 fn popup_width() -> f32 {
     280.
+}
+
+fn popup_height() -> f32 {
+    420.
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -281,6 +288,13 @@ pub fn parse(text: &str) -> Result<Manifest> {
         .is_some_and(|popup| !popup.width.is_finite() || !(100. ..=1200.).contains(&popup.width))
     {
         bail!("popup width must be in 100..=1200");
+    }
+    if surfaces
+        .popup
+        .as_ref()
+        .is_some_and(|popup| !popup.height.is_finite() || !(120. ..=1000.).contains(&popup.height))
+    {
+        bail!("popup height must be in 120..=1000");
     }
     if surfaces
         .badge

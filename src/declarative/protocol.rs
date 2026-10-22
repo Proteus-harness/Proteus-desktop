@@ -225,7 +225,7 @@ mod tests {
         );
         let (packages, errors) = crate::declarative::manifest::discover(&root.join("packages"));
         assert!(errors.is_empty(), "{errors:?}");
-        assert_eq!(packages.len(), 13);
+        assert_eq!(packages.len(), 10);
         let output = std::process::Command::new("python3")
             .arg(root.join("tests/wire.py"))
             .arg("--wire")

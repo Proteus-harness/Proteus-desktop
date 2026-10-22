@@ -46,6 +46,7 @@ impl DeclarativeBadge {
     pub(super) fn render_popup(
         &self,
         width: f32,
+        height: f32,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
@@ -75,7 +76,7 @@ impl DeclarativeBadge {
                             .occlude()
                             .popover_style(cx)
                             .w(prefs::scaled(width))
-                            .max_h(prefs::scaled(420.))
+                            .max_h(prefs::scaled(height))
                             .text_sm()
                             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                                 if event.keystroke.key == "tab" {

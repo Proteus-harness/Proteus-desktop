@@ -190,7 +190,7 @@ impl Render for DeclarativeBadge {
             .surfaces
             .popup
             .as_ref()
-            .and_then(|spec| self.render_popup(spec.width, window, cx));
+            .and_then(|spec| self.render_popup(spec.width, spec.height, window, cx));
         div()
             .relative()
             .on_prepaint(move |rect, _, _| bounds.set(rect))

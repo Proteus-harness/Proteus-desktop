@@ -12,7 +12,7 @@ use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use proteus_contracts::app_protocol::AppSessionActivityStatus;
+use proteus_contracts::app_protocol::{AppSessionActivityStatus, AppSessionSummary};
 
 use super::session_menu;
 use crate::sessions::{Project, Row, View};
@@ -331,6 +331,11 @@ impl Workspace {
         };
 
         let workspace = cx.entity().downgrade();
+        let title = mark
+            .title
+            .clone()
+            .unwrap_or_else(|| format::session_title(summary));
+        let details = details(summary);
         h_flex()
             .id(("session", ix))
             .group("session-row")
@@ -376,11 +381,7 @@ impl Workspace {
                     .flex_1()
                     .min_w_0()
                     .text_sm()
-                    .child(faded(
-                        mark.title
-                            .clone()
-                            .unwrap_or_else(|| format::session_title(summary)),
-                    ))
+                    .child(faded(title.clone()))
                     .into_any_element(),
             })
             .children(indicator)
@@ -421,10 +422,44 @@ impl Workspace {
                     this.select_session(dir.clone(), event.click_count(), window, cx)
                 }
             }))
+            .tip_element(move |_, cx| {
+                let muted = cx.theme().muted_foreground;
+                v_flex()
+                    .max_w(prefs::scaled(360.))
+                    .gap_0p5()
+                    .child(div().text_sm().font_semibold().child(title.clone()))
+                    .children(
+                        details
+                            .iter()
+                            .map(|line| div().text_xs().text_color(muted).child(line.clone())),
+                    )
+            })
             .context_menu(move |menu, _, _| {
                 session_menu::build(menu, &dir, mark.clone(), &workspace)
             })
     }
+}
+
+/// What the tooltip of a session row tells beside its title.
+fn details(summary: &AppSessionSummary) -> Vec<String> {
+    let activity = summary.activity.as_ref();
+    let status = match activity.map(|activity| activity.status) {
+        Some(AppSessionActivityStatus::Running) => "работает",
+        Some(AppSessionActivityStatus::WaitingApproval) => "ждёт подтверждения",
+        Some(AppSessionActivityStatus::WaitingInput) => "ждёт ответа",
+        _ => "ожидает",
+    };
+    let mut lines = vec![format!("Состояние: {status}")];
+    if let Some(activity) = activity.filter(|activity| activity.running_runs > 1) {
+        lines.push(format!("Запусков: {}", activity.running_runs));
+    }
+    lines.push(format!("Сообщений: {}", summary.message_count));
+    if let Some(updated) = summary.updated_at_ms {
+        lines.push(format!("Изменена: {}", format::local_time(updated / 1000)));
+    }
+    lines.push(format!("Папка: {}", summary.workspace_path.display()));
+    lines.push(format!("ID: {}", summary.session_id));
+    lines
 }
 
 /// How a row stands out: the open session, the keyboard cursor; and
