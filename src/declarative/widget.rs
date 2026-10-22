@@ -13,8 +13,11 @@ const MAX_NODES: usize = 5_000;
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Node {
+    /// A square grid split into colored segments, with a legend.
     Cells {
-        cells: Vec<Cell>,
+        #[serde(default = "twenty")]
+        columns: usize,
+        segments: Vec<Segment>,
     },
     Select {
         id: String,
@@ -145,9 +148,28 @@ pub enum Node {
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub struct Cell {
+pub struct Segment {
     pub label: String,
+    pub cells: usize,
+    #[serde(default)]
     pub tone: Tone,
+    /// `#rrggbb`; overrides `tone`.
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub value: Option<String>,
+    #[serde(default)]
+    pub detail: Option<String>,
+}
+
+const MAX_CELLS: usize = 2_000;
+
+/// Parses `#rrggbb` into `0xrrggbb`.
+pub fn hex_color(color: &str) -> Option<u32> {
+    let hex = color.strip_prefix('#')?;
+    (hex.len() == 6 && hex.chars().all(|c| c.is_ascii_hexdigit()))
+        .then(|| u32::from_str_radix(hex, 16).ok())
+        .flatten()
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
@@ -231,6 +253,10 @@ pub struct Item {
 
 fn hundred() -> f64 {
     100.
+}
+
+fn twenty() -> usize {
+    20
 }
 
 impl Node {
@@ -328,6 +354,22 @@ impl Node {
                 }
                 &[]
             }
+            Node::Cells { columns, segments } => {
+                if !(1..=100).contains(columns) {
+                    bail!("cells need 1..=100 columns");
+                }
+                if segments.iter().map(|segment| segment.cells).sum::<usize>() > MAX_CELLS {
+                    bail!("cells grid is larger than {MAX_CELLS}");
+                }
+                if let Some(color) = segments
+                    .iter()
+                    .filter_map(|segment| segment.color.as_deref())
+                    .find(|color| hex_color(color).is_none())
+                {
+                    bail!("cell color {color:?} is not #rrggbb");
+                }
+                &[]
+            }
             Node::BarChart { bars, .. } => {
                 if bars
                     .iter()
@@ -383,11 +425,32 @@ mod tests {
     }
 
     #[test]
+    fn reads_a_cells_grid() {
+        let node = parse(json!({"type": "cells", "segments": [
+            {"label": "история", "cells": 3, "color": "#5cc784", "value": "3k"},
+            {"label": "свободно", "cells": 17, "tone": "muted"}
+        ]}))
+        .unwrap();
+        let Node::Cells { columns, segments } = node else {
+            panic!("cells expected");
+        };
+        assert_eq!((columns, segments.len()), (20, 2));
+        assert_eq!(hex_color("#5cc784"), Some(0x5cc784));
+    }
+
+    #[test]
     fn rejects_unknown_types_fields_and_bad_shapes() {
         assert!(parse(json!({"type": "video"})).is_err());
         assert!(parse(json!({"type": "text", "text": "a", "color": "red"})).is_err());
         assert!(parse(json!({"type": "table", "columns": ["a", "b"], "rows": [["1"]]})).is_err());
         assert!(parse(json!({"type": "progress", "value": 1, "max": 0})).is_err());
+        assert!(
+            parse(json!({"type": "cells", "segments": [
+                {"label": "a", "cells": 1, "color": "red"}
+            ]}))
+            .is_err()
+        );
+        assert!(parse(json!({"type": "cells", "columns": 0, "segments": []})).is_err());
         let mut deep = json!({"type": "divider"});
         for _ in 0..40 {
             deep = json!({"type": "stack", "children": [deep]});

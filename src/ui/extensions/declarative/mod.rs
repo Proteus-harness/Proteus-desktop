@@ -4,6 +4,7 @@
 //! Shipped and user-installed packages share this renderer and [`Host`].
 
 mod badge;
+mod cells;
 mod fields;
 mod graph;
 mod popup;

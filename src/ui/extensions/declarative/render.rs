@@ -33,24 +33,7 @@ impl DeclarativeView {
     /// selected tab, so they survive a new tree of the same shape.
     pub(super) fn node(&self, node: &Node, path: &str, cx: &mut Context<Self>) -> AnyElement {
         match node {
-            Node::Cells { cells } => h_flex()
-                .flex_wrap()
-                .w_full()
-                .children(cells.iter().enumerate().map(|(index, cell)| {
-                    div()
-                        .id(("extension-cell", index))
-                        .w(relative(0.05))
-                        .h(prefs::scaled(12.))
-                        .p(px(1.))
-                        .child(
-                            div()
-                                .size_full()
-                                .rounded(px(1.))
-                                .bg(tone_color(cell.tone, cx)),
-                        )
-                        .tip_text(cell.label.clone())
-                }))
-                .into_any_element(),
+            Node::Cells { columns, segments } => super::cells::cells(path, *columns, segments, cx),
             Node::Graph { id, .. } => div()
                 .flex_1()
                 .min_h_0()
