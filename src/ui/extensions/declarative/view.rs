@@ -252,7 +252,7 @@ impl Render for DeclarativeView {
                         .fields
                         .inputs
                         .values()
-                        .any(|input| input.state.read(cx).focus_handle(cx).is_focused(window));
+                        .any(|input| input.state.focus_handle(cx).is_focused(window));
                 if !typing
                     && let Some(action) = chord.and_then(|chord| this.keys.get(&chord)).cloned()
                 {
@@ -392,7 +392,7 @@ impl DeclarativeView {
             .fields
             .inputs
             .get(id)
-            .map(|input| input.state.read(cx).focus_handle(cx))
+            .map(|input| input.state.focus_handle(cx))
             .or_else(|| self.fields.trees.get(id).map(|tree| tree.read(cx).focus()))
             .or_else(|| {
                 self.fields

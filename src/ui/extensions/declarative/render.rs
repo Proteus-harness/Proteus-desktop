@@ -1,7 +1,8 @@
 //! Native rendering of the widget tree an extension sends.
 
 use gpui_kit::component::button::ButtonVariants as _;
-use gpui_kit::component::input::{Editor, Input};
+use gpui_kit::component::checkbox::Checkbox;
+use gpui_kit::component::input::{Editor, Input, Textarea};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -25,6 +26,7 @@ pub(super) fn tone_color(tone: Tone, cx: &App) -> Hsla {
         Tone::Success => theme.success,
         Tone::Warning => theme.warning,
         Tone::Danger => theme.danger,
+        Tone::Color(color) => rgb(color).into(),
     }
 }
 
@@ -71,6 +73,47 @@ impl DeclarativeView {
                     })
                     .into_any_element()
             }
+            Node::Menu {
+                label,
+                icon,
+                hint,
+                items,
+            } => {
+                let (items, view) = (items.clone(), cx.weak_entity());
+                let button = kit::button(ElementId::Name(format!("decl-menu-{path}").into()))
+                    .small()
+                    .ghost()
+                    .when(!label.is_empty(), |button| button.label(label.clone()))
+                    .when_some(hint.clone(), |button, hint| button.tooltip(hint))
+                    .icon(super::icon(Some(icon.as_deref().unwrap_or("ellipsis"))))
+                    .dropdown_menu_with_anchor(Anchor::TopRight, move |menu: PopupMenu, _, _| {
+                        super::menu::fill(menu.min_w(px(180.)), &items, &view)
+                    });
+                button.into_any_element()
+            }
+            Node::Checkbox {
+                label,
+                checked,
+                action,
+                value,
+            } => {
+                let (action, value, checked) = (action.clone(), value.clone(), *checked);
+                Checkbox::new(ElementId::Name(format!("decl-check-{path}").into()))
+                    .label(label.clone())
+                    .checked(checked)
+                    .small()
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        let value = serde_json::json!({"checked": !checked, "value": value});
+                        this.act(action.clone(), Some(value), cx)
+                    }))
+                    .into_any_element()
+            }
+            Node::Unknown => div()
+                .px_2()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child("Этот элемент требует более новой версии Proteus.")
+                .into_any_element(),
             Node::Fill { children } => v_flex()
                 .flex_1()
                 .w_full()
@@ -126,12 +169,14 @@ impl DeclarativeView {
             }
             Node::Input { id, .. } => div()
                 .p_2()
-                .children(
-                    self.fields
-                        .inputs
-                        .get(id)
-                        .map(|input| Input::new(&input.state).w_full()),
-                )
+                .children(self.fields.inputs.get(id).map(|input| match &input.state {
+                    super::fields::Text::Line(state) => {
+                        Input::new(state).w_full().into_any_element()
+                    }
+                    super::fields::Text::Area(state) => {
+                        Textarea::new(state).small().w_full().into_any_element()
+                    }
+                }))
                 .into_any_element(),
             Node::Code { id, height, .. } => div()
                 .when(height.is_none(), |node| node.flex_1())
@@ -406,8 +451,14 @@ impl DeclarativeView {
                 icon,
                 selected,
                 hint,
+                confirm,
             } => {
-                let send = self.sender(action.clone(), value.clone());
+                let (view, action, value, confirm) = (
+                    cx.weak_entity(),
+                    action.clone(),
+                    value.clone(),
+                    confirm.clone(),
+                );
                 let button = kit::button(ElementId::Name(format!("decl-button-{path}").into()))
                     .small()
                     .when(!label.is_empty(), |button| button.label(label.clone()))
@@ -415,7 +466,16 @@ impl DeclarativeView {
                         button.icon(super::icon(Some(icon)))
                     })
                     .selected(*selected)
-                    .on_click(cx.listener(move |this, _, _, cx| send(this, cx)));
+                    .on_click(move |_, window, cx| {
+                        super::menu::send(
+                            &view,
+                            &action,
+                            value.clone(),
+                            confirm.as_ref(),
+                            window,
+                            cx,
+                        )
+                    });
                 let button = match variant {
                     Variant::Primary => button.primary(),
                     Variant::Default => button.outline(),

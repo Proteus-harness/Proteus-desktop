@@ -1,7 +1,10 @@
 //! Widget tree an extension process sends; the client renders it natively.
 //!
-//! The schema is closed: unknown node types or fields are errors, so a
+//! The schema is closed for fields: a misspelled field is an error, so a
 //! process learns about a mistake instead of seeing a silently empty view.
+//! A node type from a newer protocol becomes [`Node::Unknown`] and is drawn
+//! as a notice; processes check `features` from `hello` before relying on
+//! newer nodes.
 
 use anyhow::{Result, bail};
 use serde::Deserialize;
@@ -51,6 +54,30 @@ pub enum Node {
         value: String,
         placeholder: String,
         action: String,
+        /// More than one line makes a growing multi-line field.
+        #[serde(default = "one")]
+        lines: usize,
+        /// Sent with the text on Enter, or Ctrl+Enter in a multi-line field.
+        #[serde(default)]
+        submit: Option<String>,
+    },
+    /// Sends `{checked, value}` with the new state.
+    Checkbox {
+        label: String,
+        checked: bool,
+        action: String,
+        #[serde(default)]
+        value: Option<Value>,
+    },
+    /// A button that opens a menu.
+    Menu {
+        #[serde(default)]
+        label: String,
+        #[serde(default)]
+        icon: Option<String>,
+        #[serde(default)]
+        hint: Option<String>,
+        items: Vec<super::control::MenuItem>,
     },
     Code {
         id: String,
@@ -138,7 +165,7 @@ pub enum Node {
         value: Option<Value>,
         #[serde(default)]
         variant: Variant,
-        /// Icon name from the manifest icon set, shown before the label.
+        /// Lucide icon file name, shown before the label.
         #[serde(default)]
         icon: Option<String>,
         /// Marks the active button of a group, such as the current tab.
@@ -147,6 +174,8 @@ pub enum Node {
         /// Hover hint, useful for an icon-only button.
         #[serde(default)]
         hint: Option<String>,
+        #[serde(default)]
+        confirm: Option<super::control::Confirm>,
     },
     Badge {
         label: String,
@@ -154,6 +183,10 @@ pub enum Node {
         tone: Tone,
     },
     Divider {},
+    /// A node type this client does not know, from a newer protocol; drawn
+    /// as a notice instead of failing the whole view.
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -200,8 +233,7 @@ pub enum Gap {
     Large,
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Tone {
     #[default]
     Default,
@@ -210,6 +242,27 @@ pub enum Tone {
     Success,
     Warning,
     Danger,
+    /// `#rrggbb` from the process.
+    Color(u32),
+}
+
+impl<'de> Deserialize<'de> for Tone {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let name = String::deserialize(deserializer)?;
+        Ok(match name.as_str() {
+            "default" => Tone::Default,
+            "muted" => Tone::Muted,
+            "accent" => Tone::Accent,
+            "success" => Tone::Success,
+            "warning" => Tone::Warning,
+            "danger" => Tone::Danger,
+            color => Tone::Color(hex_color(color).ok_or_else(|| {
+                serde::de::Error::custom(format!(
+                    "tone {color:?} is neither a tone name nor #rrggbb"
+                ))
+            })?),
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
@@ -265,8 +318,27 @@ fn hundred() -> f64 {
     100.
 }
 
+fn one() -> usize {
+    1
+}
+
 fn twenty() -> usize {
     20
+}
+
+fn known_icon(name: Option<&str>) -> Result<()> {
+    match name {
+        Some(name) if super::icons::lucide(name).is_none() => {
+            bail!("unknown icon {name:?}; use a Lucide icon file name such as \"git-branch\"")
+        }
+        _ => Ok(()),
+    }
+}
+
+fn menu_icons(items: &[super::control::MenuItem]) -> Result<()> {
+    items
+        .iter()
+        .try_for_each(|item| known_icon(item.icon.as_deref()))
 }
 
 impl Node {
@@ -392,6 +464,28 @@ impl Node {
                 }
                 &[]
             }
+            Node::Button { icon, .. } => {
+                known_icon(icon.as_deref())?;
+                &[]
+            }
+            Node::Menu { icon, items, .. } => {
+                known_icon(icon.as_deref())?;
+                if items.is_empty() {
+                    bail!("menu needs at least one item");
+                }
+                menu_icons(items)?;
+                &[]
+            }
+            Node::Tree { rows, .. } => {
+                for row in rows {
+                    known_icon(row.icon.as_deref())?;
+                    menu_icons(&row.menu)?;
+                }
+                &[]
+            }
+            Node::Input { lines, .. } if !(1..=40).contains(lines) => {
+                bail!("input lines must be within 1..=40")
+            }
             Node::BarChart { bars, .. } => {
                 if bars
                     .iter()
@@ -479,7 +573,6 @@ mod tests {
 
     #[test]
     fn rejects_unknown_types_fields_and_bad_shapes() {
-        assert!(parse(json!({"type": "video"})).is_err());
         assert!(parse(json!({"type": "text", "text": "a", "color": "red"})).is_err());
         assert!(parse(json!({"type": "table", "columns": ["a", "b"], "rows": [["1"]]})).is_err());
         assert!(parse(json!({"type": "progress", "value": 1, "max": 0})).is_err());
@@ -495,5 +588,67 @@ mod tests {
             deep = json!({"type": "stack", "children": [deep]});
         }
         assert!(parse(deep).is_err());
+        assert!(
+            parse(json!({"type": "button", "label": "", "action": "a", "icon": "refresh"}))
+                .is_err()
+        );
+        assert!(parse(json!({"type": "menu", "items": []})).is_err());
+        assert!(parse(json!({"type": "text", "text": "a", "tone": "#12345"})).is_err());
+        assert!(parse(json!({"type": "input", "id": "i", "value": "", "placeholder": "", "action": "a", "lines": 0})).is_err());
+    }
+
+    #[test]
+    fn unknown_node_types_become_placeholders() {
+        let node = parse(json!({"type": "stack", "children": [
+            {"type": "video", "src": "x.mp4", "loop": true}
+        ]}))
+        .unwrap();
+        let Node::Stack { children, .. } = node else {
+            panic!("stack expected")
+        };
+        assert_eq!(children, vec![Node::Unknown]);
+    }
+
+    #[test]
+    fn reads_controls_icons_and_colors() {
+        let node = parse(json!({"type": "stack", "children": [
+            {"type": "checkbox", "label": "Amend", "checked": true, "action": "amend"},
+            {"type": "menu", "icon": "git-branch", "items": [
+                {"label": "Discard", "action": "discard", "danger": true, "separated": true,
+                 "confirm": {"title": "Sure?", "danger": true}}
+            ]},
+            {"type": "input", "id": "m", "value": "", "placeholder": "", "action": "m", "lines": 4, "submit": "commit"},
+            {"type": "button", "label": "", "action": "r", "icon": "refresh-cw", "confirm": {"title": "Again?"}},
+            {"type": "text", "text": "x", "tone": "#E5C07B"},
+            {"type": "tree", "id": "t", "action": "t", "rows": [
+                {"id": "a", "label": "a.rs", "icon": "file-code", "icon_tone": "#00ff00", "checked": false,
+                 "strike": true, "menu": [{"label": "Copy", "action": "copy", "icon": "copy"}]}
+            ]}
+        ]}))
+        .unwrap();
+        let Node::Stack { children, .. } = node else {
+            panic!("stack expected")
+        };
+        assert!(matches!(
+            &children[4],
+            Node::Text {
+                tone: Tone::Color(0xe5c07b),
+                ..
+            }
+        ));
+        assert!(matches!(
+            &children[2],
+            Node::Input {
+                lines: 4,
+                submit: Some(_),
+                ..
+            }
+        ));
+        assert!(
+            parse(json!({"type": "tree", "id": "t", "action": "t", "rows": [
+                {"id": "a", "label": "a", "menu": [{"label": "x", "action": "x", "icon": "nope"}]}
+            ]}))
+            .is_err()
+        );
     }
 }

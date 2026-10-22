@@ -7,6 +7,7 @@ mod badge;
 mod cells;
 mod fields;
 mod graph;
+mod menu;
 mod popup;
 mod render;
 mod runtime;
@@ -137,40 +138,11 @@ fn installed(id: &str) -> Option<&'static Installed> {
         .map(|entry| entry.installed)
 }
 
-/// Icons an extension may name in its manifest or on a button.
+/// Icons an extension may name in its manifest or on a control: any bundled
+/// Lucide icon by its file name.
 pub(super) fn icon(name: Option<&str>) -> Lucide {
-    match name.unwrap_or("") {
-        "activity" => Lucide::Activity,
-        "network" => Lucide::Network,
-        "folder" => Lucide::FolderTree,
-        "shield" => Lucide::ShieldCheck,
-        "cpu" => Lucide::Cpu,
-        "layers" => Lucide::Layers,
-        "info" => Lucide::Info,
-        "bot" => Lucide::Bot,
-        "bell" => Lucide::Bell,
-        "book" => Lucide::BookOpen,
-        "chart" => Lucide::ChartColumn,
-        "clock" => Lucide::Clock,
-        "code" => Lucide::Code,
-        "copy" => Lucide::Copy,
-        "database" => Lucide::Database,
-        "diff" => Lucide::FileDiff,
-        "file" => Lucide::File,
-        "flask" => Lucide::FlaskConical,
-        "gauge" => Lucide::Gauge,
-        "git" => Lucide::GitBranch,
-        "globe" => Lucide::Globe,
-        "list" => Lucide::ListChecks,
-        "notes" => Lucide::NotebookPen,
-        "refresh" => Lucide::RefreshCw,
-        "reset" => Lucide::RotateCcw,
-        "back" => Lucide::ChevronLeft,
-        "search" => Lucide::Search,
-        "server" => Lucide::Server,
-        "terminal" => Lucide::Terminal,
-        _ => Lucide::Puzzle,
-    }
+    name.and_then(crate::declarative::icons::lucide)
+        .unwrap_or(Lucide::Puzzle)
 }
 
 /// Every surface shares one process, retained until its workspace closes.

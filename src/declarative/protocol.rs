@@ -14,7 +14,7 @@ use super::presentation::Face;
 use super::widget::Node;
 
 pub const PROTOCOL: u32 = 3;
-pub const FEATURES: &[&str] = &["session.settings.v1"];
+pub const FEATURES: &[&str] = &["session.settings.v1", "widgets.controls.v1"];
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -190,7 +190,8 @@ mod tests {
     fn reads_views_and_rejects_invalid_trees() {
         let view = parse(r#"{"type": "view", "view": "panel", "root": {"type": "divider"}}"#);
         assert!(matches!(view, Ok(Incoming::View { .. })));
-        assert!(parse(r#"{"type": "view", "view": "panel", "root": {"type": "nope"}}"#).is_err());
+        assert!(parse(r#"{"type": "view", "view": "panel", "root": {"type": "nope"}}"#).is_ok());
+        assert!(parse(r#"{"type": "view", "view": "panel", "root": {"type": "text"}}"#).is_err());
         assert!(parse(r#"{"type": "log", "text": "x"}"#).is_err());
         // Value types belong to the advertised setting, not the native router.
         assert!(matches!(
@@ -224,7 +225,7 @@ mod tests {
         );
         let (packages, errors) = crate::declarative::manifest::discover(&root.join("packages"));
         assert!(errors.is_empty(), "{errors:?}");
-        assert_eq!(packages.len(), 12);
+        assert_eq!(packages.len(), 13);
         let output = std::process::Command::new("python3")
             .arg(root.join("tests/wire.py"))
             .arg("--wire")

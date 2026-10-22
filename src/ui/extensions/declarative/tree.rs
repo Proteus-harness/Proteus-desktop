@@ -1,7 +1,11 @@
 //! Virtualized hierarchical rows; domain actions belong to the process.
 
 use crate::declarative::tree::Row;
+use crate::declarative::widget::Tone;
 use crate::ui::{fade::faded, kit::Pressable as _, prefs};
+use gpui_kit::assets::IconName as Lucide;
+use gpui_kit::component::checkbox::Checkbox;
+use gpui_kit::component::menu::ContextMenuExt as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -12,12 +16,14 @@ pub(super) struct Tree {
     cursor: usize,
     focus: FocusHandle,
     scroll: UniformListScrollHandle,
+    view: WeakEntity<super::view::DeclarativeView>,
     action: Rc<dyn Fn(String, &'static str, &mut App)>,
 }
 
 impl Tree {
     pub fn new(
         rows: Vec<Row>,
+        view: WeakEntity<super::view::DeclarativeView>,
         cx: &mut Context<Self>,
         action: impl Fn(String, &'static str, &mut App) + 'static,
     ) -> Self {
@@ -26,6 +32,7 @@ impl Tree {
             cursor: 0,
             focus: cx.focus_handle(),
             scroll: UniformListScrollHandle::new(),
+            view,
             action: Rc::new(action),
         }
     }
@@ -69,10 +76,12 @@ impl Tree {
 }
 
 impl Render for Tree {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.cursor = self.cursor.min(self.rows.len().saturating_sub(1));
         let hover = cx.theme().list_hover;
         let selected = cx.theme().primary.opacity(0.12);
+        let border = cx.theme().primary.opacity(0.5);
+        let focused = self.focus.contains_focused(window, cx);
         let list = uniform_list(
             "extension-tree",
             self.rows.len(),
@@ -81,15 +90,28 @@ impl Render for Tree {
                     .map(|index| {
                         let row = &this.rows[index];
                         let color = super::render::tone_color(row.tone, cx);
-                        let (muted, mono) = (
-                            cx.theme().muted_foreground,
-                            cx.theme().mono_font_family.clone(),
+                        let theme = cx.theme();
+                        let (muted, mono, guide) = (
+                            theme.muted_foreground,
+                            theme.mono_font_family.clone(),
+                            theme.border.opacity(0.6),
                         );
-                        let icon = match row.expanded {
-                            Some(true) => IconName::FolderOpen,
-                            Some(false) => IconName::Folder,
-                            None => IconName::File,
-                        };
+                        let icon_color = super::render::tone_color(
+                            row.icon_tone.unwrap_or(match row.expanded {
+                                Some(_) => Tone::Muted,
+                                None => row.tone,
+                            }),
+                            cx,
+                        );
+                        let icon = row
+                            .icon
+                            .as_deref()
+                            .and_then(crate::declarative::icons::lucide)
+                            .unwrap_or(match row.expanded {
+                                Some(true) => Lucide::FolderOpen,
+                                Some(false) => Lucide::Folder,
+                                None => Lucide::File,
+                            });
                         let chevron = row.expanded.map(|open| {
                             if open {
                                 IconName::ChevronDown
@@ -97,19 +119,46 @@ impl Render for Tree {
                                 IconName::ChevronRight
                             }
                         });
-                        h_flex()
+                        let checkbox = row.checked.map(|checked| {
+                            Checkbox::new(("tree-check", index))
+                                .checked(checked)
+                                .small()
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.cursor = index;
+                                    this.act("check", cx);
+                                    cx.stop_propagation();
+                                }))
+                        });
+                        let menu =
+                            (!row.menu.is_empty()).then(|| (row.menu.clone(), this.view.clone()));
+                        let indent = |depth: usize| prefs::scaled(4. + depth as f32 * 14.);
+                        let element = h_flex()
                             .id(("tree-row", index))
+                            .relative()
                             .w_full()
-                            .h(prefs::scaled(26.))
+                            .h(prefs::scaled(24.))
                             .gap_1p5()
                             .pr_2()
-                            .pl(prefs::scaled(4. + row.depth as f32 * 14.))
+                            .pl(indent(row.depth))
                             .text_sm()
                             .text_color(color)
                             .cursor_pointer()
                             .pressable(cx)
-                            .when(index == this.cursor || row.selected, |row| row.bg(selected))
+                            .when(row.selected, |row| row.bg(selected))
+                            .when(index == this.cursor && focused, |row| {
+                                row.border_1().border_color(border)
+                            })
                             .hover(move |row| row.bg(hover))
+                            .children((0..row.depth).map(|depth| {
+                                div()
+                                    .absolute()
+                                    .top_0()
+                                    .bottom_0()
+                                    .left(indent(depth) + prefs::scaled(6.))
+                                    .w(px(1.))
+                                    .bg(guide)
+                            }))
+                            .children(checkbox)
                             .child(
                                 div()
                                     .flex_none()
@@ -117,9 +166,21 @@ impl Render for Tree {
                                     .text_color(muted)
                                     .children(chevron.map(|chevron| Icon::new(chevron).xsmall())),
                             )
-                            .child(Icon::new(icon).small())
-                            .child(div().flex_1().min_w_0().child(faded(row.label.clone())))
-                            .child(div().text_xs().font_family(mono).child(row.detail.clone()))
+                            .child(Icon::new(icon).small().text_color(icon_color))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .when(row.strike, |label| label.line_through())
+                                    .child(faded(row.label.clone())),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(muted)
+                                    .font_family(mono)
+                                    .child(row.detail.clone()),
+                            )
                             .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
                                 this.cursor = index;
                                 // The first click already toggled a branch.
@@ -130,8 +191,15 @@ impl Render for Tree {
                                     _ => this.act("open", cx),
                                 }
                                 cx.notify();
-                            }))
-                            .into_any_element()
+                            }));
+                        match menu {
+                            Some((items, view)) => element
+                                .context_menu(move |menu, _, _| {
+                                    super::menu::fill(menu, &items, &view)
+                                })
+                                .into_any_element(),
+                            None => element.into_any_element(),
+                        }
                     })
                     .collect()
             }),

@@ -252,6 +252,11 @@ pub fn parse(text: &str) -> Result<Manifest> {
     if manifest.title.trim().is_empty() {
         bail!("title is empty");
     }
+    if let Some(icon) = &manifest.icon
+        && super::icons::lucide(icon).is_none()
+    {
+        bail!("unknown icon {icon:?}; use a Lucide icon file name such as \"folder-tree\"");
+    }
     if manifest
         .command
         .first()

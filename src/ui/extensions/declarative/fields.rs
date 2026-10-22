@@ -2,12 +2,40 @@
 
 use super::{terminal::TerminalView, tree::Tree, view::DeclarativeView};
 use crate::declarative::widget::Node;
-use gpui_kit::component::input::{EditorState, InputEvent, InputState};
+use gpui_kit::component::input::{EditorState, InputEvent, InputState, TextareaState};
 use gpui_kit::*;
 use std::collections::HashMap;
 
+pub(super) enum Text {
+    Line(Entity<InputState>),
+    Area(Entity<TextareaState>),
+}
+
+impl Text {
+    pub fn value(&self, cx: &App) -> SharedString {
+        match self {
+            Text::Line(state) => state.read(cx).value(),
+            Text::Area(state) => state.read(cx).value(),
+        }
+    }
+
+    pub fn focus_handle(&self, cx: &App) -> FocusHandle {
+        match self {
+            Text::Line(state) => state.read(cx).focus_handle(cx),
+            Text::Area(state) => state.read(cx).focus_handle(cx),
+        }
+    }
+
+    fn set_value(&self, value: String, window: &mut Window, cx: &mut App) {
+        match self {
+            Text::Line(state) => state.update(cx, |input, cx| input.set_value(value, window, cx)),
+            Text::Area(state) => state.update(cx, |input, cx| input.set_value(value, window, cx)),
+        }
+    }
+}
+
 pub(super) struct TextInput {
-    pub state: Entity<InputState>,
+    pub state: Text,
     value: String,
     _subscription: Subscription,
 }
@@ -97,38 +125,76 @@ impl DeclarativeView {
                 value,
                 placeholder,
                 action,
+                lines,
+                submit,
             } => {
                 if let Some(input) = self.fields.inputs.get_mut(id) {
                     if input.value != *value {
                         input.value = value.clone();
-                        if input.state.read(cx).value().as_ref() != value {
-                            input
-                                .state
-                                .update(cx, |input, cx| input.set_value(value.clone(), window, cx));
+                        if input.state.value(cx).as_ref() != value {
+                            input.state.set_value(value.clone(), window, cx);
                         }
                     }
                 } else {
-                    let state = cx.new(|cx| {
-                        let mut input =
-                            InputState::new(window, cx).placeholder(placeholder.clone());
-                        input.set_value(value.clone(), window, cx);
-                        input
-                    });
-                    let (action, identity) = (action.clone(), id.clone());
-                    let subscription =
-                        cx.subscribe(&state, move |this, state, event: &InputEvent, cx| {
-                            if matches!(event, InputEvent::Change)
-                                && this.fields.inputs.get(&identity).is_some_and(|input| {
-                                    input.value != state.read(cx).value().as_ref()
-                                })
-                            {
-                                this.act(
-                                    action.clone(),
-                                    Some(serde_json::json!(state.read(cx).value().to_string())),
-                                    cx,
-                                );
+                    let multi = *lines > 1;
+                    let (action, submit, identity) = (action.clone(), submit.clone(), id.clone());
+                    let handle =
+                        move |this: &mut DeclarativeView,
+                              text: SharedString,
+                              event: &InputEvent,
+                              cx: &mut Context<DeclarativeView>| {
+                            match event {
+                                InputEvent::Change
+                                    if this
+                                        .fields
+                                        .inputs
+                                        .get(&identity)
+                                        .is_some_and(|input| input.value != text.as_ref()) =>
+                                {
+                                    this.act(
+                                        action.clone(),
+                                        Some(serde_json::json!(text.to_string())),
+                                        cx,
+                                    )
+                                }
+                                InputEvent::PressEnter { secondary, .. } if *secondary == multi => {
+                                    if let Some(submit) = &submit {
+                                        this.act(
+                                            submit.clone(),
+                                            Some(serde_json::json!(text.to_string())),
+                                            cx,
+                                        )
+                                    }
+                                }
+                                _ => {}
                             }
+                        };
+                    let (state, subscription) = if multi {
+                        let state = cx.new(|cx| {
+                            let mut input = TextareaState::new(window, cx)
+                                .auto_grow(2, *lines)
+                                .placeholder(placeholder.clone());
+                            input.set_value(value.clone(), window, cx);
+                            input
                         });
+                        let subscription = cx.subscribe(&state, move |this, state, event, cx| {
+                            let text = state.read(cx).value();
+                            handle(this, text, event, cx)
+                        });
+                        (Text::Area(state), subscription)
+                    } else {
+                        let state = cx.new(|cx| {
+                            let mut input =
+                                InputState::new(window, cx).placeholder(placeholder.clone());
+                            input.set_value(value.clone(), window, cx);
+                            input
+                        });
+                        let subscription = cx.subscribe(&state, move |this, state, event, cx| {
+                            let text = state.read(cx).value();
+                            handle(this, text, event, cx)
+                        });
+                        (Text::Line(state), subscription)
+                    };
                     self.fields.inputs.insert(
                         id.clone(),
                         TextInput {
@@ -182,7 +248,7 @@ impl DeclarativeView {
                 } else {
                     let (this, action) = (cx.weak_entity(), action.clone());
                     let tree = cx.new(|cx| {
-                        Tree::new(rows.clone(), cx, move |id, event, cx| {
+                        Tree::new(rows.clone(), this.clone(), cx, move |id, event, cx| {
                             let _ = this.update(cx, |this, cx| {
                                 this.act(
                                     action.clone(),
