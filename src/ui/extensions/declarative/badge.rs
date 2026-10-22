@@ -5,12 +5,14 @@ use std::rc::Rc;
 
 use gpui_kit::component::progress::ProgressCircle;
 use gpui_kit::component::*;
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::super::badge::{Details, Press, pressable_badge};
 use super::view::DeclarativeView;
 use super::{Host, SurfaceKind, installed, runtime};
 use crate::declarative::presentation::Face;
+use crate::declarative::widget::Tone;
 use crate::ui::{motion::Number, prefs};
 use std::cell::Cell;
 
@@ -18,6 +20,10 @@ pub(super) struct DeclarativeBadge {
     pub(super) host: Host,
     pub(super) view: Entity<DeclarativeView>,
     pub(super) popup: Option<super::super::SurfaceView>,
+    pub(super) last_popup: Option<(
+        crate::declarative::widget::Node,
+        std::collections::HashMap<String, String>,
+    )>,
     pub(super) popup_epoch: u64,
     pub(super) bounds: Rc<Cell<Bounds<Pixels>>>,
     pub(super) restore: Option<FocusHandle>,
@@ -32,6 +38,7 @@ pub(super) fn build(host: Host, window: &mut Window, cx: &mut App) -> AnyView {
         host,
         view,
         popup: None,
+        last_popup: None,
         popup_epoch: 0,
         bounds: Rc::default(),
         restore: None,
@@ -82,10 +89,12 @@ impl Render for DeclarativeBadge {
         } else {
             gpui_kit::component::Size::Small
         };
+        let open = self.popup.is_some();
         let face: Rc<dyn Fn() -> AnyElement> = if let Some(presentation) = presentation {
             match &presentation.face {
                 Face::Icon { tone, count } => {
-                    let color = super::render::tone_color(*tone, cx);
+                    let color = (!matches!(tone, Tone::Muted | Tone::Default))
+                        .then(|| super::render::tone_color(*tone, cx));
                     let count = *count;
                     Rc::new(move || {
                         div()
@@ -94,7 +103,11 @@ impl Render for DeclarativeBadge {
                             .items_center()
                             .justify_center()
                             .size(prefs::scaled(22.))
-                            .child(Icon::new(icon).with_size(icon_size).text_color(color))
+                            .child(
+                                Icon::new(icon)
+                                    .with_size(icon_size)
+                                    .when_some(color, |icon, color| icon.text_color(color)),
+                            )
                             .children(count.filter(|count| *count > 0).map(|count| {
                                 div()
                                     .absolute()
@@ -118,16 +131,23 @@ impl Render for DeclarativeBadge {
                     caret,
                 } => {
                     let (show_icon, caret) = (*show_icon, *caret);
-                    let (text, color) = (text.clone(), super::render::tone_color(*tone, cx));
+                    // Muted and default faces inherit the badge color, so they
+                    // brighten on hover with the rest of the status bar.
+                    let color = (!matches!(tone, Tone::Muted | Tone::Default))
+                        .then(|| super::render::tone_color(*tone, cx));
+                    let text = text.clone();
+                    let chevron = if open {
+                        gpui_kit::assets::IconName::ChevronUp
+                    } else {
+                        gpui_kit::assets::IconName::ChevronDown
+                    };
                     Rc::new(move || {
                         h_flex()
                             .gap_1()
-                            .text_color(color)
+                            .when_some(color, |face, color| face.text_color(color))
                             .children(show_icon.then(|| Icon::new(icon).small()))
                             .child(text.clone())
-                            .children(caret.then(|| {
-                                Icon::new(gpui_kit::assets::IconName::ChevronDown).xsmall()
-                            }))
+                            .children(caret.then(|| Icon::new(chevron.clone()).xsmall()))
                             .into_any_element()
                     })
                 }

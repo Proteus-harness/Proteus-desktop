@@ -140,14 +140,18 @@ impl DeclarativeView {
                 }
             }
             Node::Code {
-                id, text, language, ..
+                id,
+                text,
+                language,
+                wrap,
+                ..
             } => {
                 let editor = self.fields.codes.entry(id.clone()).or_insert_with(|| {
                     cx.new(|cx| {
                         let mut editor = EditorState::new(window, cx)
                             .language(language.clone())
-                            .line_number(true)
-                            .soft_wrap(false);
+                            .line_number(!*wrap)
+                            .soft_wrap(*wrap);
                         editor.set_readonly(true, cx);
                         editor
                     })
@@ -193,7 +197,8 @@ impl DeclarativeView {
             }
             Node::Stack { children, .. }
             | Node::Card { children, .. }
-            | Node::Fill { children } => {
+            | Node::Fill { children }
+            | Node::Split { children, .. } => {
                 for child in children {
                     self.prepare_fields(child, window, cx);
                 }

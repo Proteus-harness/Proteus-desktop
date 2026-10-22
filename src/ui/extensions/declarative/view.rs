@@ -107,6 +107,11 @@ impl DeclarativeView {
         cx.notify();
     }
 
+    /// Last tree and keys, to seed a reopened popup until the process answers.
+    pub(super) fn snapshot(&self) -> Option<(Node, HashMap<String, String>)> {
+        Some((self.root.clone()?, self.keys.clone()))
+    }
+
     pub(super) fn present(&mut self, presentation: Option<Presentation>, cx: &mut Context<Self>) {
         self.presentation = presentation;
         cx.notify();
@@ -359,7 +364,8 @@ impl DeclarativeView {
             }
             Node::Stack { children, .. }
             | Node::Card { children, .. }
-            | Node::Fill { children } => {
+            | Node::Fill { children }
+            | Node::Split { children, .. } => {
                 for child in children {
                     self.prepare_steps(child, cx);
                 }

@@ -54,17 +54,8 @@ impl Runtime {
                 HostEvent::NavigationChanged => HostEventKind::NavigationChanged,
             };
             let session_dir = this.host.session_dir(cx);
-            if event == HostEventKind::SessionOpened {
-                for attached in this
-                    .views
-                    .values()
-                    .filter(|attached| attached.surface == SurfaceKind::Badge)
-                {
-                    if let Some(view) = attached.view.upgrade() {
-                        view.update(cx, |view, cx| view.present(None, cx));
-                    }
-                }
-            }
+            // Badges keep the old face until the process answers for the new
+            // session; clearing them here made the status bar blink.
             if this.process.is_none() && this.error.is_none() {
                 this.start(cx);
             }

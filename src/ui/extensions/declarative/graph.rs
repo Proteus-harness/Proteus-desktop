@@ -75,20 +75,24 @@ impl Graph {
         let Some(area) = self.area.get() else {
             return;
         };
-        let width = self
-            .nodes
-            .iter()
-            .map(|node| self.position(node).x + NODE_WIDTH + 32.)
-            .fold(1., f32::max);
-        let height = self
-            .nodes
-            .iter()
-            .map(|node| self.position(node).y + NODE_HEIGHT + 32.)
-            .fold(1., f32::max);
-        self.zoom = (f32::from(area.size.width) / width)
-            .min(f32::from(area.size.height) / height)
-            .clamp(0.15, 1.);
-        self.offset = point(px(8.), px(8.));
+        let positions: Vec<_> = self.nodes.iter().map(|node| self.position(node)).collect();
+        if positions.is_empty() {
+            return;
+        }
+        let (left, top) = positions.iter().fold((f32::MAX, f32::MAX), |(x, y), at| {
+            (x.min(at.x), y.min(at.y))
+        });
+        let (right, bottom) = positions.iter().fold((f32::MIN, f32::MIN), |(x, y), at| {
+            (x.max(at.x + NODE_WIDTH), y.max(at.y + NODE_HEIGHT))
+        });
+        let (width, height) = (right - left + 64., bottom - top + 64.);
+        let size = (f32::from(area.size.width), f32::from(area.size.height));
+        self.zoom = (size.0 / width).min(size.1 / height).clamp(0.15, 1.);
+        // Centers the bounding box of the nodes in the visible area.
+        self.offset = point(
+            px((size.0 - (right - left) * self.zoom) / 2. - left * self.zoom),
+            px((size.1 - (bottom - top) * self.zoom) / 2. - top * self.zoom),
+        );
         self.fit = false;
     }
 }
@@ -115,16 +119,38 @@ impl Render for Graph {
             .iter()
             .map(|node| (node.id.clone(), self.position(node)))
             .collect();
-        let lines: Vec<_> = self
+        let chosen: std::collections::HashSet<_> = self
+            .nodes
+            .iter()
+            .filter(|node| node.selected)
+            .map(|node| node.id.as_str())
+            .collect();
+        // Edges of the selected node stand out; the rest fade behind them.
+        let mut lines: Vec<_> = self
             .edges
             .iter()
-            .filter_map(|edge| Some((*positions.get(&edge.from)?, *positions.get(&edge.to)?)))
+            .filter_map(|edge| {
+                let linked =
+                    chosen.contains(edge.from.as_str()) || chosen.contains(edge.to.as_str());
+                let color = match (chosen.is_empty(), linked) {
+                    (true, _) => border,
+                    (false, true) => primary,
+                    (false, false) => border.opacity(0.35),
+                };
+                Some((
+                    *positions.get(&edge.from)?,
+                    *positions.get(&edge.to)?,
+                    color,
+                    linked,
+                ))
+            })
             .collect();
+        lines.sort_by_key(|line| line.3);
         let edges = canvas(
             |_, _, _| {},
             move |bounds, _, window, _| {
-                for (from, to) in &lines {
-                    paint_edge(window, bounds.origin + offset, zoom, *from, *to, border);
+                for (from, to, color, _) in &lines {
+                    paint_edge(window, bounds.origin + offset, zoom, *from, *to, *color);
                 }
             },
         )
@@ -146,6 +172,7 @@ impl Render for Graph {
                     .h(px(NODE_HEIGHT * zoom))
                     .rounded(px(6. * zoom))
                     .border_1()
+                    .when(node.selected, |node| node.border_2())
                     .border_color(if node.selected { primary } else { border })
                     .bg(background)
                     .overflow_hidden()

@@ -164,6 +164,8 @@ pub(super) fn icon(name: Option<&str>) -> Lucide {
         "list" => Lucide::ListChecks,
         "notes" => Lucide::NotebookPen,
         "refresh" => Lucide::RefreshCw,
+        "reset" => Lucide::RotateCcw,
+        "back" => Lucide::ChevronLeft,
         "search" => Lucide::Search,
         "server" => Lucide::Server,
         "terminal" => Lucide::Terminal,

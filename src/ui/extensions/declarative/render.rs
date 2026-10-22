@@ -87,6 +87,43 @@ impl DeclarativeView {
                     }
                 }))
                 .into_any_element(),
+            Node::Split { children, widths } => {
+                let border = cx.theme().border;
+                let last = children.len().saturating_sub(1);
+                h_flex()
+                    .flex_1()
+                    .w_full()
+                    .min_h_0()
+                    .children(children.iter().enumerate().map(|(index, child)| {
+                        let path = format!("{path}.{index}");
+                        let element = self.node(child, &path, cx);
+                        let column = v_flex()
+                            .h_full()
+                            .min_h_0()
+                            .min_w_0()
+                            .when(index < last, |column| {
+                                column.border_r_1().border_color(border)
+                            });
+                        let column = match widths.get(index).copied().flatten() {
+                            Some(width) => column.w(prefs::scaled(width)).flex_none(),
+                            None => column.flex_1(),
+                        };
+                        match child {
+                            Node::Fill { .. } => column.child(element),
+                            // Ordinary content scrolls inside its own column.
+                            _ => column.child(
+                                v_flex()
+                                    .id(SharedString::from(format!("split-{path}")))
+                                    .size_full()
+                                    .overflow_y_scroll()
+                                    .p_3()
+                                    .gap_3()
+                                    .child(element),
+                            ),
+                        }
+                    }))
+                    .into_any_element()
+            }
             Node::Input { id, .. } => div()
                 .p_2()
                 .children(

@@ -39,6 +39,13 @@ pub enum Node {
     Fill {
         children: Vec<Node>,
     },
+    /// Row of full-height columns; `widths[i]` fixes a column width in pixels,
+    /// a missing or null entry lets the column take the rest.
+    Split {
+        children: Vec<Node>,
+        #[serde(default)]
+        widths: Vec<Option<f32>>,
+    },
     Input {
         id: String,
         value: String,
@@ -51,6 +58,9 @@ pub enum Node {
         language: String,
         #[serde(default)]
         height: Option<f32>,
+        /// Soft-wraps long lines and hides line numbers, for prose and logs.
+        #[serde(default)]
+        wrap: bool,
     },
     Terminal {
         id: String,
@@ -265,7 +275,8 @@ impl Node {
         match self {
             Node::Stack { children, .. }
             | Node::Card { children, .. }
-            | Node::Fill { children } => {
+            | Node::Fill { children }
+            | Node::Split { children, .. } => {
                 for child in children {
                     child.visit(each);
                 }
@@ -330,6 +341,17 @@ impl Node {
             Node::Stack { children, .. }
             | Node::Card { children, .. }
             | Node::Fill { children } => children,
+            Node::Split { children, widths } => {
+                if widths.len() > children.len()
+                    || widths
+                        .iter()
+                        .flatten()
+                        .any(|width| !width.is_finite() || *width <= 0.)
+                {
+                    bail!("split widths must be positive and match the columns");
+                }
+                children
+            }
             Node::Tabs { tabs } => {
                 for tab in tabs {
                     for child in &tab.children {
@@ -422,6 +444,23 @@ mod tests {
             (direction, gap, children.len()),
             (Direction::Column, Gap::Small, 3)
         );
+    }
+
+    #[test]
+    fn reads_a_split_with_fixed_and_flexible_columns() {
+        let node = parse(json!({"type": "split", "widths": [240, null], "children": [
+            {"type": "text", "text": "слева"},
+            {"type": "fill", "children": [{"type": "text", "text": "справа"}]}
+        ]}))
+        .unwrap();
+        let Node::Split { children, widths } = node else {
+            panic!("split expected");
+        };
+        assert_eq!((children.len(), widths), (2, vec![Some(240.), None]));
+        let one = json!({"type": "text", "text": "x"});
+        for widths in [json!([0]), json!([10, 10])] {
+            assert!(parse(json!({"type": "split", "widths": widths, "children": [one]})).is_err());
+        }
     }
 
     #[test]

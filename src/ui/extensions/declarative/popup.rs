@@ -2,6 +2,7 @@
 
 use super::SurfaceKind;
 use super::badge::DeclarativeBadge;
+use super::view::DeclarativeView;
 use crate::ui::prefs;
 use gpui_kit::component::*;
 use gpui_kit::*;
@@ -13,6 +14,11 @@ impl DeclarativeBadge {
         } else {
             self.restore = window.focused(cx);
             let popup = super::surface(self.host.clone(), SurfaceKind::Popup, None, window, cx);
+            if let Some((root, keys)) = self.last_popup.clone()
+                && let Ok(view) = popup.view.clone().downcast::<DeclarativeView>()
+            {
+                view.update(cx, |view, cx| view.show(root, 0, keys, cx));
+            }
             popup.focus.focus(window, cx);
             self.popup = Some(popup);
         }
@@ -21,6 +27,12 @@ impl DeclarativeBadge {
 
     pub(super) fn close_popup(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let popup = self.popup.take();
+        if let Some(view) = popup
+            .as_ref()
+            .and_then(|popup| popup.view.clone().downcast::<DeclarativeView>().ok())
+        {
+            self.last_popup = view.read(cx).snapshot().or(self.last_popup.take());
+        }
         if popup
             .as_ref()
             .is_some_and(|popup| popup.focus.contains_focused(window, cx))
