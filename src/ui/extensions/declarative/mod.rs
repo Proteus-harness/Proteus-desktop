@@ -4,6 +4,7 @@
 //! Shipped and user-installed packages share this renderer and [`Host`].
 
 mod badge;
+mod bar;
 mod button;
 mod cells;
 mod fields;
@@ -11,10 +12,12 @@ mod graph;
 mod lanes;
 mod lanes_paint;
 mod layout;
+mod list;
 mod menu;
 mod popup;
 mod prompt;
 mod render;
+mod rows;
 mod runtime;
 mod steps;
 mod terminal;

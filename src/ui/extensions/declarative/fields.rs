@@ -1,6 +1,7 @@
 //! Persistent native control state for process-owned widget trees.
 
 use super::lanes::Lanes;
+use super::list::List;
 use super::tree::{Layout, Tree};
 use super::{terminal::TerminalView, view::DeclarativeView};
 use crate::declarative::widget::Node;
@@ -62,6 +63,7 @@ pub(super) struct Fields {
     pub graphs: HashMap<String, Entity<super::graph::Graph>>,
     pub trees: HashMap<String, Entity<Tree>>,
     pub lanes: HashMap<String, Entity<Lanes>>,
+    pub lists: HashMap<String, Entity<List>>,
 }
 
 impl DeclarativeView {
@@ -89,6 +91,9 @@ impl DeclarativeView {
             Node::Lanes { id, .. } => {
                 ids.insert((6, id.clone()));
             }
+            Node::List { id, .. } => {
+                ids.insert((7, id.clone()));
+            }
             _ => {}
         });
         self.fields
@@ -110,6 +115,9 @@ impl DeclarativeView {
         self.fields
             .lanes
             .retain(|id, _| ids.contains(&(6, id.clone())));
+        self.fields
+            .lists
+            .retain(|id, _| ids.contains(&(7, id.clone())));
     }
 
     pub(super) fn prepare_fields(
@@ -148,6 +156,7 @@ impl DeclarativeView {
                 action,
                 lines,
                 submit,
+                ..
             } => {
                 if let Some(input) = self.fields.inputs.get_mut(id) {
                     if input.placeholder != *placeholder {
@@ -300,9 +309,21 @@ impl DeclarativeView {
                     self.fields.lanes.insert(id.clone(), lanes);
                 }
             }
+            Node::List { id, rows, action } => {
+                if let Some(list) = self.fields.lists.get(id) {
+                    list.update(cx, |list, cx| list.set_rows(rows.clone(), cx));
+                } else {
+                    let send = self.row_sender(action, cx);
+                    let view = cx.weak_entity();
+                    let list = cx.new(|cx| List::new(rows.clone(), view, cx, send));
+                    self.fields.lists.insert(id.clone(), list);
+                }
+            }
             Node::Stack { children, .. }
             | Node::Card { children, .. }
             | Node::Fill { children }
+            | Node::Bar { children, .. }
+            | Node::PanelEditor { children }
             | Node::Split { children, .. } => {
                 for child in children {
                     self.prepare_fields(child, window, cx);
@@ -321,7 +342,7 @@ impl DeclarativeView {
 }
 
 impl DeclarativeView {
-    /// Sends `{id, event}` of a tree or lanes row with `action`.
+    /// Sends `{id, event}` of a tree, lanes or list row with `action`.
     fn row_sender(
         &self,
         action: &str,

@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use gpui_kit::base::SelectableText;
 use gpui_kit::component::clipboard::Clipboard;
 use gpui_kit::component::text::{TextView, TextViewState};
@@ -73,15 +75,14 @@ impl Chat {
         let chain_head = chain.as_ref().map(|chain| entries[chain.start].key);
         let chain_open = chain_head.is_some_and(|head| self.chain_open(head));
         let chain_reveal = chain_head.map(|head| chain_reveal_key(cx.entity_id(), head));
-        // Calls after the head are rows of their own; each opens and closes
-        // with the chain, so the run grows as one block.
-        let chain_tail = chain_reveal
-            .clone()
-            .filter(|_| chain.as_ref().is_some_and(|chain| ix != chain.start));
-        if chain_tail
+        // Calls after the head are rows of their own while the run rests
+        // open; while it opens or closes the head draws the whole run as one
+        // block, so it grows like any other disclosure.
+        let chain_moving = chain_reveal
             .as_ref()
-            .is_some_and(|key| !motion::showing(key, chain_open, cx))
-        {
+            .is_some_and(|key| motion::moving(key, chain_open, cx));
+        let chain_tail = chain.as_ref().is_some_and(|chain| ix != chain.start);
+        if chain_tail && (!chain_open || chain_moving) {
             return div().into_any_element();
         }
         let missing = self.sent_images.missing(&entry.images);
@@ -89,7 +90,11 @@ impl Chat {
         let full = self.full_rows.contains(&entry.key);
         let fresh = self.fresh_rows.is_fresh(entry.key);
         let key = entry.key;
-        let last = ix + 1 == entries.len();
+        // A run drawn by its head alone ends where its last call does.
+        let last = match &chain {
+            Some(chain) if !chain_open || chain_moving => chain.end == entries.len(),
+            _ => ix + 1 == entries.len(),
+        };
         let spacing = match (&entry.role, &entry.tool) {
             (Role::User, _) => Spacing {
                 top: 4.,
@@ -99,10 +104,7 @@ impl Chat {
                 top: 2.,
                 bottom: 0.,
             },
-            (Role::System, Some(_)) => Spacing {
-                top: 1.,
-                bottom: 1.,
-            },
+            (Role::System, Some(_)) => TOOL_SPACING,
             (Role::System, None) => Spacing {
                 top: 2.,
                 bottom: 2.,
@@ -121,15 +123,16 @@ impl Chat {
                         .filter_map(|entry| entry.tool.as_ref())
                         .collect();
                     let header = render_chain_header(key, &tools, chain_open, cx);
-                    let reveal_key = chain_reveal.clone().unwrap_or_default();
-                    let first = motion::showing(&reveal_key, chain_open, cx)
-                        .then(|| render_tool(entry.key, tool, expanded, full, cx));
-                    let first = first.and_then(|tool| {
-                        reveal(reveal_key, chain_open, cx, || {
+                    let calls = if chain_moving {
+                        let run = self.render_run(chain.clone(), cx);
+                        reveal(chain_reveal.unwrap_or_default(), chain_open, cx, || run)
+                    } else {
+                        chain_open.then(|| {
+                            let tool = render_tool(entry.key, tool, expanded, full, cx);
                             div().pt_1().child(tool).into_any_element()
                         })
-                    });
-                    v_flex().child(header).children(first).into_any_element()
+                    };
+                    v_flex().child(header).children(calls).into_any_element()
                 }
                 _ => render_tool(entry.key, tool, expanded, full, cx),
             },
@@ -139,7 +142,7 @@ impl Chat {
         if !missing.is_empty() {
             self.fetch_images(missing, cx);
         }
-        let row = h_flex()
+        h_flex()
             .w_full()
             .justify_center()
             .px_6()
@@ -152,16 +155,25 @@ impl Chat {
                 row_id("enter", key),
                 fresh,
             ))
-            .into_any_element();
-        match chain_tail {
-            // The id keeps the reveals of the run's rows apart.
-            Some(reveal_key) => div()
-                .id(row_id("chain-row", key))
-                .w_full()
-                .children(reveal(reveal_key, chain_open, cx, || row))
-                .into_any_element(),
-            None => row,
+            .into_any_element()
+    }
+
+    /// Every call of a run as one block, spaced as their rows are at rest,
+    /// so the block ends exactly where the rows will.
+    fn render_run(&self, run: Range<usize>, cx: &mut Context<Self>) -> AnyElement {
+        let entries = self.session.transcript.entries();
+        let gap = px((TOOL_SPACING.bottom + TOOL_SPACING.top) * 4.);
+        let mut block = v_flex();
+        for (n, entry) in entries[run].iter().enumerate() {
+            let Some(tool) = &entry.tool else {
+                continue;
+            };
+            let expanded = self.expanded.contains(&entry.key);
+            let full = self.full_rows.contains(&entry.key);
+            let call = div().child(render_tool(entry.key, tool, expanded, full, cx));
+            block = block.child(if n == 0 { call.pt_1() } else { call.pt(gap) });
         }
+        block.into_any_element()
     }
 }
 
@@ -171,6 +183,11 @@ struct Spacing {
     top: f32,
     bottom: f32,
 }
+
+const TOOL_SPACING: Spacing = Spacing {
+    top: 1.,
+    bottom: 1.,
+};
 
 fn row_id(name: &'static str, key: u64) -> ElementId {
     ElementId::NamedInteger(name.into(), key)

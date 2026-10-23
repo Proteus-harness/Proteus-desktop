@@ -99,10 +99,11 @@ pub(in crate::ui) fn reveal(
     Some(Reveal::new(ElementId::Name(key), progress, child).into_any_element())
 }
 
-/// Whether `reveal` would show anything: the disclosure is open or still
-/// closing. Lets a caller skip building content that stays hidden.
-pub(in crate::ui) fn showing(key: &str, open: bool, cx: &App) -> bool {
-    open || progress(key, open, cx).is_some()
+/// Whether `toggled` is animating `key` towards `open` right now. A caller
+/// that splits a disclosure into several rows at rest draws them as one
+/// block meanwhile, so the whole block grows like any other disclosure.
+pub(in crate::ui) fn moving(key: &str, open: bool, cx: &App) -> bool {
+    progress(key, open, cx).is_some()
 }
 
 /// Eased share of the content shown while `toggled` animates `key`.

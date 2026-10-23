@@ -221,6 +221,13 @@ impl Render for DeclarativeView {
                 })
                 .or_else(|| {
                     fields
+                        .lists
+                        .values()
+                        .next()
+                        .map(|list| list.read(cx).focus())
+                })
+                .or_else(|| {
+                    fields
                         .terminals
                         .values()
                         .next()
@@ -376,6 +383,8 @@ impl DeclarativeView {
             Node::Stack { children, .. }
             | Node::Card { children, .. }
             | Node::Fill { children }
+            | Node::Bar { children, .. }
+            | Node::PanelEditor { children }
             | Node::Split { children, .. } => {
                 for child in children {
                     self.prepare_steps(child, cx);
@@ -407,6 +416,7 @@ impl DeclarativeView {
                     .get(id)
                     .map(|lanes| lanes.read(cx).focus())
             })
+            .or_else(|| self.fields.lists.get(id).map(|list| list.read(cx).focus()))
             .or_else(|| {
                 self.fields
                     .codes

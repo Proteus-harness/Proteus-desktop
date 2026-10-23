@@ -1,16 +1,15 @@
 //! Native rendering of the widget tree an extension sends.
 
-use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::input::{Editor, Input, Textarea};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use serde_json::Value;
 
+use super::button::Fit;
 use super::view::DeclarativeView;
-use crate::declarative::widget::{Direction, Gap, Item, Node, TextSize, Tone};
+use crate::declarative::widget::{Direction, Gap, Node, TextSize, Tone};
 use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::kit::Pressable as _;
@@ -72,24 +71,7 @@ impl DeclarativeView {
                     })
                     .into_any_element()
             }
-            Node::Menu {
-                label,
-                icon,
-                hint,
-                items,
-            } => {
-                let (items, view) = (items.clone(), cx.weak_entity());
-                let button = kit::button(ElementId::Name(format!("decl-menu-{path}").into()))
-                    .small()
-                    .ghost()
-                    .when(!label.is_empty(), |button| button.label(label.clone()))
-                    .when_some(hint.clone(), |button, hint| button.tooltip(hint))
-                    .icon(super::icon(Some(icon.as_deref().unwrap_or("ellipsis"))))
-                    .dropdown_menu_with_anchor(Anchor::TopRight, move |menu: PopupMenu, _, _| {
-                        super::menu::fill(menu.min_w(px(180.)), &items, &view)
-                    });
-                button.into_any_element()
-            }
+            Node::Menu { .. } => super::button::menu(node, path, Fit::Normal, cx),
             Node::Checkbox {
                 label,
                 checked,
@@ -119,6 +101,18 @@ impl DeclarativeView {
                 .w_full()
                 .min_h_0()
                 .into_any_element(),
+            Node::Bar { children, border } => {
+                self.bar(children, *border, path, cx).into_any_element()
+            }
+            Node::PanelEditor { children } => {
+                self.panel_editor(children, path, cx).into_any_element()
+            }
+            Node::Empty { text } => super::layout::empty(text, cx).into_any_element(),
+            Node::Icon { name, tone } => Icon::new(super::icon(Some(name)))
+                .small()
+                .flex_none()
+                .text_color(tone_color(*tone, cx))
+                .into_any_element(),
             Node::Split { children, widths } => {
                 let border = cx.theme().border;
                 let last = children.len().saturating_sub(1);
@@ -144,6 +138,7 @@ impl DeclarativeView {
                             Node::Fill { .. }
                             | Node::Tree { .. }
                             | Node::Lanes { .. }
+                            | Node::List { .. }
                             | Node::Terminal { .. } => column.child(element),
                             // Ordinary content scrolls inside its own column.
                             _ => column.child(
@@ -159,17 +154,29 @@ impl DeclarativeView {
                     }))
                     .into_any_element()
             }
-            Node::Input { id, .. } => div()
-                .p_2()
-                .children(self.fields.inputs.get(id).map(|input| match &input.state {
-                    super::fields::Text::Line(state) => {
-                        Input::new(state).w_full().into_any_element()
-                    }
-                    super::fields::Text::Area(state) => {
-                        Textarea::new(state).small().w_full().into_any_element()
-                    }
-                }))
-                .into_any_element(),
+            Node::Input {
+                id, flush, mono, ..
+            } => {
+                let mono = mono.then(|| cx.theme().mono_font_family.clone());
+                div()
+                    .w_full()
+                    .map(|field| if *flush { field.pt_1p5() } else { field.p_2() })
+                    .when_some(mono, |field, family| field.font_family(family))
+                    .children(self.fields.inputs.get(id).map(|input| {
+                        match &input.state {
+                            super::fields::Text::Line(state) => Input::new(state)
+                                .w_full()
+                                .appearance(!*flush)
+                                .into_any_element(),
+                            super::fields::Text::Area(state) => Textarea::new(state)
+                                .small()
+                                .w_full()
+                                .appearance(!*flush)
+                                .into_any_element(),
+                        }
+                    }))
+                    .into_any_element()
+            }
             Node::Code { id, height, .. } => div()
                 .when(height.is_none(), |node| node.flex_1())
                 .when_some(*height, |node, height| node.h(prefs::scaled(height)))
@@ -196,6 +203,11 @@ impl DeclarativeView {
                 .flex_1()
                 .min_h_0()
                 .children(self.fields.lanes.get(id).cloned())
+                .into_any_element(),
+            Node::List { id, .. } => div()
+                .flex_1()
+                .min_h_0()
+                .children(self.fields.lists.get(id).cloned())
                 .into_any_element(),
             Node::Steps { id, .. } => div()
                 .w_full()
@@ -394,15 +406,7 @@ impl DeclarativeView {
             Node::Tabs { tabs, action } => self
                 .tabs(tabs, action.as_deref(), path, false, cx)
                 .into_any_element(),
-            Node::List { items } => v_flex()
-                .children(
-                    items
-                        .iter()
-                        .enumerate()
-                        .map(|(index, item)| self.item(item, &format!("{path}.{index}"), cx)),
-                )
-                .into_any_element(),
-            Node::Button { .. } => super::button::button(node, path, cx),
+            Node::Button { .. } => super::button::button(node, path, Fit::Normal, cx),
             Node::Badge { label, tone } => {
                 let color = tone_color(*tone, cx);
                 div()
@@ -436,44 +440,6 @@ impl DeclarativeView {
             .map(|(index, node)| self.node(node, &format!("{path}.{index}"), cx))
             .collect()
     }
-
-    fn item(&self, item: &Item, path: &str, cx: &mut Context<Self>) -> AnyElement {
-        let theme = cx.theme();
-        let hover = theme.list_hover;
-        let row = v_flex()
-            .id(ElementId::Name(format!("decl-item-{path}").into()))
-            .px_2()
-            .py_1()
-            .rounded(theme.radius)
-            .child(div().text_sm().child(item.title.clone()))
-            .when_some(item.detail.clone(), |row, detail| {
-                row.child(
-                    div()
-                        .text_xs()
-                        .text_color(theme.muted_foreground)
-                        .child(detail),
-                )
-            });
-        match &item.action {
-            Some(action) => {
-                let send = self.sender(action.clone(), item.value.clone());
-                row.cursor_pointer()
-                    .pressable(cx)
-                    .hover(move |style| style.bg(hover))
-                    .on_click(cx.listener(move |this, _, _, cx| send(this, cx)))
-                    .into_any_element()
-            }
-            None => row.into_any_element(),
-        }
-    }
-
-    fn sender(
-        &self,
-        action: String,
-        value: Option<Value>,
-    ) -> impl Fn(&mut Self, &mut Context<Self>) + 'static {
-        move |this, cx| this.act(action.clone(), value.clone(), cx)
-    }
 }
 
 /// Short controls that line up on one baseline in a row.
@@ -486,6 +452,7 @@ fn inline(node: &Node) -> bool {
             | Node::Select { .. }
             | Node::Menu { .. }
             | Node::Checkbox { .. }
+            | Node::Icon { .. }
             | Node::Spacer {}
     )
 }

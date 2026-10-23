@@ -25,7 +25,7 @@ mod spinner;
 pub(super) mod ticker;
 
 pub(super) use collapse::Collapse;
-pub(super) use disclosure::{chevron, drive, reveal, showing, toggled};
+pub(super) use disclosure::{chevron, drive, moving, reveal, toggled};
 pub(super) use enter::{fade_in_if, late_in, rise_in, rise_in_if, stagger_in, switch_in};
 pub(super) use number::Number;
 pub(super) use slide::{Slide, glide};

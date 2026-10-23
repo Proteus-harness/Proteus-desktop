@@ -1,6 +1,6 @@
 // Адаптировано из Zed: crates/ui/src/components/toggle.rs, crates/ui/src/components/diff_stat.rs, crates/ui/src/components/chip.rs
-//! Small pieces of rows: a three-state checkbox, a diff stat and a counter
-//! chip, sized like their Zed counterparts.
+//! Small pieces of rows: a three-state checkbox, a diff stat and counter
+//! and label chips, sized like their Zed counterparts.
 
 use crate::declarative::tree::Check;
 use crate::ui::prefs;
@@ -66,9 +66,21 @@ pub(super) fn diff_stat(added: u64, deleted: u64, cx: &App) -> Div {
 
 /// A muted number in a thin frame.
 pub(super) fn chip(count: usize, cx: &App) -> Div {
+    frame(cx).flex_none().child(count.to_string())
+}
+
+/// A muted label in the same frame, such as a tag; like Zed's truncating
+/// `Chip` it gives way when the row is short of room.
+pub(super) fn label_chip(label: impl Into<SharedString>, cx: &App) -> Div {
+    frame(cx)
+        .min_w_0()
+        .overflow_hidden()
+        .child(crate::ui::fade::faded(label.into()))
+}
+
+fn frame(cx: &App) -> Div {
     let theme = cx.theme();
     div()
-        .flex_none()
         .px_1()
         .rounded(px(3.))
         .border_1()
@@ -77,5 +89,4 @@ pub(super) fn chip(count: usize, cx: &App) -> Div {
         .text_xs()
         .line_height(prefs::scaled(14.))
         .text_color(theme.muted_foreground)
-        .child(count.to_string())
 }

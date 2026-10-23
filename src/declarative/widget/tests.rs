@@ -251,3 +251,54 @@ fn reads_spacers_and_tab_actions() {
     ));
     assert!(parse(json!({"type": "spacer", "size": 4})).is_err());
 }
+
+#[test]
+fn reads_panel_strips_lists_and_tab_counts() {
+    let node = parse(json!({"type": "fill", "children": [
+        {"type": "tabs", "tabs": [{"label": "Изменения", "count": 3, "children": [
+            {"type": "empty", "text": "Нет изменений"}
+        ]}, {"label": "История", "children": [
+            {"type": "list", "id": "log", "action": "log", "rows": [
+                {"id": "c1", "label": "Fix", "chips": ["v1", "v2", "v3", "v4"], "mark": "arrow-up",
+                 "avatar": true, "meta": ["Ann", "2 ч", "abc1234"], "hint": "Открыть коммит",
+                 "hint_detail": "abc1234", "menu": [{"label": "Copy", "action": "copy"}]}
+            ]}
+        ]}]},
+        {"type": "bar", "border": false, "children": [
+            {"type": "icon", "name": "git-branch"},
+            {"type": "menu", "label": "main", "items": [{"label": "main", "action": "checkout"}]},
+            {"type": "spacer"},
+            {"type": "button", "label": "Получить", "action": "fetch"}
+        ]},
+        {"type": "panel_editor", "children": [
+            {"type": "input", "id": "m", "value": "", "placeholder": "", "action": "m",
+             "lines": 6, "flush": true, "mono": true},
+            {"type": "bar", "children": [{"type": "spacer"}]}
+        ]}
+    ]}))
+    .unwrap();
+    let Node::Fill { children } = node else {
+        panic!("fill expected")
+    };
+    let Node::Tabs { tabs, .. } = &children[0] else {
+        panic!("tabs expected")
+    };
+    assert_eq!((tabs[0].count, tabs[1].count), (Some(3), None));
+    let Node::List { rows, .. } = &tabs[1].children[0] else {
+        panic!("list expected")
+    };
+    assert_eq!((rows[0].chips.len(), rows[0].avatar), (4, true));
+    assert!(matches!(&children[1], Node::Bar { border: false, .. }));
+    assert!(matches!(
+        &children[2],
+        Node::PanelEditor { children } if matches!(children[1], Node::Bar { border: true, .. })
+    ));
+    for bad in [
+        json!({"type": "icon", "name": "nope"}),
+        json!({"type": "list", "id": "l", "action": "l", "rows": [{"id": "a", "label": "a", "mark": "nope"}]}),
+        json!({"type": "list", "id": "l", "action": "l", "rows": [{"id": "a", "label": "a", "time": "1"}]}),
+        json!({"type": "bar", "children": [], "gap": 2}),
+    ] {
+        assert!(parse(bad).is_err());
+    }
+}

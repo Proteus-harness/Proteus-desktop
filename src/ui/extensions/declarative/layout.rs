@@ -1,6 +1,7 @@
-// Адаптировано из Zed: crates/git_ui/src/git_panel.rs (render_tab_bar)
+// Адаптировано из Zed: crates/git_ui/src/git_panel.rs (render_tab_bar, render_history_placeholder)
 //! Layout containers: `fill`, which gives the remaining height to its list,
-//! editor or terminal, and `tabs` with a panel tab bar.
+//! editor or terminal, `tabs` with a panel tab bar and the centered `empty`
+//! message.
 
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -11,7 +12,7 @@ use crate::declarative::widget::{Node, Tab};
 use crate::ui::fade::faded;
 use crate::ui::prefs;
 
-/// Height of the tab bar.
+/// Height of the tab bar, Zed's `Tab::container_height`.
 const BAR: f32 = 32.;
 
 /// Nodes that take the rest of a `fill`; the others keep their height.
@@ -20,6 +21,8 @@ fn greedy(node: &Node) -> bool {
         node,
         Node::Tree { .. }
             | Node::Lanes { .. }
+            | Node::List { .. }
+            | Node::Empty { .. }
             | Node::Code { height: None, .. }
             | Node::Terminal { .. }
             | Node::Split { .. }
@@ -85,43 +88,69 @@ impl DeclarativeView {
             .copied()
             .unwrap_or(0)
             .min(tabs.len().saturating_sub(1));
+        // Colours of the editor tabs (tabs/tab.rs): the active tab is lifted,
+        // the others sit on the bar behind a bottom border.
         let theme = cx.theme();
-        let (muted, border, hover, inactive) = (
-            theme.muted_foreground,
+        let (muted, border, hover, active_bg, active_fg) = (
+            theme.tab_foreground,
             theme.border,
             theme.list_hover,
-            theme.muted.opacity(0.5),
+            theme.tab_active,
+            theme.tab_active_foreground,
         );
+        let faded_border = border.opacity(0.6);
         let bar = h_flex()
             .flex_none()
             .w_full()
             .h(prefs::scaled(BAR))
-            .children(tabs.iter().enumerate().map(|(index, tab)| {
+            .children(tabs.iter().enumerate().flat_map(|(index, tab)| {
                 let (key, action) = (path.to_string(), action.map(str::to_string));
                 let active = index == selected;
-                h_flex()
+                let divider = (index > 0).then(|| {
+                    div()
+                        .flex_none()
+                        .w(px(1.))
+                        .h_full()
+                        .bg(faded_border)
+                        .into_any_element()
+                });
+                let count = tab.count.filter(|count| *count > 0).map(|count| {
+                    div()
+                        .flex_none()
+                        .text_xs()
+                        .text_color(muted)
+                        .child(format!("({count})"))
+                });
+                let tab = h_flex()
                     .id(ElementId::Name(format!("decl-tab-{path}-{index}").into()))
                     .flex_1()
                     .min_w_0()
                     .h_full()
-                    .px_2()
+                    .py_1()
+                    .gap_1()
                     .justify_center()
                     .text_sm()
                     .cursor_pointer()
-                    .when(index > 0, |tab| tab.border_l_1())
-                    .border_color(border.opacity(0.6))
-                    .when(!active, |tab| {
-                        tab.border_b_1().bg(inactive).text_color(muted)
+                    .border_color(faded_border)
+                    .map(|tab| {
+                        if active {
+                            tab.bg(active_bg).text_color(active_fg)
+                        } else {
+                            tab.border_b_1()
+                                .text_color(muted)
+                                .hover(move |tab| tab.bg(hover))
+                        }
                     })
-                    .hover(move |tab| tab.bg(hover))
-                    .child(faded(tab.label.clone()))
+                    .child(div().min_w_0().child(faded(tab.label.clone())))
+                    .children(count)
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.tabs.insert(key.clone(), index);
                         if !active && let Some(action) = &action {
                             this.act(action.clone(), Some(index.into()), cx);
                         }
                         cx.notify();
-                    }))
+                    }));
+                divider.into_iter().chain([tab.into_any_element()])
             }));
         let body_path = format!("{path}.{selected}");
         let body = tabs.get(selected).map(|tab| {
@@ -138,4 +167,16 @@ impl DeclarativeView {
             .child(bar)
             .children(body)
     }
+}
+
+/// Zed's history placeholder: a muted line in the middle of the room left.
+pub(super) fn empty(text: &str, cx: &App) -> Div {
+    h_flex()
+        .flex_1()
+        .min_h_0()
+        .w_full()
+        .justify_center()
+        .text_sm()
+        .text_color(cx.theme().muted_foreground)
+        .child(text.to_owned())
 }

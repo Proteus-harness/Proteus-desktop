@@ -10,6 +10,7 @@ pub mod control;
 pub mod graph;
 pub mod icons;
 pub mod lanes;
+pub mod list;
 pub mod manifest;
 pub mod package;
 pub mod presentation;

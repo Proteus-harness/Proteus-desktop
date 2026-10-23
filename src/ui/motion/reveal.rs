@@ -37,7 +37,8 @@ impl IntoElement for Reveal {
 }
 
 impl Element for Reveal {
-    type RequestLayoutState = ();
+    /// Whether the child takes part in the surrounding layout this frame.
+    type RequestLayoutState = bool;
     type PrepaintState = ();
 
     fn id(&self) -> Option<ElementId> {
@@ -56,19 +57,30 @@ impl Element for Reveal {
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
         let Some(progress) = self.progress else {
-            return (self.child.request_layout(window, cx), ());
+            return (self.child.request_layout(window, cx), true);
         };
         let height = window.with_element_state(
             global_id.expect("Reveal has an id"),
             |state: Option<RevealState>, _| {
-                let state = state.unwrap_or_default();
-                (state.height, state)
+                (state.map(|state| state.height), state.unwrap_or_default())
             },
         );
+        // A block never seen at rest has no height yet: one that starts
+        // closing shows in full for the frame that measures it, one that
+        // starts opening shows nothing.
+        let Some(height) = height else {
+            if progress >= 0.5 {
+                return (self.child.request_layout(window, cx), true);
+            }
+            let mut style = Style::default();
+            style.size.width = relative(1.).into();
+            style.size.height = px(0.).into();
+            return (window.request_layout(style, None, cx), false);
+        };
         let mut style = Style::default();
         style.size.width = relative(1.).into();
         style.size.height = (height * progress).into();
-        (window.request_layout(style, None, cx), ())
+        (window.request_layout(style, None, cx), false)
     }
 
     fn prepaint(
@@ -76,12 +88,12 @@ impl Element for Reveal {
         global_id: Option<&GlobalElementId>,
         _: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
-        _: &mut Self::RequestLayoutState,
+        in_flow: &mut Self::RequestLayoutState,
         window: &mut Window,
         cx: &mut App,
     ) -> Self::PrepaintState {
         let id = global_id.expect("Reveal has an id");
-        if self.progress.is_none() {
+        if *in_flow {
             remember(id, bounds.size.height, window);
             self.child.prepaint(window, cx);
             return;
@@ -107,12 +119,12 @@ impl Element for Reveal {
         _: Option<&GlobalElementId>,
         _: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
-        _: &mut Self::RequestLayoutState,
+        in_flow: &mut Self::RequestLayoutState,
         _: &mut Self::PrepaintState,
         window: &mut Window,
         cx: &mut App,
     ) {
-        if self.progress.is_none() {
+        if *in_flow {
             self.child.paint(window, cx);
             return;
         }

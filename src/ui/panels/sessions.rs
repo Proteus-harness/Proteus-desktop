@@ -29,6 +29,8 @@ use crate::ui::{format, motion, prefs};
 const ENTRANCE: Duration = Duration::from_millis(600);
 /// Chats a project folder shows before "show more".
 const PROJECT_ROWS: usize = 5;
+/// Motion key of the archived chats.
+const ARCHIVE: &str = "sessions-archive";
 
 impl Workspace {
     pub(super) fn render_sessions(&mut self, window: &Window, cx: &mut Context<Self>) -> Div {
@@ -37,8 +39,10 @@ impl Workspace {
             .then(|| self.session_cursor())
             .flatten();
         let searching = !self.session_list.search.is_empty();
+        // A closing archive keeps its rows until they have folded away.
+        let archive_moving = !searching && motion::moving(ARCHIVE, self.show_archived, cx);
         let view = View {
-            archived: self.show_archived,
+            archived: self.show_archived || archive_moving,
             search: &self.session_list.search,
         };
         let listing = prefs::current(cx).sessions.arrange(&self.sessions, &view);
@@ -47,65 +51,105 @@ impl Workspace {
         let entering = self
             .sessions_arrived
             .is_some_and(|at| at.elapsed() < ENTRANCE);
-        let mut rows = |rows: &[&Row], indent: bool, items: &mut Vec<AnyElement>| {
-            for row in rows {
-                let dir = &row.summary.session_dir;
-                let ix = shown.len();
-                let look = Look {
-                    selected: current.as_ref() == Some(dir),
-                    cursor: cursor.as_ref() == Some(dir),
-                    indent,
-                };
-                let id = format!("session-enter-{}", dir.display());
-                shown.push((dir.clone(), items.len()));
-                items.push(
-                    motion::stagger_in(
-                        div().child(self.render_session_item(ix, row, look, cx)),
-                        ElementId::Name(id.into()),
-                        ix,
-                        entering,
-                    )
-                    .into_any_element(),
-                );
-            }
-        };
+        // Rows of a folder that opens or closes go into its block, which is
+        // child `slot` of the list.
+        let mut rows =
+            |rows: &[&Row], indent: bool, items: &mut Vec<AnyElement>, slot: Option<usize>| {
+                for row in rows {
+                    let dir = &row.summary.session_dir;
+                    let ix = shown.len();
+                    let look = Look {
+                        selected: current.as_ref() == Some(dir),
+                        cursor: cursor.as_ref() == Some(dir),
+                        indent,
+                    };
+                    let id = format!("session-enter-{}", dir.display());
+                    shown.push((dir.clone(), slot.unwrap_or(items.len())));
+                    items.push(
+                        motion::stagger_in(
+                            div().child(self.render_session_item(ix, row, look, cx)),
+                            ElementId::Name(id.into()),
+                            ix,
+                            entering,
+                        )
+                        .into_any_element(),
+                    );
+                }
+            };
         if !listing.pinned.is_empty() {
             items.push(heading("Закреплённые", cx).into_any_element());
             rows(
                 &listing.pinned.iter().collect::<Vec<_>>(),
                 false,
                 &mut items,
+                None,
             );
         }
         if !listing.projects.is_empty() {
             items.push(heading("Проекты", cx).into_any_element());
         }
         for (gi, project) in listing.projects.iter().enumerate() {
-            let collapsed = !searching && self.session_list.collapsed.contains(project.path);
+            let open = searching || !self.session_list.collapsed.contains(project.path);
             let all = searching || self.session_list.expanded.contains(project.path);
-            items.push(
-                self.render_project(gi, project, collapsed, cx)
+            let fold = fold_key(project.path);
+            let folding = !searching && motion::moving(&fold, open, cx);
+            let more = more_key(project.path);
+            let more_moving = !searching && motion::moving(&more, all, cx);
+            let mut header = Some(
+                self.render_project(gi, project, !open, cx)
                     .into_any_element(),
             );
-            if collapsed {
+            if !open && !folding {
+                items.extend(header);
                 continue;
             }
-            let visible: Vec<&Row> = project
+            // A folding folder is one child of the list: its header with
+            // the rest in a reveal.
+            let slot = folding.then_some(items.len());
+            let mut body = Vec::new();
+            let target = if folding {
+                &mut body
+            } else {
+                items.extend(header.take());
+                &mut items
+            };
+            let short = |ix: usize, row: &Row| {
+                ix < PROJECT_ROWS || current.as_ref() == Some(&row.summary.session_dir)
+            };
+            let (first, rest): (Vec<_>, Vec<_>) = project
                 .rows
                 .iter()
                 .enumerate()
-                .filter(|(ix, row)| {
-                    all || *ix < PROJECT_ROWS || current.as_ref() == Some(&row.summary.session_dir)
-                })
-                .map(|(_, row)| row)
-                .collect();
-            let hidden = project.rows.len() - visible.len();
-            rows(&visible, true, &mut items);
+                .partition(|(ix, row)| short(*ix, row));
+            let first: Vec<&Row> = first.into_iter().map(|(_, row)| row).collect();
+            let rest: Vec<&Row> = rest.into_iter().map(|(_, row)| row).collect();
+            if all && !more_moving {
+                let every: Vec<&Row> = project.rows.iter().collect();
+                rows(&every, true, target, slot);
+            } else {
+                rows(&first, true, target, slot);
+            }
             if !searching && project.rows.len() > PROJECT_ROWS {
-                items.push(
-                    self.render_more(gi, project.path, hidden, cx)
-                        .into_any_element(),
-                );
+                let hidden = if all { 0 } else { rest.len() };
+                let button = self
+                    .render_more(gi, project.path, hidden, cx)
+                    .into_any_element();
+                if more_moving {
+                    // The extra chats and the button make one child, so the
+                    // block grows from nothing without a gap of its own.
+                    let mut extra = Vec::new();
+                    rows(&rest, true, &mut extra, Some(slot.unwrap_or(target.len())));
+                    let extra =
+                        motion::reveal(more, all, cx, || stack(extra).pb_0p5().into_any_element());
+                    target.push(v_flex().children(extra).child(button).into_any_element());
+                } else {
+                    target.push(button);
+                }
+            }
+            if folding {
+                let body =
+                    motion::reveal(fold, open, cx, || stack(body).pt_0p5().into_any_element());
+                items.push(v_flex().children(header).children(body).into_any_element());
             }
         }
         if searching {
@@ -115,18 +159,25 @@ impl Workspace {
                     &listing.archived.iter().collect::<Vec<_>>(),
                     false,
                     &mut items,
+                    None,
                 );
             }
         } else if listing.archived_count > 0 {
-            items.push(
-                self.render_archive_toggle(listing.archived_count, cx)
-                    .into_any_element(),
-            );
-            rows(
-                &listing.archived.iter().collect::<Vec<_>>(),
-                false,
-                &mut items,
-            );
+            let toggle = self
+                .render_archive_toggle(listing.archived_count, cx)
+                .into_any_element();
+            let archived: Vec<&Row> = listing.archived.iter().collect();
+            if archive_moving {
+                let mut body = Vec::new();
+                rows(&archived, false, &mut body, Some(items.len()));
+                let body = motion::reveal(ARCHIVE, self.show_archived, cx, || {
+                    stack(body).pt_0p5().into_any_element()
+                });
+                items.push(v_flex().child(toggle).children(body).into_any_element());
+            } else {
+                items.push(toggle);
+                rows(&archived, false, &mut items, None);
+            }
         }
         if searching && shown.is_empty() {
             items.push(
@@ -199,10 +250,21 @@ impl Workspace {
             )
             .child(
                 div()
-                    .flex_1()
                     .min_w_0()
                     .when(current, |name| name.text_color(theme.foreground))
                     .child(faded(folder_name(&path))),
+            )
+            // As in Zed's sidebar: the disclosure follows the name on hover.
+            .child(
+                div()
+                    .flex_1()
+                    .invisible()
+                    .group_hover("project-row", |chevron| chevron.visible())
+                    .child(motion::chevron(
+                        ("session-project-chevron", gi),
+                        !collapsed,
+                        theme.muted_foreground,
+                    )),
             )
             .child(
                 div()
@@ -229,9 +291,11 @@ impl Workspace {
             .tip_text(path.display().to_string())
             .on_click(cx.listener(move |this, _, _, cx| {
                 let collapsed = &mut this.session_list.collapsed;
-                if !collapsed.remove(&path) {
+                let open = collapsed.remove(&path);
+                if !open {
                     collapsed.insert(path.clone());
                 }
+                motion::toggled(fold_key(&path), open, cx);
                 cx.notify();
             }))
     }
@@ -262,9 +326,11 @@ impl Workspace {
             })
             .on_click(cx.listener(move |this, _, _, cx| {
                 let expanded = &mut this.session_list.expanded;
-                if !expanded.remove(&path) {
+                let all = !expanded.remove(&path);
+                if all {
                     expanded.insert(path.clone());
                 }
+                motion::toggled(more_key(&path), all, cx);
                 cx.notify();
             }))
     }
@@ -290,6 +356,7 @@ impl Workspace {
             .child(format!("Архив · {count}"))
             .on_click(cx.listener(|this, _, _, cx| {
                 this.show_archived = !this.show_archived;
+                motion::toggled(ARCHIVE, this.show_archived, cx);
                 cx.notify();
             }))
     }
@@ -471,6 +538,20 @@ struct Look {
     selected: bool,
     cursor: bool,
     indent: bool,
+}
+
+/// Motion keys of a project folder's chats and of its chats past the first.
+fn fold_key(path: &Path) -> SharedString {
+    format!("sessions-fold-{}", path.display()).into()
+}
+
+fn more_key(path: &Path) -> SharedString {
+    format!("sessions-more-{}", path.display()).into()
+}
+
+/// Rows of a moving block, spaced as the list spaces its children.
+fn stack(rows: Vec<AnyElement>) -> Div {
+    v_flex().gap_0p5().children(rows)
 }
 
 fn heading(label: &'static str, cx: &App) -> impl IntoElement {

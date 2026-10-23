@@ -57,6 +57,32 @@ pub enum Node {
     Fill {
         children: Vec<Node>,
     },
+    /// A compact strip at an edge of a panel, like the footers of Zed's git
+    /// panel: what comes before a `spacer` sits at the start and may shrink,
+    /// the rest at the end; buttons and menus in it are compact.
+    Bar {
+        children: Vec<Node>,
+        /// A line above the strip; without it the strip sits right under a
+        /// list and is inset like Zed's repository footer.
+        #[serde(default = "yes")]
+        border: bool,
+    },
+    /// The editor area at the bottom of a panel, like Zed's
+    /// `panel_editor_container`: a line above and the editor background
+    /// behind a `flush` input and the bar under it.
+    PanelEditor {
+        children: Vec<Node>,
+    },
+    /// A muted message centered in the rest of the room, for an empty list.
+    Empty {
+        text: String,
+    },
+    /// A small icon, such as the branch icon before a branch menu.
+    Icon {
+        name: String,
+        #[serde(default = "muted")]
+        tone: Tone,
+    },
     /// Row of full-height columns; `widths[i]` fixes a column width in pixels,
     /// a missing or null entry lets the column take the rest.
     Split {
@@ -76,6 +102,13 @@ pub enum Node {
         /// Sent with the text on Enter, or Ctrl+Enter in a multi-line field.
         #[serde(default)]
         submit: Option<String>,
+        /// No frame and no background, across the whole strip, as the
+        /// commit editor in a `panel_editor`.
+        #[serde(default)]
+        flush: bool,
+        /// The monospace font of code, like Zed's commit message editor.
+        #[serde(default)]
+        mono: bool,
     },
     /// Sends `{checked, value}` with the new state.
     Checkbox {
@@ -174,8 +207,12 @@ pub enum Node {
         #[serde(default)]
         action: Option<String>,
     },
+    /// A virtualized list of two-line rows, such as the commit history of
+    /// a panel.
     List {
-        items: Vec<Item>,
+        id: String,
+        rows: Vec<super::list::Row>,
+        action: String,
     },
     Button {
         label: String,
@@ -326,21 +363,11 @@ pub struct Bar {
 #[serde(deny_unknown_fields)]
 pub struct Tab {
     pub label: String,
+    /// A small muted «(N)» after the label; zero shows nothing.
+    #[serde(default)]
+    pub count: Option<usize>,
     #[serde(default)]
     pub children: Vec<Node>,
-}
-
-/// A list row; with `action` it is clickable and sends that action.
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct Item {
-    pub title: String,
-    #[serde(default)]
-    pub detail: Option<String>,
-    #[serde(default)]
-    pub action: Option<String>,
-    #[serde(default)]
-    pub value: Option<Value>,
 }
 
 fn hundred() -> f64 {
@@ -363,6 +390,10 @@ fn yes() -> bool {
     true
 }
 
+fn muted() -> Tone {
+    Tone::Muted
+}
+
 pub(super) fn known_icon(name: Option<&str>) -> Result<()> {
     match name {
         Some(name) if super::icons::lucide(name).is_none() => {
@@ -379,6 +410,8 @@ impl Node {
             Node::Stack { children, .. }
             | Node::Card { children, .. }
             | Node::Fill { children }
+            | Node::Bar { children, .. }
+            | Node::PanelEditor { children }
             | Node::Split { children, .. } => {
                 for child in children {
                     child.visit(each);
@@ -443,7 +476,13 @@ impl Node {
             }
             Node::Stack { children, .. }
             | Node::Card { children, .. }
+            | Node::Bar { children, .. }
+            | Node::PanelEditor { children }
             | Node::Fill { children } => children,
+            Node::Icon { name, .. } => {
+                known_icon(Some(name))?;
+                &[]
+            }
             Node::Split { children, widths } => {
                 if widths.len() > children.len()
                     || widths
@@ -527,6 +566,10 @@ impl Node {
             }
             Node::Lanes { rows, .. } => {
                 super::lanes::check(rows)?;
+                &[]
+            }
+            Node::List { rows, .. } => {
+                super::list::check(rows)?;
                 &[]
             }
             Node::Input { lines, .. } if !(1..=40).contains(lines) => {

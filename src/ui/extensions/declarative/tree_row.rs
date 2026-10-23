@@ -8,6 +8,7 @@ use crate::declarative::tree::{Check, Row};
 use crate::declarative::widget::Tone;
 use crate::ui::context::RightClickMenu as _;
 use crate::ui::fade::{faded, faded_start};
+use crate::ui::motion;
 use crate::ui::prefs;
 use crate::ui::tip::Tip as _;
 use gpui_kit::assets::IconName as Lucide;
@@ -30,7 +31,26 @@ impl Tree {
         guide: Option<(Range<usize>, usize)>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let row = &self.rows[index];
+        let id = ElementId::NamedInteger("tree-row".into(), index as u64);
+        self.draw(&self.rows[index], Some(index), id, focused, guide, cx)
+    }
+
+    /// A row the process no longer sends, kept while its branch closes; it
+    /// looks the same and takes no input.
+    pub(super) fn ghost(&self, row: &Row, n: usize, cx: &mut Context<Self>) -> AnyElement {
+        let id = ElementId::NamedInteger("tree-ghost".into(), n as u64);
+        self.draw(row, None, id, false, None, cx)
+    }
+
+    fn draw(
+        &self,
+        row: &Row,
+        index: Option<usize>,
+        id: ElementId,
+        focused: bool,
+        guide: Option<(Range<usize>, usize)>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let theme = cx.theme();
         let (hover, active, primary) = (theme.list_hover, theme.list_active, theme.primary);
         let ring = theme.ring;
@@ -41,7 +61,8 @@ impl Tree {
             (0..row.depth).map(move |depth| {
                 let lit = guide
                     .as_ref()
-                    .is_some_and(|(rows, level)| *level == depth && rows.contains(&index));
+                    .zip(index)
+                    .is_some_and(|((rows, level), index)| *level == depth && rows.contains(&index));
                 div()
                     .absolute()
                     .top_0()
@@ -51,7 +72,10 @@ impl Tree {
                     .bg(if lit { lit_line } else { line })
             })
         });
-        let checkbox = row.checked.map(|state| self.checkbox(index, state, cx));
+        let checkbox = row.checked.map(|state| match index {
+            Some(index) => self.checkbox(index, state, cx).into_any_element(),
+            None => toggle::checkbox(id.clone(), state, cx).into_any_element(),
+        });
         let body = if row.header() {
             self.header(row, cx)
         } else {
@@ -59,7 +83,7 @@ impl Tree {
         };
         let selected = row.selected && !row.header();
         let element = h_flex()
-            .id(("tree-row", index))
+            .id(id)
             .relative()
             .w_full()
             .h(prefs::scaled(HEIGHT))
@@ -93,31 +117,34 @@ impl Tree {
             })
             .children(checkbox)
             .when(
-                index == self.cursor && focused && !row.header(),
+                index == Some(self.cursor) && focused && !row.header(),
                 |element| element.child(div().absolute().inset_0().border_1().border_color(ring)),
             )
-            .when_some(row.hint.clone(), |element, hint| element.tip_text(hint))
-            .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
-                let row = &this.rows[index];
-                if row.header() {
-                    let event = if row.expanded == Some(true) {
-                        "collapse"
-                    } else {
-                        "expand"
-                    };
-                    this.act_at(index, event, cx);
-                    return;
-                }
-                this.cursor = index;
-                // The first click already toggled a branch.
-                let branch = row.expanded.is_some();
-                match event.click_count() {
-                    1 => this.act_at(index, "select", cx),
-                    _ if branch => {}
-                    _ => this.act_at(index, "open", cx),
-                }
-                cx.notify();
-            }));
+            .when_some(row.hint.clone(), |element, hint| element.tip_text(hint));
+        let Some(index) = index else {
+            return element.into_any_element();
+        };
+        let element = element.on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
+            let row = &this.rows[index];
+            if row.header() {
+                let event = if row.expanded == Some(true) {
+                    "collapse"
+                } else {
+                    "expand"
+                };
+                this.act_at(index, event, cx);
+                return;
+            }
+            this.cursor = index;
+            // The first click already toggled a branch.
+            let branch = row.expanded.is_some();
+            match event.click_count() {
+                1 => this.act_at(index, "select", cx),
+                _ if branch => {}
+                _ => this.act_at(index, "open", cx),
+            }
+            cx.notify();
+        }));
         if row.menu.is_empty() {
             return element.into_any_element();
         }
@@ -137,7 +164,7 @@ impl Tree {
             .gap_1()
             .text_xs()
             .text_color(muted)
-            .child(chevron(row.expanded.unwrap_or(true), muted))
+            .child(chevron(&row.id, row.expanded.unwrap_or(true), muted))
             .child(div().flex_1().min_w_0().child(faded(row.label.clone())))
     }
 
@@ -167,7 +194,7 @@ impl Tree {
             .gap_1()
             .when(self.layout.chevrons, |item| {
                 item.child(match row.expanded {
-                    Some(open) => chevron(open, muted).into_any_element(),
+                    Some(open) => chevron(&row.id, open, muted).into_any_element(),
                     None => div().flex_none().w(prefs::scaled(SLOT)).into_any_element(),
                 })
             })
@@ -213,16 +240,14 @@ impl Tree {
     }
 }
 
-fn chevron(open: bool, color: Hsla) -> Div {
-    let icon = if open {
-        IconName::ChevronDown
-    } else {
-        IconName::ChevronRight
-    };
+fn chevron(id: &str, open: bool, color: Hsla) -> Div {
     h_flex()
         .flex_none()
         .w(prefs::scaled(SLOT))
         .justify_center()
-        .text_color(color)
-        .child(Icon::new(icon).xsmall())
+        .child(motion::chevron(
+            ElementId::Name(format!("tree-chevron-{id}").into()),
+            open,
+            color,
+        ))
 }
