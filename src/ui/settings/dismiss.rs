@@ -53,6 +53,11 @@ impl SettingsView {
             cx.notify();
             return;
         }
+        self.request_close(cx);
+    }
+
+    /// All explicit close commands use the same unsaved-edit guard.
+    pub(in crate::ui) fn request_close(&mut self, cx: &mut Context<Self>) {
         if self.dirty() {
             let text = "Есть несохранённые изменения: сохраните или сбросьте их";
             // The catalog page has no save bar to show the warning.

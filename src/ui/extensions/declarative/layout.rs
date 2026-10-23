@@ -144,8 +144,14 @@ impl DeclarativeView {
                     })
                     .child(div().min_w_0().child(faded(tab.label.clone())))
                     .children(count)
-                    .on_click(cx.listener(move |this, _, _, cx| {
+                    .on_click(cx.listener(move |this, _, window, cx| {
                         this.tabs.insert(key.clone(), index);
+                        if !active {
+                            // A control in the tab being hidden must not keep
+                            // keyboard focus. The next render forwards this
+                            // container focus to the new visible control.
+                            this.focus.focus(window, cx);
+                        }
                         if !active && let Some(action) = &action {
                             this.act(action.clone(), Some(index.into()), cx);
                         }

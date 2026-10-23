@@ -7,8 +7,10 @@ mod badge;
 mod bar;
 mod button;
 mod cells;
+pub(in crate::ui) mod content;
 mod fields;
 mod graph;
+mod images;
 mod lanes;
 mod lanes_paint;
 mod layout;
@@ -175,6 +177,9 @@ fn runtime(host: &Host, window: &Window, cx: &mut App) -> Option<Entity<Runtime>
         return Some(runtime);
     }
     let runtime = cx.new(|cx| Runtime::new(extension, host.clone(), window, cx));
+    cx.default_global::<Runtimes>()
+        .0
+        .retain(|_, runtime| runtime.upgrade().is_some());
     cx.default_global::<Runtimes>().0.insert(
         (host.identity(), &extension.manifest.id),
         runtime.downgrade(),

@@ -5,23 +5,24 @@ use std::time::Duration;
 use gpui_kit::component::animation::EffectTransition;
 use gpui_kit::*;
 
-use super::{BASE, FAST, ease_enter, shift};
+use super::{BASE, FAST, SLOW, ease_enter, shift};
 
 /// Shared entrance for menus and pickers, including process-owned popups.
 pub(in crate::ui) fn popup(
-    element: impl IntoElement + Styled + 'static,
+    element: impl IntoElement + 'static,
     id: impl Into<ElementId>,
+    origin: super::PopupOrigin,
     cx: &App,
 ) -> AnyElement {
-    if !super::plays() || cx.reduce_motion() {
+    if !super::moves() || cx.reduce_motion() {
         return element.into_any_element();
     }
-    let travel = shift(6. * crate::ui::prefs::scale(cx));
-    element
+    let id = id.into();
+    super::reveal::Reveal::popup(id.clone(), origin, element.into_any_element())
         .with_animation(
             id,
-            Animation::new(BASE).with_easing(ease_enter),
-            move |e, delta| e.opacity(delta).top(-travel * (1. - delta)),
+            Animation::new(SLOW).with_easing(ease_enter),
+            |element, delta| element.with_progress(delta),
         )
         .into_any_element()
 }

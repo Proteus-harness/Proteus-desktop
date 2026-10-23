@@ -12,7 +12,7 @@ use serde_json::Value;
 use super::render;
 use super::runtime::Runtime;
 use crate::declarative::presentation::Presentation;
-use crate::declarative::protocol::{Outgoing, SurfaceKind};
+use crate::declarative::protocol::{Content, Outgoing, SurfaceKind};
 use crate::declarative::widget::Node;
 use crate::ui::kit;
 
@@ -21,9 +21,11 @@ pub(super) struct DeclarativeView {
     view: String,
     surface: SurfaceKind,
     root: Option<Node>,
+    failure: Option<String>,
+    pub(super) images: super::images::Images,
+    pub(super) root_revision: u64,
     keys: HashMap<String, String>,
     action_sequence: u64,
-    pub(super) choice_cursor: Option<usize>,
     pub(super) presentation: Option<Presentation>,
     /// Selected tab of every `tabs` node, by tree path.
     pub(super) tabs: HashMap<String, usize>,
@@ -34,28 +36,20 @@ pub(super) struct DeclarativeView {
 }
 
 impl DeclarativeView {
-    pub(super) fn choices(&self) -> Vec<(String, Value, bool)> {
-        let mut choices = Vec::new();
-        if let Some(root) = &self.root {
-            root.visit(&mut |node| {
-                if let Node::Choice {
-                    action,
-                    value,
-                    selected,
-                    ..
-                } = node
-                {
-                    choices.push((action.clone(), value.clone(), *selected));
-                }
-            });
-        }
-        choices
-    }
-
     pub(super) fn new(
         runtime: Entity<Runtime>,
         surface: SurfaceKind,
         argument: Option<String>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        Self::with_content(runtime, surface, argument, None, cx)
+    }
+
+    pub(super) fn with_content(
+        runtime: Entity<Runtime>,
+        surface: SurfaceKind,
+        argument: Option<String>,
+        content: Option<Content>,
         cx: &mut Context<Self>,
     ) -> Self {
         let view = crate::declarative::protocol::view_id(surface, argument.as_deref());
@@ -64,7 +58,7 @@ impl DeclarativeView {
         // Attach after construction: the runtime may answer synchronously.
         cx.defer(move |cx| {
             attach_runtime.update(cx, |runtime, cx| {
-                runtime.attach(id, surface, argument, me, cx)
+                runtime.attach(id, surface, argument, content, me, cx)
             });
         });
         let detach = (runtime.clone(), view.clone());
@@ -78,9 +72,11 @@ impl DeclarativeView {
             view,
             surface,
             root: None,
+            failure: None,
+            images: super::images::Images::default(),
+            root_revision: 0,
             keys: HashMap::new(),
             action_sequence: 0,
-            choice_cursor: None,
             presentation: None,
             tabs: HashMap::new(),
             steps: HashMap::new(),
@@ -103,10 +99,30 @@ impl DeclarativeView {
         if sequence < self.action_sequence {
             return false;
         }
+        self.failure = None;
+        self.images.prepare(&root, cx);
         self.keys = keys;
+        self.root_revision = self.root_revision.wrapping_add(1);
         self.root = Some(root);
         cx.notify();
         true
+    }
+
+    pub(super) fn fail(&mut self, error: String, sequence: u64, cx: &mut Context<Self>) {
+        if sequence >= self.action_sequence {
+            self.failure = Some(error);
+            cx.notify();
+        }
+    }
+
+    pub(super) fn ready(&self, cx: &App) -> bool {
+        let mut unknown = false;
+        if let Some(root) = &self.root {
+            root.visit(&mut |node| unknown |= matches!(node, Node::Unknown));
+        }
+        !unknown && self.root.as_ref().is_some_and(|root| {
+            !matches!(root, Node::Stack {children, ..} | Node::Fill {children} if children.is_empty())
+        }) && self.error(cx).is_none()
     }
 
     /// Last tree and keys, to seed a reopened popup until the process answers.
@@ -138,7 +154,10 @@ impl DeclarativeView {
     }
 
     pub(super) fn error(&self, cx: &App) -> Option<String> {
-        self.runtime.read(cx).error.clone()
+        self.failure
+            .clone()
+            .or_else(|| self.images.error())
+            .or_else(|| self.runtime.read(cx).error.clone())
     }
 
     pub(super) fn popup_closed(&self, cx: &App) -> u64 {
@@ -147,6 +166,9 @@ impl DeclarativeView {
 
     pub(super) fn reset(&mut self, cx: &mut Context<Self>) {
         self.root = None;
+        self.failure = None;
+        self.images = super::images::Images::default();
+        self.root_revision = self.root_revision.wrapping_add(1);
         self.keys.clear();
         self.presentation = None;
         self.action_sequence = 0;
@@ -203,48 +225,29 @@ impl Render for DeclarativeView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         crate::ui::motion::drive(window, cx);
         if let Some(root) = self.root.clone() {
+            let scale = window.scale_factor() * crate::ui::prefs::scale(cx);
+            if self.images.rasterize(&root, scale, cx) {
+                // Propagate a raster error to a content shell before its
+                // next layout; ordinary surfaces use the same error banner.
+                cx.notify();
+            }
             self.prune_fields(&root);
             self.prepare_steps(&root, cx);
             self.prepare_fields(&root, window, cx);
         }
-        if self.surface != SurfaceKind::Popup && self.focus.is_focused(window) {
-            // Hand the container focus to the first keyboard control.
-            let fields = &self.fields;
-            let focus = fields
-                .trees
-                .values()
-                .next()
-                .map(|tree| tree.read(cx).focus())
-                .or_else(|| {
-                    fields
-                        .lanes
-                        .values()
-                        .next()
-                        .map(|lanes| lanes.read(cx).focus())
-                })
-                .or_else(|| {
-                    fields
-                        .lists
-                        .values()
-                        .next()
-                        .map(|list| list.read(cx).focus())
-                })
-                .or_else(|| {
-                    fields
-                        .terminals
-                        .values()
-                        .next()
-                        .map(|terminal| terminal.read(cx).focus_handle(cx))
-                })
-                .or_else(|| {
-                    fields
-                        .codes
-                        .values()
-                        .next()
-                        .map(|code| code.read(cx).focus_handle(cx))
-                });
+        if self.focus.is_focused(window) {
+            // Follow visible tree order, not a HashMap of controls that also
+            // contains hidden tabs and collapsed disclosures.
+            let focus = self.root.as_ref().and_then(|root| {
+                (0..3).find_map(|priority| self.first_control(root, "root", priority, cx))
+            });
             if let Some(focus) = focus {
-                cx.defer_in(window, move |_, window, cx| focus.focus(window, cx));
+                let container = self.focus.clone();
+                cx.defer_in(window, move |_, window, cx| {
+                    if container.is_focused(window) {
+                        focus.focus(window, cx);
+                    }
+                });
             }
         }
         let error = self.error(cx);
@@ -255,14 +258,56 @@ impl Render for DeclarativeView {
             }
             None => None,
         };
-        let muted = cx.theme().muted_foreground;
         let title = self.runtime.read(cx).title();
+        let waiting = self.root.is_none() && error.is_none() && self.surface != SurfaceKind::Badge;
         let fill = matches!(self.root, Some(Node::Fill { .. }));
         let view = v_flex()
             .id(ElementId::Name(format!("declarative-{}", self.view).into()))
             .track_focus(&self.focus)
             .capture_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                if !event.keystroke.modifiers.modified()
+                    && this
+                        .fields
+                        .pickers
+                        .values()
+                        .any(|picker| picker.read(cx).focus(cx).is_focused(window))
+                {
+                    // The picker owns arrows, Enter and Esc-clear before an
+                    // outer popup action is allowed to dismiss it.
+                    return;
+                }
                 let chord = crate::shortcuts::normalize(&event.keystroke.unparse()).ok();
+                if chord.as_deref() == Some("ctrl-f")
+                    && let Some(focus) = this
+                        .root
+                        .as_ref()
+                        .and_then(|root| this.first_control(root, "root", 3, cx))
+                {
+                    focus.focus(window, cx);
+                    window.refresh();
+                    cx.stop_propagation();
+                    return;
+                }
+                if !event.keystroke.modifiers.modified() && event.keystroke.key == "escape" {
+                    let mut search_focused = false;
+                    if let Some(root) = &this.root {
+                        root.visit(&mut |node| {
+                            if let Node::Input {
+                                id, search: true, ..
+                            } = node
+                            {
+                                search_focused |= this.fields.inputs.get(id).is_some_and(|input| {
+                                    input.state.focus_handle(cx).is_focused(window)
+                                });
+                            }
+                        });
+                    }
+                    if search_focused {
+                        // The shared search clears/collapses before an outer
+                        // extension or popup Escape action may dismiss it.
+                        return;
+                    }
+                }
                 let typing = !event.keystroke.modifiers.modified()
                     && event.keystroke.key != "escape"
                     && this
@@ -281,36 +326,7 @@ impl Render for DeclarativeView {
                 if this.surface != SurfaceKind::Popup || event.keystroke.modifiers.modified() {
                     return;
                 }
-                let choices = this.choices();
                 match event.keystroke.key.as_str() {
-                    "up" | "down" if !choices.is_empty() => {
-                        let at = this.choice_cursor.unwrap_or_else(|| {
-                            choices
-                                .iter()
-                                .position(|(_, _, selected)| *selected)
-                                .unwrap_or(0)
-                        });
-                        this.choice_cursor = Some(if event.keystroke.key == "up" {
-                            (at + choices.len() - 1) % choices.len()
-                        } else {
-                            (at + 1) % choices.len()
-                        });
-                        cx.notify();
-                        cx.stop_propagation();
-                    }
-                    "enter" if !choices.is_empty() => {
-                        let at = this
-                            .choice_cursor
-                            .unwrap_or_else(|| {
-                                choices
-                                    .iter()
-                                    .position(|(_, _, selected)| *selected)
-                                    .unwrap_or(0)
-                            })
-                            .min(choices.len() - 1);
-                        this.act(choices[at].0.clone(), Some(choices[at].1.clone()), cx);
-                        cx.stop_propagation();
-                    }
                     "left" | "right" if this.steps.len() == 1 => {
                         let stepper = this.steps.values().next().unwrap().clone();
                         let offset = if event.keystroke.key == "left" { -1 } else { 1 };
@@ -323,7 +339,10 @@ impl Render for DeclarativeView {
                 }
             }))
             .w_full()
-            .when(self.surface != SurfaceKind::Popup, |view| view.h_full())
+            .when(
+                !matches!(self.surface, SurfaceKind::Popup | SurfaceKind::Content),
+                |view| view.h_full(),
+            )
             .p_3()
             .gap_3()
             .when(fill, |view| view.p_0().gap_0())
@@ -331,18 +350,16 @@ impl Render for DeclarativeView {
                 view.child(self.render_error(error, cx))
             })
             .when_some(body, |view, body| view.child(body))
-            .when(
-                self.root.is_none() && self.surface != SurfaceKind::Badge,
-                |view| {
-                    view.child(
-                        div()
-                            .text_sm()
-                            .text_color(muted)
-                            .child(format!("{title}: жду ответа расширения…")),
-                    )
-                },
-            );
-        if fill {
+            .when(waiting, |view| {
+                view.child(crate::ui::state::loading(
+                    SharedString::from(format!("extension-loading-{}", cx.entity_id())),
+                    format!("{title}: загрузка…"),
+                    cx,
+                ))
+            });
+        if self.surface == SurfaceKind::Content {
+            view.p_0().gap_2().min_w_0().into_any_element()
+        } else if fill {
             view.overflow_hidden().into_any_element()
         } else {
             view.overflow_y_scrollbar()
@@ -357,6 +374,14 @@ impl Render for DeclarativeView {
 impl DeclarativeView {
     fn prepare_steps(&mut self, node: &Node, cx: &mut Context<Self>) {
         match node {
+            Node::Sortable { items, .. } => {
+                for item in items {
+                    for child in &item.children {
+                        self.prepare_steps(child, cx);
+                    }
+                }
+            }
+
             Node::Steps {
                 id,
                 options,
@@ -407,12 +432,114 @@ impl DeclarativeView {
 }
 
 impl DeclarativeView {
+    fn first_control(
+        &self,
+        node: &Node,
+        path: &str,
+        priority: u8,
+        cx: &App,
+    ) -> Option<FocusHandle> {
+        let focus = match node {
+            Node::Picker { id, .. } if priority == 0 => self
+                .fields
+                .pickers
+                .get(id)
+                .map(|picker| picker.read(cx).focus(cx)),
+            Node::Tree { id, .. } if priority == 1 => {
+                self.fields.trees.get(id).map(|tree| tree.read(cx).focus())
+            }
+            Node::Lanes { id, .. } if priority == 1 => self
+                .fields
+                .lanes
+                .get(id)
+                .map(|lanes| lanes.read(cx).focus()),
+            Node::List { id, .. } if priority == 1 => {
+                self.fields.lists.get(id).map(|list| list.read(cx).focus())
+            }
+            Node::Diff { id, .. } if priority == 1 => {
+                self.fields.diffs.get(id).map(|diff| diff.read(cx).focus())
+            }
+            Node::Terminal { id, .. } if priority == 1 => self
+                .fields
+                .terminals
+                .get(id)
+                .map(|terminal| terminal.read(cx).focus_handle(cx)),
+            Node::Code { id, .. } if priority == 1 => self
+                .fields
+                .codes
+                .get(id)
+                .map(|code| code.read(cx).focus_handle(cx)),
+            Node::Input {
+                id, search: true, ..
+            } if priority == 3 => self
+                .fields
+                .inputs
+                .get(id)
+                .map(|input| input.state.focus_handle(cx)),
+            Node::Input {
+                id, search: false, ..
+            } if priority == 2 => self
+                .fields
+                .inputs
+                .get(id)
+                .map(|input| input.state.focus_handle(cx)),
+            _ => None,
+        };
+        if focus.is_some() {
+            return focus;
+        }
+        let children = match node {
+            Node::Sortable { items, .. } => {
+                return items.iter().find_map(|item| {
+                    let path = format!("{path}.sort({}:{})", item.id.len(), item.id);
+                    item.children.iter().enumerate().find_map(|(i, child)| {
+                        self.first_control(child, &format!("{path}.{i}"), priority, cx)
+                    })
+                });
+            }
+
+            Node::Disclosure {
+                id, open, children, ..
+            } if self.fields.disclosures.get(id).copied().unwrap_or(*open) => children.as_slice(),
+            Node::Stack { children, .. }
+            | Node::Fill { children }
+            | Node::Card { children, .. }
+            | Node::Bar { children, .. }
+            | Node::PanelEditor { children }
+            | Node::Split { children, .. } => children.as_slice(),
+            Node::Tabs { tabs, .. } => {
+                let selected = self
+                    .tabs
+                    .get(path)
+                    .copied()
+                    .unwrap_or(0)
+                    .min(tabs.len().saturating_sub(1));
+                return tabs.get(selected).and_then(|tab| {
+                    tab.children.iter().enumerate().find_map(|(i, child)| {
+                        self.first_control(child, &format!("{path}.{selected}.{i}"), priority, cx)
+                    })
+                });
+            }
+            _ => &[],
+        };
+        children
+            .iter()
+            .enumerate()
+            .find_map(|(i, child)| self.first_control(child, &format!("{path}.{i}"), priority, cx))
+    }
+
     pub(super) fn focus_control(&self, id: &str, window: &mut Window, cx: &mut App) {
         let focus = self
             .fields
             .inputs
             .get(id)
             .map(|input| input.state.focus_handle(cx))
+            .or_else(|| {
+                self.fields
+                    .pickers
+                    .get(id)
+                    .map(|picker| picker.read(cx).focus(cx))
+            })
             .or_else(|| self.fields.trees.get(id).map(|tree| tree.read(cx).focus()))
             .or_else(|| {
                 self.fields

@@ -1,3 +1,4 @@
+// Адаптировано из Zed: crates/workspace/src/pane.rs (activation history)
 //! A pane: its tabs, the pinned ones first, and which one is shown.
 
 use serde::{Deserialize, Serialize};
@@ -17,9 +18,9 @@ pub struct Pane {
     /// split further. See [`super::TabLayout::pane_locked`].
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub locked: bool,
-    /// Shown again when the active tab closes.
+    /// Visited tabs, oldest first. Closing walks back through this history.
     #[serde(skip)]
-    pub previous: Option<String>,
+    pub(super) history: Vec<String>,
 }
 
 impl Pane {
@@ -30,7 +31,7 @@ impl Pane {
             pinned: 0,
             active: None,
             locked: false,
-            previous: None,
+            history: Vec::new(),
         }
     }
 
@@ -47,8 +48,10 @@ impl Pane {
     }
 
     pub fn show(&mut self, id: &str) {
-        if self.has(id) && self.active.as_deref() != Some(id) {
-            self.previous = self.active.replace(id.to_string());
+        if self.has(id) {
+            self.history.retain(|tab| tab != id);
+            self.history.push(id.to_string());
+            self.active = Some(id.to_string());
         }
     }
 
@@ -81,14 +84,17 @@ impl Pane {
         if pinned {
             self.pinned -= 1;
         }
-        if self.previous.as_deref() == Some(id) {
-            self.previous = None;
-        }
+        self.history.retain(|tab| tab != id);
         if self.active.as_deref() == Some(id) {
-            self.active = self
-                .previous
-                .take()
+            let next = self
+                .history
+                .last()
+                .cloned()
                 .or_else(|| self.tabs.get(ix.saturating_sub(1)).cloned());
+            self.active = None;
+            if let Some(next) = next {
+                self.show(&next);
+            }
         }
         pinned
     }

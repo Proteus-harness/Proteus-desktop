@@ -6,9 +6,9 @@
 use super::rows::{Kind, Rows};
 use crate::declarative::control::MenuItem;
 use crate::declarative::list::Row;
-use crate::ui::fade::faded;
+use crate::ui::fade::caption;
 use crate::ui::prefs;
-use crate::ui::tip::Tip as _;
+use crate::ui::tip::{Tip as _, TooltipAnchor};
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -53,14 +53,13 @@ impl Kind for ListRows {
         let theme = cx.theme();
         let (muted, border) = (theme.muted_foreground, theme.border);
         let hidden = row.chips.len().saturating_sub(CHIPS);
+        let anchor = TooltipAnchor::default();
         let chips = (!row.chips.is_empty()).then(|| {
             h_flex()
                 .min_w_0()
                 .gap_1()
                 .children(row.chips.iter().take(CHIPS).enumerate().map(|(n, chip)| {
-                    super::toggle::label_chip(chip.clone(), cx)
-                        .id(("list-chip", n))
-                        .tip_text(chip.clone())
+                    super::toggle::label_chip(chip.clone(), cx).id(("list-chip", n))
                 }))
                 .when(hidden > 0, |chips| {
                     let names = row.chips[CHIPS..].join(", ");
@@ -80,7 +79,11 @@ impl Kind for ListRows {
             .w_full()
             .min_w_0()
             .gap_1()
-            .child(div().min_w_0().child(faded(row.label.clone())))
+            .child(
+                div()
+                    .min_w_0()
+                    .child(caption("list-label", row.label.clone()).anchor(anchor.clone())),
+            )
             .children(chips)
             .children(mark.map(|icon| {
                 h_flex()
@@ -107,16 +110,24 @@ impl Kind for ListRows {
                 let text = div()
                     .when(n == 0 && last > 0, |text| text.min_w_0())
                     .when(n > 0 || last == 0, |text| text.flex_none())
-                    .child(faded((*part).clone()));
+                    .child(caption(("list-meta", n), (*part).clone()).anchor(anchor.clone()));
                 let mut pieces = vec![text.into_any_element()];
                 if n < last {
                     pieces.push(dot().into_any_element());
                 }
                 pieces
             }));
-        let (hint, detail) = (row.hint.clone(), row.hint_detail.clone());
+        let additional = |hint: &str| {
+            let hint = hint.trim();
+            !hint.is_empty()
+                && hint != row.label.trim()
+                && !row.meta.iter().any(|part| hint == part.trim())
+        };
+        let hint = row.hint.clone().filter(|hint| additional(hint));
+        let detail = row.hint_detail.clone().filter(|hint| additional(hint));
         v_flex()
             .id(("list-row", index))
+            .tip_anchor(anchor)
             .cursor_pointer()
             .w_full()
             .py_1()
@@ -139,11 +150,11 @@ impl Kind for ListRows {
             ))
             .child(first)
             .child(second)
-            .when_some(hint, |element, hint| {
+            .when(hint.is_some() || detail.is_some(), |element| {
                 element.tip_element(move |_, cx| {
                     v_flex()
                         .gap_0p5()
-                        .child(hint.clone())
+                        .children(hint.clone())
                         .children(detail.clone().map(|detail| {
                             div()
                                 .text_xs()

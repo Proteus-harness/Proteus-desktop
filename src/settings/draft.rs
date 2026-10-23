@@ -160,18 +160,6 @@ impl Draft {
             .insert(module.to_string(), Value::Object(value));
     }
 
-    /// Moves an enabled hook up (`offset < 0`) or down the chain.
-    pub fn move_hook(&mut self, id: &str, offset: isize) {
-        let Some(from) = self.hooks.iter().position(|hook| hook == id) else {
-            return;
-        };
-        let to = from.saturating_add_signed(offset);
-        if to < self.hooks.len() && to != from {
-            let hook = self.hooks.remove(from);
-            self.hooks.insert(to, hook);
-        }
-    }
-
     /// Draft that would bring the profile back to a replaced history state.
     /// The builder cannot clear a slot selection, so slots missing from the
     /// old state keep their current module; modules configured now but absent

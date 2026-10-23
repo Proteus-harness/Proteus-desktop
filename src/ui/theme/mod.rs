@@ -2,6 +2,8 @@
 //! `<config>/dev.proteus.native/themes/*.json` (the gpui-kit theme format),
 //! read once at start. The preferences name one theme per appearance.
 
+mod interaction;
+
 use std::rc::Rc;
 
 use gpui_kit::component::{Theme, ThemeConfig, ThemeMode, ThemeRegistry};
@@ -41,6 +43,11 @@ pub(super) fn init(cx: &mut App) {
         }
     }
     cx.set_global(ThemeProblems(problems));
+    interaction::install(cx);
+}
+
+pub(super) fn project_interactions(cx: &mut App) {
+    interaction::enforce(cx);
 }
 
 /// Names of the registered themes of one appearance, the default first.
@@ -83,7 +90,7 @@ fn pick(name: &str, mode: ThemeMode, fallback: &str, cx: &App) -> Option<Rc<Them
         .get(name)
         .filter(|theme| theme.mode == mode)
         .or_else(|| themes.get(fallback))
-        .cloned()
+        .map(interaction::normalize)
 }
 
 /// Russian names of the themes that come with the client.

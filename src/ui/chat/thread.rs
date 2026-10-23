@@ -1,8 +1,8 @@
 use std::ops::Range;
 
+use crate::ui::kit::Clipboard;
 use gpui_kit::base::SelectableText;
-use gpui_kit::component::clipboard::Clipboard;
-use gpui_kit::component::text::{TextView, TextViewState};
+use gpui_kit::component::text::TextView;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -34,12 +34,23 @@ impl Chat {
         cx.notify();
     }
 
-    /// Shows the long blocks of row `key` in full, or cut again.
-    pub(super) fn toggle_full(&mut self, key: u64, cx: &mut Context<Self>) {
-        if !self.full_rows.remove(&key) {
-            self.full_rows.insert(key);
+    /// Opens just the chosen result/argument block, keeping its preview.
+    pub(super) fn toggle_full(&mut self, key: u64, part: usize, cx: &mut Context<Self>) {
+        let block = (key, part);
+        let open = !self.full_blocks.remove(&block);
+        if open {
+            self.full_blocks.insert(block);
         }
-        self.remeasure_row(key, cx);
+        motion::toggled(
+            super::tool_row::full_reveal_key(cx.entity_id(), key, part),
+            open,
+            cx,
+        );
+        if let Some(row) = self.row_of(key) {
+            self.scroller
+                .update(cx, |scroller, cx| scroller.toggled(row..row + 1, cx));
+        }
+        cx.notify();
     }
 
     /// Measures the row of entry `key` again on the next layout.
@@ -52,7 +63,7 @@ impl Chat {
         cx.notify();
     }
 
-    fn row_of(&self, key: u64) -> Option<usize> {
+    pub(super) fn row_of(&self, key: u64) -> Option<usize> {
         self.session
             .transcript
             .entries()
@@ -63,7 +74,7 @@ impl Chat {
     pub(super) fn render_row(
         &mut self,
         ix: usize,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let entries = self.session.transcript.entries();
@@ -87,7 +98,7 @@ impl Chat {
         }
         let missing = self.sent_images.missing(&entry.images);
         let expanded = self.expanded.contains(&entry.key);
-        let full = self.full_rows.contains(&entry.key);
+        let full = [0, 1].map(|part| self.full_blocks.contains(&(entry.key, part)));
         let fresh = self.fresh_rows.is_fresh(entry.key);
         let key = entry.key;
         // A run drawn by its head alone ends where its last call does.
@@ -113,8 +124,15 @@ impl Chat {
         let body = match (&entry.role, &entry.tool, &entry.subagent) {
             (Role::User, _, _) => render_user(entry, &self.sent_images, cx),
             (Role::Assistant, _, _) => {
-                let reply = self.replies.state(entry.key, &entry.text, cx);
-                render_assistant(entry, &reply, cx)
+                let reply = self.replies.parts(
+                    entry.key,
+                    &entry.text,
+                    self.workspace.clone(),
+                    self.session.dir.clone(),
+                    window,
+                    cx,
+                );
+                render_assistant(entry, reply, cx)
             }
             (Role::System, Some(tool), _) => match &chain {
                 Some(chain) if ix == chain.start => {
@@ -183,7 +201,7 @@ impl Chat {
                 continue;
             };
             let expanded = self.expanded.contains(&entry.key);
-            let full = self.full_rows.contains(&entry.key);
+            let full = [0, 1].map(|part| self.full_blocks.contains(&(entry.key, part)));
             let call = div().child(render_tool(
                 entry.key,
                 tool,
@@ -288,7 +306,7 @@ fn render_user(entry: &Entry, images: &SentImages, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-fn render_assistant(entry: &Entry, reply: &Entity<TextViewState>, cx: &App) -> AnyElement {
+fn render_assistant(entry: &Entry, reply: Vec<super::replies::Part>, cx: &App) -> AnyElement {
     let text = SharedString::from(&entry.text);
     let actions = (!entry.streaming && !entry.text.trim().is_empty()).then(|| {
         row_actions()
@@ -300,20 +318,26 @@ fn render_assistant(entry: &Entry, reply: &Entity<TextViewState>, cx: &App) -> A
         .group(ROW_GROUP)
         .w_full()
         .text_size(prefs::chat_text(cx))
-        .child(
-            TextView::new(reply)
-                .selectable(true)
-                .stream_fade(true)
-                .code_block_actions(move |block, _, _| {
-                    let code = block.code();
-                    let copy = Clipboard::new(row_id("copy-code", hash_code(&code))).value(code);
-                    match &copy_hint {
-                        Some(hint) => copy.tooltip(hint.clone()),
-                        None => copy,
-                    }
-                    .xsmall()
-                }),
-        )
+        .children(reply.into_iter().map(|part| match part {
+            super::replies::Part::Content(view) => view.into_any_element(),
+            super::replies::Part::Markdown(state) => {
+                let copy_hint = copy_hint.clone();
+                TextView::new(&state)
+                    .selectable(true)
+                    .stream_fade(true)
+                    .code_block_actions(move |block, _, _| {
+                        let code = block.code();
+                        let copy =
+                            Clipboard::new(row_id("copy-code", hash_code(&code))).value(code);
+                        match &copy_hint {
+                            Some(hint) => copy.tooltip(hint.clone()),
+                            None => copy,
+                        }
+                        .xsmall()
+                    })
+                    .into_any_element()
+            }
+        }))
         .children(actions)
         .into_any_element()
 }

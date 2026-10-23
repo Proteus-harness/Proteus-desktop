@@ -9,14 +9,15 @@ use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::FocusableExt as _;
 use gpui_kit::component::button::Button;
 use gpui_kit::component::checkbox::Checkbox;
-use gpui_kit::component::clipboard::Clipboard;
-use gpui_kit::component::switch::Switch;
 use gpui_kit::{App, ElementId, MouseButton, SharedString, StatefulInteractiveElement, Styled};
 
 use super::prefs;
 use super::tip::Tip as _;
 use crate::preferences::Hints;
 use crate::shortcuts::{self, Command};
+
+mod controls;
+pub(crate) use controls::{Clipboard, Switch};
 
 /// A button caption uses the same fading single-line label as tabs and
 /// lists. Keep its full accessible name; the component's built-in `label`
@@ -70,10 +71,21 @@ pub(crate) fn checkbox(id: impl Into<ElementId>) -> Checkbox {
 pub(crate) trait Pressable: StatefulInteractiveElement + Styled {
     fn pressable(self, cx: &App) -> Self {
         let theme = cx.theme();
-        let (ring, mark) = (theme.ring, theme.list_hover);
+        let ring = theme.ring;
+        let width = gpui_kit::px(prefs::scale(cx));
         self.focusable()
             .tab_stop(true)
-            .focus_visible(move |style| style.bg(mark).border_color(ring))
+            .focus_visible(move |style| {
+                // Focus must not overwrite the committed selection fill.
+                // A zero-blur outer band also avoids changing layout.
+                style.border_color(ring).shadow(vec![gpui_kit::BoxShadow {
+                    color: ring,
+                    offset: gpui_kit::point(gpui_kit::px(0.), gpui_kit::px(0.)),
+                    blur_radius: gpui_kit::px(0.),
+                    spread_radius: width,
+                    inset: false,
+                }])
+            })
             .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
     }
 }

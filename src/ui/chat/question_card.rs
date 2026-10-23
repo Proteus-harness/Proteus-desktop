@@ -8,6 +8,7 @@ use gpui_kit::*;
 use proteus_contracts::contracts::{UserInputQuestion, UserInputRequest};
 
 use super::Chat;
+use super::activity_dock::ActivityId;
 use super::requests::panel_card;
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
@@ -88,8 +89,9 @@ impl Chat {
                     .hint("Закрыть без ответа", cx)
                     .ghost()
                     .xsmall()
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.submit_user_input(&close_id, true, cx)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.submit_user_input(&close_id, true, cx);
+                        this.focus(window, cx);
                     })),
             );
 
@@ -125,7 +127,7 @@ impl Chat {
             )
             .child(
                 kit::button(SharedString::from(format!("question-go-{rid}")))
-                    .faded_label(if last { "Push" } else { "Далее" })
+                    .faded_label(if last { "Send" } else { "Далее" })
                     .primary()
                     .small()
                     .disabled(!answered)
@@ -191,8 +193,11 @@ impl Chat {
             .rounded(theme.radius)
             .cursor_pointer()
             .pressable(cx)
-            .when(selected, |row| row.bg(theme.accent))
-            .hover(|row| row.bg(theme.list_hover))
+            .when(selected, |row| {
+                row.bg(theme.sidebar_accent)
+                    .text_color(theme.sidebar_accent_foreground)
+            })
+            .when(!selected, |row| row.hover(|row| row.bg(theme.list_hover)))
             .child(badge)
             .child(
                 v_flex()
@@ -214,7 +219,7 @@ impl Chat {
 
     /// "Далее": the next question, or sending after the last one. An
     /// unanswered question stays.
-    pub(super) fn next_question(&mut self, rid: &str, _: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn next_question(&mut self, rid: &str, window: &mut Window, cx: &mut Context<Self>) {
         let Some(request) = self.user_input_request(rid) else {
             return;
         };
@@ -225,7 +230,11 @@ impl Chat {
         if !self.user_input.is_answered(rid, &question.id, cx) {
             return;
         }
-        self.advance(rid, page, request.questions.len(), cx);
+        let count = request.questions.len();
+        self.advance(rid, page, count, cx);
+        if page + 1 >= count {
+            self.focus(window, cx);
+        }
     }
 
     /// A digit typed into the empty composer picks that option of the open
@@ -243,10 +252,13 @@ impl Chat {
         let Some(pending) = self.session.pending.as_ref() else {
             return false;
         };
+        let Some(ActivityId::Question(rid)) = self.activity_dock.selected() else {
+            return false;
+        };
         let Some(request) = pending
             .user_inputs
-            .first()
-            .filter(|_| pending.approvals.is_empty())
+            .iter()
+            .find(|request| &request.request_id == rid)
         else {
             return false;
         };
@@ -280,6 +292,9 @@ impl Chat {
         let qid = question.id.clone();
         self.user_input.clear(rid, &qid, window, cx);
         self.advance(rid, page, count, cx);
+        if page + 1 >= count {
+            self.focus(window, cx);
+        }
     }
 
     fn advance(&mut self, rid: &str, page: usize, count: usize, cx: &mut Context<Self>) {

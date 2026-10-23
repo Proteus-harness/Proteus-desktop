@@ -25,9 +25,12 @@ mod spinner;
 pub(super) mod ticker;
 
 pub(super) use collapse::Collapse;
-pub(super) use disclosure::{chevron, drive, menu_chevron, moving, reveal, toggled};
+pub(super) use disclosure::{
+    chevron, drive, menu_chevron, moving, preview_reveal, reveal, toggled,
+};
 pub(super) use enter::{fade_in_if, late_in, popup, rise_in, rise_in_if, stagger_in, switch_in};
 pub(super) use number::Number;
+pub(super) use reveal::PopupOrigin;
 pub(super) use slide::{Slide, glide};
 pub(super) use spinner::Spinner;
 
@@ -46,6 +49,8 @@ pub(super) const FAST: Duration = Duration::from_millis(120);
 pub(super) const BASE: Duration = Duration::from_millis(180);
 /// Larger content opening: disclosures, screens.
 pub(super) const SLOW: Duration = Duration::from_millis(260);
+/// A held pointer starts reordering only after an ordinary click has settled.
+pub(super) const HOLD: Duration = Duration::from_millis(300);
 
 /// Easing of everything that arrives or moves to a new place.
 pub(super) fn ease_enter(t: f32) -> f32 {

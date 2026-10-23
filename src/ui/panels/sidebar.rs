@@ -9,7 +9,7 @@ use gpui_kit::*;
 use crate::preferences::{SIDEBAR_WIDTH, SidebarPreferences};
 use crate::tabs::Axis;
 use crate::ui::workspace::Workspace;
-use crate::ui::{drag, motion, prefs, tabs};
+use crate::ui::{divider, drag, motion, prefs};
 
 /// Payload of the side panel's edge while it is dragged.
 #[derive(Clone)]
@@ -51,7 +51,7 @@ impl Workspace {
             true,
         );
         let name = SharedString::from("sidebar-edge");
-        let grip = tabs::divider_grip(name.clone(), Axis::Row, cx)
+        let grip = divider::grip(name.clone(), Axis::Row, cx)
             .on_drag(SidebarDrag, move |drag, _, _, cx| {
                 drag::start(name.clone(), cx);
                 cx.new(|_| drag.clone())
@@ -90,7 +90,7 @@ impl Workspace {
                     .text_color(theme.sidebar_foreground)
                     .child(content),
             )
-            .child(tabs::divider_line(Axis::Row, grip, cx));
+            .child(divider::resizable(Axis::Row, grip, cx));
         // The panel keeps its width and slides out from under the rail, so
         // its content does not reflow while it opens or closes.
         let slot = h_flex()

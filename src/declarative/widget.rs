@@ -90,6 +90,10 @@ pub enum Node {
     Empty {
         text: String,
     },
+    /// Shared delayed spinner; an empty response uses Empty instead.
+    Loading {
+        text: String,
+    },
     /// A small icon, such as the branch icon before a branch menu.
     Icon {
         name: String,
@@ -122,6 +126,10 @@ pub enum Node {
         /// The monospace font of code, like Zed's commit message editor.
         #[serde(default)]
         mono: bool,
+        /// Compact inline search: an icon until focused or queried; Ctrl+F
+        /// opens it, Esc clears first and then returns focus to the view.
+        #[serde(default)]
+        search: bool,
     },
     /// Sends `{checked, value}` with the new state.
     Checkbox {
@@ -151,6 +159,12 @@ pub enum Node {
         #[serde(default)]
         wrap: bool,
     },
+    /// Self-contained color SVG, rendered as a native cached image.
+    Svg {
+        source: String,
+        width: f32,
+        height: f32,
+    },
     /// A shared read-only diff, with file cards and responsive split/unified
     /// rows. Optional metadata keeps non-text files visible too.
     Diff {
@@ -165,11 +179,21 @@ pub enum Node {
         id: String,
         cwd: std::path::PathBuf,
     },
-    Choice {
-        label: String,
-        selected: bool,
+    /// Shared whole-row hold-and-drag order; sends {id,before} only on drop.
+    Sortable {
+        id: String,
+        items: Vec<SortableItem>,
         action: String,
-        value: Value,
+    },
+    /// Native searchable, keyboard-navigable and virtualized single choice.
+    Picker {
+        id: String,
+        options: Vec<super::graph::Choice>,
+        action: String,
+        #[serde(default = "search_placeholder")]
+        placeholder: String,
+        #[serde(default = "no_matches")]
+        empty: String,
     },
     Steps {
         id: String,
@@ -396,6 +420,23 @@ pub struct Tab {
     pub children: Vec<Node>,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct SortableItem {
+    pub id: String,
+    /// Accessible drag preview; arbitrary native children render the row.
+    pub label: String,
+    #[serde(default)]
+    pub children: Vec<Node>,
+}
+
+fn search_placeholder() -> String {
+    "Поиск…".into()
+}
+fn no_matches() -> String {
+    "Ничего не найдено".into()
+}
+
 fn hundred() -> f64 {
     100.
 }
@@ -444,6 +485,13 @@ impl Node {
                     child.visit(each);
                 }
             }
+            Node::Sortable { items, .. } => {
+                for item in items {
+                    for child in &item.children {
+                        child.visit(each);
+                    }
+                }
+            }
             Node::Tabs { tabs, .. } => {
                 for tab in tabs {
                     for child in &tab.children {
@@ -470,6 +518,21 @@ impl Node {
             bail!("widget tree has more than {MAX_NODES} nodes");
         }
         let children: &[Node] = match self {
+            Node::Svg {
+                source,
+                width,
+                height,
+            } => {
+                if !width.is_finite()
+                    || !height.is_finite()
+                    || !(1. ..=4096.).contains(width)
+                    || !(1. ..=4096.).contains(height)
+                {
+                    bail!("svg dimensions must be finite and within 1..=4096");
+                }
+                super::svg::validate(source)?;
+                &[]
+            }
             Node::Code {
                 height: Some(height),
                 ..
@@ -494,6 +557,35 @@ impl Node {
                     .any(|edge| !ids.contains(&edge.from) || !ids.contains(&edge.to))
                 {
                     bail!("graph edge references an unknown node");
+                }
+                &[]
+            }
+            Node::Sortable { items, .. } => {
+                let ids: std::collections::HashSet<_> = items.iter().map(|item| &item.id).collect();
+                if ids.len() != items.len() || items.iter().any(|item| item.id.is_empty()) {
+                    bail!("sortable requires non-empty unique item ids");
+                }
+                *count += items.len();
+                if *count > MAX_NODES {
+                    bail!("sortable has too many items");
+                }
+                for item in items {
+                    for child in &item.children {
+                        child.check(depth + 1, count)?;
+                    }
+                }
+                &[]
+            }
+            Node::Picker { options, .. } => {
+                let values: std::collections::HashSet<_> =
+                    options.iter().map(|o| o.value.to_string()).collect();
+                if options.len() > MAX_NODES
+                    || values.len() != options.len()
+                    || options.iter().filter(|o| o.selected).count() > 1
+                {
+                    bail!(
+                        "picker requires unique values, at most one selected option and at most {MAX_NODES} options"
+                    );
                 }
                 &[]
             }
@@ -603,6 +695,13 @@ impl Node {
             Node::List { rows, .. } => {
                 super::list::check(rows)?;
                 &[]
+            }
+            Node::Input {
+                search: true,
+                lines,
+                ..
+            } if *lines != 1 => {
+                bail!("compact search must be a single-line input")
             }
             Node::Input { lines, .. } if !(1..=40).contains(lines) => {
                 bail!("input lines must be within 1..=40")

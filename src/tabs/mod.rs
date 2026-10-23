@@ -7,6 +7,7 @@
 //! mix.
 
 mod geometry;
+mod history;
 mod layout;
 mod lock;
 mod open;
@@ -19,6 +20,7 @@ mod tree;
 use std::path::Path;
 
 pub use geometry::{Rect, drop_edge};
+pub use history::ClosedTab;
 pub use layout::TabLayout;
 pub use pane::Pane;
 pub use size::Size;

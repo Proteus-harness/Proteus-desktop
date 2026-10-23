@@ -16,6 +16,48 @@ struct FloorState {
     floor: Pixels,
 }
 
+/// The same retained room for a virtual list, whose rows cannot be wrapped
+/// in `Floor`. Render `height()` as an ordinary empty last row. Reserve one
+/// viewport before a disclosure changes size, then trim it after layout;
+/// no scroll offset needs to be restored or corrected.
+#[derive(Default)]
+pub(in crate::ui) struct TailFloor {
+    height: Pixels,
+}
+
+impl TailFloor {
+    pub(in crate::ui) fn height(&self) -> Pixels {
+        self.height
+    }
+
+    /// A disclosure below a visible header can free at most one viewport
+    /// that must remain in view. This guard also covers its first frame,
+    /// before the virtual list has measured the smaller rows.
+    pub(in crate::ui) fn hold(&mut self, viewport: Pixels) -> bool {
+        self.replace(self.height.max(viewport))
+    }
+
+    /// `visible` is the room between the natural content end and viewport
+    /// bottom. Scrolling up or new content consumes the retained blank tail.
+    pub(in crate::ui) fn settle(&mut self, visible: Pixels) -> bool {
+        self.replace(retained_height(px(0.), visible, self.height))
+    }
+
+    pub(in crate::ui) fn clear(&mut self) -> bool {
+        self.replace(px(0.))
+    }
+
+    fn replace(&mut self, height: Pixels) -> bool {
+        let changed = self.height != height;
+        self.height = height;
+        changed
+    }
+}
+
+fn retained_height(natural: Pixels, visible: Pixels, previous: Pixels) -> Pixels {
+    natural.max(visible.max(px(0.)).min(previous))
+}
+
 pub(in crate::ui) fn floor(id: impl Into<ElementId>, child: impl IntoElement) -> Floor {
     Floor {
         id: id.into(),
@@ -80,7 +122,7 @@ impl Element for Floor {
         // The part of the content above the viewport's bottom edge must stay,
         // or the scroll position would be clamped; the rest may go.
         let visible = (window.content_mask().bounds.bottom() - bounds.top()).max(px(0.));
-        let floor = natural.max(visible.min(bounds.size.height));
+        let floor = retained_height(natural, visible, bounds.size.height);
         window.with_element_state(
             global_id.expect("Floor has an id"),
             |_: Option<FloorState>, _| ((), FloorState { floor }),
@@ -99,5 +141,36 @@ impl Element for Floor {
         cx: &mut App,
     ) {
         self.child.paint(window, cx);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{TailFloor, retained_height};
+    use gpui_kit::px;
+
+    #[::core::prelude::v1::test]
+    fn a_collapsing_page_keeps_only_room_still_visible() {
+        assert_eq!(retained_height(px(120.), px(480.), px(900.)), px(480.));
+        assert_eq!(retained_height(px(120.), px(240.), px(480.)), px(240.));
+        assert_eq!(retained_height(px(120.), px(-20.), px(240.)), px(120.));
+    }
+
+    #[::core::prelude::v1::test]
+    fn virtual_tail_is_reserved_before_measurement_and_consumed_without_scrolling() {
+        let mut tail = TailFloor::default();
+        assert!(tail.hold(px(600.)));
+        assert_eq!(tail.height(), px(600.));
+        assert!(tail.settle(px(340.)));
+        assert_eq!(tail.height(), px(340.));
+        // A later layout cannot grow a settled reservation. A new toggle
+        // explicitly calls hold before its content starts shrinking.
+        assert!(!tail.settle(px(400.)));
+        assert!(tail.settle(px(160.)));
+        assert!(tail.settle(px(-20.)));
+        assert_eq!(tail.height(), px(0.));
+        assert!(tail.hold(px(600.)));
+        assert!(tail.clear());
+        assert_eq!(tail.height(), px(0.));
     }
 }

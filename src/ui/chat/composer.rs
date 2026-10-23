@@ -1,14 +1,19 @@
+// Адаптировано из Zed: crates/agent_ui/src/conversation_view/thread_view.rs
+// (send readiness, retained queued drafts and focus after sending).
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::Textarea;
+use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use proteus_contracts::app_protocol::AppQueuedUserMessage;
 
-use super::{Chat, ComposerSlot};
+use super::Chat;
+use super::draft::SavedDraft;
 use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
+use crate::ui::motion::Spinner;
 use crate::ui::{format, prefs};
 
 impl Chat {
@@ -18,13 +23,8 @@ impl Chat {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let plan = self.render_plan(cx);
-        let requests = self.render_requests(window, cx);
-        // The project line gives way to cards the agent waits on.
-        let above = requests
-            .is_none()
-            .then(|| (self.extras)(cx.entity_id(), ComposerSlot::Above, cx))
-            .flatten();
+        let theme = cx.theme().clone();
+        let dock = self.render_activity_dock(window, cx);
         h_flex()
             .w_full()
             .justify_center()
@@ -35,16 +35,16 @@ impl Chat {
                 v_flex()
                     .w_full()
                     .max_w(prefs::chat_width(cx))
-                    .gap_2()
-                    .children(plan)
-                    .children(requests)
-                    .children(above)
+                    .rounded(theme.radius_lg)
+                    .border_1()
+                    .border_color(theme.input)
+                    .bg(theme.background.blend(theme.foreground.opacity(0.04)))
+                    .child(dock)
                     .child(self.render_input_box(cx)),
             )
     }
 
     fn render_input_box(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
         let session = &self.session;
         let running = session.running();
         let ready = session.connected;
@@ -53,8 +53,6 @@ impl Chat {
             .as_ref()
             .map(|pending| pending.queued_user_messages.as_slice())
             .unwrap_or_default();
-        let start = (self.extras)(cx.entity_id(), ComposerSlot::Start, cx);
-        let end = (self.extras)(cx.entity_id(), ComposerSlot::End, cx);
 
         let keys = match prefs::current(cx).send {
             crate::preferences::SendMode::Enter => "Enter",
@@ -62,16 +60,29 @@ impl Chat {
         };
         let send = kit::button("send")
             .icon(IconName::ArrowUp)
-            .hint_keys(if running { "В очередь" } else { "Push" }, Some(keys), cx)
+            .hint_keys(if running { "В очередь" } else { "Send" }, Some(keys), cx)
             .primary()
             .small()
-            .disabled(!ready)
+            .disabled(!ready || !self.has_draft(cx) || self.attachments_loading)
             .on_click(cx.listener(|this, _, window, cx| this.send(window, cx)));
         let attach = kit::button("attach")
-            .icon(IconName::Plus)
-            .hint("Прикрепить изображения", cx)
+            .when(!self.attachments_loading, |button| {
+                button.icon(IconName::Plus)
+            })
+            .when(self.attachments_loading, |button| {
+                button.child(Spinner::new().small())
+            })
+            .hint(
+                if self.attachments_loading {
+                    "Загружаю изображения"
+                } else {
+                    "Прикрепить изображения"
+                },
+                cx,
+            )
             .ghost()
             .small()
+            .disabled(self.attachments_loading)
             .on_click(cx.listener(|this, _, window, cx| this.choose_images(window, cx)));
         let chat = cx.entity().downgrade();
         let stop = running.then(|| {
@@ -87,12 +98,21 @@ impl Chat {
             .w_full()
             .gap_1()
             .p_2()
-            .rounded(theme.radius_lg)
-            .border_1()
-            .border_color(theme.input)
-            // Raised off the conversation in either light or dark themes.
-            .bg(theme.background.blend(theme.foreground.opacity(0.04)))
-            .children(queued.iter().map(|message| render_queued(message, cx)))
+            .children(
+                (!self.saved_drafts.is_empty() || !queued.is_empty()).then(|| {
+                    v_flex()
+                        .id("unsent-messages")
+                        .max_h(prefs::scaled(160.))
+                        .overflow_y_scrollbar()
+                        .gap_1()
+                        .children(
+                            self.saved_drafts
+                                .iter()
+                                .map(|draft| render_saved(draft, self.attachments_loading, cx)),
+                        )
+                        .children(queued.iter().map(|message| render_queued(message, cx)))
+                }),
+            )
             .children(self.render_attachments(cx))
             .child(
                 Textarea::new(&self.composer)
@@ -110,17 +130,69 @@ impl Chat {
                     .gap_x_2()
                     .gap_y_1()
                     .child(attach)
-                    .child(h_flex().flex_1().min_w_0().children(start))
-                    .child(
-                        h_flex()
-                            .ml_auto()
-                            .gap_2()
-                            .children(end)
-                            .children(stop)
-                            .child(send),
-                    ),
+                    .child(h_flex().ml_auto().gap_2().children(stop).child(send)),
             )
     }
+}
+
+fn render_saved(draft: &SavedDraft, loading: bool, cx: &Context<Chat>) -> impl IntoElement {
+    let theme = cx.theme();
+    let restore_id = draft.id.clone();
+    let copy = draft.text.clone();
+    let images = draft.attachments.len();
+    h_flex()
+        .gap_2()
+        .px_2()
+        .py_1()
+        .rounded(theme.radius)
+        .bg(theme.muted)
+        .text_xs()
+        .child(
+            Icon::new(IconName::Inbox)
+                .xsmall()
+                .text_color(theme.warning),
+        )
+        .child(
+            div()
+                .flex_none()
+                .text_color(theme.muted_foreground)
+                .child("Черновик"),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(faded(format::clip(&draft.text, 200))),
+        )
+        .when(images > 0, |row| {
+            row.child(
+                div()
+                    .text_color(theme.muted_foreground)
+                    .child(format!("+{images} img")),
+            )
+        })
+        .child(
+            kit::button(SharedString::from(format!("copy-draft-{}", draft.id)))
+                .icon(IconName::Copy)
+                .hint("Копировать текст черновика", cx)
+                .ghost()
+                .xsmall()
+                .disabled(copy.is_empty())
+                .on_click(move |_, _, cx| {
+                    cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
+                }),
+        )
+        .child(
+            kit::button(SharedString::from(format!("restore-draft-{}", draft.id)))
+                .icon(IconName::Undo2)
+                .hint("Вернуть в поле; текущий черновик сохранится отдельно", cx)
+                .ghost()
+                .xsmall()
+                .disabled(loading)
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.restore_draft(&restore_id, window, cx)
+                })),
+        )
 }
 
 fn render_queued(message: &AppQueuedUserMessage, cx: &Context<Chat>) -> impl IntoElement {

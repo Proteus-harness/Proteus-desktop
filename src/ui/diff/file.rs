@@ -4,9 +4,9 @@
 
 use super::{DiffView, HEADER, LINE, lines, stat};
 use crate::diff::File;
-use crate::ui::fade::{faded, faded_start};
+use crate::ui::fade::caption;
 use crate::ui::kit::{self, Hint as _, Pressable as _};
-use crate::ui::tip::Tip as _;
+use crate::ui::tip::{Tip as _, TooltipAnchor};
 use crate::ui::{motion, prefs};
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
@@ -34,9 +34,11 @@ impl DiffView {
             _ => (Lucide::FileDiff, theme.muted_foreground),
         };
         let group: SharedString = format!("diff-file-{index}").into();
+        let anchor = TooltipAnchor::default();
         let header = h_flex()
             .id(ElementId::NamedInteger("diff-file".into(), index as u64))
             .group(group.clone())
+            .tip_anchor(anchor.clone())
             .w_full()
             .h(prefs::scaled(HEADER))
             .px_2()
@@ -55,16 +57,15 @@ impl DiffView {
                 div()
                     .min_w_0()
                     .flex_shrink(1.)
-                    .child(faded(name.to_owned())),
+                    .child(caption("diff-filename", name.to_owned()).anchor(anchor.clone())),
             )
             .when(!parent.is_empty(), |header| {
                 header.child(
-                    div()
-                        .min_w_0()
-                        .flex_1()
-                        .text_xs()
-                        .text_color(muted)
-                        .child(faded_start(parent.to_owned())),
+                    div().min_w_0().flex_1().text_xs().text_color(muted).child(
+                        caption("diff-parent", parent.to_owned())
+                            .fade_start()
+                            .anchor(anchor.clone()),
+                    ),
                 )
             })
             .child(div().flex_1())
@@ -96,11 +97,9 @@ impl DiffView {
                     ),
             )
             .on_click(cx.listener(move |this, _, _, cx| this.toggle(index, !open, cx)));
-        let header = header.tip_text(
-            file.old_path
-                .as_ref()
-                .map_or_else(|| file.path.clone(), |old| format!("{old} → {}", file.path)),
-        );
+        let header = header.when_some(file.old_path.as_ref(), |header, old| {
+            header.tip_text(format!("{old} → {}", file.path))
+        });
         let width = self
             .measured
             .as_ref()

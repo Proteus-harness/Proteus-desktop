@@ -2,23 +2,17 @@
 //! neighbors, a double click shares the split evenly between the panes
 //! that are not fixed.
 
-use gpui_kit::component::*;
-use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::tabs::{Axis, Size};
 use crate::ui::workspace::Workspace;
-use crate::ui::{drag, prefs};
+use crate::ui::{divider, drag, prefs};
 
 /// Smallest pane while resizing.
 const MIN_WIDTH: f32 = 240.;
 const MIN_HEIGHT: f32 = 160.;
 /// The line between panes, and the strip around it that can be dragged.
-pub(super) const DIVIDER: f32 = 1.;
-const GRIP: f32 = 7.;
-/// The line over a hovered or dragged divider: the hairline itself, only
-/// coloured.
-const MARK: f32 = 1.;
+pub(super) const DIVIDER: f32 = divider::WIDTH;
 
 /// Payload of a divider while it is dragged: the split and the child the
 /// divider follows.
@@ -86,7 +80,7 @@ pub(super) fn divider(
         path: path.clone(),
         index,
     };
-    let grip = divider_grip(name.clone(), axis, cx)
+    let grip = divider::grip(name.clone(), axis, cx)
         .on_drag(drag, move |drag, _, _, cx| {
             drag::start(name.clone(), cx);
             cx.new(|_| drag.clone())
@@ -96,55 +90,7 @@ pub(super) fn divider(
                 this.reset_split(&path, cx);
             }
         }));
-    divider_line(axis, grip, cx)
-}
-
-/// A divider: a hairline in the layout under `grip`. The grip is drawn
-/// after everything else, so the next neighbour does not cover it.
-pub(in crate::ui) fn divider_line(axis: Axis, grip: Stateful<Div>, cx: &App) -> Div {
-    let base = match axis {
-        Axis::Row => div().w(prefs::scaled(DIVIDER)).h_full(),
-        Axis::Column => div().h(prefs::scaled(DIVIDER)).w_full(),
-    };
-    base.relative()
-        .flex_none()
-        .bg(cx.theme().border)
-        .child(deferred(grip))
-}
-
-/// The strip over a divider wider than its hairline that takes the
-/// pointer, named `name` as a drag source; marked by a line while hovered
-/// or dragged.
-pub(in crate::ui) fn divider_grip(name: SharedString, axis: Axis, cx: &App) -> Stateful<Div> {
-    let accent = cx.theme().drag_border;
-    let held = drag::is_source(&name, cx);
-    let reach = px((GRIP - DIVIDER) / 2. * prefs::scale(cx));
-    let grip = div()
-        .id(ElementId::Name(name.clone()))
-        .group(name.clone())
-        .absolute()
-        .flex()
-        .justify_center();
-    let mark = div()
-        .when(held, |mark| mark.bg(accent))
-        .group_hover(name, move |style| style.bg(accent));
-    match axis {
-        Axis::Row => grip
-            .top_0()
-            .bottom_0()
-            .left(-reach)
-            .right(-reach)
-            .cursor(CursorStyle::ResizeLeftRight)
-            .child(mark.w(prefs::scaled(MARK)).h_full()),
-        Axis::Column => grip
-            .flex_col()
-            .left_0()
-            .right_0()
-            .top(-reach)
-            .bottom(-reach)
-            .cursor(CursorStyle::ResizeUpDown)
-            .child(mark.h(prefs::scaled(MARK)).w_full()),
-    }
+    divider::resizable(axis, grip, cx)
 }
 
 impl Workspace {

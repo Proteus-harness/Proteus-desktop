@@ -35,7 +35,11 @@ impl Render for Chat {
             .capture_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 let keystroke = &event.keystroke;
                 let handled = match keystroke.key.as_str() {
-                    "escape" => this.deny_pending(cx),
+                    // A popup or a free-answer field owns its Escape. Only
+                    // the composer offers the chat's deny shortcut.
+                    "escape" if this.composer.focus_handle(cx).is_focused(window) => {
+                        this.deny_pending(cx)
+                    }
                     key if !keystroke.modifiers.modified() => key
                         .parse::<usize>()
                         .is_ok_and(|digit| this.pick_option(digit, window, cx)),

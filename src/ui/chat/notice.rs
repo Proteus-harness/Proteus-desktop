@@ -71,7 +71,7 @@ impl Chat {
             .text_color(theme.muted_foreground)
             .child(div().flex_1().min_w_0().child(text.clone()))
             .child(
-                clipboard::Clipboard::new("notice-copy")
+                kit::Clipboard::new("notice-copy")
                     .value(text)
                     .hint("Копировать полный текст уведомления", cx)
                     .xsmall(),

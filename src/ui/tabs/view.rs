@@ -1,3 +1,4 @@
+// Адаптировано из Zed: crates/workspace/src/pane.rs (update_active_tab)
 use crate::ui::kit::ButtonLabel as _;
 use std::time::Instant;
 
@@ -126,17 +127,39 @@ impl Workspace {
         let panes = layout.panes();
         self.tab_strips
             .retain(|id, _| panes.iter().any(|pane| pane.id == *id));
+        let now = Instant::now();
         for pane in panes {
+            if self.tab_drag {
+                continue;
+            }
             let (strip, shown) = self.tab_strips.entry(pane.id).or_default();
-            if *shown != pane.active {
-                if let Some(ix) = pane
-                    .active
-                    .as_ref()
-                    .and_then(|active| pane.tabs.iter().position(|id| id == active))
-                {
+            let active = pane.active.as_ref().and_then(|active| {
+                pane.tabs
+                    .iter()
+                    .position(|id| id == active)
+                    .map(|ix| (ix, active))
+            });
+            // Pinning or reordering can move the same active tab out of
+            // view. Its position matters as well as its id.
+            let leaving = self.tab_motion.leaving(pane.id, now);
+            let target = active.map(|(mut ix, id)| {
+                // Shrinking closed tabs still occupy children of the strip.
+                // Use the rendered index until those children disappear.
+                for (closed, _) in &leaving {
+                    if closed.index <= ix {
+                        ix += 1;
+                    }
+                }
+                (ix, id)
+            });
+            let key = target.map(|(ix, id)| format!("{ix}:{id}"));
+            let resizing = !leaving.is_empty()
+                || active.is_some_and(|(_, id)| self.tab_motion.entering(id, now).is_some());
+            if *shown != key || resizing {
+                if let Some((ix, _)) = target {
                     strip.scroll_to_item(ix);
                 }
-                shown.clone_from(&pane.active);
+                *shown = key;
             }
         }
     }

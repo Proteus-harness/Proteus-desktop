@@ -116,6 +116,37 @@ pub(in crate::ui) fn reveal(
     Some(Reveal::new(ElementId::Name(key), progress, child).into_any_element())
 }
 
+/// A disclosure with a persistent preview instead of an empty closed state.
+/// Both endpoints are measured at the same width; the shared transition
+/// animates between their heights and reverses from its current position.
+/// The branches have separate element paths, so selection state cannot leak
+/// from the shortened preview into the complete content.
+pub(in crate::ui) fn preview_reveal(
+    key: impl Into<SharedString>,
+    open: bool,
+    cx: &App,
+    preview: impl IntoElement,
+    content: impl IntoElement,
+) -> AnyElement {
+    let key = key.into();
+    Reveal::preview(
+        ElementId::Name(key.clone()),
+        progress(&key, open, cx),
+        open,
+        div()
+            .id("preview")
+            .w_full()
+            .child(preview)
+            .into_any_element(),
+        div()
+            .id("content")
+            .w_full()
+            .child(content)
+            .into_any_element(),
+    )
+    .into_any_element()
+}
+
 /// Whether `toggled` is animating `key` towards `open` right now. A caller
 /// that splits a disclosure into several rows at rest draws them as one
 /// block meanwhile, so the whole block grows like any other disclosure.

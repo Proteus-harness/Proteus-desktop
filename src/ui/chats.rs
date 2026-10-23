@@ -111,6 +111,36 @@ impl Workspace {
         );
     }
 
+    /// Resumes a closed chat before the generic tab history restores its
+    /// original position. Closing the UI tab never deleted the session.
+    pub(super) fn restore_closed_chat(
+        &mut self,
+        closed: tabs::ClosedTab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(dir) = tabs::chat_dir(&closed.id).map(Path::to_path_buf) else {
+            return;
+        };
+        self.call_in(
+            window,
+            cx,
+            move |api| Ok(api.resume(&dir)),
+            move |this, resumed, window, cx| {
+                let opened = match resumed {
+                    Ok(opened) => opened,
+                    Err(error) => return this.report(format!("{error:#}"), cx),
+                };
+                let mut closed = closed;
+                closed.id = this.insert_chat(opened.session_dir, window, cx);
+                this.update_tabs(cx, |tabs| tabs.restore_closed(&closed));
+                if this.settings.is_none() {
+                    this.focus_active(window, cx);
+                }
+            },
+        );
+    }
+
     /// Click on the session list: one click previews the chat, a double
     /// click keeps it and moves the keyboard there.
     pub(super) fn select_session(
@@ -161,7 +191,8 @@ impl Workspace {
             return id;
         };
         let extras = self.composer_extras(cx);
-        let view = cx.new(|cx| Chat::new(api, dir, extras, window, cx));
+        let workspace = cx.weak_entity();
+        let view = cx.new(|cx| Chat::new(api, workspace, dir, extras, window, cx));
         let tab = id.clone();
         let events = cx.subscribe(&view, move |this, chat, event: &ChatEvent, cx| {
             this.on_chat_event(&tab, &chat, event, cx)
@@ -176,8 +207,8 @@ impl Workspace {
         id
     }
 
-    /// The project line goes above every chat's composer; extension icons
-    /// under the composer of the active chat only.
+    /// The project and both public extension places share the activity
+    /// strip above the input. Retained badges belong to the active chat.
     fn composer_extras(&self, cx: &Context<Self>) -> ComposerExtras {
         let workspace = cx.weak_entity();
         Rc::new(move |chat, slot, cx| {

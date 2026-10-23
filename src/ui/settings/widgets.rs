@@ -1,3 +1,4 @@
+// Адаптировано из Zed: crates/settings_ui/src/components/dropdown.rs (intrinsic dropdown width)
 //! Building blocks of settings pages: sections, cards, rows, chips, radio
 //! cards and select menus.
 
@@ -8,7 +9,7 @@ use std::rc::Rc;
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
-use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
+use gpui_kit::component::menu::PopupMenu;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -377,7 +378,8 @@ pub(super) fn radio_card(
         .map(|card| {
             if selected {
                 card.border_color(theme.primary.opacity(0.6))
-                    .bg(theme.primary.opacity(0.06))
+                    .bg(theme.sidebar_accent)
+                    .text_color(theme.sidebar_accent_foreground)
             } else {
                 card.border_color(theme.border)
                     .bg(theme.group_box)
@@ -442,7 +444,7 @@ pub(super) struct MenuOption<T> {
     pub checked: bool,
 }
 
-/// Outline button opening a checked list; `select` receives the picked value.
+/// Outline button opening a single-choice list; `select` receives its value.
 pub(super) fn select_menu<T: Clone + 'static>(
     id: ElementId,
     label: impl Into<SharedString>,
@@ -454,20 +456,25 @@ pub(super) fn select_menu<T: Clone + 'static>(
     let id: ElementId = id.into();
     crate::ui::context::menu_button(
         ElementId::Name(format!("settings-menu-{id:?}").into()),
-        kit::button(id).faded_label(label).outline().small(),
+        kit::button(id)
+            .faded_label(label)
+            .outline()
+            .small()
+            .min_w_0()
+            .max_w(prefs::scaled(INPUT_MAX_WIDTH)),
         true,
         move |menu: PopupMenu, _, _| {
-            let menu = menu.min_w(px(200.)).max_h(px(360.)).scrollable(true);
+            // Intrinsic width and viewport bounds come from the common menu.
             options.iter().fold(menu, |menu, option| {
                 let (select, value) = (select.clone(), option.value.clone());
                 menu.item(
-                    PopupMenuItem::new(option.label.clone())
-                        .checked(option.checked)
+                    crate::ui::selection::menu_option(option.label.clone(), option.checked)
                         .on_click(move |_, _, cx| select(value.clone(), cx)),
                 )
             })
         },
     )
+    .max_w_full()
     .into_any_element()
 }
 

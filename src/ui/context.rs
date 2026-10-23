@@ -1,3 +1,4 @@
+// Адаптировано из Zed: crates/ui/src/components/context_menu.rs, crates/git_ui/src/git_ui.rs (shared menu and split-button trigger)
 //! Right-click menus anchored to the element they belong to. gpui-kit's
 //! `context_menu` opens at the pointer, and its popover clamps a menu into
 //! the window without flipping, so near the bottom edge the menu covered
@@ -21,6 +22,8 @@ struct MenuState {
     bounds: Bounds<Pixels>,
     menu: Option<Entity<PopupMenu>>,
     generation: usize,
+    /// Whether this pointer press began while the menu was still open.
+    pressed_open: bool,
 }
 
 type Build = std::rc::Rc<dyn Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu>;
@@ -94,6 +97,7 @@ impl RenderOnce for ContextMenu {
         root.style().refine(&self.style);
         let measured = state.clone();
         let opened = state.clone();
+        let pressed = state.clone();
         let build = self.build;
         let menu_open = state.read(cx).menu.is_some();
         let disabled = matches!(&self.trigger, Trigger::Split(_, _, true));
@@ -110,7 +114,7 @@ impl RenderOnce for ContextMenu {
                 })
                 .on_click(move |_, window, cx| {
                     cx.stop_propagation();
-                    open(&click_state, &click_build, window, cx);
+                    click(&click_state, &click_build, window, cx);
                 })
                 .into_any_element(),
             Trigger::Split(main, arrow, disabled) => {
@@ -122,7 +126,7 @@ impl RenderOnce for ContextMenu {
                 h_flex()
                     .min_w_0()
                     .group("split-control")
-                    .child(main.rounded_r_none().border_r_0().shadow_none())
+                    .child(main.rounded_r_none().border_r_0().pr_1().shadow_none())
                     .child(
                         arrow
                             .rounded_l_none()
@@ -136,13 +140,21 @@ impl RenderOnce for ContextMenu {
                             .child(chevron)
                             .on_click(move |_, window, cx| {
                                 cx.stop_propagation();
-                                open(&click_state, &click_build, window, cx);
+                                click(&click_state, &click_build, window, cx);
                             }),
                     )
                     .into_any_element()
             }
         };
         let root = root
+            .capture_any_mouse_down(move |event, _, cx| {
+                if event.button == MouseButton::Left {
+                    // PopupMenu dismisses on mouse-down outside its surface,
+                    // before the trigger receives click on mouse-up. Preserve
+                    // the press state so that same click cannot reopen it.
+                    pressed.update(cx, |state, _| state.pressed_open = menu_open);
+                }
+            })
             .child(trigger)
             .child(
                 canvas(
@@ -170,7 +182,7 @@ impl RenderOnce for ContextMenu {
         let generation = state.read(cx).generation;
         let animation = ElementId::Name(format!("{:?}:enter:{generation}", self.id).into());
         let surface = div().relative().child(menu);
-        let surface = motion::popup(surface, animation, cx);
+        let surface = motion::popup(surface, animation, motion::PopupOrigin::Anchor(bounds), cx);
         root.child(
             deferred(
                 Positioner::side(bounds)
@@ -186,6 +198,17 @@ impl RenderOnce for ContextMenu {
     }
 }
 
+fn click(state: &Entity<MenuState>, build: &Build, window: &mut Window, cx: &mut App) {
+    let pressed_open = state.update(cx, |state, _| std::mem::take(&mut state.pressed_open));
+    if pressed_open && !window.last_input_was_keyboard() {
+        if let Some(menu) = state.read(cx).menu.clone() {
+            menu.update(cx, |_, cx| cx.emit(DismissEvent));
+        }
+        return;
+    }
+    open(state, build, window, cx);
+}
+
 /// Builds the menu afresh, so its items reflect the moment it opens, and
 /// forgets it once dismissed.
 fn open(state: &Entity<MenuState>, build: &Build, window: &mut Window, cx: &mut App) {
@@ -195,7 +218,23 @@ fn open(state: &Entity<MenuState>, build: &Build, window: &mut Window, cx: &mut 
     }
     let build = build.clone();
     let previous_focus = window.focused(cx);
-    let menu = PopupMenu::build(window, cx, move |menu, window, cx| build(menu, window, cx));
+    let menu = PopupMenu::build(window, cx, move |menu, window, cx| {
+        let margin = prefs::scaled(16.).to_pixels(window.rem_size());
+        let room = window.viewport_size();
+        let menu = menu
+            .max_w(
+                prefs::scaled(560.)
+                    .to_pixels(window.rem_size())
+                    .min((room.width - margin).max(px(0.))),
+            )
+            .max_h(
+                prefs::scaled(360.)
+                    .to_pixels(window.rem_size())
+                    .min((room.height - margin).max(px(0.))),
+            )
+            .scrollable(true);
+        build(menu, window, cx)
+    });
     let menu_focus = menu.focus_handle(cx);
     menu_focus.focus(window, cx);
     let held = state.downgrade();

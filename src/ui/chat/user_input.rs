@@ -98,10 +98,10 @@ impl UserInputDrafts {
                 let subscription = cx.subscribe_in(
                     &input,
                     window,
-                    move |chat, _, event: &InputEvent, window, cx| {
-                        if let InputEvent::PressEnter { .. } = event {
-                            chat.next_question(&request, window, cx);
-                        }
+                    move |chat, _, event: &InputEvent, window, cx| match event {
+                        InputEvent::Change => cx.notify(),
+                        InputEvent::PressEnter { .. } => chat.next_question(&request, window, cx),
+                        _ => {}
                     },
                 );
                 (input, subscription)

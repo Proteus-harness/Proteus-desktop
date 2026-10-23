@@ -19,8 +19,6 @@ use crate::settings::{FieldKind, FieldPath, TextFormat, choice_title, field_kind
 use crate::ui::kit;
 use crate::ui::prefs;
 
-const CHOICE_WIDTH: f32 = 220.;
-
 /// Everything one field control needs inside its event handlers.
 struct FieldSpec {
     path: FieldPath,
@@ -223,9 +221,11 @@ fn multi_choice(spec: &Rc<FieldSpec>, options: &[ConfigChoice]) -> AnyElement {
         let checked = selected.contains(&choice.value);
         let (handler, options, value) = (spec.clone(), options.to_vec(), choice.value.clone());
         let selected = selected.clone();
-        div().w(prefs::scaled(CHOICE_WIDTH)).child(
+        div().min_w_0().max_w_full().child(
             kit::checkbox(hashed_id("multi", &(&spec.path, ix)))
                 .checked(checked)
+                .min_w_0()
+                .max_w_full()
                 .label(choice.title.clone())
                 .on_click(move |checked, _, cx| {
                     let next: Vec<Value> = options
@@ -246,8 +246,10 @@ fn multi_choice(spec: &Rc<FieldSpec>, options: &[ConfigChoice]) -> AnyElement {
     });
     h_flex()
         .flex_wrap()
-        .gap_x_4()
-        .gap_y_2()
+        .min_w_0()
+        .w_full()
+        .gap_x_3()
+        .gap_y_1()
         .children(boxes)
         .into_any_element()
 }

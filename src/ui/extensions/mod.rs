@@ -15,6 +15,7 @@ use gpui_kit::*;
 use std::path::Path;
 
 pub(super) use badge::DraggedBadge;
+pub(in crate::ui) use declarative::content;
 pub(super) use host::{Host, HostEvent, OpenDocument};
 
 use super::prefs;

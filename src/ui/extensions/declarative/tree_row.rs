@@ -7,10 +7,10 @@ use super::tree::Tree;
 use crate::declarative::tree::{Check, Row};
 use crate::declarative::widget::Tone;
 use crate::ui::context::RightClickMenu as _;
-use crate::ui::fade::{faded, faded_start};
+use crate::ui::fade::{caption, faded_start};
 use crate::ui::motion;
 use crate::ui::prefs;
-use crate::ui::tip::Tip as _;
+use crate::ui::tip::{Tip as _, TooltipAnchor};
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -75,14 +75,20 @@ impl Tree {
             Some(index) => self.checkbox(index, state, cx).into_any_element(),
             None => toggle::checkbox(id.clone(), state, cx).into_any_element(),
         });
+        let anchor = TooltipAnchor::default();
         let body = if row.header() {
-            self.header(row, cx)
+            self.header(row, &anchor, cx)
         } else {
-            self.item(row, cx)
+            self.item(row, &anchor, cx)
         };
+        let hint = row.hint.clone().filter(|hint| {
+            let hint = hint.trim();
+            !hint.is_empty() && hint != row.label.trim() && hint != row.detail.trim()
+        });
         let selected = row.selected && !row.header();
         let element = h_flex()
             .id(id)
+            .tip_anchor(anchor)
             .relative()
             .w_full()
             .h(prefs::scaled(HEIGHT))
@@ -116,7 +122,7 @@ impl Tree {
                     && crate::ui::kit::keyboard(),
                 |element| element.child(crate::ui::selection::focus(cx)),
             )
-            .when_some(row.hint.clone(), |element, hint| element.tip_text(hint));
+            .when_some(hint, |element, hint| element.tip_text(hint));
         let Some(index) = index else {
             return element.into_any_element();
         };
@@ -152,7 +158,7 @@ impl Tree {
     }
 
     /// A section title: a chevron and a small muted label.
-    fn header(&self, row: &Row, cx: &App) -> Div {
+    fn header(&self, row: &Row, anchor: &TooltipAnchor, cx: &App) -> Div {
         let muted = cx.theme().muted_foreground;
         h_flex()
             .flex_1()
@@ -161,11 +167,15 @@ impl Tree {
             .text_xs()
             .text_color(muted)
             .child(chevron(&row.id, row.expanded.unwrap_or(true), muted))
-            .child(div().flex_1().min_w_0().child(faded(row.label.clone())))
+            .child(
+                div().flex_1().min_w_0().child(
+                    caption("tree-header-caption", row.label.clone()).anchor(anchor.clone()),
+                ),
+            )
     }
 
     /// Chevron, icon, label and the muted detail after it.
-    fn item(&self, row: &Row, cx: &App) -> Div {
+    fn item(&self, row: &Row, anchor: &TooltipAnchor, cx: &App) -> Div {
         let muted = cx.theme().muted_foreground;
         let color = super::render::tone_color(row.tone, cx);
         let icon_color = super::render::tone_color(
@@ -207,12 +217,9 @@ impl Tree {
                     .min_w_0()
                     .gap_1p5()
                     .when(row.strike, |text| text.line_through())
-                    .child(
-                        div()
-                            .min_w_0()
-                            .text_color(color)
-                            .child(faded(row.label.clone())),
-                    )
+                    .child(div().min_w_0().text_color(color).child(
+                        caption("tree-label-caption", row.label.clone()).anchor(anchor.clone()),
+                    ))
                     .when(!row.detail.is_empty(), |text| {
                         text.child(
                             div()

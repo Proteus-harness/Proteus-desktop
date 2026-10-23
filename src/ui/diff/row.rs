@@ -101,15 +101,24 @@ fn cell(
         ))
         .when(!split, |cell| cell.child(number(line.new, cx)))
         .child(
-            div()
+            h_flex()
                 .flex_1()
                 .min_w_0()
                 .pl_2()
+                .gap_2()
                 .whitespace_nowrap()
                 .child(super::syntax::code(
                     ElementId::Name(format!("{}-{index}-{old}", file.path).into()),
                     line.text.replace('\t', "    ").into(),
                     syntax.line(index, old || line.kind == Kind::Removed),
-                )),
+                ))
+                .when(line.no_newline, |cell| {
+                    cell.child(
+                        div()
+                            .flex_none()
+                            .text_color(theme.muted_foreground)
+                            .child("Нет перевода строки"),
+                    )
+                }),
         )
 }

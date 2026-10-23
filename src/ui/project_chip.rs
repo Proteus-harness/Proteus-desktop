@@ -364,6 +364,7 @@ impl Render for ProjectPicker {
                 cx.entity_id(),
                 self.generation
             )),
+            crate::ui::motion::PopupOrigin::Bottom,
             cx,
         )
     }

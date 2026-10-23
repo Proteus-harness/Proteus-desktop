@@ -4,9 +4,13 @@
 //! outside through [`ChatEvent`].
 
 mod actions;
+mod activity_dock;
+mod attachment_io;
 mod attachments;
 mod composer;
 pub(super) mod context_usage;
+mod draft;
+mod fences;
 mod images;
 mod notice;
 mod plan_panel;
@@ -38,6 +42,7 @@ use super::prefs::{self, ClientPreferences};
 use crate::api::Api;
 use crate::preferences::{SendMode, ViewPreferences};
 use attachments::Attachments;
+use draft::SavedDraft;
 use images::SentImages;
 use notice::Notice;
 use replies::Replies;
@@ -51,11 +56,11 @@ pub(super) type ComposerExtras = Rc<dyn Fn(EntityId, ComposerSlot, &App) -> Opti
 /// Where host content goes around the composer.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum ComposerSlot {
-    /// A line right above the input box.
+    /// The project/context section of the activity strip above the input.
     Above,
-    /// The left end of the row under the input.
+    /// The left extension section of the activity strip above the input.
     Start,
-    /// The right end, next to sending.
+    /// The right extension section of the activity strip above the input.
     End,
 }
 
@@ -77,15 +82,21 @@ pub(super) enum ChatEvent {
 
 pub(super) struct Chat {
     api: Api,
+    workspace: WeakEntity<crate::ui::workspace::Workspace>,
     pub session: Session,
     scroller: Entity<ChatScroller>,
     composer: Entity<TextareaState>,
     attachments: Attachments,
+    attachments_loading: bool,
+    /// A delayed picker/read must not land in a newer composer draft.
+    attachment_generation: u64,
+    /// Failed sends stay available even if a newer draft occupies the input.
+    saved_drafts: Vec<SavedDraft>,
     sent_images: SentImages,
     replies: Replies,
     expanded: HashSet<u64>,
-    /// Rows whose long output the user asked to see in full.
-    full_rows: HashSet<u64>,
+    /// Individual result/argument blocks the user asked to see in full.
+    full_blocks: HashSet<(u64, usize)>,
     /// Shared diff state survives folding and virtualized chat rows.
     tool_diffs: HashMap<u64, Entity<crate::ui::diff::DiffView>>,
     /// Folded tool runs the user opened, by the key of their first row.
@@ -95,8 +106,8 @@ pub(super) struct Chat {
     /// Approval and question cards that just arrived, for enter motion.
     fresh_requests: Recent,
     user_input: UserInputDrafts,
-    /// The plan above the composer shows all its steps.
-    plan_open: bool,
+    /// Retained selection of the common strip above the input.
+    activity_dock: activity_dock::DockState,
     notice: Notice,
     extras: ComposerExtras,
     /// Sizes the row heights were measured with.
@@ -110,6 +121,7 @@ impl EventEmitter<ChatEvent> for Chat {}
 impl Chat {
     pub fn new(
         api: Api,
+        workspace: WeakEntity<crate::ui::workspace::Workspace>,
         session_dir: PathBuf,
         extras: ComposerExtras,
         window: &mut Window,
@@ -129,6 +141,10 @@ impl Chat {
                 &composer,
                 window,
                 |this, _, event: &InputEvent, window, cx| {
+                    if matches!(event, InputEvent::Change) {
+                        cx.notify();
+                        return;
+                    }
                     let InputEvent::PressEnter { secondary, shift } = *event else {
                         return;
                     };
@@ -164,20 +180,24 @@ impl Chat {
         let pump = pump::start(api.clone(), session_dir.clone(), cx);
         let mut chat = Self {
             api,
+            workspace,
             session: Session::new(session_dir),
             scroller,
             composer,
             attachments: Attachments::default(),
+            attachments_loading: false,
+            attachment_generation: 0,
+            saved_drafts: Vec::new(),
             sent_images: SentImages::default(),
             replies: Replies::default(),
             expanded: HashSet::new(),
-            full_rows: HashSet::new(),
+            full_blocks: HashSet::new(),
             tool_diffs: HashMap::new(),
             open_chains: HashSet::new(),
             fresh_rows: Recent::default(),
             fresh_requests: Recent::default(),
             user_input: UserInputDrafts::default(),
-            plan_open: false,
+            activity_dock: activity_dock::DockState::default(),
             notice: Notice::default(),
             extras,
             view: prefs::current(cx).view,
@@ -195,6 +215,8 @@ impl Chat {
             && !self.session.running()
             && self.composer.read(cx).value().trim().is_empty()
             && self.attachments.is_empty()
+            && !self.attachments_loading
+            && self.saved_drafts.is_empty()
     }
 
     pub fn focus(&self, window: &mut Window, cx: &mut App) {

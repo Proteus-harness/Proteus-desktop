@@ -1,16 +1,15 @@
 //! Images of the composer draft: picked or dropped files and clipboard
 //! pastes, checked against the host limits before they are sent.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use gpui_kit::component::*;
 use gpui_kit::*;
-use proteus_contracts::domain::{
-    ImageAttachment, MAX_IMAGE_BYTES, MAX_INPUT_IMAGES, image_mime_type,
-};
+use proteus_contracts::domain::{ImageAttachment, MAX_IMAGE_BYTES, MAX_INPUT_IMAGES};
 
 use super::Chat;
+use super::attachment_io::{self, Batch, Budget, Prepared, Source};
 use crate::ui::kit::Hint as _;
 use crate::ui::tip::Tip as _;
 use crate::ui::{kit, prefs};
@@ -33,8 +32,20 @@ impl Attachments {
         self.items.is_empty()
     }
 
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+
     pub fn images(&self) -> Vec<ImageAttachment> {
         self.items.iter().map(|item| item.image.clone()).collect()
+    }
+
+    fn budget(&self) -> Budget {
+        Budget {
+            slots: MAX_INPUT_IMAGES.saturating_sub(self.items.len()),
+            bytes: MAX_IMAGE_BYTES
+                .saturating_sub(self.items.iter().map(|item| item.preview.bytes.len()).sum()),
+        }
     }
 
     fn remove(&mut self, index: usize) {
@@ -44,9 +55,15 @@ impl Attachments {
     }
 
     /// Adds an image the host accepts; the error says why it would not.
+    #[cfg(test)]
     fn add(&mut self, name: String, bytes: Vec<u8>) -> Result<(), String> {
-        let format = image_mime_type(&bytes)
-            .and_then(ImageFormat::from_mime_type)
+        self.add_prepared(attachment_io::prepare(name, bytes)?)
+    }
+
+    fn add_prepared(&mut self, prepared: Prepared) -> Result<(), String> {
+        let Prepared { image, bytes } = prepared;
+        let name = &image.name;
+        let format = ImageFormat::from_mime_type(&image.mime_type)
             .ok_or_else(|| format!("{name}: поддерживаются PNG, JPEG, WebP и GIF"))?;
         if self.items.len() >= MAX_INPUT_IMAGES {
             return Err(format!(
@@ -57,7 +74,6 @@ impl Attachments {
         if total + bytes.len() > MAX_IMAGE_BYTES {
             return Err(format!("{name}: изображения сообщения вместе больше 5 МиБ"));
         }
-        let image = ImageAttachment::from_bytes(name, &bytes).map_err(|error| error.to_string())?;
         self.items.push(Attachment {
             image,
             preview: Arc::new(Image::from_bytes(format, bytes)),
@@ -66,26 +82,13 @@ impl Attachments {
     }
 }
 
-/// A file as an attachment candidate; oversized files are not read.
-fn read_file(path: &Path) -> Result<(String, Vec<u8>), String> {
-    let name = path
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| path.display().to_string());
-    let size = std::fs::metadata(path)
-        .map_err(|error| format!("{name}: {error}"))?
-        .len();
-    if size > MAX_IMAGE_BYTES as u64 {
-        return Err(format!("{name}: файл больше 5 МиБ"));
-    }
-    let bytes = std::fs::read(path).map_err(|error| format!("{name}: {error}"))?;
-    Ok((name, bytes))
-}
-
 impl Chat {
     pub(super) fn attach_files(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
-        let files = paths.iter().map(|path| read_file(path)).collect();
-        self.attach(files, cx);
+        self.load_attachments(
+            paths.iter().cloned().map(Source::File).collect(),
+            vec![],
+            cx,
+        );
     }
 
     /// Takes images and copied files from a paste; text, even beside an
@@ -98,27 +101,47 @@ impl Chat {
         if item.text().is_some_and(|text| !text.is_empty()) {
             return false;
         }
-        let mut files = Vec::new();
+        if self.attachments_loading {
+            self.show_notice("Дождитесь загрузки изображений", cx);
+            return true;
+        }
+        let mut sources = Vec::new();
+        let mut errors = Vec::new();
+        // Bound clipboard byte clones too. File paths themselves are cheap;
+        // the background reader charges them against the same final budget.
+        let mut copied = self.attachments.budget();
         for entry in item.entries() {
             match entry {
                 ClipboardEntry::Image(image) => {
                     let name = format!("clipboard.{}", image.format.extension());
-                    files.push(Ok((name, image.bytes.clone())));
+                    if copied.slots == 0 || image.bytes.len() > copied.bytes {
+                        if errors.is_empty() {
+                            errors.push("Изображения из буфера не помещаются в лимит сообщения (4 изображения, 5 МиБ)".into());
+                        }
+                        continue;
+                    }
+                    copied.slots -= 1;
+                    copied.bytes -= image.bytes.len();
+                    sources.push(Source::Bytes(name, image.bytes.clone()));
                 }
                 ClipboardEntry::ExternalPaths(paths) => {
-                    files.extend(paths.paths().iter().map(|path| read_file(path)));
+                    sources.extend(paths.paths().iter().cloned().map(Source::File));
                 }
                 ClipboardEntry::String(_) => {}
             }
         }
-        if files.is_empty() {
+        if sources.is_empty() && errors.is_empty() {
             return false;
         }
-        self.attach(files, cx);
+        self.load_attachments(sources, errors, cx);
         true
     }
 
     pub(super) fn choose_images(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.attachments_loading {
+            return;
+        }
+        let generation = self.attachment_generation;
         let paths = cx.prompt_for_paths(PathPromptOptions {
             files: true,
             directories: false,
@@ -129,24 +152,66 @@ impl Chat {
             let Ok(Ok(Some(paths))) = paths.await else {
                 return;
             };
-            this.update(cx, |this, cx| this.attach_files(&paths, cx))
-                .ok();
+            this.update(cx, |this, cx| {
+                if this.attachment_generation == generation {
+                    this.attach_files(&paths, cx);
+                } else {
+                    this.show_notice("Черновик изменился; прикрепите изображения ещё раз", cx);
+                }
+            })
+            .ok();
         })
         .detach();
     }
 
-    fn attach(&mut self, files: Vec<Result<(String, Vec<u8>), String>>, cx: &mut Context<Self>) {
-        let errors: Vec<String> = files
-            .into_iter()
-            .filter_map(|file| {
-                file.and_then(|(name, bytes)| self.attachments.add(name, bytes))
-                    .err()
+    fn load_attachments(
+        &mut self,
+        sources: Vec<Source>,
+        errors: Vec<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.attachments_loading {
+            self.show_notice("Дождитесь загрузки изображений", cx);
+            return;
+        }
+        if sources.is_empty() {
+            if !errors.is_empty() {
+                self.show_notice(errors.join("\n"), cx);
+            }
+            return;
+        }
+        let budget = self.attachments.budget();
+        let generation = self.attachment_generation;
+        self.attachments_loading = true;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let mut batch = cx
+                .background_executor()
+                .spawn(async move { attachment_io::read_batch(sources, budget) })
+                .await;
+            batch.errors.extend(errors);
+            this.update(cx, |this, cx| {
+                this.attachments_loading = false;
+                if generation == this.attachment_generation {
+                    this.finish_attachments(batch, cx);
+                }
+                cx.notify();
             })
-            .collect();
+            .ok();
+        })
+        .detach();
+    }
+
+    fn finish_attachments(&mut self, batch: Batch, cx: &mut Context<Self>) {
+        let mut errors = batch.errors;
+        for image in batch.images {
+            if let Err(error) = self.attachments.add_prepared(image) {
+                errors.push(error);
+            }
+        }
         if !errors.is_empty() {
             self.show_notice(errors.join("\n"), cx);
         }
-        cx.notify();
     }
 
     pub(super) fn render_attachments(&self, cx: &Context<Self>) -> Option<AnyElement> {

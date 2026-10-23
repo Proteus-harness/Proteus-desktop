@@ -5,10 +5,11 @@ use super::lanes_paint::{self, LANE, LEFT};
 use super::rows::{Kind, Rows};
 use crate::declarative::control::MenuItem;
 use crate::declarative::lanes::{Column, ColumnKind, Row};
+use crate::tabs::Axis;
 use crate::ui::context::RightClickMenu as _;
 use crate::ui::fade::faded;
-use crate::ui::prefs;
 use crate::ui::tip::Tip as _;
+use crate::ui::{divider, drag, prefs};
 use gpui_kit::component::menu::PopupMenuItem;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -230,7 +231,7 @@ impl Kind for LaneRows {
                             / self.total();
                         column_grip(cx.entity_id(), i, cx)
                             .left(relative(left))
-                            .ml(prefs::scaled(-3.5))
+                            .ml(prefs::scaled(-1.))
                     }),
             )
     }
@@ -281,28 +282,17 @@ impl Kind for LaneRows {
     }
 }
 
-fn column_grip(owner: EntityId, index: usize, cx: &App) -> Stateful<Div> {
-    let accent = cx.theme().primary.opacity(0.3);
-    div()
-        .id(("column-grip", index))
+fn column_grip(owner: EntityId, index: usize, cx: &App) -> Div {
+    let name = SharedString::from(format!("column-divider-{owner:?}-{index}"));
+    let grip = divider::grip(name.clone(), Axis::Row, cx)
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_click(|_, _, cx| cx.stop_propagation())
+        .on_drag(ColumnDrag { owner, index }, move |d, _, _, cx| {
+            drag::start(name.clone(), cx);
+            cx.new(|_| d.clone())
+        });
+    divider::resizable(Axis::Row, grip, cx)
         .absolute()
         .top_0()
         .bottom_0()
-        .w(prefs::scaled(7.))
-        .child(
-            div()
-                .absolute()
-                .left(prefs::scaled(3.))
-                .top_0()
-                .bottom_0()
-                .w(prefs::scaled(1.))
-                .bg(cx.theme().border.opacity(0.6)),
-        )
-        .cursor(CursorStyle::ResizeLeftRight)
-        .hover(move |s| s.bg(accent))
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .on_click(|_, _, cx| cx.stop_propagation())
-        .on_drag(ColumnDrag { owner, index }, |d, _, _, cx| {
-            cx.new(|_| d.clone())
-        })
 }

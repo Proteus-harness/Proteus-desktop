@@ -1,3 +1,4 @@
+// Адаптировано из Zed: crates/ui/src/components/tooltip.rs (bounded title and compact surface).
 //! Hover tooltips anchored to the hovered element. GPUI's own `.tooltip()`
 //! opens next to the pointer; this module anchors tooltips to the trigger
 //! through one overlay of our own, for plain elements and gpui-kit buttons
@@ -10,13 +11,28 @@ use gpui_kit::base::{ElementExt as _, TooltipOverlay, TooltipRequest, TooltipTra
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::{
     AnyElement, AnyView, App, AppContext as _, Bounds, ElementId, Entity, Global,
-    InteractiveElement, IntoElement, ParentElement as _, Pixels, SharedString, Window, div, px,
+    InteractiveElement, IntoElement, ParentElement as _, Pixels, SharedString, Styled as _, Window,
+    div, px,
 };
 
-use super::motion;
+use super::{motion, prefs};
 
 const ENTER: Duration = Duration::from_millis(150);
 const SLIDE: Duration = Duration::from_millis(200);
+/// A full caption wraps like Zed's tooltip title rather than widening to
+/// its unconstrained single-line width.
+const MAX_WIDTH: f32 = 420.;
+
+/// Bounds of the complete control that owns a nested caption's tooltip.
+/// The parent measures itself once; children may use that same stable anchor.
+#[derive(Clone, Default)]
+pub(crate) struct TooltipAnchor(Rc<Cell<Bounds<Pixels>>>);
+
+impl TooltipAnchor {
+    fn bounds(&self) -> Bounds<Pixels> {
+        self.0.get()
+    }
+}
 
 struct Overlay(Entity<TooltipOverlay>);
 
@@ -43,7 +59,10 @@ fn present(
     _: &mut Window,
     _: &mut App,
 ) -> AnyElement {
-    let element = div().child(view);
+    let element = div()
+        .p(prefs::scaled(4.))
+        .max_w(prefs::scaled(MAX_WIDTH + 8.))
+        .child(view);
     if !motion::plays() {
         return element.into_any_element();
     }
@@ -91,19 +110,34 @@ fn update(
 /// Tooltips of plain elements and of gpui-kit buttons alike: every tooltip of
 /// the client goes through the one overlay, so they look and behave the same.
 pub(crate) trait Tip: InteractiveElement + gpui_kit::ParentElement + Sized {
+    /// Measures this control for tooltips requested by a caption inside it.
+    fn tip_anchor(self, anchor: TooltipAnchor) -> Self {
+        self.on_prepaint(move |rect, _, _| anchor.0.set(rect))
+    }
+
     /// Shows `build` beside this element while the pointer rests on it. A
     /// press of any button hides it until the pointer leaves, so it never
     /// covers the menu or drag the press starts.
-    fn tip(mut self, build: impl Fn(&mut Window, &mut App) -> AnyView + 'static) -> Self {
+    fn tip(self, build: impl Fn(&mut Window, &mut App) -> AnyView + 'static) -> Self {
+        let anchor = TooltipAnchor::default();
+        self.tip_anchor(anchor.clone()).tip_at(anchor, build)
+    }
+
+    /// A nested trigger whose tooltip belongs to a larger control. Unlike
+    /// `tip`, this does not overwrite the parent's measured anchor.
+    fn tip_at(
+        mut self,
+        anchor: TooltipAnchor,
+        build: impl Fn(&mut Window, &mut App) -> AnyView + 'static,
+    ) -> Self {
         let build = Rc::new(build);
-        let bounds: Rc<Cell<Bounds<Pixels>>> = Rc::default();
-        let (measured, pressed) = (bounds.clone(), bounds.clone());
+        let pressed = anchor.clone();
         // Through the interactivity: a disabled button sets no hover
         // listener of its own, and its tooltip still tells what it does.
         self.interactivity().on_hover(move |hovered, window, cx| {
             let hovered = *hovered;
             let build = build.clone();
-            let trigger = bounds.get();
+            let trigger = anchor.bounds();
             if !hovered {
                 PRESSED.set(None);
             } else if PRESSED.get() == Some(trigger) {
@@ -112,16 +146,19 @@ pub(crate) trait Tip: InteractiveElement + gpui_kit::ParentElement + Sized {
             update(cx, window, move |overlay, window, cx| {
                 if hovered {
                     let request = TooltipRequest::new(trigger, move |window, cx| build(window, cx));
+                    // Base otherwise switches immediately during its grace
+                    // period. Every new trigger must earn its own dwell time.
+                    overlay.hide(cx);
                     overlay.request_show(request, window, cx);
                 } else {
                     overlay.request_hide(window, cx);
                 }
             });
         });
-        self.on_prepaint(move |rect, _, _| measured.set(rect))
+        self
             // Capture: the element's own controls may stop the press.
             .capture_any_mouse_down(move |_, window, cx| {
-                PRESSED.set(Some(pressed.get()));
+                PRESSED.set(Some(pressed.bounds()));
                 update(cx, window, |overlay, _, cx| overlay.hide(cx));
             })
     }
@@ -129,7 +166,14 @@ pub(crate) trait Tip: InteractiveElement + gpui_kit::ParentElement + Sized {
     /// A plain text tooltip.
     fn tip_text(self, text: impl Into<SharedString>) -> Self {
         let text = text.into();
-        self.tip(move |window, cx| Tooltip::new(text.clone()).build(window, cx))
+        self.tip(move |window, cx| text_view(text.clone(), window, cx))
+    }
+
+    fn tip_text_at(self, text: impl Into<SharedString>, anchor: TooltipAnchor) -> Self {
+        let text = text.into();
+        self.tip_at(anchor, move |window, cx| {
+            text_view(text.clone(), window, cx)
+        })
     }
 
     /// A tooltip built from an element on every show.
@@ -140,9 +184,33 @@ pub(crate) trait Tip: InteractiveElement + gpui_kit::ParentElement + Sized {
         let body = Rc::new(body);
         self.tip(move |window, cx| {
             let body = body.clone();
-            Tooltip::element(move |window, cx| body(window, cx)).build(window, cx)
+            Tooltip::element(move |window, cx| {
+                div()
+                    .min_w_0()
+                    .max_w(prefs::scaled(MAX_WIDTH - 20.))
+                    .whitespace_normal()
+                    .child(body(window, cx))
+            })
+            .m_0()
+            .max_w(prefs::scaled(MAX_WIDTH))
+            .whitespace_normal()
+            .build(window, cx)
         })
     }
 }
 
 impl<E: InteractiveElement + gpui_kit::ParentElement> Tip for E {}
+
+fn text_view(text: SharedString, window: &mut Window, cx: &mut App) -> AnyView {
+    Tooltip::element(move |_, _| {
+        div()
+            .min_w_0()
+            .max_w(prefs::scaled(MAX_WIDTH - 20.))
+            .whitespace_normal()
+            .child(text.clone())
+    })
+    .m_0()
+    .max_w(prefs::scaled(MAX_WIDTH))
+    .whitespace_normal()
+    .build(window, cx)
+}

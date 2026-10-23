@@ -7,10 +7,9 @@
 //! Following stops when the user moves up (the offset drops while content
 //! remains below) and resumes once the view reaches the end again.
 //!
-//! While a row the user opened or closed animates its height, the list keeps
-//! its anchor: the row's top stays where it was and the rows below slide. A
-//! following list keeps its end pinned instead, until the row's top would
-//! leave the viewport.
+//! While a disclosure changes height, an empty tail keeps the list from
+//! clamping its scroll position to the smaller content. As in Settings, the
+//! freed room stays blank below the content until scrolling up consumes it.
 
 use std::ops::Range;
 use std::time::{Duration, Instant};
@@ -21,6 +20,7 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use crate::ui::floor::TailFloor;
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::motion;
@@ -31,6 +31,7 @@ const GLIDE_SECONDS: f32 = 0.08;
 /// Distances longer than this many viewports jump instead of gliding.
 const JUMP_VIEWPORTS: f32 = 2.;
 const SETTLED: Pixels = px(0.5);
+const EDGE: Pixels = px(8.);
 /// Frames past a disclosure's motion during which the list still holds.
 const HOLD_TAIL: Duration = Duration::from_millis(50);
 
@@ -47,6 +48,7 @@ pub(super) struct ChatScroller {
     /// Size of the viewport on the last layout.
     size: Option<gpui_kit::Size<Pixels>>,
     hold: Option<Hold>,
+    tail: TailFloor,
 }
 
 /// Rows whose height animates after the user toggled them.
@@ -57,7 +59,10 @@ struct Hold {
 
 impl ChatScroller {
     pub(super) fn new(autoscroll: bool, cx: &mut Context<Self>) -> Self {
-        let list = ListState::new(0, ListAlignment::Top, OVERDRAW);
+        // A permanent empty final row owns retained room. Large bottom
+        // padding cannot do this: gpui skips row prepaint if the padding
+        // itself fills the viewport.
+        let list = ListState::new(1, ListAlignment::Top, OVERDRAW);
         let weak = cx.weak_entity();
         list.set_scroll_handler(move |_, _, cx| {
             let weak = weak.clone();
@@ -74,6 +79,7 @@ impl ChatScroller {
             dirty: false,
             size: None,
             hold: None,
+            tail: TailFloor::default(),
         }
     }
 
@@ -82,12 +88,12 @@ impl ChatScroller {
             return;
         }
         self.autoscroll = autoscroll;
-        self.following = autoscroll && self.gap() <= SETTLED;
+        self.following = autoscroll && self.tail.height() <= SETTLED && self.gap() <= SETTLED;
         cx.notify();
     }
 
     pub(super) fn splice(&mut self, range: Range<usize>, count: usize, cx: &mut Context<Self>) {
-        let total = self.list.item_count();
+        let total = self.row_count();
         if range.start > range.end || range.end > total {
             return;
         }
@@ -97,6 +103,7 @@ impl ChatScroller {
         let whole = range.start == 0 && range.end == total;
         if whole {
             self.hold = None;
+            self.clear_tail();
         }
         self.list.splice(range, count);
         if whole && self.following {
@@ -107,7 +114,7 @@ impl ChatScroller {
     }
 
     pub(super) fn append(&mut self, count: usize, cx: &mut Context<Self>) {
-        let end = self.list.item_count();
+        let end = self.row_count();
         self.splice(end..end, count, cx);
     }
 
@@ -117,7 +124,7 @@ impl ChatScroller {
     }
 
     pub(super) fn remeasure_items(&mut self, range: Range<usize>, cx: &mut Context<Self>) {
-        if range.start > range.end || range.end > self.list.item_count() {
+        if range.start > range.end || range.end > self.row_count() {
             return;
         }
         self.list.remeasure_items(range);
@@ -131,6 +138,9 @@ impl ChatScroller {
     /// grows downwards instead of being pulled up after the end.
     pub(super) fn toggled(&mut self, rows: Range<usize>, cx: &mut Context<Self>) {
         self.following = false;
+        if self.tail.hold(self.list.viewport_bounds().size.height) {
+            self.remeasure_tail();
+        }
         self.hold = Some(Hold {
             rows: rows.clone(),
             until: Instant::now() + motion::SLOW + HOLD_TAIL,
@@ -140,6 +150,8 @@ impl ChatScroller {
 
     /// Bring the latest row into view; follows again when autoscroll is on.
     pub(super) fn scroll_to_end(&mut self, cx: &mut Context<Self>) {
+        self.hold = None;
+        self.clear_tail();
         self.following = true;
         self.dirty = true;
         cx.notify();
@@ -173,7 +185,7 @@ impl ChatScroller {
     }
 
     fn scrolled_up(&self) -> bool {
-        !self.following && self.gap() > SETTLED
+        !self.following && (self.tail.height() > SETTLED || self.gap() > SETTLED)
     }
 
     /// Advance following by one frame; returns whether another frame is needed.
@@ -197,15 +209,17 @@ impl ChatScroller {
         if self.hold(now) {
             return true;
         }
+        let tail_changed = self.settle_tail();
         if !self.following
             && gap <= SETTLED
+            && self.tail.height() <= SETTLED
             && self.autoscroll
             && !self.list.is_scrollbar_dragging()
         {
             self.following = true;
         }
 
-        let mut running = dirty;
+        let mut running = dirty || tail_changed;
         if self.following && gap > SETTLED {
             let viewport = self.list.viewport_bounds().size.height;
             if !motion::plays() || gap > viewport * JUMP_VIEWPORTS {
@@ -233,6 +247,41 @@ impl ChatScroller {
 }
 
 impl ChatScroller {
+    fn row_count(&self) -> usize {
+        self.list.item_count().saturating_sub(1)
+    }
+
+    fn remeasure_tail(&self) {
+        let tail = self.row_count();
+        self.list.remeasure_items(tail..tail + 1);
+    }
+
+    fn clear_tail(&mut self) {
+        if self.tail.clear() {
+            self.remeasure_tail();
+        }
+    }
+
+    fn settle_tail(&mut self) -> bool {
+        if self.tail.height() <= px(0.) {
+            return false;
+        }
+        let Some(tail) = self.list.bounds_for_item(self.row_count()) else {
+            // The list stopped measuring before reaching its last row:
+            // natural content still fills the viewport without this tail.
+            self.clear_tail();
+            return true;
+        };
+        // bounds_for_item excludes list padding. Both edges count toward
+        // filling its viewport, just as the page padding counts in Floor.
+        let visible = self.list.viewport_bounds().bottom() - tail.top() - EDGE * 2.;
+        let changed = self.tail.settle(visible);
+        if changed {
+            self.remeasure_tail();
+        }
+        changed
+    }
+
     /// One frame of a held list; false once nothing is held. The list does
     /// not scroll while held.
     fn hold(&mut self, now: Instant) -> bool {
@@ -242,7 +291,7 @@ impl ChatScroller {
         if now >= hold.until {
             let rows = hold.rows.clone();
             self.hold = None;
-            if rows.end <= self.list.item_count() {
+            if rows.end <= self.row_count() {
                 self.list.remeasure_items(rows);
             }
             self.dirty = true;
@@ -283,12 +332,20 @@ impl RenderOnce for ChatList {
         if self.state.update(cx, |state, _| state.step(Instant::now())) {
             window.request_animation_frame();
         }
-        let (list_state, scrolled_up) = {
+        let (list_state, scrolled_up, tail_row, tail_height) = {
             let state = self.state.read(cx);
-            (state.list.clone(), state.scrolled_up())
+            (
+                state.list.clone(),
+                state.scrolled_up(),
+                state.row_count(),
+                state.tail.height(),
+            )
         };
         let mut render_row = self.render_row;
         let rows = list(list_state.clone(), move |ix, window, cx| {
+            if ix == tail_row {
+                return div().w_full().h(tail_height).into_any_element();
+            }
             div()
                 .w_full()
                 .min_w_0()
@@ -297,7 +354,7 @@ impl RenderOnce for ChatList {
         })
         .size_full()
         .min_h_0()
-        .py_2();
+        .py(EDGE);
         let state = self.state.clone();
         let resized = self.state.clone();
         div()

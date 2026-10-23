@@ -86,6 +86,7 @@ fn apply(value: &Preferences, previous: Option<&Preferences>, cx: &mut App) {
             ThemePreference::Dark => Theme::change(ThemeMode::Dark, None, cx),
             ThemePreference::Light => Theme::change(ThemeMode::Light, None, cx),
         }
+        super::theme::project_interactions(cx);
     }
     // The root sets the window's rem from the theme font size, so this
     // scales every rem-based size of the interface.

@@ -60,6 +60,7 @@ impl TabLayout {
         self.activate(pane, keep);
         let ids = self.pane_ids();
         for tab in tabs {
+            self.remember_closed(&tab);
             self.detach(&tab);
         }
         self.settle(&ids);

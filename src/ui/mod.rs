@@ -6,6 +6,7 @@ mod chats;
 mod chrome;
 mod context;
 mod diff;
+mod divider;
 mod drag;
 mod extensions;
 mod fade;
@@ -17,10 +18,14 @@ mod launcher;
 mod motion;
 mod notifications;
 mod panels;
+mod picker;
 mod prefs;
 mod project_chip;
+mod reorder;
+mod search;
 mod selection;
 mod settings;
+mod state;
 mod tabs;
 mod theme;
 mod tip;
@@ -53,6 +58,8 @@ gpui_kit::actions!(
         DismissSettings,
         NextTab,
         PreviousTab,
+        CloseTab,
+        ReopenClosedTab,
         SplitRight,
         SplitDown,
         FocusPaneLeft,
@@ -89,6 +96,21 @@ impl Render for Workspace {
             v_flex()
                 .size_full()
                 .track_focus(&self.focus_handle)
+                .capture_key_down(|event: &KeyDownEvent, window: &mut Window, cx: &mut App| {
+                    if event.keystroke.key == "escape" && drag::cancel(window, cx) {
+                        cx.stop_propagation();
+                    }
+                })
+                .capture_any_mouse_down(|event: &MouseDownEvent, _, cx| {
+                    if event.button == MouseButton::Left {
+                        drag::begin_press(cx);
+                    }
+                })
+                .capture_any_mouse_up(|event: &MouseUpEvent, _, cx| {
+                    if event.button == MouseButton::Left && drag::discard_release(cx) {
+                        cx.stop_propagation();
+                    }
+                })
                 // The window root already paints the background.
                 .text_color(theme.foreground)
                 .on_action(cx.listener(|this, _: &ToggleSettings, window, cx| {
@@ -118,6 +140,12 @@ impl Render for Workspace {
                 .on_action(
                     cx.listener(|this, _: &PreviousTab, window, cx| this.step_tab(-1, window, cx)),
                 )
+                .on_action(
+                    cx.listener(|this, _: &CloseTab, window, cx| this.close_active_tab(window, cx)),
+                )
+                .on_action(cx.listener(|this, _: &ReopenClosedTab, window, cx| {
+                    this.reopen_closed_tab(window, cx)
+                }))
                 .on_action(cx.listener(|this, _: &SplitRight, window, cx| {
                     this.split_active(Edge::Right, window, cx)
                 }))

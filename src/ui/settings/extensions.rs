@@ -20,42 +20,38 @@ use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::kit::Pressable as _;
 use crate::ui::prefs;
+use crate::ui::reorder;
 
 const ZIP_KEY: &str = "extensions-zip";
 const RESTORE_KEY: &str = "extensions-restore";
-
-/// Extension row lifted by its grip.
-#[derive(Clone)]
-pub(super) struct DraggedExtension {
-    id: &'static str,
-    title: &'static str,
-    icon: Lucide,
-}
-
-impl Render for DraggedExtension {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
-        h_flex()
-            .gap_2()
-            .px_3()
-            .py_1p5()
-            .rounded(theme.radius)
-            .border_1()
-            .border_color(theme.drag_border)
-            .bg(theme.popover)
-            .text_sm()
-            .text_color(theme.popover_foreground)
-            .shadow_md()
-            .child(Icon::new(self.icon).small())
-            .child(self.title)
-    }
-}
 
 impl SettingsView {
     pub(super) fn extensions_page(&self, cx: &Context<Self>) -> Vec<AnyElement> {
         let rows = extensions::ordered(cx)
             .into_iter()
-            .map(|manifest| self.extension_row(manifest, cx).into_any_element())
+            .map(|manifest| {
+                reorder::Row::new(
+                    manifest.id,
+                    manifest.title,
+                    self.extension_row(manifest, cx),
+                )
+                .preview(move |_| {
+                    h_flex()
+                        .px_3()
+                        .py_2()
+                        .gap_2()
+                        .items_center()
+                        .text_sm()
+                        .child(Icon::new(manifest.icon).small())
+                        .child(
+                            div()
+                                .min_w_0()
+                                .flex_1()
+                                .child(crate::ui::fade::faded(manifest.title)),
+                        )
+                        .into_any_element()
+                })
+            })
             .collect::<Vec<_>>();
         let mut parts = self.preferences_problem(cx);
         parts.extend(self.extension_notice(cx));
@@ -64,11 +60,28 @@ impl SettingsView {
                 "Установленные",
                 Some(
                     "Включённые расширения получают свою страницу в настройках. \
-                     Порядок меняется перетаскиванием за ручку."
+                     Чтобы изменить порядок, удерживайте строку и перетащите её."
                         .into(),
                 ),
                 None,
-                card(rows, cx),
+                card(
+                    [
+                        reorder::List::new(
+                            "settings-extension-order",
+                            rows,
+                            |id, before, _, cx| {
+                                let known = extensions::ids();
+                                prefs::update(cx, |prefs| {
+                                    prefs
+                                        .extensions
+                                        .move_extension(&known, &id, before.as_deref())
+                                });
+                            },
+                        )
+                        .into_any_element(),
+                    ],
+                    cx,
+                ),
                 cx,
             )
             .into_any_element(),
@@ -188,25 +201,6 @@ impl SettingsView {
         let enabled = extensions::is_enabled(id, cx);
         let removable = extensions::folder(id).is_some();
         let confirming = self.removing.as_deref() == Some(id);
-        let dragged = DraggedExtension {
-            id,
-            title: manifest.title,
-            icon: manifest.icon,
-        };
-        let grip = div()
-            .id(ElementId::Name(format!("extension-grip-{id}").into()))
-            .flex_none()
-            .px_1()
-            .py_1()
-            .rounded(theme.radius)
-            .cursor_grab()
-            .text_color(theme.muted_foreground)
-            .hover(|grip| grip.bg(theme.list_hover).text_color(theme.foreground))
-            .child(Icon::new(Lucide::GripVertical).small())
-            .on_drag(dragged, |dragged, _, _, cx| {
-                cx.stop_propagation();
-                cx.new(|_| dragged.clone())
-            });
         let text = v_flex()
             .id(ElementId::Name(format!("extension-open-{id}").into()))
             .flex_1()
@@ -231,12 +225,14 @@ impl SettingsView {
                         title.child(chip("установлено", Tone::Accent, cx))
                     }),
             )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(theme.muted_foreground)
-                    .child(manifest.description),
-            )
+            .when(!manifest.description.is_empty(), |row| {
+                row.child(
+                    div()
+                        .text_xs()
+                        .text_color(theme.muted_foreground)
+                        .child(manifest.description),
+                )
+            })
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.select_page(PageId::Extension(id.to_string()), window, cx)
             }));
@@ -315,19 +311,8 @@ impl SettingsView {
             .gap_2()
             .items_center()
             .hover(|row| row.bg(theme.list_hover.opacity(0.5)))
-            .drag_over::<DraggedExtension>(move |row, dragged, _, cx| {
-                if dragged.id == id {
-                    row
-                } else {
-                    row.bg(cx.theme().drop_target)
-                }
-            })
-            .on_drop(cx.listener(move |_, dragged: &DraggedExtension, _, cx| {
-                move_extension(dragged.id, id, cx);
-            }))
-            .child(grip)
             .child(text)
-            .child(controls)
+            .child(reorder::controls(controls))
     }
 
     fn install_section(&self, cx: &Context<Self>) -> Div {
@@ -482,33 +467,6 @@ fn surface_chips(manifest: &Manifest, cx: &App) -> Vec<Div> {
         chips.push(chip("Страница", Tone::Muted, cx));
     }
     chips
-}
-
-/// Puts `id` where `target` stands: after it when moving down, before it
-/// when moving up.
-fn move_extension(id: &'static str, target: &'static str, cx: &mut App) {
-    if id == target {
-        return;
-    }
-    let order: Vec<&'static str> = extensions::ordered(cx)
-        .into_iter()
-        .map(|manifest| manifest.id)
-        .collect();
-    let (Some(from), Some(to)) = (
-        order.iter().position(|item| *item == id),
-        order.iter().position(|item| *item == target),
-    ) else {
-        return;
-    };
-    let before = if from < to {
-        order.get(to + 1).copied()
-    } else {
-        Some(target)
-    };
-    let known = extensions::ids();
-    prefs::update(cx, |prefs| {
-        prefs.extensions.move_extension(&known, id, before)
-    });
 }
 
 fn is_zip(path: &Path) -> bool {

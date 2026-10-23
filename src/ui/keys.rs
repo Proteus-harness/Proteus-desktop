@@ -14,6 +14,8 @@ fn binding(command: Command, chord: &str) -> KeyBinding {
         Command::ToggleFiles => KeyBinding::new(chord, ToggleFiles, None),
         Command::NextTab => KeyBinding::new(chord, NextTab, None),
         Command::PreviousTab => KeyBinding::new(chord, PreviousTab, None),
+        Command::CloseTab => KeyBinding::new(chord, CloseTab, None),
+        Command::ReopenClosedTab => KeyBinding::new(chord, ReopenClosedTab, None),
         Command::SplitRight => KeyBinding::new(chord, SplitRight, None),
         Command::SplitDown => KeyBinding::new(chord, SplitDown, None),
         Command::FocusPaneLeft => KeyBinding::new(chord, FocusPaneLeft, None),

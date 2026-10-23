@@ -19,6 +19,8 @@ use crate::ui::workspace::Workspace;
 pub(in crate::ui) struct Host {
     workspace: WeakEntity<Workspace>,
     extension: &'static str,
+    /// A retained content view belongs to its original chat, even in a background tab.
+    bound: Option<(WeakEntity<Chat>, PathBuf)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,6 +49,9 @@ impl Host {
         });
     }
     pub(in crate::ui) fn retain_process(&self, process: AnyEntity, cx: &mut App) {
+        if self.bound.is_some() {
+            return;
+        }
         let _ = self.workspace.update(cx, |workspace, _| {
             workspace
                 .extension_processes
@@ -82,20 +87,35 @@ impl Host {
         cx: &mut Context<T>,
         mut on_event: impl FnMut(&mut T, &super::session::SessionChanged, &mut Context<T>) + 'static,
     ) -> Option<Subscription> {
-        Some(
-            cx.subscribe(&self.workspace.upgrade()?, move |this, _, event, cx| {
-                on_event(this, event, cx)
-            }),
-        )
+        let session = self.bound.as_ref().map(|(_, session)| session.clone());
+        Some(cx.subscribe(
+            &self.workspace.upgrade()?,
+            move |this, _, event: &super::session::SessionChanged, cx| {
+                if session
+                    .as_ref()
+                    .is_none_or(|session| *session == event.session_dir)
+                {
+                    on_event(this, event, cx)
+                }
+            },
+        ))
     }
     pub(in crate::ui) fn identity(&self) -> EntityId {
-        self.workspace.entity_id()
+        self.bound
+            .as_ref()
+            .map_or_else(|| self.workspace.entity_id(), |(chat, _)| chat.entity_id())
     }
     pub(in crate::ui) fn new(workspace: WeakEntity<Workspace>, extension: &'static str) -> Self {
         Self {
             workspace,
             extension,
+            bound: None,
         }
+    }
+
+    pub(in crate::ui) fn for_chat(mut self, chat: WeakEntity<Chat>, session: PathBuf) -> Self {
+        self.bound = Some((chat, session));
+        self
     }
 
     /// Id of the extension this host was handed to.
@@ -110,12 +130,20 @@ impl Host {
 
     pub(in crate::ui) fn read<R>(&self, cx: &App, read: impl FnOnce(&HostView) -> R) -> Option<R> {
         let workspace = self.workspace.upgrade()?.read(cx);
-        let chat = workspace.active_chat_view().map(|chat| chat.read(cx));
+        let bound_chat = self.bound.as_ref().and_then(|(chat, _)| chat.upgrade());
+        let chat = if self.bound.is_some() {
+            bound_chat.as_ref().map(|chat| chat.read(cx))
+        } else {
+            workspace.active_chat_view().map(|chat| chat.read(cx))
+        };
         Some(read(&HostView { workspace, chat }))
     }
 
     /// The active chat, for extensions that change its session settings.
     pub(in crate::ui) fn chat(&self, cx: &App) -> Option<Entity<Chat>> {
+        if let Some((chat, _)) = &self.bound {
+            return chat.upgrade();
+        }
         let workspace = self.workspace.upgrade()?;
         workspace.read(cx).active_chat_view().cloned()
     }
@@ -125,6 +153,9 @@ impl Host {
     }
 
     pub(in crate::ui) fn session_dir(&self, cx: &App) -> Option<PathBuf> {
+        if let Some((_, session)) = &self.bound {
+            return Some(session.clone());
+        }
         self.read(cx, |host| host.session().map(|session| session.dir.clone()))
             .flatten()
     }
@@ -140,6 +171,11 @@ impl Host {
         cx: &mut Context<T>,
         mut on_event: impl FnMut(&mut T, HostEvent, &mut Context<T>) + 'static,
     ) -> Option<Subscription> {
+        // A content source is immutable and bound to its chat. Switching the
+        // active tab must neither repaint it nor change its session context.
+        if self.bound.is_some() {
+            return None;
+        }
         let workspace = self.workspace.upgrade()?;
         Some(
             cx.subscribe(&workspace, move |this, _, event: &HostEvent, cx| {

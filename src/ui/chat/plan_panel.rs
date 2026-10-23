@@ -1,22 +1,35 @@
-use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::*;
-use gpui_kit::*;
+// Адаптировано из Zed: crates/agent_ui/src/conversation_view/thread_view.rs
+// (activity bar's plan summary and retained disclosure above the editor).
 use proteus_contracts::app_protocol::AppTranscriptTool;
 
 use super::Chat;
-use super::requests::panel_card;
-use super::tool_row::{plan_list, tool_args};
-use crate::tool_display::{self, StepStatus};
+use super::tool_row::tool_args;
+use crate::tool_display::{self, PlanStep, StepStatus};
 use crate::transcript::{Entry, Role};
-use crate::ui::fade::faded;
-use crate::ui::kit::Pressable as _;
-use crate::ui::motion::{self, chevron, reveal};
+
+/// A projection of the real update_plan transcript DTO, never a client-made
+/// workflow. The strip and its details share this exact snapshot.
+pub(super) struct ActivePlan {
+    pub steps: Vec<PlanStep>,
+    pub done: usize,
+}
+
+impl ActivePlan {
+    pub fn current(&self) -> Option<&str> {
+        self.steps
+            .iter()
+            .find(|step| step.status == StepStatus::InProgress)
+            .or_else(|| {
+                self.steps
+                    .iter()
+                    .find(|step| step.status == StepStatus::Pending)
+            })
+            .map(|step| step.step.as_str())
+    }
+}
 
 impl Chat {
-    /// The plan of the current turn above the composer: a line with the
-    /// step at work, the whole list when opened. It goes away once the
-    /// turn ends with every step done.
-    pub(super) fn render_plan(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    pub(super) fn active_plan(&self) -> Option<ActivePlan> {
         let tool = current_plan(self.session.transcript.entries())?;
         let steps = tool_display::plan_steps(tool_args(tool));
         let done = steps
@@ -26,67 +39,12 @@ impl Chat {
         if steps.is_empty() || (done == steps.len() && !self.session.running()) {
             return None;
         }
-        let theme = cx.theme();
-        let open = self.plan_open;
-        let current = steps
-            .iter()
-            .find(|step| step.status == StepStatus::InProgress)
-            .or_else(|| steps.iter().find(|step| step.status == StepStatus::Pending))
-            .map(|step| step.step.clone());
-        let key = plan_reveal_key(cx.entity_id());
-        let header = h_flex()
-            .id("plan-panel")
-            .gap_2()
-            .text_sm()
-            .cursor_pointer()
-            .pressable(cx)
-            .child(
-                Icon::new(Lucide::ListTodo)
-                    .small()
-                    .text_color(theme.muted_foreground),
-            )
-            .child(div().flex_none().font_medium().child("План"))
-            .child(
-                div()
-                    .flex_none()
-                    .text_xs()
-                    .text_color(theme.muted_foreground)
-                    .child(format!("{done}/{}", steps.len())),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_xs()
-                    .text_color(theme.muted_foreground)
-                    .children((!open).then(|| current.map(faded)).flatten()),
-            )
-            .child(chevron("plan-panel-chevron", open, theme.muted_foreground))
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.plan_open = !this.plan_open;
-                motion::toggled(plan_reveal_key(cx.entity_id()), this.plan_open, cx);
-                cx.notify();
-            }));
-        let app: &App = cx;
-        let list = reveal(key, open, app, || {
-            plan_list(&steps, app).pt_2().pl_6().into_any_element()
-        });
-        Some(
-            panel_card(cx)
-                .gap_0()
-                .py_2()
-                .child(header)
-                .children(list)
-                .into_any_element(),
-        )
+        Some(ActivePlan { steps, done })
     }
 }
 
-fn plan_reveal_key(chat: EntityId) -> SharedString {
-    format!("plan-panel-{chat}").into()
-}
-
-/// The latest plan the agent made since the user last wrote.
+/// The latest plan the agent made since the user last wrote. Old tool rows
+/// stay in the thread; only the current turn contributes an active strip.
 fn current_plan(entries: &[Entry]) -> Option<&AppTranscriptTool> {
     entries
         .iter()
@@ -97,4 +55,44 @@ fn current_plan(entries: &[Entry]) -> Option<&AppTranscriptTool> {
             tool.name == tool_display::UPDATE_PLAN
                 && !matches!(tool.status.as_str(), "failed" | "denied")
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tool(id: &str, status: &str) -> Entry {
+        Entry {
+            key: 0,
+            message_id: None,
+            role: Role::Assistant,
+            text: "".into(),
+            images: Vec::new(),
+            tool: Some(AppTranscriptTool {
+                call_id: id.into(),
+                name: tool_display::UPDATE_PLAN.into(),
+                args: serde_json::json!({ "plan": [{ "step": "Current step", "status": "in_progress" }] }),
+                effective_args: None,
+                status: status.into(),
+                result: None,
+                metadata: serde_json::Value::Null,
+            }),
+            subagent: None,
+            streaming: false,
+            time: None,
+        }
+    }
+
+    #[test]
+    fn active_plan_comes_from_the_current_turn_and_preserves_the_last_accepted_update() {
+        let mut entries = vec![tool("accepted", "completed"), tool("rejected", "denied")];
+        assert_eq!(current_plan(&entries).unwrap().call_id, "accepted");
+        let mut user = tool("unused", "completed");
+        user.role = Role::User;
+        user.tool = None;
+        entries.push(user);
+        assert!(current_plan(&entries).is_none());
+        entries.push(tool("next-turn", "completed"));
+        assert_eq!(current_plan(&entries).unwrap().call_id, "next-turn");
+    }
 }

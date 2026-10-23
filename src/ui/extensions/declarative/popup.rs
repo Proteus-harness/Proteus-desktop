@@ -121,6 +121,7 @@ impl DeclarativeBadge {
                             cx.entity_id(),
                             self.popup_generation
                         )),
+                        crate::ui::motion::PopupOrigin::Anchor(bounds),
                         cx,
                     )),
             )

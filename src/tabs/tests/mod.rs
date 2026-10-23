@@ -2,6 +2,7 @@ use std::path::Path;
 
 use super::{Node, PaneId, Size, TabLayout, chat, chat_dir, split_document};
 
+mod history;
 mod pins;
 mod sizes;
 mod tree;

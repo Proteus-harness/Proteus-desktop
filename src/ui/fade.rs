@@ -14,12 +14,31 @@ const FADE: f32 = 1.;
 pub(in crate::ui) struct Caption {
     id: ElementId,
     text: SharedString,
+    anchor: Option<crate::ui::tip::TooltipAnchor>,
+    start: bool,
 }
 
 pub(in crate::ui) fn caption(id: impl Into<ElementId>, text: impl Into<SharedString>) -> Caption {
     Caption {
         id: id.into(),
         text: text.into(),
+        anchor: None,
+        start: false,
+    }
+}
+
+impl Caption {
+    /// Keep the end of a clipped path while preserving the same clip-only hint.
+    pub(in crate::ui) fn fade_start(mut self) -> Self {
+        self.start = true;
+        self
+    }
+
+    /// The full tab/row/chip owns the tooltip position, while this caption
+    /// still decides from its own visible width whether a hint is needed.
+    pub(in crate::ui) fn anchor(mut self, anchor: crate::ui::tip::TooltipAnchor) -> Self {
+        self.anchor = Some(anchor);
+        self
     }
 }
 
@@ -46,8 +65,15 @@ impl RenderOnce for Caption {
             .id(self.id)
             .relative()
             .min_w_0()
-            .child(faded(self.text))
-            .when(clipped, |label| label.tip_text(text))
+            .child(if self.start {
+                faded_start(self.text)
+            } else {
+                faded(self.text)
+            })
+            .when(clipped, |label| match self.anchor {
+                Some(anchor) => label.tip_text_at(text, anchor),
+                None => label.tip_text(text),
+            })
             .child(
                 canvas(
                     move |bounds, window, cx| {

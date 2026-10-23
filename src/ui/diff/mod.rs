@@ -282,7 +282,11 @@ impl Render for DiffView {
                     file.lines
                         .iter()
                         .map(|line| {
-                            let text: SharedString = line.text.replace('\t', "    ").into();
+                            let mut text = line.text.replace('\t', "    ");
+                            if line.no_newline {
+                                text.push_str("  Нет перевода строки");
+                            }
+                            let text: SharedString = text.into();
                             window
                                 .text_system()
                                 .shape_line(text.clone(), font_size, &[run(text.len())], None)

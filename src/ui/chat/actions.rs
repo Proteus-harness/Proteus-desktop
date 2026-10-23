@@ -6,7 +6,9 @@ use proteus_contracts::app_protocol::http::SendRequest;
 use proteus_contracts::contracts::{ApprovalCacheScope, UserInputRequest, UserInputResponse};
 use proteus_contracts::domain::{MessageId, RunOptions};
 
+use super::activity_dock::ActivityId;
 use super::context_usage::ContextUsage;
+use super::draft::SavedDraft;
 use super::{Chat, ChatEvent};
 
 impl Chat {
@@ -38,9 +40,13 @@ impl Chat {
     /// run is active. A refused message returns to an empty composer.
     pub(super) fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let text = self.composer.read(cx).value().trim().to_owned();
-        if (text.is_empty() && self.attachments.is_empty()) || !self.session.connected {
+        if (text.is_empty() && self.attachments.is_empty())
+            || !self.session.connected
+            || self.attachments_loading
+        {
             return;
         }
+        self.attachment_generation = self.attachment_generation.wrapping_add(1);
         let draft = std::mem::take(&mut self.attachments);
         let request = SendRequest {
             id: Some(format!("run-{}", uuid::Uuid::new_v4().simple())),
@@ -49,8 +55,10 @@ impl Chat {
             options: RunOptions::default(),
             session_dir: self.session.dir.clone(),
         };
-        self.composer
-            .update(cx, |state, cx| state.clean(window, cx));
+        self.composer.update(cx, |state, cx| {
+            state.clean(window, cx);
+            state.focus(window, cx);
+        });
         self.clear_notice(cx);
         self.scroller
             .update(cx, |scroller, cx| scroller.scroll_to_end(cx));
@@ -65,12 +73,12 @@ impl Chat {
                 return;
             };
             this.update_in(cx, |this, window, cx| {
-                if this.composer.read(cx).value().is_empty() {
+                if !this.has_draft(cx) {
                     this.composer
                         .update(cx, |state, cx| state.set_value(text, window, cx));
-                }
-                if this.attachments.is_empty() {
                     this.attachments = draft;
+                } else {
+                    this.saved_drafts.push(SavedDraft::new(text, draft));
                 }
                 this.show_notice(format!("Не отправлено: {error:#}"), cx);
                 cx.notify();
@@ -105,36 +113,53 @@ impl Chat {
         );
     }
 
-    /// Enter in an empty composer answers what the agent waits on: allows
-    /// the first approval once or moves on from the open question.
+    /// Empty-composer Enter follows the visible dock section. A collapsed
+    /// request first opens; a second Enter answers its displayed details.
     pub(super) fn confirm_pending(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        let Some(pending) = self.session.pending.as_ref() else {
+        let Some((activity, open)) = self.open_pending_activity(cx) else {
             return false;
         };
-        if let Some(approval) = pending.approvals.first() {
-            let id = approval.approval_id.clone();
-            self.resolve_approval(id, true, ApprovalCacheScope::None, cx);
+        if !open {
             return true;
         }
-        let Some(request) = pending.user_inputs.first() else {
-            return false;
-        };
-        let request_id = request.request_id.clone();
-        self.next_question(&request_id, window, cx);
-        true
+        match activity {
+            ActivityId::Approval(id) => {
+                let live = self.session.pending.as_ref().is_some_and(|pending| {
+                    pending
+                        .approvals
+                        .iter()
+                        .any(|request| request.approval_id == id)
+                });
+                if live {
+                    self.resolve_approval(id, true, ApprovalCacheScope::None, cx);
+                }
+                live
+            }
+            ActivityId::Question(id) => {
+                let live = self.user_input_request(&id).is_some();
+                if live {
+                    self.next_question(&id, window, cx);
+                }
+                live
+            }
+            ActivityId::Plan => false,
+        }
     }
 
-    /// Esc denies the first approval.
+    /// Composer Escape denies only the approval whose details are visible.
     pub(super) fn deny_pending(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(approval) = self
-            .session
-            .pending
-            .as_ref()
-            .and_then(|pending| pending.approvals.first())
-        else {
+        let Some(ActivityId::Approval(id)) = self.activity_dock.selected().cloned() else {
             return false;
         };
-        let id = approval.approval_id.clone();
+        let live = self.session.pending.as_ref().is_some_and(|pending| {
+            pending
+                .approvals
+                .iter()
+                .any(|request| request.approval_id == id)
+        });
+        if !live {
+            return false;
+        }
         self.resolve_approval(id, false, ApprovalCacheScope::None, cx);
         true
     }

@@ -90,11 +90,9 @@ impl TabLayout {
                 let target = self.root.pane_mut(pane).expect("pane exists");
                 let ix = target.position(&old).expect("tab is open");
                 target.tabs[ix] = id.to_string();
-                if target.previous.as_deref() == Some(old.as_str()) {
-                    target.previous = None;
-                }
+                target.history.retain(|tab| tab != &old);
                 if target.active.as_deref() == Some(old.as_str()) {
-                    target.active = Some(id.to_string());
+                    target.show(id);
                     self.focused = pane;
                 } else {
                     self.activate(pane, id);

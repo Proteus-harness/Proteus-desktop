@@ -29,6 +29,9 @@ pub struct MenuItem {
     /// Shows a checkmark: the entry toggles an option.
     #[serde(default)]
     pub checked: Option<bool>,
+    /// Current value in an exclusive choice; painted as a selected row.
+    #[serde(default)]
+    pub selected: bool,
     #[serde(default)]
     pub disabled: bool,
     /// A section label that cannot be picked.
@@ -77,6 +80,12 @@ pub fn check_items(items: &[MenuItem]) -> Result<()> {
         super::widget::known_icon(item.icon.as_deref())?;
         if !item.header && item.action.is_empty() {
             bail!("menu item {:?} needs an action", item.label);
+        }
+        if item.selected && item.checked.is_some() {
+            bail!(
+                "menu item {:?} cannot combine selected and checked",
+                item.label
+            );
         }
         check_ask(item.confirm.as_ref(), item.prompt.as_ref())?;
     }

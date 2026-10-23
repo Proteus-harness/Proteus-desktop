@@ -6,7 +6,6 @@ use std::collections::HashSet;
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
-use gpui_kit::component::input::Input;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -113,6 +112,7 @@ impl SettingsView {
         cx: &Context<Self>,
     ) -> impl IntoElement + use<> {
         let theme = cx.theme();
+        let searching = crate::ui::search::active(&self.search, window, cx);
         // The list holds focus as a whole; its selected page shows it.
         let marked = self.nav_focus.is_focused(window) && window.last_input_was_keyboard();
         let snapshot = self.snapshot();
@@ -204,21 +204,30 @@ impl SettingsView {
                         .on_click(cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::Close))),
                 ),
             )
-            .child(
-                div()
-                    .px_4()
-                    .pb_1()
-                    .text_lg()
-                    .font_semibold()
-                    .child("Настройки"),
-            )
             .child(Self::search_keys(
-                div().px_2().pb_1().child(
-                    Input::new(&self.search)
-                        .small()
-                        .cleanable(true)
-                        .prefix(Icon::new(IconName::Search).small()),
-                ),
+                h_flex()
+                    .px_2()
+                    .pb_1()
+                    .gap_1()
+                    .min_w_0()
+                    .items_center()
+                    .when(!searching, |header| {
+                        header.child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .pl_2()
+                                .text_lg()
+                                .font_semibold()
+                                .child(faded("Настройки")),
+                        )
+                    })
+                    .child(crate::ui::search::Search::new(
+                        "settings-search",
+                        self.search.clone(),
+                        self.nav_focus.clone(),
+                        "Поиск настроек",
+                    )),
             ))
             .child(if self.query.is_empty() {
                 self.nav_keys(v_flex().id("settings-pages"))

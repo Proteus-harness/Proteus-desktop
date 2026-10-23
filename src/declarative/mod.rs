@@ -17,5 +17,6 @@ pub mod presentation;
 pub mod process;
 pub mod protocol;
 pub mod session;
+pub mod svg;
 pub mod tree;
 pub mod widget;

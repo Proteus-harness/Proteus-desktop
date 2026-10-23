@@ -66,6 +66,7 @@ pub(super) struct Fields {
     pub lanes: HashMap<String, Entity<Lanes>>,
     pub lists: HashMap<String, Entity<List>>,
     pub diffs: HashMap<String, Entity<crate::ui::diff::DiffView>>,
+    pub pickers: HashMap<String, Entity<crate::ui::picker::Picker<serde_json::Value>>>,
 }
 
 impl DeclarativeView {
@@ -99,6 +100,9 @@ impl DeclarativeView {
             Node::Diff { id, .. } => {
                 ids.insert((8, id.clone()));
             }
+            Node::Picker { id, .. } => {
+                ids.insert((10, id.clone()));
+            }
             Node::Disclosure { id, .. } => {
                 ids.insert((9, id.clone()));
             }
@@ -130,6 +134,9 @@ impl DeclarativeView {
             .diffs
             .retain(|id, _| ids.contains(&(8, id.clone())));
         self.fields
+            .pickers
+            .retain(|id, _| ids.contains(&(10, id.clone())));
+        self.fields
             .disclosures
             .retain(|id, _| ids.contains(&(9, id.clone())));
     }
@@ -141,6 +148,58 @@ impl DeclarativeView {
         cx: &mut Context<Self>,
     ) {
         match node {
+            Node::Sortable { items, .. } => {
+                for item in items {
+                    for child in &item.children {
+                        self.prepare_fields(child, window, cx);
+                    }
+                }
+            }
+
+            Node::Picker {
+                id,
+                options,
+                action,
+                placeholder,
+                empty,
+            } => {
+                let options = options
+                    .iter()
+                    .map(|option| crate::ui::picker::Choice {
+                        label: option.label.clone().into(),
+                        value: option.value.clone(),
+                        selected: option.selected,
+                    })
+                    .collect();
+                let (this, action) = (cx.weak_entity(), action.clone());
+                let pick = move |value, _: &mut Window, cx: &mut App| {
+                    let _ = this.update(cx, |this, cx| this.act(action.clone(), Some(value), cx));
+                };
+                if let Some(picker) = self.fields.pickers.get(id) {
+                    picker.update(cx, |picker, cx| {
+                        picker.set_pick(pick);
+                        picker.set_options(
+                            options,
+                            placeholder.clone().into(),
+                            empty.clone().into(),
+                            window,
+                            cx,
+                        );
+                    });
+                } else {
+                    let picker = cx.new(|cx| {
+                        crate::ui::picker::Picker::new(
+                            options,
+                            placeholder.clone().into(),
+                            empty.clone().into(),
+                            window,
+                            cx,
+                            pick,
+                        )
+                    });
+                    self.fields.pickers.insert(id.clone(), picker);
+                }
+            }
             Node::Disclosure {
                 id, open, children, ..
             } => {

@@ -9,6 +9,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::menu;
+use crate::shortcuts::Command;
 use crate::tabs::{self, PaneId, TabLayout};
 use crate::ui::chat::ChatState;
 use crate::ui::fade::faded;
@@ -16,7 +17,7 @@ use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::motion::Spinner;
 use crate::ui::prefs;
-use crate::ui::tip::Tip as _;
+use crate::ui::tip::{Tip as _, TooltipAnchor};
 use crate::ui::workspace::Workspace;
 use crate::ui::{drag, extensions};
 
@@ -164,14 +165,20 @@ impl Workspace {
             title: label.title.clone(),
             preview: state.preview,
         };
-        let tooltip = (label.tooltip.clone()).or_else(|| state.pinned.then(|| label.title.clone()));
+        let tooltip = label.tooltip.clone();
+        let anchor = TooltipAnchor::default();
         let menu = menu::TabMenu::new(pane, id, state.pinned, layout);
         let (click_id, close_id, middle_id) = (id.to_string(), id.to_string(), id.to_string());
         let workspace = cx.weak_entity();
+        let close_keys = state
+            .active
+            .then(|| kit::command_keys(Command::CloseTab, cx))
+            .flatten();
         h_flex()
             .id(ElementId::Name(format!("tab-{id}").into()))
             .group(tab_group.clone())
             .relative()
+            .tip_anchor(anchor.clone())
             .h_full()
             .flex_none()
             .map(|tab| match state.pinned {
@@ -199,11 +206,14 @@ impl Workspace {
                 div()
                     .min_w_0()
                     .when(state.preview, |title| title.italic())
-                    .child(crate::ui::fade::caption("tab-caption", label.title)),
+                    .child(crate::ui::fade::caption("tab-caption", label.title).anchor(anchor)),
             )
             .when(!state.pinned, |tab| {
                 tab.child(
                     div()
+                        // Closing a background tab must not activate its pane
+                        // or take focus from an editor in another pane.
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .when(!state.active, |close| {
                             close
                                 .invisible()
@@ -214,7 +224,7 @@ impl Workspace {
                                 .ghost()
                                 .xsmall()
                                 .icon(IconName::Close)
-                                .hint("Закрыть", cx)
+                                .hint_keys("Закрыть", close_keys.as_deref(), cx)
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     cx.stop_propagation();
                                     this.close_tab(&close_id, window, cx);

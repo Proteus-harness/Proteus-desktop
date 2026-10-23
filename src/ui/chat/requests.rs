@@ -12,63 +12,50 @@ use proteus_contracts::domain::ToolSafety;
 use serde_json::Value;
 
 use super::Chat;
+use super::activity_dock::ActivityId;
 use crate::tool_display;
 use crate::ui::fade::faded;
+use crate::ui::format;
 use crate::ui::kit;
 use crate::ui::prefs;
-use crate::ui::{format, motion};
 
 const PREVIEW_LINES: usize = 24;
 const PREVIEW_CHARS: usize = 6_000;
 const JUSTIFICATION: &str = "justification";
 
 impl Chat {
-    /// Approval and question cards the agent is waiting on, right above
-    /// the composer.
-    pub(super) fn render_requests(
+    /// Only the selected pending request mounts interactive controls in the
+    /// common composer dock. Transcript rows remain ordinary history.
+    pub(super) fn render_request(
         &mut self,
+        activity: &ActivityId,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let pending = self.session.pending.clone()?;
-        if pending.approvals.is_empty() && pending.user_inputs.is_empty() {
-            return None;
+        match activity {
+            ActivityId::Approval(id) => pending
+                .approvals
+                .iter()
+                .find(|request| &request.approval_id == id)
+                .map(|request| render_approval(request, cx)),
+            ActivityId::Question(id) => pending
+                .user_inputs
+                .iter()
+                .find(|request| &request.request_id == id)
+                .map(|request| self.render_user_input(request, window, cx)),
+            ActivityId::Plan => None,
         }
-        let mut cards = pending
-            .approvals
-            .iter()
-            .map(|request| {
-                let id = approval_card(request);
-                let fresh = self.fresh_requests.is_fresh(request_key(&id));
-                arrive(render_approval(request, cx), id, fresh)
-            })
-            .collect::<Vec<_>>();
-        for request in &pending.user_inputs {
-            let id = input_card(request);
-            let fresh = self.fresh_requests.is_fresh(request_key(&id));
-            cards.push(arrive(
-                self.render_user_input(request, window, cx),
-                id,
-                fresh,
-            ));
-        }
-        Some(
-            v_flex()
-                .id("requests")
-                .w_full()
-                .max_h(prefs::scaled(480.))
-                .overflow_y_scroll()
-                .gap_2()
-                .children(cards)
-                .into_any_element(),
-        )
     }
 }
 
-/// A request card rises in once, when it arrives; shown again after a tab
-/// switch it stays put.
-fn arrive(card: AnyElement, id: String, fresh: bool) -> AnyElement {
-    motion::rise_in_if(div().child(card), ElementId::Name(id.into()), fresh).into_any_element()
+pub(super) fn request_fresh(activity: &ActivityId, chat: &Chat) -> bool {
+    let id = match activity {
+        ActivityId::Approval(id) => format!("approval-{id}"),
+        ActivityId::Question(id) => format!("user-input-{id}"),
+        ActivityId::Plan => return false,
+    };
+    chat.fresh_requests.is_fresh(request_key(&id))
 }
 
 /// Keys of the cards in `pending`, for telling the newly arrived ones.
@@ -92,21 +79,13 @@ fn request_key(id: &str) -> u64 {
     hasher.finish()
 }
 
-/// A card of the zone above the composer, raised off the conversation like
-/// the composer itself.
-pub(super) fn panel_card(cx: &App) -> Div {
-    let theme = cx.theme();
-    v_flex()
-        .p_3()
-        .gap_3()
-        .rounded(theme.radius_lg)
-        .border_1()
-        .border_color(theme.border)
-        .bg(theme.background.blend(theme.foreground.opacity(0.04)))
+/// Details sit inside the shared composer surface, without nested frames.
+pub(super) fn panel_card(_: &App) -> Div {
+    v_flex().p_3().gap_3()
 }
 
 /// What a tool asks to do, as the approval shows it.
-fn approval_icon(request: &AppApprovalRequest) -> Lucide {
+pub(super) fn approval_icon(request: &AppApprovalRequest) -> Lucide {
     let kind = request
         .preview
         .as_ref()
@@ -229,8 +208,9 @@ fn render_approval(request: &AppApprovalRequest, cx: &mut Context<Chat>) -> AnyE
         .child(key_hint("⏎"))
         .primary()
         .small()
-        .on_click(cx.listener(move |this, _, _, cx| {
-            this.resolve_approval(approve_id.clone(), true, ApprovalCacheScope::None, cx)
+        .on_click(cx.listener(move |this, _, window, cx| {
+            this.resolve_approval(approve_id.clone(), true, ApprovalCacheScope::None, cx);
+            this.focus(window, cx);
         }));
     let choices = cache_choices(request);
     let allow = if choices.is_empty() {
@@ -248,9 +228,10 @@ fn render_approval(request: &AppApprovalRequest, cx: &mut Context<Chat>) -> AnyE
             move |menu, _, _| {
                 choices.iter().fold(menu, |menu, &(label, scope)| {
                     let (chat, id) = (chat.clone(), menu_id.clone());
-                    menu.item(PopupMenuItem::new(label).on_click(move |_, _, cx| {
+                    menu.item(PopupMenuItem::new(label).on_click(move |_, window, cx| {
                         chat.update(cx, |chat, cx| {
-                            chat.resolve_approval(id.clone(), true, scope, cx)
+                            chat.resolve_approval(id.clone(), true, scope, cx);
+                            chat.focus(window, cx);
                         })
                         .ok();
                     }))
@@ -304,13 +285,14 @@ fn render_approval(request: &AppApprovalRequest, cx: &mut Context<Chat>) -> AnyE
                         .child(key_hint("Esc"))
                         .outline()
                         .small()
-                        .on_click(cx.listener(move |this, _, _, cx| {
+                        .on_click(cx.listener(move |this, _, window, cx| {
                             this.resolve_approval(
                                 deny_id.clone(),
                                 false,
                                 ApprovalCacheScope::None,
                                 cx,
-                            )
+                            );
+                            this.focus(window, cx);
                         })),
                 )
                 .child(allow),

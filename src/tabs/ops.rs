@@ -25,6 +25,7 @@ impl TabLayout {
     }
 
     pub fn close(&mut self, id: &str) {
+        self.remember_closed(id);
         let before = self.pane_ids();
         self.detach(id);
         self.settle(&before);
@@ -176,7 +177,7 @@ impl TabLayout {
         self.next_id += 1;
         pane.tabs.push(id.to_string());
         pane.pinned = usize::from(pinned);
-        pane.active = Some(id.to_string());
+        pane.show(id);
         self.focused = pane.id;
         pane
     }

@@ -34,6 +34,8 @@ pub struct Line {
     pub text: String,
     pub old: Option<usize>,
     pub new: Option<usize>,
+    /// The source line has no terminating newline; metadata, not a diff row.
+    pub no_newline: bool,
 }
 
 /// Two source-line indices, or a full-width hunk/notice.
@@ -97,6 +99,7 @@ impl File {
             text: text.into(),
             old: None,
             new: None,
+            no_newline: false,
         });
     }
 }

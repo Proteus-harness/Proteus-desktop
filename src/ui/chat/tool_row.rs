@@ -1,5 +1,8 @@
+// Адаптировано из Zed: crates/agent_ui/src/conversation_view/thread_view.rs
+// (bounded tool previews, output disclosure and bottom collapse control).
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::base::SelectableText;
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -10,8 +13,8 @@ use super::Chat;
 use crate::tool_display::{self, PlanStep, StepStatus};
 use crate::ui::fade::faded;
 use crate::ui::format;
-use crate::ui::kit::Pressable as _;
-use crate::ui::motion::{Spinner, chevron, reveal};
+use crate::ui::kit::{self, Hint as _, Pressable as _};
+use crate::ui::motion::{Spinner, chevron, preview_reveal, reveal};
 
 /// Lines of a long block shown until the user asks for all of them.
 const PEEK_LINES: usize = 12;
@@ -93,7 +96,7 @@ pub(super) fn render_tool(
     key: u64,
     tool: &AppTranscriptTool,
     expanded: bool,
-    full: bool,
+    full: [bool; 2],
     diff: Option<Entity<crate::ui::diff::DiffView>>,
     cx: &mut Context<Chat>,
 ) -> AnyElement {
@@ -133,7 +136,7 @@ pub(super) fn render_tool(
 /// for all of them.
 struct Fold {
     key: u64,
-    full: bool,
+    full: [bool; 2],
     chat: WeakEntity<Chat>,
 }
 
@@ -141,63 +144,124 @@ impl Fold {
     /// `block` built from `text`; a long one is cut short unless shown in
     /// full, with a button switching between the two. `part` tells the
     /// blocks of a row apart.
-    fn block(&self, part: usize, text: &str, build: impl FnOnce(String) -> Div, cx: &App) -> Div {
+    fn block(&self, part: usize, text: &str, build: impl Fn(String) -> Div, cx: &App) -> Div {
         let lines = text.lines().count();
         let long = lines > PEEK_LINES || text.len() > PEEK_CHARS;
         if !long {
             return build(text.trim_end().to_owned());
         }
-        let shown = if self.full {
-            format::clip_block(text, FULL_LINES, FULL_CHARS)
-        } else {
-            format::peek_block(text, PEEK_LINES, PEEK_CHARS)
-        };
-        let peeked = shown.lines().count();
+        let full = self.full.get(part).copied().unwrap_or(false);
+        let preview = format::peek_block(text, PEEK_LINES, PEEK_CHARS);
+        let peeked = preview.lines().count();
         let theme = cx.theme();
         let chat = self.chat.clone();
+        let copy_chat = self.chat.clone();
         let key = self.key;
-        let label = if self.full {
+        let label = if full {
             "Свернуть".to_owned()
         } else {
             match lines.saturating_sub(peeked) {
-                0 => "Показать всё".to_owned(),
-                hidden => format!("Показать всё · ещё строк: {hidden}"),
+                0 => "Показать больше".to_owned(),
+                hidden => format!("Показать больше · ещё строк: {hidden}"),
             }
         };
         v_flex()
             .gap_1()
-            .child(
+            .child(preview_reveal(
+                full_reveal_key(self.chat.entity_id(), key, part),
+                full,
+                cx,
                 div()
                     .relative()
-                    .child(build(shown))
-                    .when(!self.full, |block| {
-                        block.child(bottom_fade(theme.muted, theme.radius))
-                    }),
-            )
+                    .child(build(preview))
+                    .child(bottom_fade(theme.muted, theme.radius)),
+                build(format::clip_block(text, FULL_LINES, FULL_CHARS)),
+            ))
             .child(
                 h_flex()
-                    .id(ElementId::NamedInteger(
-                        format!("tool-more-{part}").into(),
-                        key,
-                    ))
                     .gap_1()
-                    .text_xs()
-                    .text_color(theme.muted_foreground)
-                    .cursor_pointer()
-                    .hover(|row| row.text_color(theme.foreground))
                     .child(
-                        Icon::new(if self.full {
-                            IconName::ChevronUp
-                        } else {
-                            IconName::ChevronDown
-                        })
-                        .xsmall(),
+                        h_flex()
+                            .id(ElementId::NamedInteger(
+                                format!("tool-more-{part}").into(),
+                                key,
+                            ))
+                            .flex_1()
+                            .min_w_0()
+                            .gap_1()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .cursor_pointer()
+                            .pressable(cx)
+                            .hover(|row| row.text_color(theme.foreground))
+                            .child(chevron(
+                                ElementId::NamedInteger(
+                                    format!("tool-more-chevron-{part}").into(),
+                                    key,
+                                ),
+                                full,
+                                theme.muted_foreground,
+                            ))
+                            .child(faded(label))
+                            .on_click(move |_, _, cx| {
+                                cx.stop_propagation();
+                                chat.update(cx, |chat, cx| chat.toggle_full(key, part, cx))
+                                    .ok();
+                            }),
                     )
-                    .child(label)
-                    .on_click(move |_, _, cx| {
-                        chat.update(cx, |chat, cx| chat.toggle_full(key, cx)).ok();
-                    }),
+                    .child(
+                        kit::button(ElementId::NamedInteger(
+                            format!("tool-copy-{part}").into(),
+                            key,
+                        ))
+                        .icon(IconName::Copy)
+                        .hint("Копировать весь текст", cx)
+                        .ghost()
+                        .xsmall()
+                        .on_click(move |_, _, cx| {
+                            cx.stop_propagation();
+                            copy_chat
+                                .update(cx, |chat, cx| chat.copy_tool_block(key, part, cx))
+                                .ok();
+                        }),
+                    ),
             )
+    }
+}
+
+pub(super) fn full_reveal_key(chat: EntityId, key: u64, part: usize) -> SharedString {
+    format!("tool-preview-{chat}-{key}-{part}").into()
+}
+
+impl Chat {
+    /// Copy the source instead of the bounded preview; fetch it at click
+    /// time, so large tool results are not cloned for a toolbar every frame.
+    fn copy_tool_block(&self, key: u64, part: usize, cx: &mut Context<Self>) {
+        let Some(tool) = self
+            .session
+            .transcript
+            .entries()
+            .iter()
+            .find(|entry| entry.key == key)
+            .and_then(|entry| entry.tool.as_ref())
+        else {
+            return;
+        };
+        let text = match part {
+            0 => tool.result.as_deref(),
+            1 => {
+                let args = tool_args(tool);
+                tool_display::headline(&tool.name, args)
+                    .subject_key
+                    .as_deref()
+                    .and_then(|key| args.get(key))
+                    .and_then(Value::as_str)
+            }
+            _ => None,
+        };
+        if let Some(text) = text {
+            cx.write_to_clipboard(ClipboardItem::new_string(text.to_owned()));
+        }
     }
 }
 

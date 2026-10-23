@@ -159,7 +159,9 @@ fn fresh_layouts_round_trip() {
     let text = serde_json::to_string(&layout).unwrap();
     assert!(text.contains(r#""size":{"fixed":264.0}"#), "{text}");
     let back: TabLayout = serde_json::from_str(&text).unwrap();
-    assert_eq!(back, layout);
+    // Visit/close history is window-local, not part of the saved layout.
+    assert_eq!(serde_json::to_string(&back).unwrap(), text);
+    assert_eq!(shape(&back), shape(&layout));
 
     // Weights of the earlier form are not read.
     let old = text.replace(r#""size":{"fixed":264.0}"#, r#""weight":1.0"#);

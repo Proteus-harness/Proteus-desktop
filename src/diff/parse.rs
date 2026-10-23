@@ -4,7 +4,9 @@ pub(super) fn files(patch: &str) -> Vec<File> {
     let mut files = Vec::new();
     let (mut old, mut new) = (None, None);
     let (mut hunk, mut envelope) = (false, false);
-    for raw in patch.split_inclusive('\n') {
+    let mut remaining = None;
+    let mut input = patch.split_inclusive('\n').peekable();
+    while let Some(raw) = input.next() {
         let line = raw.trim_end_matches(['\r', '\n']);
         if matches!(
             line,
@@ -12,7 +14,36 @@ pub(super) fn files(patch: &str) -> Vec<File> {
         ) {
             continue;
         }
-        let start = if let Some(header) = line.strip_prefix("diff --git ") {
+        // A plain unified patch has no `diff --git` envelope. Count the
+        // current hunk before interpreting ---/+++ as a new file: source
+        // lines beginning with --/++ are valid changed content too.
+        let plain_header = line.starts_with("--- ")
+            && input.peek().is_some_and(|next| next.starts_with("+++ "))
+            && !envelope
+            && (!hunk || remaining == Some((0, 0)))
+            && (files.is_empty()
+                || hunk
+                || files.last().is_some_and(|file: &File| {
+                    file.patch.starts_with("--- ")
+                        && file.patch.lines().any(|line| line.starts_with("+++ "))
+                }));
+        let start = if plain_header {
+            let old_path = path(&line[4..]);
+            Some(File {
+                path: if old_path == "/dev/null" {
+                    String::new()
+                } else {
+                    old_path.clone()
+                },
+                old_path: (old_path != "/dev/null").then_some(old_path.clone()),
+                status: if old_path == "/dev/null" {
+                    "added".into()
+                } else {
+                    String::new()
+                },
+                ..File::default()
+            })
+        } else if let Some(header) = line.strip_prefix("diff --git ") {
             envelope = false;
             Some(File {
                 path: git_paths(header).1,
@@ -41,6 +72,7 @@ pub(super) fn files(patch: &str) -> Vec<File> {
             new = (file.status == "added").then_some(1);
             old = None;
             hunk = envelope;
+            remaining = None;
             files.push(file);
             continue;
         }
@@ -57,13 +89,15 @@ pub(super) fn files(patch: &str) -> Vec<File> {
             file.status = "renamed".into();
         } else if line.starts_with("@@") {
             let positions = positions(line);
-            (old, new) = positions.map_or((None, None), |(a, b)| (Some(a), Some(b)));
+            (old, new) = positions.map_or((None, None), |p| (Some(p.old), Some(p.new)));
+            remaining = positions.map(|p| (p.old_count, p.new_count));
             hunk = true;
             file.lines.push(Line {
                 kind: Kind::Hunk,
                 text: line.into(),
                 old: None,
                 new: None,
+                no_newline: false,
             });
         } else if !hunk && line.starts_with("--- ") {
             let path = path(&line[4..]);
@@ -93,7 +127,15 @@ pub(super) fn files(patch: &str) -> Vec<File> {
         } else if line.starts_with("Binary files ") || line == "GIT binary patch" {
             file.note("Двоичный файл");
         } else if line.starts_with("\\ No newline at end of file") {
-            file.note("Нет перевода строки в конце файла");
+            if let Some(line) = file
+                .lines
+                .last_mut()
+                .filter(|line| matches!(line.kind, Kind::Context | Kind::Added | Kind::Removed))
+            {
+                line.no_newline = true;
+            } else {
+                file.note("Нет перевода строки в конце файла");
+            }
         } else if hunk {
             let (kind, text) = match line.as_bytes().first() {
                 Some(b'+') => (Kind::Added, &line[1..]),
@@ -109,6 +151,13 @@ pub(super) fn files(patch: &str) -> Vec<File> {
                 text: text.into(),
                 old: (kind != Kind::Added).then_some(old).flatten(),
                 new: (kind != Kind::Removed).then_some(new).flatten(),
+                no_newline: false,
+            });
+            remaining = remaining.and_then(|(a, b)| {
+                Some((
+                    a.checked_sub(usize::from(kind != Kind::Added))?,
+                    b.checked_sub(usize::from(kind != Kind::Removed))?,
+                ))
             });
             if kind != Kind::Added {
                 old = old.and_then(|n| n.checked_add(1));
@@ -128,23 +177,30 @@ pub(super) fn files(patch: &str) -> Vec<File> {
     files
 }
 
-fn positions(line: &str) -> Option<(usize, usize)> {
+#[derive(Clone, Copy)]
+struct Positions {
+    old: usize,
+    new: usize,
+    old_count: usize,
+    new_count: usize,
+}
+
+fn positions(line: &str) -> Option<Positions> {
+    fn range(text: &str, prefix: char) -> Option<(usize, usize)> {
+        let mut parts = text.strip_prefix(prefix)?.split(',');
+        let start = parts.next()?.parse().ok()?;
+        let count = parts.next().map_or(Some(1), |n| n.parse().ok())?;
+        parts.next().is_none().then_some((start, count))
+    }
     let mut parts = line.strip_prefix("@@ ")?.split_whitespace();
-    let old = parts
-        .next()?
-        .strip_prefix('-')?
-        .split(',')
-        .next()?
-        .parse()
-        .ok()?;
-    let new = parts
-        .next()?
-        .strip_prefix('+')?
-        .split(',')
-        .next()?
-        .parse()
-        .ok()?;
-    (parts.next()? == "@@").then_some((old, new))
+    let (old, old_count) = range(parts.next()?, '-')?;
+    let (new, new_count) = range(parts.next()?, '+')?;
+    (parts.next()? == "@@").then_some(Positions {
+        old,
+        new,
+        old_count,
+        new_count,
+    })
 }
 
 fn path(header: &str) -> String {

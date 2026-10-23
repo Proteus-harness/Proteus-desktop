@@ -193,12 +193,14 @@ fn pages_cover_known_slots_and_append_unknown_ones() {
 }
 
 #[test]
-fn hooks_move_and_areas_follow_edits() {
+fn hook_enable_disable_preserves_order_and_areas_follow_edits() {
     let mut baseline = Draft::default();
     baseline.hooks = vec!["a".into(), "b".into(), "c".into()];
     let mut draft = baseline.clone();
-    draft.move_hook("c", -1);
-    draft.move_hook("a", -1);
+    draft.set_hook("b", false);
+    assert_eq!(draft.hooks, ["a", "c"]);
+    draft.set_hook("b", true);
+    draft.set_hook("b", true);
     assert_eq!(draft.hooks, ["a", "c", "b"]);
     draft.set_value(
         &FieldPath::new("model", "openai", "effort"),

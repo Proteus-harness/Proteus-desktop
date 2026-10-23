@@ -15,6 +15,8 @@ pub enum Command {
     ToggleFiles,
     NextTab,
     PreviousTab,
+    CloseTab,
+    ReopenClosedTab,
     SplitRight,
     SplitDown,
     FocusPaneLeft,
@@ -27,7 +29,7 @@ pub enum Command {
 }
 
 impl Command {
-    pub const ALL: [Command; 16] = [
+    pub const ALL: [Command; 18] = [
         Command::NewSession,
         Command::NewTerminal,
         Command::ToggleSettings,
@@ -35,6 +37,8 @@ impl Command {
         Command::ToggleFiles,
         Command::NextTab,
         Command::PreviousTab,
+        Command::CloseTab,
+        Command::ReopenClosedTab,
         Command::SplitRight,
         Command::SplitDown,
         Command::FocusPaneLeft,
@@ -56,6 +60,8 @@ impl Command {
             Command::ToggleFiles => "toggle_files",
             Command::NextTab => "next_tab",
             Command::PreviousTab => "previous_tab",
+            Command::CloseTab => "close_tab",
+            Command::ReopenClosedTab => "reopen_closed_tab",
             Command::SplitRight => "split_right",
             Command::SplitDown => "split_down",
             Command::FocusPaneLeft => "focus_pane_left",
@@ -77,6 +83,8 @@ impl Command {
             Command::ToggleFiles => "Панель файлов",
             Command::NextTab => "Следующая вкладка",
             Command::PreviousTab => "Предыдущая вкладка",
+            Command::CloseTab => "Закрыть вкладку",
+            Command::ReopenClosedTab => "Вернуть закрытую вкладку",
             Command::SplitRight => "Отделить вкладку вправо",
             Command::SplitDown => "Отделить вкладку вниз",
             Command::FocusPaneLeft => "Область слева",
@@ -98,6 +106,8 @@ impl Command {
             Command::ToggleFiles => &["ctrl-shift-e"],
             Command::NextTab => &["ctrl-tab"],
             Command::PreviousTab => &["ctrl-shift-tab"],
+            Command::CloseTab => &["ctrl-w", "ctrl-f4"],
+            Command::ReopenClosedTab => &["ctrl-shift-t"],
             Command::SplitRight => &["ctrl-\\"],
             // Shift+\ arrives as `|`.
             Command::SplitDown => &["ctrl-|"],

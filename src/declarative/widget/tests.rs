@@ -64,6 +64,19 @@ fn reads_a_cells_grid() {
 }
 
 #[test]
+fn svg_is_inline_source_with_bounded_native_dimensions() {
+    let mut svg = json!({"type":"svg", "source":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 10\"><rect width=\"10\" height=\"10\" fill=\"red\"/></svg>", "width":640, "height":360});
+    assert!(matches!(parse(svg.clone()).unwrap(), Node::Svg { .. }));
+    for width in [json!(0), json!(-1), json!(4097)] {
+        svg["width"] = width;
+        assert!(parse(svg.clone()).is_err());
+    }
+    svg["width"] = json!(640);
+    svg["url"] = json!("https://example.com/image.svg");
+    assert!(parse(svg).is_err());
+}
+
+#[test]
 fn rejects_unknown_types_fields_and_bad_shapes() {
     assert!(parse(json!({"type": "text", "text": "a", "color": "red"})).is_err());
     assert!(parse(json!({"type": "table", "columns": ["a", "b"], "rows": [["1"]]})).is_err());
@@ -198,7 +211,8 @@ fn reads_menu_options_prompts_and_split_buttons() {
             {"label": "Amend", "action": "amend", "checked": false},
             {"label": "Push", "action": "push", "disabled": true},
             {"label": "Rename", "action": "rename", "value": "a.rs",
-             "prompt": {"title": "New name", "value": "a.rs", "stem": true, "ok": "Rename"}}
+             "prompt": {"title": "New name", "value": "a.rs", "stem": true, "ok": "Rename"}},
+            {"label": "Status", "action": "group", "selected": true}
         ]}),
     )
     .unwrap();
@@ -206,6 +220,7 @@ fn reads_menu_options_prompts_and_split_buttons() {
         panic!("button expected")
     };
     assert!(disabled && menu[0].header && menu[1].checked == Some(false));
+    assert!(!menu[1].selected && menu[4].selected && menu[4].checked.is_none());
     assert!(menu[3].prompt.as_ref().is_some_and(|prompt| prompt.stem));
     assert!(
         parse(json!({"type": "button", "label": "x", "action": "x",
@@ -219,6 +234,7 @@ fn reads_menu_options_prompts_and_split_buttons() {
         json!({"type": "menu", "items": [{"label": "x", "action": "x",
             "prompt": {"title": "b", "select": "all"}}]}),
         json!({"type": "button", "label": "x", "action": "x", "menu": [{"label": "y"}]}),
+        json!({"type": "menu", "items": [{"label": "x", "action": "x", "selected": true, "checked": true}]}),
     ] {
         assert!(parse(bad).is_err());
     }
@@ -332,4 +348,103 @@ fn reads_panel_strips_lists_and_tab_counts() {
     ] {
         assert!(parse(bad).is_err());
     }
+}
+
+#[test]
+fn picker_keeps_arbitrary_values_but_rejects_ambiguous_selection() {
+    let root = json!({"type":"picker", "id":"models", "action":"choose", "options":[
+        {"label":"Обычная", "value":{"provider":"local","model":"a"}, "selected":true},
+        {"label":"Быстрая", "value":42, "selected":false}
+    ]});
+    assert!(matches!(parse(root.clone()).unwrap(), Node::Picker { .. }));
+    let mut bad = root.clone();
+    bad["options"][1]["selected"] = json!(true);
+    assert!(parse(bad).is_err());
+    let mut bad = root.clone();
+    bad["options"][1]["value"] = bad["options"][0]["value"].clone();
+    assert!(parse(bad).is_err());
+    let mut bad = root;
+    bad["custom_animation"] = json!("slide");
+    assert!(parse(bad).is_err());
+}
+
+#[test]
+fn sortable_owns_stable_ids_and_validates_all_nested_controls() {
+    let input =
+        json!({"type":"input","id":"query","value":"","placeholder":"Search","action":"query"});
+    let row = json!({"id":"first","label":"First","children":[input]});
+    let root = json!({"type":"sortable","id":"order","action":"move","items":[row]});
+    let node = parse(root.clone()).unwrap();
+    let mut seen = Vec::new();
+    node.visit(&mut |node| {
+        if let Node::Input { id, .. } = node {
+            seen.push(id.clone());
+        }
+    });
+    assert_eq!(seen, ["query"]);
+    let mut duplicate = root.clone();
+    let repeated = duplicate["items"][0].clone();
+    duplicate["items"].as_array_mut().unwrap().push(repeated);
+    assert!(parse(duplicate).is_err());
+    let mut empty = root.clone();
+    empty["items"][0]["id"] = json!("");
+    assert!(parse(empty).is_err());
+    let mut invalid = root;
+    invalid["items"][0]["children"][0]["lines"] = json!(41);
+    assert!(parse(invalid).is_err());
+}
+
+#[test]
+fn sortable_cannot_bypass_tree_size_or_depth_limits() {
+    let items = (0..MAX_NODES)
+        .map(|id| SortableItem {
+            id: id.to_string(),
+            label: "x".into(),
+            children: vec![],
+        })
+        .collect();
+    assert!(
+        Node::Sortable {
+            id: "order".into(),
+            action: "move".into(),
+            items
+        }
+        .validate()
+        .is_err()
+    );
+    let mut node = Node::Text {
+        text: "leaf".into(),
+        single_line: false,
+        tone: Tone::Default,
+        size: TextSize::Normal,
+        mono: false,
+    };
+    for _ in 0..=MAX_DEPTH {
+        node = Node::Sortable {
+            id: "order".into(),
+            action: "move".into(),
+            items: vec![SortableItem {
+                id: "item".into(),
+                label: "Item".into(),
+                children: vec![node],
+            }],
+        };
+    }
+    assert!(node.validate().is_err());
+}
+
+#[test]
+fn compact_search_is_an_explicit_single_line_input() {
+    let value = json!({"type":"input","id":"find","value":"needle","placeholder":"Поиск…","action":"filter","search":true});
+    assert!(matches!(
+        parse(value.clone()).unwrap(),
+        Node::Input {
+            search: true,
+            lines: 1,
+            ..
+        }
+    ));
+    let mut multiline = value;
+    multiline["lines"] = json!(2);
+    assert!(parse(multiline).is_err());
 }

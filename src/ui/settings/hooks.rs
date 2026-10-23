@@ -9,8 +9,8 @@ use super::SettingsView;
 use super::widgets::{card, hashed_id, item_row, named, note, section};
 use crate::settings::catalog::{HOOK_SLOT, module_info};
 use crate::ui::kit;
-use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
+use crate::ui::reorder;
 
 impl SettingsView {
     pub(super) fn hooks_page(&self, cx: &Context<Self>) -> Vec<AnyElement> {
@@ -18,8 +18,7 @@ impl SettingsView {
             return Vec::new();
         };
         let theme = cx.theme();
-        let count = self.draft.hooks.len();
-        let enabled: Vec<AnyElement> = self
+        let enabled: Vec<reorder::Row> = self
             .draft
             .hooks
             .iter()
@@ -30,7 +29,7 @@ impl SettingsView {
                     .unwrap_or_else(|| "Модуль не найден в текущей сборке".to_string());
                 let key = format!("params:{HOOK_SLOT}:{id}");
                 let open = self.is_open(&key);
-                let (up, down, off) = (id.clone(), id.clone(), id.clone());
+                let off = id.clone();
                 let title = h_flex()
                     .min_w_0()
                     .gap_3()
@@ -51,41 +50,29 @@ impl SettingsView {
                     ));
                 let header = item_row(
                     title,
-                    [
-                        kit::button(hashed_id("hook-up", id))
-                            .icon(IconName::ArrowUp)
-                            .ghost()
-                            .xsmall()
-                            .hint("Выше", cx)
-                            .disabled(ix == 0)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.update_draft(cx, |draft| draft.move_hook(&up, -1))
-                            }))
-                            .into_any_element(),
-                        kit::button(hashed_id("hook-down", id))
-                            .icon(IconName::ArrowDown)
-                            .ghost()
-                            .xsmall()
-                            .hint("Ниже", cx)
-                            .disabled(ix + 1 == count)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.update_draft(cx, |draft| draft.move_hook(&down, 1))
-                            }))
-                            .into_any_element(),
+                    [reorder::controls(
                         kit::button(hashed_id("hook-off", id))
                             .faded_label("Отключить")
                             .ghost()
                             .xsmall()
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.update_draft(cx, |draft| draft.set_hook(&off, false))
-                            }))
-                            .into_any_element(),
-                    ],
+                            })),
+                    )
+                    .into_any_element()],
                 );
-                v_flex()
-                    .child(self.spotted(&super::spot::hook(id), header, cx))
-                    .child(self.params_disclosure(HOOK_SLOT, id, &key, open, cx))
-                    .into_any_element()
+                reorder::Row::new(
+                    id.clone(),
+                    id.clone(),
+                    v_flex()
+                        .child(self.spotted(&super::spot::hook(id), header, cx))
+                        .child(
+                            reorder::controls(
+                                self.params_disclosure(HOOK_SLOT, id, &key, open, cx),
+                            )
+                            .w_full(),
+                        ),
+                )
             })
             .collect();
         let enabled = if enabled.is_empty() {
@@ -94,7 +81,22 @@ impl SettingsView {
                 cx,
             )
         } else {
-            card(enabled, cx)
+            let view = cx.weak_entity();
+            card(
+                [
+                    reorder::List::new("settings-hook-order", enabled, move |id, before, _, cx| {
+                        let _ = view.update(cx, |this, cx| {
+                            let id = id.to_string();
+                            let before = before.map(|id| id.to_string());
+                            this.update_draft(cx, |draft| {
+                                reorder::move_before(&mut draft.hooks, &id, before.as_ref());
+                            });
+                        });
+                    })
+                    .into_any_element(),
+                ],
+                cx,
+            )
         };
 
         let available: Vec<AnyElement> = snapshot

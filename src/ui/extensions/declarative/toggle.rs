@@ -4,6 +4,7 @@
 
 use crate::declarative::tree::Check;
 use crate::ui::prefs;
+use crate::ui::tip::{Tip as _, TooltipAnchor};
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -58,10 +59,12 @@ pub(super) fn chip(count: usize, cx: &App) -> Div {
 /// A muted label in the same frame, such as a tag; like Zed's truncating
 /// `Chip` it gives way when the row is short of room.
 pub(super) fn label_chip(label: impl Into<SharedString>, cx: &App) -> Div {
+    let anchor = TooltipAnchor::default();
     frame(cx)
+        .tip_anchor(anchor.clone())
         .min_w_0()
         .overflow_hidden()
-        .child(crate::ui::fade::faded(label.into()))
+        .child(crate::ui::fade::caption("chip-caption", label.into()).anchor(anchor))
 }
 
 fn frame(cx: &App) -> Div {

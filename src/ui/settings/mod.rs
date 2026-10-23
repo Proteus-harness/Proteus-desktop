@@ -475,7 +475,7 @@ impl Render for SettingsView {
             )
             .on_action(
                 cx.listener(|this, _: &super::FocusSettingsSearch, window, cx| {
-                    this.search.update(cx, |state, cx| state.focus(window, cx))
+                    crate::ui::search::focus(&this.search, window, cx)
                 }),
             )
             .on_action(

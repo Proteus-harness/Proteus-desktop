@@ -13,8 +13,8 @@ use gpui_kit::*;
 use super::menu::{self, Ask};
 use super::view::DeclarativeView;
 use crate::declarative::widget::{Node, Variant};
+use crate::ui::kit;
 use crate::ui::tip::Tip as _;
-use crate::ui::{kit, prefs};
 
 /// Where a button sits and so how it is sized.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -61,19 +61,13 @@ pub(super) fn menu(
         .when(!label.is_empty(), |button| {
             button.faded_label(label.clone())
         })
-        .when_some(hint.clone(), |button, hint| button.tooltip(hint))
+        .when_some(hint.clone(), |button, hint| button.tip_text(hint))
         .when_some(icon, |button, icon| button.icon(super::icon(Some(icon))));
     let button = crate::ui::context::menu_button(
         ElementId::Name(format!("decl-dropdown-{path}").into()),
         button,
         !label.is_empty(),
-        move |popup, window, _| {
-            menu::fill(
-                popup.min_w(prefs::scaled(180.).to_pixels(window.rem_size())),
-                &items,
-                &view,
-            )
-        },
+        move |popup, _, _| menu::fill(popup, &items, &view),
     );
     if fit == Fit::Shrink {
         return div()
@@ -150,13 +144,7 @@ pub(super) fn button(
         button,
         arrow,
         *disabled,
-        move |popup, window, _| {
-            menu::fill(
-                popup.min_w(prefs::scaled(180.).to_pixels(window.rem_size())),
-                &items,
-                &view,
-            )
-        },
+        move |popup, _, _| menu::fill(popup, &items, &view),
     )
     .into_any_element()
 }

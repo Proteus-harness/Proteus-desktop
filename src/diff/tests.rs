@@ -99,3 +99,40 @@ fn metadata_merges_without_duplicating_files() {
     assert_eq!(files.len(), 1);
     assert_eq!(files[0].status, "conflict");
 }
+
+#[test]
+fn missing_newline_metadata_does_not_split_a_replacement() {
+    let input = "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-old\n\\ No newline at end of file\n+new\n\\ No newline at end of file\n";
+    let files = parse(input, &[]);
+    let file = &files[0];
+    assert_eq!(file.patch, input);
+    assert_eq!(file.unified, [1, 2]);
+    assert_eq!(file.pairs, [Pair::Lines(Some(1), Some(2))]);
+    assert!(file.lines[1].no_newline);
+    assert!(file.lines[2].no_newline);
+    assert_eq!((file.lines[1].old, file.lines[2].new), (Some(1), Some(1)));
+}
+
+#[test]
+fn plain_unified_files_are_separate_and_header_like_source_is_content() {
+    let input = "--- a/first.txt\n+++ b/first.txt\n@@ -1,2 +1,2 @@\n--- source\n+++ source\n-old\n+new\n--- a/second.txt\n+++ b/second.txt\n@@ -8 +9 @@\n-before\n+after\n--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1 @@\n+created\n--- a/gone.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-deleted\n";
+    let files = parse(input, &[]);
+    assert_eq!(files.len(), 4);
+    assert_eq!(
+        files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(),
+        ["first.txt", "second.txt", "new.txt", "gone.txt"]
+    );
+    assert_eq!(files[0].lines[1].text, "-- source");
+    assert_eq!(files[0].lines[2].text, "++ source");
+    assert_eq!((files[0].added, files[0].removed), (2, 2));
+    assert_eq!(
+        (files[1].lines[1].old, files[1].lines[2].new),
+        (Some(8), Some(9))
+    );
+    assert_eq!(files[2].status, "added");
+    assert_eq!(files[3].status, "deleted");
+    assert_eq!(
+        files.iter().map(|f| f.patch.as_str()).collect::<String>(),
+        input
+    );
+}

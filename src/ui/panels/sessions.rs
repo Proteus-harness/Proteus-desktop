@@ -20,7 +20,7 @@ use crate::ui::chrome::folder_name;
 use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::motion::Spinner;
-use crate::ui::tip::Tip as _;
+use crate::ui::tip::{Tip as _, TooltipAnchor};
 use crate::ui::workspace::Workspace;
 use crate::ui::{format, motion, prefs};
 
@@ -403,8 +403,10 @@ impl Workspace {
             .clone()
             .unwrap_or_else(|| format::session_title(summary));
         let details = details(summary);
+        let anchor = TooltipAnchor::default();
         h_flex()
             .id(("session", ix))
+            .tip_anchor(anchor.clone())
             .group("session-row")
             .relative()
             .px_2()
@@ -452,7 +454,7 @@ impl Workspace {
                     .flex_1()
                     .min_w_0()
                     .text_sm()
-                    .child(faded(title.clone()))
+                    .child(crate::ui::fade::caption("session-caption", title).anchor(anchor))
                     .into_any_element(),
             })
             .children(indicator)
@@ -497,15 +499,11 @@ impl Workspace {
             }))
             .tip_element(move |_, cx| {
                 let muted = cx.theme().muted_foreground;
-                v_flex()
-                    .max_w(prefs::scaled(360.))
-                    .gap_0p5()
-                    .child(div().text_sm().font_semibold().child(title.clone()))
-                    .children(
-                        details
-                            .iter()
-                            .map(|line| div().text_xs().text_color(muted).child(line.clone())),
-                    )
+                v_flex().max_w(prefs::scaled(360.)).gap_0p5().children(
+                    details
+                        .iter()
+                        .map(|line| div().text_xs().text_color(muted).child(line.clone())),
+                )
             })
             .right_click_menu(move |menu, _, _| {
                 session_menu::build(menu, &dir, mark.clone(), &workspace)

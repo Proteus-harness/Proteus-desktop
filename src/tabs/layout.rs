@@ -20,6 +20,9 @@ pub struct TabLayout {
     pub preview: Option<String>,
     /// Id of the next new pane.
     pub next_id: u32,
+    /// Closed regular tabs in this window; navigation state is not persisted.
+    #[serde(skip)]
+    pub(super) closed: Vec<super::ClosedTab>,
 }
 
 /// A fresh layout: one empty pane for chats and documents.
@@ -30,6 +33,7 @@ impl Default for TabLayout {
             focused: PaneId(0),
             preview: None,
             next_id: 1,
+            closed: Vec::new(),
         }
     }
 }

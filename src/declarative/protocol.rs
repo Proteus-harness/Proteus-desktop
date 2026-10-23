@@ -17,11 +17,18 @@ pub const PROTOCOL: u32 = 3;
 pub const FEATURES: &[&str] = &[
     "session.settings.v1",
     "widgets.controls.v1",
+    "widgets.search.v1",
+    "widgets.selection.v1",
+    "widgets.picker.v1",
+    "widgets.sortable.v1",
+    "widgets.status.v1",
     "widgets.diff.v1",
     "widgets.lanes.v2",
     "widgets.disclosure.v1",
     "widgets.person.v1",
     "documents.title.v1",
+    "surfaces.content.v1",
+    "widgets.svg.v1",
 ];
 
 #[derive(Clone, Debug, Serialize)]
@@ -54,6 +61,8 @@ pub enum Outgoing {
         view: String,
         surface: SurfaceKind,
         #[serde(skip_serializing_if = "Option::is_none")]
+        content: Option<Content>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         argument: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         session_dir: Option<PathBuf>,
@@ -84,6 +93,13 @@ pub struct Server {
     pub token: String,
 }
 
+/// Original closed fence contents, separate from its stable view address.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct Content {
+    pub language: String,
+    pub source: String,
+}
+
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SurfaceKind {
@@ -92,6 +108,7 @@ pub enum SurfaceKind {
     Document,
     Badge,
     Popup,
+    Content,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
@@ -105,6 +122,14 @@ pub enum HostEventKind {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Incoming {
+    /// A content renderer declined this source; the host preserves the raw fence.
+    ContentError {
+        view: String,
+        session_dir: Option<PathBuf>,
+        error: String,
+        #[serde(default)]
+        sequence: u64,
+    },
     Focus {
         view: String,
         control: Option<String>,
@@ -174,6 +199,7 @@ pub fn view_id(surface: SurfaceKind, argument: Option<&str>) -> String {
         (SurfaceKind::Badge, _) => "badge".into(),
         (SurfaceKind::Popup, _) => "popup".into(),
         (SurfaceKind::Document, argument) => format!("document:{}", argument.unwrap_or("")),
+        (SurfaceKind::Content, argument) => format!("content:{}", argument.unwrap_or("")),
     }
 }
 
@@ -187,6 +213,7 @@ mod tests {
         let render = Outgoing::Render {
             view: view_id(SurfaceKind::Document, Some("a")),
             surface: SurfaceKind::Document,
+            content: None,
             argument: Some("a".into()),
             session_dir: None,
         };
@@ -194,6 +221,28 @@ mod tests {
             serde_json::to_value(render).unwrap(),
             json!({"type": "render", "view": "document:a", "surface": "document", "argument": "a"})
         );
+    }
+
+    #[test]
+    fn content_source_has_a_typed_payload_and_errors_target_its_stable_view() {
+        let message = Outgoing::Render {
+            view: view_id(SurfaceKind::Content, Some("entry-1-block-2")),
+            surface: SurfaceKind::Content,
+            argument: Some("entry-1-block-2".into()),
+            content: Some(Content {
+                language: "future-figure".into(),
+                source: "original source\n".into(),
+            }),
+            session_dir: Some("/fixture/chat-one".into()),
+        };
+        let value = serde_json::to_value(message).unwrap();
+        assert_eq!(
+            value["content"],
+            json!({"language":"future-figure","source":"original source\n"})
+        );
+        assert_eq!(value["view"], "content:entry-1-block-2");
+        let error = parse(r#"{"type":"content_error","view":"content:entry-1-block-2","session_dir":"/fixture/chat-one","error":"unsupported source","sequence":4}"#).unwrap();
+        assert!(matches!(error, Incoming::ContentError { sequence: 4, .. }));
     }
 
     #[test]
@@ -235,7 +284,7 @@ mod tests {
         );
         let (packages, errors) = crate::declarative::manifest::discover(&root.join("packages"));
         assert!(errors.is_empty(), "{errors:?}");
-        assert_eq!(packages.len(), 10);
+        assert_eq!(packages.len(), 11);
         let output = std::process::Command::new("python3")
             .arg(root.join("tests/wire.py"))
             .arg("--wire")

@@ -15,7 +15,7 @@ mod view;
 
 pub(super) use drop::TabDrop;
 pub(super) use motion::TabMotion;
-pub(super) use split::{SplitDrag, SplitResize, divider_grip, divider_line};
+pub(super) use split::{SplitDrag, SplitResize};
 
 use gpui_kit::*;
 
@@ -185,8 +185,54 @@ impl Workspace {
     }
 
     pub(super) fn close_tab(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let layout = self.tab_layout(cx);
+        let closed_active = layout.active(layout.focused) == Some(id);
         self.update_tabs(cx, |tabs| tabs.close(id));
+        if closed_active {
+            self.focus_active(window, cx);
+        }
+    }
+
+    /// Keyboard close protects pinned tabs; an open settings page closes first.
+    pub(super) fn close_active_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(settings) = self.settings.clone() {
+            settings.update(cx, |settings, cx| settings.request_close(cx));
+            return;
+        }
+        self.update_tabs(cx, TabLayout::close_active);
         self.focus_active(window, cx);
+    }
+
+    /// Reopens any supported page through the same history. Sessions are
+    /// resumed before restoring their tab, so no empty chat/context is shown.
+    pub(super) fn reopen_closed_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.settings.is_some() {
+            return;
+        }
+        let layout = self.tab_layout(cx);
+        let available: std::collections::HashSet<String> = layout
+            .closed_ids()
+            .filter(|id| {
+                tab_available(id, cx)
+                    && tabs::chat_dir(id).is_none_or(|dir| {
+                        self.sessions
+                            .iter()
+                            .any(|session| session.session_dir == dir)
+                    })
+            })
+            .map(str::to_string)
+            .collect();
+        let mut closed = None;
+        self.update_tabs(cx, |tabs| {
+            closed = tabs.take_closed(|id| available.contains(id))
+        });
+        let Some(closed) = closed else { return };
+        if tabs::is_chat(&closed.id) {
+            self.restore_closed_chat(closed, window, cx);
+        } else if self.ensure_document(&closed.id, window, cx).is_some() {
+            self.update_tabs(cx, |tabs| tabs.restore_closed(&closed));
+            self.focus_tab(&closed.id, window, cx);
+        }
     }
 
     pub(super) fn move_tab(

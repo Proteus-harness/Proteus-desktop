@@ -1,8 +1,7 @@
 //! Native rendering of the widget tree an extension sends.
 
-use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::input::{Editor, Input, Textarea};
-use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
+use gpui_kit::component::menu::PopupMenu;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -33,7 +32,7 @@ impl DeclarativeView {
     /// `path` is the position in the tree; it keys element ids and the
     /// selected tab, so they survive a new tree of the same shape.
     pub(super) fn node(&self, node: &Node, path: &str, cx: &mut Context<Self>) -> AnyElement {
-        match node {
+        let element = match node {
             Node::Person { name, detail } => v_flex()
                 .w_full()
                 .items_center()
@@ -111,22 +110,21 @@ impl DeclarativeView {
                         .outline(),
                     true,
                     move |menu: PopupMenu, _, _| {
-                        options.iter().fold(
-                            menu.min_w(px(200.)).max_h(px(360.)).scrollable(true),
-                            |menu, option| {
-                                let (value, action, this) =
-                                    (option.value.clone(), action.clone(), this.clone());
-                                menu.item(
-                                    PopupMenuItem::new(option.label.clone())
-                                        .checked(option.selected)
-                                        .on_click(move |_, _, cx| {
-                                            let _ = this.update(cx, |this, cx| {
-                                                this.act(action.clone(), Some(value.clone()), cx)
-                                            });
-                                        }),
+                        options.iter().fold(menu, |menu, option| {
+                            let (value, action, this) =
+                                (option.value.clone(), action.clone(), this.clone());
+                            menu.item(
+                                crate::ui::selection::menu_option(
+                                    option.label.clone(),
+                                    option.selected,
                                 )
-                            },
-                        )
+                                .on_click(move |_, _, cx| {
+                                    let _ = this.update(cx, |this, cx| {
+                                        this.act(action.clone(), Some(value.clone()), cx)
+                                    });
+                                }),
+                            )
+                        })
                     },
                 )
                 .into_any_element()
@@ -139,7 +137,7 @@ impl DeclarativeView {
                 value,
             } => {
                 let (action, value, checked) = (action.clone(), value.clone(), *checked);
-                Checkbox::new(ElementId::Name(format!("decl-check-{path}").into()))
+                kit::checkbox(ElementId::Name(format!("decl-check-{path}").into()))
                     .label(label.clone())
                     .checked(checked)
                     .small()
@@ -167,6 +165,11 @@ impl DeclarativeView {
             Node::PanelEditor { children } => {
                 self.panel_editor(children, path, cx).into_any_element()
             }
+            Node::Loading { text } => crate::ui::state::loading(
+                SharedString::from(format!("loading-{path}")),
+                text.clone(),
+                cx,
+            ),
             Node::Empty { text } => super::layout::empty(text, cx).into_any_element(),
             Node::Icon { name, tone } => Icon::new(super::icon(Some(name)))
                 .small()
@@ -216,6 +219,28 @@ impl DeclarativeView {
                     .into_any_element()
             }
             Node::Input {
+                id,
+                search: true,
+                placeholder,
+                ..
+            } => self
+                .fields
+                .inputs
+                .get(id)
+                .and_then(|input| match &input.state {
+                    super::fields::Text::Line(input) => Some(
+                        crate::ui::search::Search::new(
+                            ElementId::Name(format!("search-{id}").into()),
+                            input.clone(),
+                            self.focus.clone(),
+                            placeholder.clone(),
+                        )
+                        .into_any_element(),
+                    ),
+                    super::fields::Text::Area(_) => None,
+                })
+                .unwrap_or_else(|| div().into_any_element()),
+            Node::Input {
                 id, flush, mono, ..
             } => {
                 let mono = mono.then(|| cx.theme().mono_font_family.clone());
@@ -238,6 +263,21 @@ impl DeclarativeView {
                     }))
                     .into_any_element()
             }
+            Node::Svg {
+                source,
+                width,
+                height,
+            } => div()
+                .w_full()
+                .min_w_0()
+                .children(self.images.get(source, *width, *height).map(|image| {
+                    img(image)
+                        .w(prefs::scaled(*width))
+                        .h(prefs::scaled(*height))
+                        .max_w_full()
+                        .object_fit(ObjectFit::Contain)
+                }))
+                .into_any_element(),
             Node::Code { id, height, .. } => div()
                 .when(height.is_none(), |node| node.flex_1())
                 .when_some(*height, |node, height| node.h(prefs::scaled(height)))
@@ -282,47 +322,48 @@ impl DeclarativeView {
                 .p_1()
                 .children(self.steps.get(id).cloned())
                 .into_any_element(),
-            Node::Choice {
-                label,
-                selected,
-                action,
-                value,
-            } => {
-                let theme = cx.theme();
-                let selected_foreground = theme.sidebar_accent_foreground;
-                let cursor = self
-                    .choices()
+            Node::Sortable { id, items, action } => {
+                let rows = items
                     .iter()
-                    .position(|(candidate, candidate_value, _)| {
-                        candidate == action && candidate_value == value
-                    });
-                let keyboard = cursor.is_some() && cursor == self.choice_cursor;
-                let (action, value) = (action.clone(), value.clone());
-                div()
-                    .id(ElementId::Name(format!("choice-{path}").into()))
-                    .px_2()
-                    .py_1()
-                    .rounded(theme.radius)
-                    .cursor_pointer()
-                    .pressable(cx)
-                    .relative()
-                    .group("choice-selection")
-                    .child(crate::ui::selection::background(
-                        *selected,
-                        keyboard,
-                        "choice-selection",
-                        false,
-                        cx,
-                    ))
-                    .when(*selected, |row| {
-                        row.text_color(selected_foreground).font_medium()
+                    .map(|item| {
+                        let child_path = format!("{path}.sort({}:{})", item.id.len(), item.id);
+                        let child = if item.children.is_empty() {
+                            div()
+                                .px_3()
+                                .py_2()
+                                .text_sm()
+                                .child(faded(item.label.clone()))
+                                .into_any_element()
+                        } else {
+                            self.fill(&item.children, &child_path, cx)
+                                .w_full()
+                                .into_any_element()
+                        };
+                        crate::ui::reorder::Row::new(item.id.clone(), item.label.clone(), child)
                     })
-                    .child(faded(label.clone()))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.act(action.clone(), Some(value.clone()), cx)
-                    }))
-                    .into_any_element()
+                    .collect();
+                let (this, action) = (cx.weak_entity(), action.clone());
+                crate::ui::reorder::List::new(
+                    ElementId::Name(format!("sortable-{}-{id}", cx.entity_id()).into()),
+                    rows,
+                    move |id, before, _, cx| {
+                        let _ = this.update(cx, |this, cx| {
+                            this.act(
+                                action.clone(),
+                                Some(serde_json::json!({"id":id.to_string(),"before":before.map(|id| id.to_string())})),
+                                cx,
+                            )
+                        });
+                    },
+                )
+                .revision(self.root_revision)
+                .into_any_element()
             }
+            Node::Picker { id, .. } => div()
+                .w_full()
+                .min_w_0()
+                .children(self.fields.pickers.get(id).cloned())
+                .into_any_element(),
             Node::Stack {
                 direction,
                 gap,
@@ -505,6 +546,32 @@ impl DeclarativeView {
                 .w_full()
                 .bg(cx.theme().border)
                 .into_any_element(),
+        };
+        // Native actionable descendants opt out of whole-row hold while
+        // preserving their layout and all normal focus/click behavior.
+        if matches!(
+            node,
+            Node::Input { .. }
+                | Node::Checkbox { .. }
+                | Node::Menu { .. }
+                | Node::Button { .. }
+                | Node::Select { .. }
+                | Node::Picker { .. }
+                | Node::Code { .. }
+                | Node::Terminal { .. }
+                | Node::Tree { .. }
+                | Node::List { .. }
+                | Node::Lanes { .. }
+                | Node::Graph { .. }
+                | Node::Steps { .. }
+                | Node::Tabs { .. }
+                | Node::Disclosure { .. }
+                | Node::Sortable { .. }
+                | Node::Diff { .. }
+        ) {
+            crate::ui::reorder::interactive(element).into_any_element()
+        } else {
+            element
         }
     }
 

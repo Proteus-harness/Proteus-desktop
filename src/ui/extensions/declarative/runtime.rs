@@ -12,7 +12,7 @@ use crate::declarative::manifest::Installed;
 use crate::declarative::presentation::Presentation;
 use crate::declarative::process::{Process, Signal};
 use crate::declarative::protocol::{
-    HostEventKind, Incoming, Outgoing, PROTOCOL, Server, SurfaceKind,
+    Content, HostEventKind, Incoming, Outgoing, PROTOCOL, Server, SurfaceKind,
 };
 use crate::ui::extensions::host::{Host, HostEvent, OpenDocument};
 
@@ -38,6 +38,7 @@ struct Attached {
     view: WeakEntity<DeclarativeView>,
     surface: SurfaceKind,
     argument: Option<String>,
+    content: Option<Content>,
 }
 
 impl Runtime {
@@ -111,6 +112,7 @@ impl Runtime {
         view: String,
         surface: SurfaceKind,
         argument: Option<String>,
+        content: Option<Content>,
         entity: WeakEntity<DeclarativeView>,
         cx: &mut Context<Self>,
     ) {
@@ -120,6 +122,7 @@ impl Runtime {
                 view: entity,
                 surface,
                 argument,
+                content,
             },
         );
         if self.process.is_some() {
@@ -243,6 +246,7 @@ impl Runtime {
             view: view.into(),
             surface: attached.surface,
             argument: attached.argument.clone(),
+            content: attached.content.clone(),
             session_dir: self.host.session_dir(cx),
         });
     }
@@ -262,6 +266,24 @@ impl Runtime {
 
     fn handle(&mut self, signal: Signal, cx: &mut Context<Self>) {
         match signal {
+            Signal::Message(Incoming::ContentError {
+                view,
+                session_dir,
+                error,
+                sequence,
+            }) => {
+                if session_dir != self.host.session_dir(cx) {
+                    return;
+                }
+                if let Some(entity) = self
+                    .views
+                    .get(&view)
+                    .filter(|attached| attached.surface == SurfaceKind::Content)
+                    .and_then(|attached| attached.view.upgrade())
+                {
+                    entity.update(cx, |view, cx| view.fail(error, sequence, cx));
+                }
+            }
             Signal::Message(Incoming::Focus { view, control }) => {
                 if let Some(view) = self
                     .views

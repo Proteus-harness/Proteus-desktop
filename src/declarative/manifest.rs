@@ -40,6 +40,9 @@ pub struct Manifest {
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Surfaces {
+    /// Fenced assistant-message languages this package can render.
+    #[serde(default)]
+    pub content: Option<ContentSurface>,
     #[serde(default)]
     pub page: Option<PageSurface>,
     #[serde(default)]
@@ -50,6 +53,12 @@ pub struct Surfaces {
     pub document: Option<DocumentSurface>,
     #[serde(default)]
     pub badge: Option<BadgeSurface>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ContentSurface {
+    pub languages: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
@@ -276,8 +285,20 @@ pub fn parse(text: &str) -> Result<Manifest> {
         && surfaces.document.is_none()
         && surfaces.badge.is_none()
         && surfaces.page.is_none()
+        && surfaces.content.is_none()
     {
         bail!("no surfaces");
+    }
+    if let Some(content) = &surfaces.content {
+        let mut seen = std::collections::HashSet::new();
+        if content.languages.is_empty()
+            || content
+                .languages
+                .iter()
+                .any(|language| !valid_language(language) || !seen.insert(language))
+        {
+            bail!("content languages must be nonempty, unique lowercase fence identifiers");
+        }
     }
     if surfaces.popup.is_some() && surfaces.badge.is_none() {
         bail!("popup requires a badge");
@@ -304,6 +325,13 @@ pub fn parse(text: &str) -> Result<Manifest> {
         bail!("a badge with text does not fit the rail");
     }
     Ok(manifest)
+}
+
+pub fn valid_language(language: &str) -> bool {
+    !language.is_empty()
+        && language.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"_+.-".contains(&byte)
+        })
 }
 
 fn valid_id(id: &str) -> bool {
@@ -369,6 +397,27 @@ mod tests {
         assert!(!valid_id("Git"));
         assert!(!valid_id("a:b"));
         assert!(!valid_id("-a"));
+    }
+
+    #[test]
+    fn content_only_packages_register_new_languages_without_host_catalog_entries() {
+        let mut value = serde_json::json!({"protocol":3,"id":"figures","title":"Figures",
+            "command":["bin/figures"],"required_features":["surfaces.content.v1"],
+            "surfaces":{"content":{"languages":["future-diagram","c++"]}}});
+        let parsed = parse(&value.to_string()).unwrap();
+        assert_eq!(
+            parsed.surfaces.content.unwrap().languages,
+            ["future-diagram", "c++"]
+        );
+        for languages in [
+            serde_json::json!([]),
+            serde_json::json!(["x", "x"]),
+            serde_json::json!(["UpperCase"]),
+            serde_json::json!(["two words"]),
+        ] {
+            value["surfaces"]["content"]["languages"] = languages;
+            assert!(parse(&value.to_string()).is_err());
+        }
     }
 
     #[test]
