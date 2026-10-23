@@ -1,5 +1,6 @@
 //! Hooks page: the ordered hook chain and the hooks still available.
 
+use crate::ui::kit::ButtonLabel as _;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::*;
@@ -72,7 +73,7 @@ impl SettingsView {
                             }))
                             .into_any_element(),
                         kit::button(hashed_id("hook-off", id))
-                            .label("Отключить")
+                            .faded_label("Отключить")
                             .ghost()
                             .xsmall()
                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -111,7 +112,7 @@ impl SettingsView {
                         cx,
                     ),
                     [kit::button(hashed_id("hook-on", &module.id))
-                        .label("Включить")
+                        .faded_label("Включить")
                         .outline()
                         .xsmall()
                         .on_click(cx.listener(move |this, _, _, cx| {

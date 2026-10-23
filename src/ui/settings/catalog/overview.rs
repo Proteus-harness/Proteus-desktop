@@ -2,6 +2,7 @@
 //! the types and the sources with their categories to narrow the list by.
 //! The whole list only opens once a search, a filter or a scope asks for it.
 
+use crate::ui::kit::ButtonLabel as _;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::scroll::ScrollableElement as _;
@@ -202,7 +203,7 @@ impl SettingsView {
                                     "catalog-overview-category",
                                     &(source.key(), &id),
                                 ))
-                                .label(format!("{title} · {count}"))
+                                .faded_label(format!("{title} · {count}"))
                                 .outline()
                                 .xsmall()
                                 .on_click(cx.listener(
@@ -348,7 +349,7 @@ fn section(title: &'static str, count: usize, show: Show, cx: &Context<SettingsV
             .when(count > OVERVIEW_ROWS, |row| {
                 row.child(
                     kit::button(hashed_id("catalog-overview-more", &title))
-                        .label("Показать все")
+                        .faded_label("Показать все")
                         .ghost()
                         .xsmall()
                         .on_click(cx.listener(move |this, _, _, cx| {

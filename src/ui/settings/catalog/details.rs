@@ -1,5 +1,6 @@
 //! Details of the selected catalog entry beside the list.
 
+use crate::ui::kit::ButtonLabel as _;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::text::TextView;
@@ -118,7 +119,7 @@ impl SettingsView {
                             .child(self.catalog_action(item, "details", self.profile_blocked(), cx))
                             .children(removable.map(|installed| {
                                 kit::button(hashed_id("catalog-remove", &item.key()))
-                                    .label("Удалить")
+                                    .faded_label("Удалить")
                                     .ghost()
                                     .small()
                                     .disabled(

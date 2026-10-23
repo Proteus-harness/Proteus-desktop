@@ -23,7 +23,7 @@ pub(super) mod tool_row;
 mod user_input;
 mod view;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -86,6 +86,8 @@ pub(super) struct Chat {
     expanded: HashSet<u64>,
     /// Rows whose long output the user asked to see in full.
     full_rows: HashSet<u64>,
+    /// Shared diff state survives folding and virtualized chat rows.
+    tool_diffs: HashMap<u64, Entity<crate::ui::diff::DiffView>>,
     /// Folded tool runs the user opened, by the key of their first row.
     open_chains: HashSet<u64>,
     /// Rows pushed by live events, for enter motion.
@@ -170,6 +172,7 @@ impl Chat {
             replies: Replies::default(),
             expanded: HashSet::new(),
             full_rows: HashSet::new(),
+            tool_diffs: HashMap::new(),
             open_chains: HashSet::new(),
             fresh_rows: Recent::default(),
             fresh_requests: Recent::default(),

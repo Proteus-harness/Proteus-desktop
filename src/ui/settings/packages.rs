@@ -2,6 +2,7 @@
 //! diagnostics and what they contribute; folders are added and removed
 //! through the draft.
 
+use crate::ui::kit::ButtonLabel as _;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
@@ -37,7 +38,7 @@ impl SettingsView {
         let enabled = packages.iter().filter(|package| package.enabled).count();
         let add = kit::button("package-add")
             .icon(Lucide::FolderPlus)
-            .label("Добавить пакет…")
+            .faded_label("Добавить пакет…")
             .ghost()
             .xsmall()
             .hint("Выбрать папку пакета Agent Plugins", cx)
@@ -50,7 +51,7 @@ impl SettingsView {
                         .into(),
                 ),
                 Some(h_flex().flex_wrap().gap_2().child(add).child(
-                    kit::button("package-zip").label("Из ZIP…").ghost().xsmall()
+                    kit::button("package-zip").faded_label("Из ZIP…").ghost().xsmall()
                         .disabled(self.catalogs.busy || self.saving)
                         .on_click(cx.listener(|this, _, _, cx| this.choose_package_zip(cx)))
                 ).into_any_element()),
@@ -228,7 +229,7 @@ impl SettingsView {
         cx: &Context<Self>,
     ) -> AnyElement {
         kit::button(hashed_id(key.0, &key.1))
-            .label(label)
+            .faded_label(label)
             .ghost()
             .xsmall()
             .on_click(

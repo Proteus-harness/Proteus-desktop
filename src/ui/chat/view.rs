@@ -12,6 +12,7 @@ impl Render for Chat {
         // The chat is cached apart from the window, so it drives its own
         // disclosures.
         motion::drive(window, cx);
+        self.prepare_tool_diffs(cx);
         let renderer = cx.processor(|this, ix: usize, window, cx| this.render_row(ix, window, cx));
         v_flex()
             .id("chat")

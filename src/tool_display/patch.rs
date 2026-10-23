@@ -8,17 +8,6 @@ pub enum PatchOperation {
     Move,
 }
 
-impl PatchOperation {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Add => "создан",
-            Self::Delete => "удалён",
-            Self::Update => "изменён",
-            Self::Move => "перемещён",
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DiffLine {
     Added,

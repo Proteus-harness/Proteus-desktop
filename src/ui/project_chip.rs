@@ -3,6 +3,7 @@
 //! saved chats opens on the running server; a folder without any restarts
 //! the server there when the window started it.
 
+use crate::ui::kit::ButtonLabel as _;
 use std::path::{Path, PathBuf};
 
 use gpui_kit::assets::IconName as Lucide;
@@ -47,7 +48,7 @@ impl Workspace {
             .ghost()
             .xsmall()
             .icon(Lucide::Folder)
-            .label(folder_name(&project))
+            .faded_label(folder_name(&project))
             .dropdown_caret(true)
             .text_color(cx.theme().muted_foreground);
         let popover = Popover::new("project-chip-popover")

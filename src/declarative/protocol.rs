@@ -14,7 +14,11 @@ use super::presentation::Face;
 use super::widget::Node;
 
 pub const PROTOCOL: u32 = 3;
-pub const FEATURES: &[&str] = &["session.settings.v1", "widgets.controls.v1"];
+pub const FEATURES: &[&str] = &[
+    "session.settings.v1",
+    "widgets.controls.v1",
+    "widgets.diff.v1",
+];
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]

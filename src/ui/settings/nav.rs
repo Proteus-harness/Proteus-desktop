@@ -1,6 +1,7 @@
 //! Settings navigation: the catalog, agent pages, client pages, then a page
 //! for every enabled extension.
 
+use crate::ui::kit::ButtonLabel as _;
 use std::collections::HashSet;
 
 use gpui_kit::assets::IconName as Lucide;
@@ -192,7 +193,7 @@ impl SettingsView {
                 h_flex().h(prefs::scaled(44.)).px_2().items_center().child(
                     kit::button("settings-back")
                         .icon(IconName::ArrowLeft)
-                        .label("Чат")
+                        .faded_label("Чат")
                         .ghost()
                         .small()
                         .hint_keys(

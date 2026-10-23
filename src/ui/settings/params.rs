@@ -1,6 +1,7 @@
 //! Parameters of one module: a form generated from its `config_schema`
 //! or the raw JSON object.
 
+use crate::ui::kit::ButtonLabel as _;
 use std::path::Path;
 
 use gpui_kit::component::button::ButtonVariants as _;
@@ -55,7 +56,7 @@ impl SettingsView {
         let snapshot = self.snapshot()?;
         let file = snapshot.target_path.clone().map(|path| {
             kit::button(hashed_id("params-file", &(slot, module)))
-                .label("Файл профиля")
+                .faded_label("Файл профиля")
                 .ghost()
                 .xsmall()
                 .hint(
@@ -68,7 +69,7 @@ impl SettingsView {
             let json = self.is_json(slot, module);
             let (slot, module) = (slot.to_string(), module.to_string());
             kit::button(hashed_id("params-mode", &(&slot, &module)))
-                .label(if json { "Форма" } else { "JSON" })
+                .faded_label(if json { "Форма" } else { "JSON" })
                 .ghost()
                 .xsmall()
                 .disabled(json && self.json_error(&slot, &module))

@@ -138,6 +138,16 @@ pub enum Node {
         #[serde(default)]
         wrap: bool,
     },
+    /// A shared read-only diff, with file cards and responsive split/unified
+    /// rows. Optional metadata keeps non-text files visible too.
+    Diff {
+        id: String,
+        patch: String,
+        #[serde(default)]
+        files: Vec<crate::diff::FileInfo>,
+        #[serde(default)]
+        height: Option<f32>,
+    },
     Terminal {
         id: String,
         cwd: std::path::PathBuf,
@@ -170,6 +180,9 @@ pub enum Node {
     },
     Text {
         text: String,
+        /// A label or preview fades at the available width; prose wraps.
+        #[serde(default)]
+        single_line: bool,
         #[serde(default)]
         tone: Tone,
         #[serde(default)]
@@ -446,8 +459,12 @@ impl Node {
             Node::Code {
                 height: Some(height),
                 ..
+            }
+            | Node::Diff {
+                height: Some(height),
+                ..
             } if !height.is_finite() || *height <= 0. => {
-                bail!("code height must be finite and positive")
+                bail!("code/diff height must be finite and positive")
             }
             Node::Graph { nodes, edges, .. } => {
                 let ids: std::collections::HashSet<_> = nodes.iter().map(|node| &node.id).collect();

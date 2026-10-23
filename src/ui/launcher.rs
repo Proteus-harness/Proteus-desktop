@@ -2,6 +2,7 @@
 //! the workspace of that folder. Opening another folder from the top bar
 //! replaces the workspace and its server.
 
+use crate::ui::kit::ButtonLabel as _;
 use std::path::{Path, PathBuf};
 
 use gpui_kit::assets::IconName as Lucide;
@@ -250,7 +251,7 @@ impl Launcher {
                         h_flex().child(
                             kit::button("choose-workspace")
                                 .icon(Lucide::FolderOpen)
-                                .label("Открыть папку…")
+                                .faded_label("Открыть папку…")
                                 .primary()
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.choose_folder(window, cx)

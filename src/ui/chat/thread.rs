@@ -128,13 +128,27 @@ impl Chat {
                         reveal(chain_reveal.unwrap_or_default(), chain_open, cx, || run)
                     } else {
                         chain_open.then(|| {
-                            let tool = render_tool(entry.key, tool, expanded, full, cx);
+                            let tool = render_tool(
+                                entry.key,
+                                tool,
+                                expanded,
+                                full,
+                                self.tool_diffs.get(&entry.key).cloned(),
+                                cx,
+                            );
                             div().pt_1().child(tool).into_any_element()
                         })
                     };
                     v_flex().child(header).children(calls).into_any_element()
                 }
-                _ => render_tool(entry.key, tool, expanded, full, cx),
+                _ => render_tool(
+                    entry.key,
+                    tool,
+                    expanded,
+                    full,
+                    self.tool_diffs.get(&entry.key).cloned(),
+                    cx,
+                ),
             },
             (Role::System, None, Some(agent)) => render_subagent(entry.key, agent, expanded, cx),
             (Role::System, None, None) => render_note(entry, cx),
@@ -170,10 +184,42 @@ impl Chat {
             };
             let expanded = self.expanded.contains(&entry.key);
             let full = self.full_rows.contains(&entry.key);
-            let call = div().child(render_tool(entry.key, tool, expanded, full, cx));
+            let call = div().child(render_tool(
+                entry.key,
+                tool,
+                expanded,
+                full,
+                self.tool_diffs.get(&entry.key).cloned(),
+                cx,
+            ));
             block = block.child(if n == 0 { call.pt_1() } else { call.pt(gap) });
         }
         block.into_any_element()
+    }
+
+    pub(super) fn prepare_tool_diffs(&mut self, cx: &mut Context<Self>) {
+        for entry in self.session.transcript.entries() {
+            if !self.expanded.contains(&entry.key) {
+                continue;
+            }
+            let Some(tool) = &entry.tool else {
+                continue;
+            };
+            if tool.name != crate::tool_display::APPLY_PATCH {
+                continue;
+            }
+            let Some(patch) = crate::tool_display::patch_text(super::tool_row::tool_args(tool))
+            else {
+                continue;
+            };
+            if let Some(diff) = self.tool_diffs.get(&entry.key) {
+                diff.update(cx, |diff, cx| diff.set_patch(patch, &[], cx));
+            } else {
+                let diff =
+                    cx.new(|cx| crate::ui::diff::DiffView::new(patch.to_owned(), Vec::new(), cx));
+                self.tool_diffs.insert(entry.key, diff);
+            }
+        }
     }
 }
 
@@ -294,7 +340,8 @@ fn render_note(entry: &Entry, cx: &App) -> AnyElement {
     div()
         .text_xs()
         .text_color(cx.theme().muted_foreground)
-        .child(format::clip(&entry.text, 200))
+        .min_w_0()
+        .child(faded(format::clip(&entry.text, 200)))
         .into_any_element()
 }
 

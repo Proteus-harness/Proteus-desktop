@@ -1,3 +1,4 @@
+use crate::ui::kit::ButtonLabel as _;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use gpui_kit::assets::IconName as Lucide;
@@ -224,7 +225,7 @@ fn render_approval(request: &AppApprovalRequest, cx: &mut Context<Chat>) -> AnyE
     let id = request.approval_id.clone();
     let (approve_id, deny_id) = (id.clone(), id.clone());
     let allow = kit::button(SharedString::from(format!("approve-{id}")))
-        .label("Разрешить один раз")
+        .faded_label("Разрешить один раз")
         .child(key_hint("⏎"))
         .primary()
         .small()
@@ -295,7 +296,7 @@ fn render_approval(request: &AppApprovalRequest, cx: &mut Context<Chat>) -> AnyE
                 .gap_2()
                 .child(
                     kit::button(SharedString::from(format!("deny-{deny_id}")))
-                        .label("Отклонить")
+                        .faded_label("Отклонить")
                         .child(key_hint("Esc"))
                         .outline()
                         .small()

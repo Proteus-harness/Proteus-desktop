@@ -1,6 +1,7 @@
 //! Building blocks of settings pages: sections, cards, rows, chips, radio
 //! cards and select menus.
 
+use crate::ui::kit::ButtonLabel as _;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
@@ -31,8 +32,7 @@ pub(super) const SHORT_INPUT_WIDTH: f32 = 112.;
 const BELOW_MAX_WIDTH: f32 = 560.;
 /// Tooltips with descriptions wrap at this width.
 const ABOUT_WIDTH: f32 = 320.;
-/// Tooltip text is cut here: tool descriptions written for the model run to
-/// pages.
+/// Long descriptions get a fading preview, rather than a textual ellipsis.
 const ABOUT_CHARS: usize = 600;
 
 pub(super) fn hashed_id(name: &'static str, key: &impl Hash) -> ElementId {
@@ -192,8 +192,7 @@ pub(super) fn described(
 ) -> AnyElement {
     let about = about
         .map(|about| about.trim().to_string())
-        .filter(|about| !about.is_empty())
-        .map(|about| clip(&about));
+        .filter(|about| !about.is_empty());
     let label = div().min_w_0().child(faded(title.clone()));
     if about.is_none() && key.is_none() {
         return label.into_any_element();
@@ -214,11 +213,24 @@ pub(super) fn described(
         .tip_element(move |_, cx| {
             let mono = cx.theme().mono_font_family.clone();
             v_flex()
-                .max_w(px(ABOUT_WIDTH))
+                .max_w(prefs::scaled(ABOUT_WIDTH))
                 .gap_1()
                 .py_1()
                 .child(div().font_medium().child(title.clone()))
-                .children(about.clone())
+                .children(about.clone().map(|about| {
+                    let long = about.chars().count() > ABOUT_CHARS;
+                    div()
+                        .relative()
+                        .max_h(prefs::scaled(240.))
+                        .overflow_hidden()
+                        .child(about)
+                        .when(long, |description| {
+                            description.child(crate::ui::fade::bottom(
+                                cx.theme().popover,
+                                prefs::scaled(40.),
+                            ))
+                        })
+                }))
                 .children(key.clone().map(|key| {
                     div()
                         .text_xs()
@@ -228,14 +240,6 @@ pub(super) fn described(
                 }))
         })
         .into_any_element()
-}
-
-fn clip(text: &str) -> SharedString {
-    if text.chars().count() <= ABOUT_CHARS {
-        return text.to_string().into();
-    }
-    let cut: String = text.chars().take(ABOUT_CHARS).collect();
-    format!("{}…", cut.trim_end()).into()
 }
 
 /// `described` for identifiers: tool, module and skill names.
@@ -448,7 +452,7 @@ pub(super) fn select_menu<T: Clone + 'static>(
     let select = Rc::new(select);
     let options = Rc::new(options);
     kit::button(id)
-        .label(label)
+        .faded_label(label)
         .outline()
         .small()
         .dropdown_caret(true)

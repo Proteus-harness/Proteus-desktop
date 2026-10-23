@@ -2,6 +2,7 @@
 //! fields, the rarely needed ones folded, and the removal of the server.
 //! Its text editors live in `mcp_editors`.
 
+use crate::ui::kit::ButtonLabel as _;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::{Input, Textarea};
@@ -178,7 +179,7 @@ impl SettingsView {
                 .child(
                     kit::button(hashed_id("mcp-remove", &ix))
                         .icon(Lucide::Trash)
-                        .label("Удалить сервер")
+                        .faded_label("Удалить сервер")
                         .ghost()
                         .xsmall()
                         .hint("Убрать сервер из профиля при сохранении", cx)

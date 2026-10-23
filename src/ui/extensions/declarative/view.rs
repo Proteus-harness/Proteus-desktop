@@ -1,5 +1,6 @@
 //! A surface of an installed extension: panel, document or icon.
 
+use crate::ui::kit::ButtonLabel as _;
 use std::collections::HashMap;
 
 use gpui_kit::component::scroll::ScrollableElement as _;
@@ -183,7 +184,7 @@ impl DeclarativeView {
                 kit::button("declarative-restart")
                     .small()
                     .outline()
-                    .label("Перезапустить")
+                    .faded_label("Перезапустить")
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.runtime.update(cx, |runtime, cx| runtime.restart(cx));
                     })),
@@ -417,6 +418,7 @@ impl DeclarativeView {
                     .map(|lanes| lanes.read(cx).focus())
             })
             .or_else(|| self.fields.lists.get(id).map(|list| list.read(cx).focus()))
+            .or_else(|| self.fields.diffs.get(id).map(|diff| diff.read(cx).focus()))
             .or_else(|| {
                 self.fields
                     .codes

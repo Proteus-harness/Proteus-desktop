@@ -15,8 +15,6 @@ use crate::ui::fade::faded;
 use crate::ui::kit::Pressable as _;
 use crate::ui::motion::{self, chevron};
 
-const LABELS: usize = 3;
-
 impl Chat {
     pub(super) fn chain_open(&self, head: u64) -> bool {
         self.open_chains.contains(&head)
@@ -74,12 +72,7 @@ pub(super) fn render_chain_header(
             labels.push(label);
         }
     }
-    let more = labels.len() > LABELS;
-    labels.truncate(LABELS);
-    let mut summary = labels.join(", ");
-    if more {
-        summary.push_str(", …");
-    }
+    let summary = labels.join(", ");
     h_flex()
         .id(ElementId::NamedInteger("tool-chain".into(), head))
         .gap_2()

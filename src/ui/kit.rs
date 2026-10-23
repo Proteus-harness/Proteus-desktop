@@ -18,6 +18,22 @@ use super::tip::Tip as _;
 use crate::preferences::Hints;
 use crate::shortcuts::{self, Command};
 
+/// A button caption uses the same fading single-line label as tabs and
+/// lists. Keep its full accessible name; the component's built-in `label`
+/// would insert an ellipsis. Icons, sizes and keyboard behavior stay native.
+pub(crate) trait ButtonLabel {
+    fn faded_label(self, label: impl Into<SharedString>) -> Self;
+}
+
+impl ButtonLabel for Button {
+    fn faded_label(self, label: impl Into<SharedString>) -> Self {
+        use gpui_kit::{ParentElement as _, Styled as _, div};
+        let label = label.into();
+        self.accessibility_label(label.clone())
+            .child(div().min_w_0().child(super::fade::faded(label)))
+    }
+}
+
 thread_local! {
     static KEYBOARD: Cell<bool> = const { Cell::new(false) };
 }

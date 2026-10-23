@@ -1,5 +1,6 @@
 //! Dialog with the git repositories the catalog reads.
 
+use crate::ui::kit::ButtonLabel as _;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::Input;
@@ -109,7 +110,7 @@ fn sources(view: &Entity<SettingsView>, cx: &App) -> AnyElement {
                     )
                     .child(
                         kit::button(hashed_id("catalog-source-forget", source))
-                            .label("Убрать")
+                            .faded_label("Убрать")
                             .ghost()
                             .xsmall()
                             .on_click(move |_, _, cx| {
@@ -136,7 +137,7 @@ fn sources(view: &Entity<SettingsView>, cx: &App) -> AnyElement {
                 .child(div().flex_1().child(Input::new(&this.catalogs.branch).small()))
                 .child(
                     kit::button("catalog-add")
-                        .label("Добавить")
+                        .faded_label("Добавить")
                         .primary()
                         .small()
                         .on_click(move |_, window, cx| {
@@ -212,7 +213,7 @@ fn open_sources(view: &Entity<SettingsView>, cx: &App) -> Option<AnyElement> {
                 )
                 .child(
                     kit::button(hashed_id("catalog-open-add", &source))
-                        .label("Добавить")
+                        .faded_label("Добавить")
                         .ghost()
                         .xsmall()
                         .on_click(move |_, _, cx| {

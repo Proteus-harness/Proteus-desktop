@@ -1,6 +1,7 @@
 //! Page of one extension: what it adds, where its icon lives and where it
 //! comes from.
 
+use crate::ui::kit::ButtonLabel as _;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::*;
@@ -50,7 +51,7 @@ impl SettingsView {
                             .pb_3()
                             .child(
                                 kit::button("extension-back")
-                                    .label("К списку расширений")
+                                    .faded_label("К списку расширений")
                                     .outline()
                                     .small()
                                     .on_click(cx.listener(|this, _, window, cx| {
@@ -193,7 +194,7 @@ impl SettingsView {
                             .gap_2()
                             .child(
                                 kit::button("extension-page-remove-yes")
-                                    .label("Удалить")
+                                    .faded_label("Удалить")
                                     .danger()
                                     .small()
                                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -202,7 +203,7 @@ impl SettingsView {
                             )
                             .child(
                                 kit::button("extension-page-remove-no")
-                                    .label("Отмена")
+                                    .faded_label("Отмена")
                                     .ghost()
                                     .small()
                                     .on_click(cx.listener(|this, _, _, cx| {
@@ -213,7 +214,7 @@ impl SettingsView {
                     } else {
                         h_flex().child(
                             kit::button("extension-page-remove")
-                                .label("Удалить…")
+                                .faded_label("Удалить…")
                                 .outline()
                                 .small()
                                 .on_click(cx.listener(move |this, _, _, cx| {

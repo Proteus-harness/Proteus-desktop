@@ -1,5 +1,6 @@
 //! Catalog page: header, toolbar, the entry list and the details beside it.
 
+use crate::ui::kit::ButtonLabel as _;
 use std::ops::Range;
 
 use gpui_kit::assets::IconName as Lucide;
@@ -226,7 +227,7 @@ impl SettingsView {
                     .child(
                         kit::button("catalog-sources")
                             .icon(Icon::new(Lucide::GitBranch))
-                            .label(if sources == 0 {
+                            .faded_label(if sources == 0 {
                                 "Источники".to_string()
                             } else {
                                 format!("Источники · {sources}")
@@ -243,7 +244,7 @@ impl SettingsView {
     fn catalog_toolbar(&self, updates: usize, cx: &Context<Self>) -> impl IntoElement + use<> {
         let show = |id: &'static str, show: Show, label: String| {
             kit::button(id)
-                .label(label)
+                .faded_label(label)
                 .ghost()
                 .small()
                 .selected(self.catalogs.show == show)
@@ -254,7 +255,7 @@ impl SettingsView {
         };
         let kind = |id: ElementId, kind: Option<_>, label: &'static str| {
             kit::button(id)
-                .label(label)
+                .faded_label(label)
                 .when_some(kind, |button, kind| button.icon(kind_icon(kind)))
                 .ghost()
                 .xsmall()
@@ -320,7 +321,7 @@ impl SettingsView {
                     }))
                     .children(self.catalogs.scope.as_ref().map(|scope| {
                         kit::button("catalog-scope")
-                            .label(self.catalog_scope_title(scope))
+                            .faded_label(self.catalog_scope_title(scope))
                             .icon(Icon::new(IconName::Close))
                             .outline()
                             .xsmall()
@@ -465,7 +466,7 @@ impl SettingsView {
                 .is_some_and(|(source, id)| item.key() == (source, id.as_str()));
         let (source, entry) = (item.source.clone(), item.entry.clone());
         kit::button(hashed_id("catalog-install", &(place, item.key())))
-            .label(label)
+            .faded_label(label)
             .small()
             .map(|button| {
                 if item.status == Status::Update {
@@ -519,7 +520,7 @@ impl SettingsView {
                         .mt_2()
                         .child(
                             kit::button("catalog-add-open")
-                                .label("Добавить открытые каталоги")
+                                .faded_label("Добавить открытые каталоги")
                                 .primary()
                                 .small()
                                 .loading(!self.catalogs.loading.is_empty())
@@ -532,7 +533,7 @@ impl SettingsView {
                         )
                         .child(
                             kit::button("catalog-add-first")
-                                .label("Источники…")
+                                .faded_label("Источники…")
                                 .small()
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.open_catalog_sources(window, cx)

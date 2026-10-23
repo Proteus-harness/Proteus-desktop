@@ -1,6 +1,7 @@
 //! Generic interactive graph: local pan, zoom and node dragging.
 
 use crate::declarative::graph::{Edge, Node};
+use crate::ui::kit::ButtonLabel as _;
 use crate::ui::{fade::faded, kit, kit::Pressable as _, prefs};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -278,28 +279,28 @@ impl Render for Graph {
                     .child(
                         kit::button("graph-minus")
                             .small()
-                            .label("−")
+                            .faded_label("−")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.zoom_at(1. / 1.2, None);
                                 cx.notify();
                             })),
                     )
                     .child(div().text_xs().child(format!("{:.0}%", zoom * 100.)))
-                    .child(
-                        kit::button("graph-plus")
-                            .small()
-                            .label("+")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.zoom_at(1.2, None);
-                                cx.notify();
-                            })),
-                    )
-                    .child(kit::button("graph-fit").small().label("Вписать").on_click(
+                    .child(kit::button("graph-plus").small().faded_label("+").on_click(
                         cx.listener(|this, _, _, cx| {
-                            this.fit = true;
+                            this.zoom_at(1.2, None);
                             cx.notify();
                         }),
-                    )),
+                    ))
+                    .child(
+                        kit::button("graph-fit")
+                            .small()
+                            .faded_label("Вписать")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.fit = true;
+                                cx.notify();
+                            })),
+                    ),
             )
             .child(graph)
     }

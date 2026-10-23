@@ -37,12 +37,7 @@ pub fn clip(text: &str, max_chars: usize) -> String {
         .find(|line| !line.trim().is_empty())
         .unwrap_or("");
     let line = line.trim();
-    let multiline = text.trim().lines().nth(1).is_some();
-    match line.char_indices().nth(max_chars) {
-        Some((cut, _)) => format!("{}…", &line[..cut]),
-        None if multiline => format!("{line} …"),
-        None => line.to_owned(),
-    }
+    line.chars().take(max_chars).collect()
 }
 
 /// The first lines of `text`, at most `max_chars` of it, without a mark of
@@ -72,7 +67,7 @@ pub fn clip_block(text: &str, max_lines: usize, max_chars: usize) -> String {
             if lines == 0 {
                 let cut = line.floor_char_boundary(max_chars);
                 out.push_str(&line[..cut]);
-                out.push_str("…\n");
+                out.push('\n');
                 lines = 1;
             }
             let rest = text.lines().count() - lines;
@@ -80,7 +75,7 @@ pub fn clip_block(text: &str, max_lines: usize, max_chars: usize) -> String {
                 out.truncate(out.trim_end().len());
                 return out;
             }
-            out.push_str(&format!("… ещё строк: {rest}"));
+            out.push_str(&format!("Ещё строк: {rest}"));
             return out;
         }
         out.push_str(line);
@@ -128,10 +123,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn clip_marks_cut_and_hidden_lines() {
+    fn clip_keeps_utf8_without_an_artificial_ellipsis() {
         assert_eq!(clip("hello", 10), "hello");
-        assert_eq!(clip("héllo world", 5), "héllo…");
-        assert_eq!(clip("\nfirst\nsecond", 10), "first …");
+        assert_eq!(clip("héllo world", 5), "héllo");
+        assert_eq!(clip("\nfirst\nsecond", 10), "first");
     }
 
     #[test]
@@ -143,9 +138,9 @@ mod tests {
 
     #[test]
     fn clip_block_counts_hidden_lines() {
-        assert_eq!(clip_block("a\nb\nc", 2, 100), "a\nb\n… ещё строк: 1");
+        assert_eq!(clip_block("a\nb\nc", 2, 100), "a\nb\nЕщё строк: 1");
         assert_eq!(clip_block("a\nb\n", 5, 100), "a\nb");
-        assert_eq!(clip_block("abcdef", 5, 3), "abc…");
-        assert_eq!(clip_block("abcdef\nz", 5, 3), "abc…\n… ещё строк: 1");
+        assert_eq!(clip_block("abcdef", 5, 3), "abc");
+        assert_eq!(clip_block("abcdef\nz", 5, 3), "abc\nЕщё строк: 1");
     }
 }

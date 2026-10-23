@@ -1,6 +1,5 @@
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::base::SelectableText;
-use gpui_kit::component::clipboard::Clipboard;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -8,10 +7,9 @@ use proteus_contracts::app_protocol::AppTranscriptTool;
 use serde_json::Value;
 
 use super::Chat;
-use crate::tool_display::{self, DiffLine, PatchFile, PlanStep, StepStatus};
+use crate::tool_display::{self, PlanStep, StepStatus};
 use crate::ui::fade::faded;
 use crate::ui::format;
-use crate::ui::kit::Hint as _;
 use crate::ui::kit::Pressable as _;
 use crate::ui::motion::{Spinner, chevron, reveal};
 
@@ -88,13 +86,7 @@ pub(super) fn tool_line(tool: &AppTranscriptTool, cx: &App) -> Div {
 }
 
 fn diff_stats((added, removed): (usize, usize), cx: &App) -> Div {
-    let theme = cx.theme();
-    h_flex()
-        .flex_none()
-        .gap_1()
-        .text_xs()
-        .child(div().text_color(theme.success).child(format!("+{added}")))
-        .child(div().text_color(theme.danger).child(format!("−{removed}")))
+    crate::ui::diff::stat(added, removed, cx)
 }
 
 pub(super) fn render_tool(
@@ -102,6 +94,7 @@ pub(super) fn render_tool(
     tool: &AppTranscriptTool,
     expanded: bool,
     full: bool,
+    diff: Option<Entity<crate::ui::diff::DiffView>>,
     cx: &mut Context<Chat>,
 ) -> AnyElement {
     let muted = cx.theme().muted_foreground;
@@ -117,7 +110,11 @@ pub(super) fn render_tool(
         super::thread::reveal_key(cx.entity_id(), key),
         expanded,
         app,
-        || tool_details(&fold, tool, app).pt_1().into_any_element(),
+        || {
+            tool_details(&fold, tool, diff, app)
+                .pt_1()
+                .into_any_element()
+        },
     );
     v_flex()
         .child(
@@ -206,21 +203,15 @@ impl Fold {
 
 /// The end of a cut block melts into its background.
 fn bottom_fade(background: Hsla, radius: Pixels) -> Div {
-    div()
-        .absolute()
-        .left_0()
-        .right_0()
-        .bottom_0()
-        .h(px(56.))
-        .rounded_b(radius)
-        .bg(linear_gradient(
-            180.,
-            linear_color_stop(background.opacity(0.), 0.),
-            linear_color_stop(background, 0.9),
-        ))
+    crate::ui::fade::bottom(background, crate::ui::prefs::scaled(56.)).rounded_b(radius)
 }
 
-fn tool_details(fold: &Fold, tool: &AppTranscriptTool, cx: &App) -> Div {
+fn tool_details(
+    fold: &Fold,
+    tool: &AppTranscriptTool,
+    diff: Option<Entity<crate::ui::diff::DiffView>>,
+    cx: &App,
+) -> Div {
     let key = fold.key;
     let args = tool_args(tool);
     let details = v_flex().pl_5().gap_2();
@@ -233,16 +224,17 @@ fn tool_details(fold: &Fold, tool: &AppTranscriptTool, cx: &App) -> Div {
         .then(|| tool_display::plan_steps(args))
         .filter(|steps| !steps.is_empty());
     let details = match (patch, plan) {
-        (Some(files), _) => {
-            // A single file is already named, with its stats, in the headline.
-            let named = files.len() > 1;
-            details.children(
-                files
-                    .iter()
-                    .enumerate()
-                    .map(|(ix, file)| patch_file(fold, ix, file, named, cx)),
-            )
-        }
+        (Some(_), _) => details.children(diff.map(|diff| {
+            div()
+                .w_full()
+                .min_w_0()
+                .h(crate::ui::prefs::scaled(diff.read(cx).embedded_height()))
+                .rounded(cx.theme().radius)
+                .border_1()
+                .border_color(cx.theme().border)
+                .overflow_hidden()
+                .child(diff)
+        })),
         (None, Some(steps)) => details.child(plan_list(&steps, cx)),
         (None, None) => details.children(argument_details(fold, tool, cx)),
     };
@@ -313,89 +305,6 @@ fn argument_details(fold: &Fold, tool: &AppTranscriptTool, cx: &App) -> Vec<AnyE
                 .into_any_element()
         });
     full_subject.into_iter().chain(rows).collect()
-}
-
-fn patch_file(fold: &Fold, ix: usize, file: &PatchFile, named: bool, cx: &App) -> Div {
-    let theme = cx.theme();
-    let key = fold.key;
-    let body = SharedString::from(file.body.clone());
-    let header = h_flex()
-        .gap_2()
-        .min_w_0()
-        .text_xs()
-        .child(
-            div()
-                .flex_none()
-                .text_color(theme.muted_foreground)
-                .child(file.operation.label()),
-        )
-        .when(named, |header| {
-            header.child(
-                div()
-                    .min_w_0()
-                    .font_family(theme.mono_font_family.clone())
-                    .child(faded(file.path.clone())),
-            )
-        })
-        .when(named && file.additions + file.deletions > 0, |header| {
-            header.child(diff_stats((file.additions, file.deletions), cx))
-        })
-        .child(div().flex_1())
-        .when(!file.body.is_empty(), |header| {
-            header.child(
-                Clipboard::new(ElementId::NamedInteger(
-                    format!("copy-diff-{ix}").into(),
-                    key,
-                ))
-                .value(body.clone())
-                .hint("Копировать", cx)
-                .xsmall(),
-            )
-        });
-    v_flex()
-        .gap_1()
-        .child(header)
-        .when(!file.body.is_empty(), |file| {
-            file.child(fold.block(2 + ix, &body, |text| diff_block(&text, cx), cx))
-        })
-}
-
-/// Patch hunks with added and removed lines tinted.
-fn diff_block(body: &str, cx: &App) -> Div {
-    let theme = cx.theme();
-    let mut text = String::new();
-    let mut highlights = Vec::new();
-    for line in body.lines() {
-        let color = match DiffLine::of(line) {
-            DiffLine::Added => Some(theme.success),
-            DiffLine::Removed => Some(theme.danger),
-            DiffLine::Hunk => Some(theme.info),
-            DiffLine::Context => None,
-        };
-        if let Some(color) = color {
-            highlights.push((
-                text.len()..text.len() + line.len(),
-                HighlightStyle {
-                    color: Some(color),
-                    background_color: Some(color.opacity(0.08)),
-                    ..Default::default()
-                },
-            ));
-        }
-        text.push_str(line);
-        text.push('\n');
-    }
-    text.truncate(text.trim_end().len());
-    highlights.retain(|(range, _)| range.end <= text.len());
-    div()
-        .w_full()
-        .px_3()
-        .py_2()
-        .rounded(theme.radius)
-        .bg(theme.muted)
-        .font_family(theme.mono_font_family.clone())
-        .text_xs()
-        .child(StyledText::new(text).with_highlights(highlights))
 }
 
 pub(super) fn plan_list(steps: &[PlanStep], cx: &App) -> Div {

@@ -4,6 +4,7 @@
 //! shell shortcuts (Ctrl+N, Tab, Ctrl+C) reach the shell before the app's
 //! bindings. Layout, pane and settings shortcuts stay with the app.
 
+use crate::ui::kit::ButtonLabel as _;
 use std::cell::Cell;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -280,7 +281,7 @@ impl Render for TerminalView {
                     kit::button("terminal-restart")
                         .small()
                         .primary()
-                        .label("Перезапустить")
+                        .faded_label("Перезапустить")
                         .on_click(cx.listener(|this, _, window, cx| this.restart(window, cx))),
                 )
         };

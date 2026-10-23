@@ -12,6 +12,7 @@ use super::view::DeclarativeView;
 use crate::declarative::widget::{Direction, Gap, Node, TextSize, Tone};
 use crate::ui::fade::faded;
 use crate::ui::kit;
+use crate::ui::kit::ButtonLabel as _;
 use crate::ui::kit::Pressable as _;
 use crate::ui::prefs;
 
@@ -48,7 +49,7 @@ impl DeclarativeView {
                 let (options, action, this) = (options.clone(), action.clone(), cx.weak_entity());
                 kit::button(ElementId::Name(format!("select-{id}").into()))
                     .small()
-                    .label(label.clone())
+                    .faded_label(label.clone())
                     .outline()
                     .dropdown_caret(true)
                     .dropdown_menu_with_anchor(Anchor::TopRight, move |menu: PopupMenu, _, _| {
@@ -139,6 +140,7 @@ impl DeclarativeView {
                             | Node::Tree { .. }
                             | Node::Lanes { .. }
                             | Node::List { .. }
+                            | Node::Diff { .. }
                             | Node::Terminal { .. } => column.child(element),
                             // Ordinary content scrolls inside its own column.
                             _ => column.child(
@@ -188,6 +190,13 @@ impl DeclarativeView {
                         .appearance(false)
                         .h_full()
                 }))
+                .into_any_element(),
+            Node::Diff { id, height, .. } => div()
+                .when(height.is_none(), |node| node.flex_1())
+                .when_some(*height, |node, height| node.h(prefs::scaled(height)))
+                .min_h_0()
+                .min_w_0()
+                .children(self.fields.diffs.get(id).cloned())
                 .into_any_element(),
             Node::Terminal { id, .. } => div()
                 .flex_1()
@@ -290,6 +299,7 @@ impl DeclarativeView {
             }
             Node::Text {
                 text,
+                single_line,
                 tone,
                 size,
                 mono,
@@ -297,7 +307,13 @@ impl DeclarativeView {
                 let text = div()
                     .min_w_0()
                     .text_color(tone_color(*tone, cx))
-                    .child(text.clone());
+                    .map(|node| {
+                        if *single_line {
+                            node.child(faded(text.clone()))
+                        } else {
+                            node.child(text.clone())
+                        }
+                    });
                 let text = match size {
                     TextSize::Small => text.text_xs(),
                     TextSize::Normal => text.text_sm(),

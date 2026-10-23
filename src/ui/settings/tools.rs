@@ -1,5 +1,6 @@
 //! Tools page: which tools the profile allows.
 
+use crate::ui::kit::ButtonLabel as _;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::Input;
 use gpui_kit::component::*;
@@ -105,7 +106,7 @@ impl SettingsView {
         let owner = link.map(|(label, hint, key, page)| {
             let view = cx.weak_entity();
             kit::button(hashed_id("tool-owner", &tool.name))
-                .label(label)
+                .faded_label(label)
                 .ghost()
                 .xsmall()
                 .hint(&hint, cx)

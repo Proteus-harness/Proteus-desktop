@@ -2,6 +2,7 @@
 //! added and edited in place (`mcp_form`), package servers only switch on
 //! and off; tools and errors come from the discovery of the saved assembly.
 
+use crate::ui::kit::ButtonLabel as _;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
@@ -54,7 +55,7 @@ impl SettingsView {
         };
         let add = kit::button("mcp-add")
             .icon(Lucide::Plus)
-            .label("Добавить сервер")
+            .faded_label("Добавить сервер")
             .ghost()
             .xsmall()
             .hint("Новая запись [[tools.mcp_servers]] профиля", cx)

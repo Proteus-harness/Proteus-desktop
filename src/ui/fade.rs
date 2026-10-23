@@ -8,6 +8,23 @@ use gpui_kit::*;
 /// Width of the fade in font sizes.
 const FADE: f32 = 2.5;
 
+/// A cut multi-line preview fades into its actual background, using the
+/// same treatment in tool output and long settings descriptions. Its
+/// parent owns clipping and decides when the preview is incomplete.
+pub(in crate::ui) fn bottom(background: Hsla, height: Rems) -> Div {
+    div()
+        .absolute()
+        .left_0()
+        .right_0()
+        .bottom_0()
+        .h(height)
+        .bg(linear_gradient(
+            180.,
+            linear_color_stop(background.opacity(0.), 0.),
+            linear_color_stop(background, 0.9),
+        ))
+}
+
 /// A label clipped at its right edge, fading out there when it does not fit.
 /// The font, colour and decorations come from the surrounding text style.
 pub(in crate::ui) struct Faded {

@@ -1,9 +1,11 @@
+use crate::ui::kit::ButtonLabel as _;
 mod actions;
 mod badges;
 mod chat;
 mod chats;
 mod chrome;
 mod context;
+mod diff;
 mod drag;
 mod extensions;
 mod fade;
@@ -163,7 +165,7 @@ impl Render for Workspace {
                         h_flex().pt_2().child(
                             kit::button("workspace-restart")
                                 .icon(Lucide::RotateCcw)
-                                .label("Перезапустить")
+                                .faded_label("Перезапустить")
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     cx.emit(WorkspaceRequest::Open(this.workspace_path.clone()))
                                 })),

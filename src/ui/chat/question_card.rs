@@ -1,3 +1,4 @@
+use crate::ui::kit::ButtonLabel as _;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::Input;
@@ -115,7 +116,7 @@ impl Chat {
             )
             .child(
                 kit::button(SharedString::from(format!("question-skip-{rid}")))
-                    .label("Пропустить")
+                    .faded_label("Пропустить")
                     .outline()
                     .small()
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -124,7 +125,7 @@ impl Chat {
             )
             .child(
                 kit::button(SharedString::from(format!("question-go-{rid}")))
-                    .label(if last {
+                    .faded_label(if last {
                         "Отправить"
                     } else {
                         "Далее"

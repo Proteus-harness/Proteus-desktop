@@ -3,6 +3,7 @@
 //! compact: the extra small kit size, the nearest to the
 //! `ButtonSize::Compact` buttons of Zed's panel footers.
 
+use crate::ui::kit::ButtonLabel as _;
 use gpui_kit::component::button::{Button, ButtonVariants as _, DropdownButton};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu};
 use gpui_kit::component::*;
@@ -62,7 +63,9 @@ pub(super) fn menu(
     let button = kit::button(ElementId::Name(format!("decl-menu-{path}").into()));
     let button = sized(button, fit)
         .ghost()
-        .when(!label.is_empty(), |button| button.label(label.clone()))
+        .when(!label.is_empty(), |button| {
+            button.faded_label(label.clone())
+        })
         .when_some(hint.clone(), |button, hint| button.tooltip(hint))
         .when_some(icon, |button, icon| button.icon(super::icon(Some(icon))))
         .dropdown_menu_with_anchor(anchor, move |menu: PopupMenu, _, _| {
@@ -105,7 +108,9 @@ pub(super) fn button(
     let (confirm, prompt) = (confirm.clone(), prompt.clone());
     let button = kit::button(ElementId::Name(format!("decl-button-{path}").into()));
     let button = sized(button, fit)
-        .when(!label.is_empty(), |button| button.label(label.clone()))
+        .when(!label.is_empty(), |button| {
+            button.faded_label(label.clone())
+        })
         .when_some(icon.as_deref(), |button, icon| {
             button.icon(super::icon(Some(icon)))
         })

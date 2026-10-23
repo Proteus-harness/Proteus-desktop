@@ -47,21 +47,7 @@ pub(super) fn checkbox(id: impl Into<ElementId>, state: Check, cx: &App) -> Stat
 
 /// `+added −deleted` in the success and danger colors.
 pub(super) fn diff_stat(added: u64, deleted: u64, cx: &App) -> Div {
-    let theme = cx.theme();
-    h_flex()
-        .flex_none()
-        .gap_1()
-        .text_xs()
-        .child(
-            div()
-                .text_color(theme.success)
-                .child(format!("+\u{2009}{added}")),
-        )
-        .child(
-            div()
-                .text_color(theme.danger)
-                .child(format!("\u{2012}\u{2009}{deleted}")),
-        )
+    crate::ui::diff::stat(added as usize, deleted as usize, cx)
 }
 
 /// A muted number in a thin frame.

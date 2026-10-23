@@ -1,6 +1,7 @@
 //! Modules page: process components of the profile with their tool packs,
 //! hooks and slot implementations.
 
+use crate::ui::kit::ButtonLabel as _;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
@@ -298,7 +299,7 @@ impl SettingsView {
         }];
         let order = position.is_some().then(|| {
             kit::button(hashed_id("hook-order", &export.id))
-                .label("Порядок")
+                .faded_label("Порядок")
                 .ghost()
                 .xsmall()
                 .on_click(
@@ -336,7 +337,7 @@ impl SettingsView {
         let page = slot_page(&export.slot);
         trailing.push(
             kit::button(hashed_id("open-slot", &(&export.slot, &export.id)))
-                .label(format!("Открыть {}", page_title(Some(snapshot), &page)))
+                .faded_label(format!("Открыть {}", page_title(Some(snapshot), &page)))
                 .ghost()
                 .xsmall()
                 .on_click(cx.listener(move |this, _, window, cx| {

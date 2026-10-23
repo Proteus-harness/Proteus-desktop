@@ -1,6 +1,7 @@
 //! Addons snapshot of the profile (`/addons`): skill catalogs, MCP discovery
 //! and package diagnostics shown by the MCP, Skills and Packages pages.
 
+use crate::ui::kit::ButtonLabel as _;
 use gpui_kit::component::*;
 use gpui_kit::*;
 use proteus_contracts::app_protocol::addons::AppAddonsSnapshot;
@@ -93,7 +94,7 @@ impl SettingsView {
                 )
                 .child(
                     kit::button("addons-retry")
-                        .label("Повторить")
+                        .faded_label("Повторить")
                         .outline()
                         .xsmall()
                         .on_click(cx.listener(|this, _, _, cx| {

@@ -24,6 +24,7 @@ fn greedy(node: &Node) -> bool {
             | Node::List { .. }
             | Node::Empty { .. }
             | Node::Code { height: None, .. }
+            | Node::Diff { height: None, .. }
             | Node::Terminal { .. }
             | Node::Split { .. }
             | Node::Graph { .. }

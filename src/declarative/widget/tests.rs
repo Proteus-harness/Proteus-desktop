@@ -101,6 +101,23 @@ fn unknown_node_types_become_placeholders() {
 }
 
 #[test]
+fn diff_is_a_closed_native_widget_with_optional_file_metadata() {
+    let diff = json!({"type":"diff", "id":"d", "patch":"", "files":[
+        {"path":"image.png", "status":"added", "message":"Двоичный файл"}
+    ]});
+    assert!(matches!(
+        parse(diff.clone()).unwrap(),
+        Node::Diff { height: None, .. }
+    ));
+    let mut bad = diff.clone();
+    bad["files"][0]["colour"] = json!("red");
+    assert!(parse(bad).is_err());
+    let mut bad = diff;
+    bad["height"] = json!(0);
+    assert!(parse(bad).is_err());
+}
+
+#[test]
 fn reads_controls_icons_and_colors() {
     let node = parse(json!({"type": "stack", "children": [
         {"type": "checkbox", "label": "Amend", "checked": true, "action": "amend"},

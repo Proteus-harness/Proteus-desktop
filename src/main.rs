@@ -4,6 +4,7 @@ mod backend;
 mod catalog;
 mod connection;
 mod declarative;
+mod diff;
 mod graphics;
 mod launch;
 mod notify;

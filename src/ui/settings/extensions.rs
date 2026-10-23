@@ -2,6 +2,7 @@
 //! extension, install one from a ZIP archive or delete it, restore the
 //! standard list.
 
+use crate::ui::kit::ButtonLabel as _;
 use std::path::{Path, PathBuf};
 
 use gpui_kit::assets::IconName as Lucide;
@@ -250,7 +251,7 @@ impl SettingsView {
                             kit::button(ElementId::Name(
                                 format!("extension-remove-yes-{id}").into(),
                             ))
-                            .label("Удалить")
+                            .faded_label("Удалить")
                             .danger()
                             .small()
                             .on_click(
@@ -261,7 +262,7 @@ impl SettingsView {
                             kit::button(ElementId::Name(
                                 format!("extension-remove-no-{id}").into(),
                             ))
-                            .label("Отмена")
+                            .faded_label("Отмена")
                             .ghost()
                             .small()
                             .on_click(cx.listener(
@@ -365,7 +366,7 @@ impl SettingsView {
                         )
                         .child(
                             kit::button("extensions-zip-choose")
-                                .label("Выбрать ZIP…")
+                                .faded_label("Выбрать ZIP…")
                                 .outline()
                                 .small()
                                 .on_click(cx.listener(|this, _, _, cx| this.choose_archive(cx))),
@@ -428,7 +429,7 @@ impl SettingsView {
                 .child(note("Порядок, включение и места значков вернутся к поставляемым. Установленные расширения останутся.", cx).p_0().flex_1())
                 .child(
                     kit::button("extensions-restore")
-                        .label("Восстановить")
+                        .faded_label("Восстановить")
                         .outline()
                         .small()
                         .on_click(cx.listener(|this, _, _, cx| {

@@ -64,6 +64,7 @@ pub(super) struct Fields {
     pub trees: HashMap<String, Entity<Tree>>,
     pub lanes: HashMap<String, Entity<Lanes>>,
     pub lists: HashMap<String, Entity<List>>,
+    pub diffs: HashMap<String, Entity<crate::ui::diff::DiffView>>,
 }
 
 impl DeclarativeView {
@@ -94,6 +95,9 @@ impl DeclarativeView {
             Node::List { id, .. } => {
                 ids.insert((7, id.clone()));
             }
+            Node::Diff { id, .. } => {
+                ids.insert((8, id.clone()));
+            }
             _ => {}
         });
         self.fields
@@ -118,6 +122,9 @@ impl DeclarativeView {
         self.fields
             .lists
             .retain(|id, _| ids.contains(&(7, id.clone())));
+        self.fields
+            .diffs
+            .retain(|id, _| ids.contains(&(8, id.clone())));
     }
 
     pub(super) fn prepare_fields(
@@ -127,6 +134,17 @@ impl DeclarativeView {
         cx: &mut Context<Self>,
     ) {
         match node {
+            Node::Diff {
+                id, patch, files, ..
+            } => {
+                if let Some(diff) = self.fields.diffs.get(id) {
+                    diff.update(cx, |diff, cx| diff.set_patch(patch, files, cx));
+                } else {
+                    let diff = cx
+                        .new(|cx| crate::ui::diff::DiffView::new(patch.clone(), files.clone(), cx));
+                    self.fields.diffs.insert(id.clone(), diff);
+                }
+            }
             Node::Graph {
                 id,
                 nodes,

@@ -10,7 +10,7 @@ use serde_json::Value;
 
 #[cfg(test)]
 use patch::PatchOperation;
-pub use patch::{DiffLine, PatchFile, patch_files, patch_stats};
+pub use patch::{PatchFile, patch_files, patch_stats};
 
 pub const APPLY_PATCH: &str = "apply_patch";
 pub const UPDATE_PLAN: &str = "update_plan";

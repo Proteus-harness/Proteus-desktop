@@ -1,3 +1,4 @@
+use crate::ui::kit::ButtonLabel as _;
 use std::time::Instant;
 
 use gpui_kit::component::button::ButtonVariants as _;
@@ -272,7 +273,7 @@ impl Workspace {
                         .ghost()
                         .small()
                         .icon(IconName::Plus)
-                        .label("Новая сессия")
+                        .faded_label("Новая сессия")
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.new_session(Some(pane), window, cx)
                         })),

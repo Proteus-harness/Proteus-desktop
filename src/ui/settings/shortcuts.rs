@@ -1,5 +1,6 @@
 //! «Сочетания клавиш»: window command shortcuts, recorded from the keyboard.
 
+use crate::ui::kit::ButtonLabel as _;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
@@ -29,7 +30,7 @@ impl SettingsView {
                     .child(chip("Нажмите сочетание…", Tone::Accent, cx))
                     .child(
                         kit::button(hashed_id("shortcut-cancel", &command.id()))
-                            .label("Отмена")
+                            .faded_label("Отмена")
                             .ghost()
                             .xsmall()
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -71,7 +72,7 @@ impl SettingsView {
         });
         let reset_all = (!shortcuts.is_empty()).then(|| {
             kit::button("shortcuts-reset-all")
-                .label("Сбросить все")
+                .faded_label("Сбросить все")
                 .outline()
                 .xsmall()
                 .on_click(|_, _, cx| prefs::update(cx, |prefs| prefs.shortcuts.reset_all()))
