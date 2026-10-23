@@ -1,7 +1,6 @@
 //! The project line above the composer: which folder the chat works in,
-//! and a picker that starts a new chat in another one. A project with
-//! saved chats opens on the running server; a folder without any restarts
-//! the server there when the window started it.
+//! and a picker that starts a new chat in another one on the same server.
+//! A project with saved chats reuses its latest session's settings.
 
 use crate::ui::kit::ButtonLabel as _;
 use std::path::{Path, PathBuf};
@@ -251,7 +250,11 @@ impl ProjectPicker {
 
     fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(popover) = self.popover.take().and_then(|popover| popover.upgrade()) {
-            popover.update(cx, |popover, cx| popover.dismiss(window, cx));
+            // Dismiss calls on_open_change, which updates this picker.
+            // Release its current lease before entering that callback.
+            window.defer(cx, move |window, cx| {
+                popover.update(cx, |popover, cx| popover.dismiss(window, cx));
+            });
         }
     }
 
