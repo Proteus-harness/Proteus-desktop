@@ -4,16 +4,23 @@
 //! Shipped and user-installed packages share this renderer and [`Host`].
 
 mod badge;
+mod button;
 mod cells;
 mod fields;
 mod graph;
+mod lanes;
+mod lanes_paint;
+mod layout;
 mod menu;
 mod popup;
+mod prompt;
 mod render;
 mod runtime;
 mod steps;
 mod terminal;
+mod toggle;
 mod tree;
+mod tree_row;
 mod view;
 
 use std::collections::HashMap;

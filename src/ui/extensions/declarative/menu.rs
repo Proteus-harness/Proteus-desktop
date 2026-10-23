@@ -1,7 +1,7 @@
-//! Menus and confirmations of declarative controls.
+//! Menus, confirmations and prompts of declarative controls.
 
 use super::view::DeclarativeView;
-use crate::declarative::control::{Confirm, MenuItem};
+use crate::declarative::control::{Confirm, MenuItem, Prompt};
 use gpui_kit::component::button::ButtonVariant;
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::component::*;
@@ -9,19 +9,43 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use serde_json::Value;
 
-/// Sends `action`, asking first when `confirm` is set.
+/// What a control asks before it sends its action.
+#[derive(Clone, Copy)]
+pub(super) enum Ask<'a> {
+    Nothing,
+    Confirm(&'a Confirm),
+    Prompt(&'a Prompt),
+}
+
+impl<'a> Ask<'a> {
+    pub fn of(confirm: Option<&'a Confirm>, prompt: Option<&'a Prompt>) -> Self {
+        match (confirm, prompt) {
+            (Some(confirm), _) => Ask::Confirm(confirm),
+            (None, Some(prompt)) => Ask::Prompt(prompt),
+            (None, None) => Ask::Nothing,
+        }
+    }
+}
+
+/// Sends `action`, asking first as `ask` says.
 pub(super) fn send(
     view: &WeakEntity<DeclarativeView>,
     action: &str,
     value: Option<Value>,
-    confirm: Option<&Confirm>,
+    ask: Ask,
     window: &mut Window,
     cx: &mut App,
 ) {
     let (view, action) = (view.clone(), action.to_string());
-    let Some(confirm) = confirm.cloned() else {
-        view.update(cx, |view, cx| view.act(action, value, cx)).ok();
-        return;
+    let confirm = match ask {
+        Ask::Nothing => {
+            view.update(cx, |view, cx| view.act(action, value, cx)).ok();
+            return;
+        }
+        Ask::Prompt(prompt) => {
+            return super::prompt::open(view, action, value, prompt.clone(), window, cx);
+        }
+        Ask::Confirm(confirm) => confirm.clone(),
     };
     window.open_alert_dialog(cx, move |alert, _, _| {
         let (view, action, value) = (view.clone(), action.clone(), value.clone());
@@ -58,20 +82,28 @@ pub(super) fn fill(
         } else {
             menu
         };
-        let (view, entry) = (view.clone(), item.clone());
-        let mut row = PopupMenuItem::new(item.label.clone()).on_click(move |_, window, cx| {
-            send(
-                &view,
-                &entry.action,
-                entry.value.clone(),
-                entry.confirm.as_ref(),
-                window,
-                cx,
-            )
-        });
-        if let Some(icon) = item.icon.as_deref() {
-            row = row.icon(super::icon(Some(icon)));
+        if item.header {
+            return menu.item(PopupMenuItem::label(item.label.clone()));
         }
+        let (view, entry) = (view.clone(), item.clone());
+        let row = if item.danger && !item.disabled {
+            let label = item.label.clone();
+            PopupMenuItem::element(move |_, cx| {
+                div().text_color(cx.theme().danger).child(label.clone())
+            })
+        } else {
+            PopupMenuItem::new(item.label.clone())
+        };
+        let row = row
+            .disabled(item.disabled)
+            .when_some(item.checked, |row, checked| row.checked(checked))
+            .when_some(item.icon.as_deref(), |row, icon| {
+                row.icon(super::icon(Some(icon)))
+            })
+            .on_click(move |_, window, cx| {
+                let ask = Ask::of(entry.confirm.as_ref(), entry.prompt.as_ref());
+                send(&view, &entry.action, entry.value.clone(), ask, window, cx)
+            });
         menu.item(row)
     })
 }

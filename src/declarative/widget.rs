@@ -38,6 +38,21 @@ pub enum Node {
         id: String,
         rows: Vec<super::tree::Row>,
         action: String,
+        /// Pixels per depth level.
+        #[serde(default = "sixteen")]
+        indent: f32,
+        /// Without chevrons branches show only a folder icon.
+        #[serde(default = "yes")]
+        chevrons: bool,
+        /// Thin lines that join the rows of an open branch.
+        #[serde(default = "yes")]
+        guides: bool,
+    },
+    /// A virtualized list with a lane column, such as a commit history.
+    Lanes {
+        id: String,
+        rows: Vec<super::lanes::Row>,
+        action: String,
     },
     Fill {
         children: Vec<Node>,
@@ -54,7 +69,8 @@ pub enum Node {
         value: String,
         placeholder: String,
         action: String,
-        /// More than one line makes a growing multi-line field.
+        /// More than one line makes a multi-line field of that height that
+        /// scrolls inside.
         #[serde(default = "one")]
         lines: usize,
         /// Sent with the text on Enter, or Ctrl+Enter in a multi-line field.
@@ -154,6 +170,9 @@ pub enum Node {
     },
     Tabs {
         tabs: Vec<Tab>,
+        /// Sent with the index of the tab the user switches to.
+        #[serde(default)]
+        action: Option<String>,
     },
     List {
         items: Vec<Item>,
@@ -176,6 +195,14 @@ pub enum Node {
         hint: Option<String>,
         #[serde(default)]
         confirm: Option<super::control::Confirm>,
+        #[serde(default)]
+        prompt: Option<super::control::Prompt>,
+        /// Adds a chevron part that opens these entries: a split button.
+        #[serde(default)]
+        menu: Vec<super::control::MenuItem>,
+        /// Grayed out; the hint still shows.
+        #[serde(default)]
+        disabled: bool,
     },
     Badge {
         label: String,
@@ -183,6 +210,8 @@ pub enum Node {
         tone: Tone,
     },
     Divider {},
+    /// Empty room that pushes the following items of a row to its end.
+    Spacer {},
     /// A node type this client does not know, from a newer protocol; drawn
     /// as a notice instead of failing the whole view.
     #[serde(other)]
@@ -326,19 +355,21 @@ fn twenty() -> usize {
     20
 }
 
-fn known_icon(name: Option<&str>) -> Result<()> {
+fn sixteen() -> f32 {
+    16.
+}
+
+fn yes() -> bool {
+    true
+}
+
+pub(super) fn known_icon(name: Option<&str>) -> Result<()> {
     match name {
         Some(name) if super::icons::lucide(name).is_none() => {
             bail!("unknown icon {name:?}; use a Lucide icon file name such as \"git-branch\"")
         }
         _ => Ok(()),
     }
-}
-
-fn menu_icons(items: &[super::control::MenuItem]) -> Result<()> {
-    items
-        .iter()
-        .try_for_each(|item| known_icon(item.icon.as_deref()))
 }
 
 impl Node {
@@ -353,7 +384,7 @@ impl Node {
                     child.visit(each);
                 }
             }
-            Node::Tabs { tabs } => {
+            Node::Tabs { tabs, .. } => {
                 for tab in tabs {
                     for child in &tab.children {
                         child.visit(each);
@@ -424,7 +455,7 @@ impl Node {
                 }
                 children
             }
-            Node::Tabs { tabs } => {
+            Node::Tabs { tabs, .. } => {
                 for tab in tabs {
                     for child in &tab.children {
                         child.check(depth + 1, count)?;
@@ -464,8 +495,16 @@ impl Node {
                 }
                 &[]
             }
-            Node::Button { icon, .. } => {
+            Node::Button {
+                icon,
+                confirm,
+                prompt,
+                menu,
+                ..
+            } => {
                 known_icon(icon.as_deref())?;
+                super::control::check_ask(confirm.as_ref(), prompt.as_ref())?;
+                super::control::check_items(menu)?;
                 &[]
             }
             Node::Menu { icon, items, .. } => {
@@ -473,14 +512,21 @@ impl Node {
                 if items.is_empty() {
                     bail!("menu needs at least one item");
                 }
-                menu_icons(items)?;
+                super::control::check_items(items)?;
                 &[]
             }
-            Node::Tree { rows, .. } => {
+            Node::Tree { rows, indent, .. } => {
+                if !indent.is_finite() || !(0. ..=64.).contains(indent) {
+                    bail!("tree indent must be within 0..=64");
+                }
                 for row in rows {
                     known_icon(row.icon.as_deref())?;
-                    menu_icons(&row.menu)?;
+                    super::control::check_items(&row.menu)?;
                 }
+                &[]
+            }
+            Node::Lanes { rows, .. } => {
+                super::lanes::check(rows)?;
                 &[]
             }
             Node::Input { lines, .. } if !(1..=40).contains(lines) => {
@@ -505,150 +551,4 @@ impl Node {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn parse(value: Value) -> Result<Node> {
-        let node: Node = serde_json::from_value(value)?;
-        node.validate()?;
-        Ok(node)
-    }
-
-    #[test]
-    fn reads_a_nested_tree_with_defaults() {
-        let node = parse(json!({
-            "type": "stack",
-            "children": [
-                {"type": "metric", "label": "Задачи", "value": "3"},
-                {"type": "button", "label": "Обновить", "action": "refresh"},
-                {"type": "divider"}
-            ]
-        }))
-        .unwrap();
-        let Node::Stack {
-            direction,
-            gap,
-            children,
-        } = node
-        else {
-            panic!("stack expected");
-        };
-        assert_eq!(
-            (direction, gap, children.len()),
-            (Direction::Column, Gap::Small, 3)
-        );
-    }
-
-    #[test]
-    fn reads_a_split_with_fixed_and_flexible_columns() {
-        let node = parse(json!({"type": "split", "widths": [240, null], "children": [
-            {"type": "text", "text": "слева"},
-            {"type": "fill", "children": [{"type": "text", "text": "справа"}]}
-        ]}))
-        .unwrap();
-        let Node::Split { children, widths } = node else {
-            panic!("split expected");
-        };
-        assert_eq!((children.len(), widths), (2, vec![Some(240.), None]));
-        let one = json!({"type": "text", "text": "x"});
-        for widths in [json!([0]), json!([10, 10])] {
-            assert!(parse(json!({"type": "split", "widths": widths, "children": [one]})).is_err());
-        }
-    }
-
-    #[test]
-    fn reads_a_cells_grid() {
-        let node = parse(json!({"type": "cells", "segments": [
-            {"label": "история", "cells": 3, "color": "#5cc784", "value": "3k"},
-            {"label": "свободно", "cells": 17, "tone": "muted"}
-        ]}))
-        .unwrap();
-        let Node::Cells { columns, segments } = node else {
-            panic!("cells expected");
-        };
-        assert_eq!((columns, segments.len()), (20, 2));
-        assert_eq!(hex_color("#5cc784"), Some(0x5cc784));
-    }
-
-    #[test]
-    fn rejects_unknown_types_fields_and_bad_shapes() {
-        assert!(parse(json!({"type": "text", "text": "a", "color": "red"})).is_err());
-        assert!(parse(json!({"type": "table", "columns": ["a", "b"], "rows": [["1"]]})).is_err());
-        assert!(parse(json!({"type": "progress", "value": 1, "max": 0})).is_err());
-        assert!(
-            parse(json!({"type": "cells", "segments": [
-                {"label": "a", "cells": 1, "color": "red"}
-            ]}))
-            .is_err()
-        );
-        assert!(parse(json!({"type": "cells", "columns": 0, "segments": []})).is_err());
-        let mut deep = json!({"type": "divider"});
-        for _ in 0..40 {
-            deep = json!({"type": "stack", "children": [deep]});
-        }
-        assert!(parse(deep).is_err());
-        assert!(
-            parse(json!({"type": "button", "label": "", "action": "a", "icon": "refresh"}))
-                .is_err()
-        );
-        assert!(parse(json!({"type": "menu", "items": []})).is_err());
-        assert!(parse(json!({"type": "text", "text": "a", "tone": "#12345"})).is_err());
-        assert!(parse(json!({"type": "input", "id": "i", "value": "", "placeholder": "", "action": "a", "lines": 0})).is_err());
-    }
-
-    #[test]
-    fn unknown_node_types_become_placeholders() {
-        let node = parse(json!({"type": "stack", "children": [
-            {"type": "video", "src": "x.mp4", "loop": true}
-        ]}))
-        .unwrap();
-        let Node::Stack { children, .. } = node else {
-            panic!("stack expected")
-        };
-        assert_eq!(children, vec![Node::Unknown]);
-    }
-
-    #[test]
-    fn reads_controls_icons_and_colors() {
-        let node = parse(json!({"type": "stack", "children": [
-            {"type": "checkbox", "label": "Amend", "checked": true, "action": "amend"},
-            {"type": "menu", "icon": "git-branch", "items": [
-                {"label": "Discard", "action": "discard", "danger": true, "separated": true,
-                 "confirm": {"title": "Sure?", "danger": true}}
-            ]},
-            {"type": "input", "id": "m", "value": "", "placeholder": "", "action": "m", "lines": 4, "submit": "commit"},
-            {"type": "button", "label": "", "action": "r", "icon": "refresh-cw", "confirm": {"title": "Again?"}},
-            {"type": "text", "text": "x", "tone": "#E5C07B"},
-            {"type": "tree", "id": "t", "action": "t", "rows": [
-                {"id": "a", "label": "a.rs", "icon": "file-code", "icon_tone": "#00ff00", "checked": false,
-                 "strike": true, "menu": [{"label": "Copy", "action": "copy", "icon": "copy"}]}
-            ]}
-        ]}))
-        .unwrap();
-        let Node::Stack { children, .. } = node else {
-            panic!("stack expected")
-        };
-        assert!(matches!(
-            &children[4],
-            Node::Text {
-                tone: Tone::Color(0xe5c07b),
-                ..
-            }
-        ));
-        assert!(matches!(
-            &children[2],
-            Node::Input {
-                lines: 4,
-                submit: Some(_),
-                ..
-            }
-        ));
-        assert!(
-            parse(json!({"type": "tree", "id": "t", "action": "t", "rows": [
-                {"id": "a", "label": "a", "menu": [{"label": "x", "action": "x", "icon": "nope"}]}
-            ]}))
-            .is_err()
-        );
-    }
-}
+mod tests;

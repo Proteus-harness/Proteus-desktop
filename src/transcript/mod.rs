@@ -31,6 +31,10 @@ pub struct Entry {
     pub tool: Option<AppTranscriptTool>,
     pub subagent: Option<AppTranscriptSubagent>,
     pub streaming: bool,
+    /// When the row appeared, in Unix milliseconds: the server time of the
+    /// event that created it. Snapshots carry no times, so rows known only
+    /// from history have none.
+    pub time: Option<i64>,
 }
 
 /// What a fold step changed, for list virtualization.
@@ -63,9 +67,12 @@ impl Transcript {
     /// splice from the first differing row instead of a full reset.
     pub fn reset(&mut self, messages: Vec<AppTranscriptMessage>) -> Change {
         let old = std::mem::take(&mut self.entries);
-        let mut previous: HashMap<Identity, (u64, Arc<str>)> = old
+        let mut previous: HashMap<Identity, (u64, Arc<str>, Option<i64>)> = old
             .iter()
-            .filter_map(|entry| Some((identity_of(entry)?, (entry.key, entry.text.clone()))))
+            .filter_map(|entry| {
+                let row = (entry.key, entry.text.clone(), entry.time);
+                Some((identity_of(entry)?, row))
+            })
             .collect();
         let mut entries = Vec::with_capacity(messages.len());
         for (index, message) in messages.into_iter().enumerate() {
@@ -80,13 +87,16 @@ impl Transcript {
                             && before.role == entry.role
                             && before.text == entry.text
                     })
-                    .map(|before| (before.key, before.text.clone())),
+                    .map(|before| (before.key, before.text.clone(), before.time)),
             };
-            if let Some((key, text)) = reused {
+            if let Some((key, text, time)) = reused {
                 entry.key = key;
+                entry.time = time;
                 if text == entry.text {
                     entry.text = text;
                 }
+            } else {
+                entry.time = local_time_of(&old, &entry);
             }
             entries.push(entry);
         }
@@ -128,8 +138,19 @@ impl Transcript {
             tool: None,
             subagent: None,
             streaming: false,
+            time: None,
         });
         Change::Pushed
+    }
+
+    /// Records `at` (Unix milliseconds) as the time of the row `change`
+    /// pushed.
+    pub fn stamp(&mut self, change: Change, at: i64) {
+        if change == Change::Pushed
+            && let Some(entry) = self.entries.last_mut()
+        {
+            entry.time.get_or_insert(at);
+        }
     }
 
     pub fn apply_runtime(&mut self, thread_id: ThreadId, event: &Event) -> Change {
@@ -187,6 +208,7 @@ impl Transcript {
                     tool: Some(tool),
                     subagent: None,
                     streaming: false,
+                    time: None,
                 });
                 Change::Pushed
             }
@@ -225,6 +247,7 @@ impl Transcript {
                         tools: Vec::new(),
                     }),
                     streaming: false,
+                    time: None,
                 });
                 Change::Pushed
             }
@@ -294,6 +317,7 @@ impl Transcript {
             tool: None,
             subagent: None,
             streaming: !completed,
+            time: None,
         });
         Change::Pushed
     }
@@ -356,6 +380,7 @@ impl Transcript {
             tool: message.tool,
             subagent: message.subagent,
             streaming: message.streaming,
+            time: None,
         }
     }
 }
@@ -378,6 +403,20 @@ fn identity_of(entry: &Entry) -> Option<Identity> {
         .subagent
         .as_ref()
         .map(|subagent| Identity::Subagent(subagent.child_thread_id.clone()))
+}
+
+/// Time of a row pushed locally, before the server gave it an identity:
+/// the sent message comes back in the snapshot with its id.
+fn local_time_of(old: &[Entry], entry: &Entry) -> Option<i64> {
+    old.iter()
+        .rev()
+        .find(|before| {
+            before.message_id.is_none()
+                && before.role == entry.role
+                && before.text == entry.text
+                && before.time.is_some()
+        })
+        .and_then(|before| before.time)
 }
 
 fn splice_delta(current: &Arc<str>, offset: usize, delta: &str) -> Arc<str> {

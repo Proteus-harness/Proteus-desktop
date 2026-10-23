@@ -58,12 +58,20 @@ def manifest(desktop, core, modules, extensions):
     }
 
 
+LICENSE_FILES = ("LICENSE", "LICENSE-GPL", "LICENSE-APACHE")
+
+
 def install_notices(portable, desktop, core, modules, extensions):
     target = portable / "share/licenses"
     for name, root in (("Proteus-desktop", desktop), ("Proteus-core", core),
                        ("Proteus-modules", modules), ("Proteus-desktop-extensions", extensions)):
         (target / name).mkdir(parents=True, exist_ok=True)
-        shutil.copy2(root / "LICENSE", target / name / "LICENSE")
+        # Like Zed, desktop and extensions keep LICENSE-GPL and LICENSE-APACHE; crates pick one.
+        texts = [path for path in map(root.joinpath, LICENSE_FILES) if path.is_file()]
+        if not texts:
+            raise SystemExit(f"{root} has no license file")
+        for path in texts:
+            shutil.copy2(path, target / name / path.name)
     for relative in ("tool/codex-patch", "hook/codex-context-preparation/src/upstream"):
         for name in ("LICENSE", "NOTICE"):
             source = modules / relative / name
@@ -71,7 +79,11 @@ def install_notices(portable, desktop, core, modules, extensions):
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
     (target / "README.txt").write_text(
-        "Proteus source repositories are MIT licensed except where their local notices say otherwise.\n"
+        "Proteus-core and Proteus-modules are MIT licensed. Proteus-desktop and the\n"
+        "bundled extensions are GPL-3.0-or-later (they include code derived from Zed);\n"
+        "the extension SDK and client-common crates are Apache-2.0. Each crate declares\n"
+        "its license in Cargo.toml.\n"
+        "Local notices take precedence.\n"
         "The Codex-derived code includes Apache-2.0 LICENSE and NOTICE files below.\n"
         "The separate DCP worker is AGPL-3.0-or-later. Its corresponding tracked sources,\n"
         "build instructions, package lock, upstream sources and dependency licenses are\n"

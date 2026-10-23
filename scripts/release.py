@@ -112,6 +112,7 @@ def gates(section="all"):
             if name == "core":
                 sdk_gate(path)
     if section in ("all", "extensions"):
+        run([sys.executable, ROOT / "scripts/check_licenses.py", source["extensions"]])
         run(["cargo", "fmt", "--all", "--", "--check"], source["extensions"])
         run(["cargo", "test", "--locked", "--workspace"], source["extensions"])
         run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"], source["extensions"])

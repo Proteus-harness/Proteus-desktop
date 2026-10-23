@@ -8,7 +8,8 @@ use proteus_contracts::app_protocol::AppTranscriptSubagent;
 
 use super::Chat;
 use super::images::{SentImages, render_sent_images};
-use super::tool_chain::render_chain_header;
+use super::stamp::message_time;
+use super::tool_chain::{chain_reveal_key, render_chain_header};
 use super::tool_row::{render_tool, status_icon, tool_line};
 use crate::transcript::{Entry, Role};
 use crate::ui::fade::faded;
@@ -24,7 +25,11 @@ impl Chat {
             self.expanded.insert(key);
         }
         motion::toggled(reveal_key(cx.entity_id(), key), open, cx);
-        self.remeasure_row(key, cx);
+        if let Some(row) = self.row_of(key) {
+            self.scroller
+                .update(cx, |scroller, cx| scroller.toggled(row..row + 1, cx));
+        }
+        cx.notify();
     }
 
     /// Shows the long blocks of row `key` in full, or cut again.
@@ -37,18 +42,20 @@ impl Chat {
 
     /// Measures the row of entry `key` again on the next layout.
     pub(super) fn remeasure_row(&mut self, key: u64, cx: &mut Context<Self>) {
-        let row = self
-            .session
-            .transcript
-            .entries()
-            .iter()
-            .position(|entry| entry.key == key);
-        if let Some(row) = row {
+        if let Some(row) = self.row_of(key) {
             self.scroller.update(cx, |scroller, cx| {
                 scroller.remeasure_items(row..row + 1, cx)
             });
         }
         cx.notify();
+    }
+
+    fn row_of(&self, key: u64) -> Option<usize> {
+        self.session
+            .transcript
+            .entries()
+            .iter()
+            .position(|entry| entry.key == key)
     }
 
     pub(super) fn render_row(
@@ -63,12 +70,17 @@ impl Chat {
         };
         let compact = prefs::current(cx).view.compact_tools;
         let chain = self.chain_at(ix, compact);
-        let chain_open = chain
+        let chain_head = chain.as_ref().map(|chain| entries[chain.start].key);
+        let chain_open = chain_head.is_some_and(|head| self.chain_open(head));
+        let chain_reveal = chain_head.map(|head| chain_reveal_key(cx.entity_id(), head));
+        // Calls after the head are rows of their own; each opens and closes
+        // with the chain, so the run grows as one block.
+        let chain_tail = chain_reveal
+            .clone()
+            .filter(|_| chain.as_ref().is_some_and(|chain| ix != chain.start));
+        if chain_tail
             .as_ref()
-            .is_some_and(|chain| self.chain_open(entries[chain.start].key));
-        if chain
-            .as_ref()
-            .is_some_and(|chain| ix != chain.start && !chain_open)
+            .is_some_and(|key| !motion::showing(key, chain_open, cx))
         {
             return div().into_any_element();
         }
@@ -109,13 +121,15 @@ impl Chat {
                         .filter_map(|entry| entry.tool.as_ref())
                         .collect();
                     let header = render_chain_header(key, &tools, chain_open, cx);
-                    v_flex()
-                        .gap_1()
-                        .child(header)
-                        .when(chain_open, |column| {
-                            column.child(render_tool(entry.key, tool, expanded, full, cx))
+                    let reveal_key = chain_reveal.clone().unwrap_or_default();
+                    let first = motion::showing(&reveal_key, chain_open, cx)
+                        .then(|| render_tool(entry.key, tool, expanded, full, cx));
+                    let first = first.and_then(|tool| {
+                        reveal(reveal_key, chain_open, cx, || {
+                            div().pt_1().child(tool).into_any_element()
                         })
-                        .into_any_element()
+                    });
+                    v_flex().child(header).children(first).into_any_element()
                 }
                 _ => render_tool(entry.key, tool, expanded, full, cx),
             },
@@ -125,7 +139,7 @@ impl Chat {
         if !missing.is_empty() {
             self.fetch_images(missing, cx);
         }
-        h_flex()
+        let row = h_flex()
             .w_full()
             .justify_center()
             .px_6()
@@ -138,7 +152,16 @@ impl Chat {
                 row_id("enter", key),
                 fresh,
             ))
-            .into_any_element()
+            .into_any_element();
+        match chain_tail {
+            // The id keeps the reveals of the run's rows apart.
+            Some(reveal_key) => div()
+                .id(row_id("chain-row", key))
+                .w_full()
+                .children(reveal(reveal_key, chain_open, cx, || row))
+                .into_any_element(),
+            None => row,
+        }
     }
 }
 
@@ -193,15 +216,22 @@ fn render_user(entry: &Entry, images: &SentImages, cx: &App) -> AnyElement {
             )
         })
         .when(has_text, |row| {
-            row.child(row_actions().child(copy_button("copy-user", entry.key, text, cx)))
+            row.child(
+                row_actions()
+                    .children(message_time(entry.key, entry.time, cx))
+                    .child(copy_button("copy-user", entry.key, text, cx)),
+            )
         })
         .into_any_element()
 }
 
 fn render_assistant(entry: &Entry, reply: &Entity<TextViewState>, cx: &App) -> AnyElement {
     let text = SharedString::from(&entry.text);
-    let actions = (!entry.streaming && !entry.text.trim().is_empty())
-        .then(|| row_actions().child(copy_button("copy-assistant", entry.key, text.clone(), cx)));
+    let actions = (!entry.streaming && !entry.text.trim().is_empty()).then(|| {
+        row_actions()
+            .child(copy_button("copy-assistant", entry.key, text.clone(), cx))
+            .children(message_time(entry.key, entry.time, cx))
+    });
     let copy_hint = kit::hint_text("Копировать код", None, cx);
     v_flex()
         .group(ROW_GROUP)

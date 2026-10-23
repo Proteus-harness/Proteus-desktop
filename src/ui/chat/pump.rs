@@ -113,12 +113,17 @@ impl Chat {
                 } else {
                     shown = false;
                 }
-                session
+                let change = session
                     .transcript
-                    .apply_runtime(envelope.thread_id, &envelope.event)
+                    .apply_runtime(envelope.thread_id, &envelope.event);
+                session.transcript.stamp(change, envelope.timestamp_ms);
+                change
             }
             AppServerEvent::UserMessageSubmitted { text, images } => {
-                session.transcript.push_user(None, &text, images)
+                let change = session.transcript.push_user(None, &text, images);
+                let now = chrono::Utc::now().timestamp_millis();
+                session.transcript.stamp(change, now);
+                change
             }
             AppServerEvent::PendingRequestsUpdated { snapshot } => {
                 if session.pending_cursor.accept_stream(

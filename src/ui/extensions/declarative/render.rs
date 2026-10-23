@@ -10,12 +10,11 @@ use gpui_kit::*;
 use serde_json::Value;
 
 use super::view::DeclarativeView;
-use crate::declarative::widget::{Direction, Gap, Item, Node, TextSize, Tone, Variant};
+use crate::declarative::widget::{Direction, Gap, Item, Node, TextSize, Tone};
 use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::kit::Pressable as _;
 use crate::ui::prefs;
-use crate::ui::tip::Tip as _;
 
 pub(super) fn tone_color(tone: Tone, cx: &App) -> Hsla {
     let theme = cx.theme();
@@ -114,21 +113,11 @@ impl DeclarativeView {
                 .text_color(cx.theme().muted_foreground)
                 .child("Этот элемент требует более новой версии Proteus.")
                 .into_any_element(),
-            Node::Fill { children } => v_flex()
+            Node::Fill { children } => self
+                .fill(children, path, cx)
                 .flex_1()
                 .w_full()
                 .min_h_0()
-                .children(children.iter().enumerate().map(|(index, child)| {
-                    let element = self.node(child, &format!("{path}.{index}"), cx);
-                    // The fill root has no padding so trees and editors reach
-                    // the edges; controls above them keep the usual inset.
-                    match child {
-                        Node::Stack { .. } | Node::Text { .. } | Node::Select { .. } => {
-                            div().px_2().pt_2().child(element).into_any_element()
-                        }
-                        _ => element,
-                    }
-                }))
                 .into_any_element(),
             Node::Split { children, widths } => {
                 let border = cx.theme().border;
@@ -152,7 +141,10 @@ impl DeclarativeView {
                             None => column.flex_1(),
                         };
                         match child {
-                            Node::Fill { .. } => column.child(element),
+                            Node::Fill { .. }
+                            | Node::Tree { .. }
+                            | Node::Lanes { .. }
+                            | Node::Terminal { .. } => column.child(element),
                             // Ordinary content scrolls inside its own column.
                             _ => column.child(
                                 v_flex()
@@ -199,6 +191,11 @@ impl DeclarativeView {
                 .flex_1()
                 .min_h_0()
                 .children(self.fields.trees.get(id).cloned())
+                .into_any_element(),
+            Node::Lanes { id, .. } => div()
+                .flex_1()
+                .min_h_0()
+                .children(self.fields.lanes.get(id).cloned())
                 .into_any_element(),
             Node::Steps { id, .. } => div()
                 .w_full()
@@ -394,47 +391,9 @@ impl DeclarativeView {
                     }))
                     .into_any_element()
             }
-            Node::Tabs { tabs } => {
-                let selected = self
-                    .tabs
-                    .get(path)
-                    .copied()
-                    .unwrap_or(0)
-                    .min(tabs.len().saturating_sub(1));
-                let theme = cx.theme();
-                let (active, muted, border) =
-                    (theme.foreground, theme.muted_foreground, theme.border);
-                let strip = h_flex().gap_1().border_b_1().border_color(border).children(
-                    tabs.iter().enumerate().map(|(index, tab)| {
-                        let key = path.to_string();
-                        div()
-                            .id(ElementId::Name(format!("decl-tab-{path}-{index}").into()))
-                            .px_2()
-                            .py_1()
-                            .text_sm()
-                            .cursor_pointer()
-                            .pressable(cx)
-                            .text_color(if index == selected { active } else { muted })
-                            .when(index == selected, |tab| {
-                                tab.border_b_2().border_color(active)
-                            })
-                            .child(tab.label.clone())
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.tabs.insert(key.clone(), index);
-                                cx.notify();
-                            }))
-                    }),
-                );
-                let body = tabs
-                    .get(selected)
-                    .map(|tab| self.children(&tab.children, &format!("{path}.{selected}"), cx))
-                    .unwrap_or_default();
-                v_flex()
-                    .gap_2()
-                    .child(strip)
-                    .child(v_flex().gap_1p5().children(body))
-                    .into_any_element()
-            }
+            Node::Tabs { tabs, action } => self
+                .tabs(tabs, action.as_deref(), path, false, cx)
+                .into_any_element(),
             Node::List { items } => v_flex()
                 .children(
                     items
@@ -443,50 +402,7 @@ impl DeclarativeView {
                         .map(|(index, item)| self.item(item, &format!("{path}.{index}"), cx)),
                 )
                 .into_any_element(),
-            Node::Button {
-                label,
-                action,
-                value,
-                variant,
-                icon,
-                selected,
-                hint,
-                confirm,
-            } => {
-                let (view, action, value, confirm) = (
-                    cx.weak_entity(),
-                    action.clone(),
-                    value.clone(),
-                    confirm.clone(),
-                );
-                let button = kit::button(ElementId::Name(format!("decl-button-{path}").into()))
-                    .small()
-                    .when(!label.is_empty(), |button| button.label(label.clone()))
-                    .when_some(icon.as_deref(), |button, icon| {
-                        button.icon(super::icon(Some(icon)))
-                    })
-                    .selected(*selected)
-                    .on_click(move |_, window, cx| {
-                        super::menu::send(
-                            &view,
-                            &action,
-                            value.clone(),
-                            confirm.as_ref(),
-                            window,
-                            cx,
-                        )
-                    });
-                let button = match variant {
-                    Variant::Primary => button.primary(),
-                    Variant::Default => button.outline(),
-                    Variant::Ghost => button.ghost(),
-                    Variant::Danger => button.danger(),
-                };
-                match hint {
-                    Some(hint) => button.tip_text(hint.clone()).into_any_element(),
-                    None => button.into_any_element(),
-                }
-            }
+            Node::Button { .. } => super::button::button(node, path, cx),
             Node::Badge { label, tone } => {
                 let color = tone_color(*tone, cx);
                 div()
@@ -499,6 +415,7 @@ impl DeclarativeView {
                     .child(label.clone())
                     .into_any_element()
             }
+            Node::Spacer {} => div().flex_1().into_any_element(),
             Node::Divider {} => div()
                 .h(px(1.))
                 .w_full()
@@ -507,7 +424,12 @@ impl DeclarativeView {
         }
     }
 
-    fn children(&self, nodes: &[Node], path: &str, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    pub(super) fn children(
+        &self,
+        nodes: &[Node],
+        path: &str,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
         nodes
             .iter()
             .enumerate()
@@ -558,7 +480,13 @@ impl DeclarativeView {
 fn inline(node: &Node) -> bool {
     matches!(
         node,
-        Node::Button { .. } | Node::Text { .. } | Node::Badge { .. } | Node::Select { .. }
+        Node::Button { .. }
+            | Node::Text { .. }
+            | Node::Badge { .. }
+            | Node::Select { .. }
+            | Node::Menu { .. }
+            | Node::Checkbox { .. }
+            | Node::Spacer {}
     )
 }
 

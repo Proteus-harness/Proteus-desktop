@@ -1,6 +1,7 @@
 //! One-line labels that run out of room fade out at the end instead of
 //! breaking off with an ellipsis. The fade lowers the alpha of the last
-//! visible letters, so it suits any background, hovered or selected.
+//! visible letters, so it suits any background, hovered or selected. A label
+//! whose end matters more, such as a folder path, is cut at its start.
 
 use gpui_kit::*;
 
@@ -11,6 +12,8 @@ const FADE: f32 = 2.5;
 /// The font, colour and decorations come from the surrounding text style.
 pub(in crate::ui) struct Faded {
     text: SharedString,
+    /// Cut at the start and keep the end visible.
+    start: bool,
 }
 
 /// Line breaks become spaces: the label is a single line.
@@ -21,7 +24,15 @@ pub(in crate::ui) fn faded(text: impl Into<SharedString>) -> Faded {
     } else {
         text
     };
-    Faded { text }
+    Faded { text, start: false }
+}
+
+/// A label clipped at its left edge, fading in there when it does not fit.
+pub(in crate::ui) fn faded_start(text: impl Into<SharedString>) -> Faded {
+    Faded {
+        start: true,
+        ..faded(text)
+    }
 }
 
 struct Metrics {
@@ -55,7 +66,8 @@ impl IntoElement for Faded {
 
 impl Element for Faded {
     type RequestLayoutState = ();
-    type PrepaintState = Option<(ShapedLine, Pixels)>;
+    /// The shaped line, its height and how far it is shifted left.
+    type PrepaintState = Option<(ShapedLine, Pixels, Pixels)>;
 
     fn id(&self) -> Option<ElementId> {
         None
@@ -116,9 +128,27 @@ impl Element for Faded {
         let line = system.shape_line(text.clone(), font_size, &[style.to_run(text.len())], None);
         let room = bounds.size.width;
         if line.width() <= room {
-            return Some((line, line_height));
+            return Some((line, line_height, px(0.)));
         }
         let fade = (font_size * FADE).min(room);
+        if self.start {
+            let shift = line.width() - room;
+            let mut runs = Vec::new();
+            for (at, letter) in text.char_indices() {
+                let end = at + letter.len_utf8();
+                let middle = (line.x_for_index(at) + line.x_for_index(end)) / 2. - shift;
+                let mut run = style.to_run(letter.len_utf8());
+                if middle >= fade {
+                    run.len = text.len() - at;
+                    runs.push(run);
+                    break;
+                }
+                run.color = run.color.opacity((middle / fade).max(0.));
+                runs.push(run);
+            }
+            let line = system.shape_line(text.clone(), font_size, &runs, None);
+            return Some((line, line_height, shift));
+        }
         let start = line.index_for_x(room - fade).unwrap_or(0);
         let start = text.floor_char_boundary(start);
         let mut runs = Vec::new();
@@ -140,7 +170,7 @@ impl Element for Faded {
             runs.push(run);
         }
         let line = system.shape_line(text.clone(), font_size, &runs, None);
-        Some((line, line_height))
+        Some((line, line_height, px(0.)))
     }
 
     fn paint(
@@ -153,12 +183,12 @@ impl Element for Faded {
         window: &mut Window,
         cx: &mut App,
     ) {
-        let Some((line, line_height)) = prepaint.take() else {
+        let Some((line, line_height, shift)) = prepaint.take() else {
             return;
         };
         window.with_content_mask(Some(ContentMask { bounds }), |window| {
             let _ = line.paint(
-                bounds.origin,
+                bounds.origin - point(shift, px(0.)),
                 line_height,
                 TextAlign::Left,
                 None,

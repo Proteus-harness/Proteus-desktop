@@ -6,9 +6,14 @@
 //!
 //! Following stops when the user moves up (the offset drops while content
 //! remains below) and resumes once the view reaches the end again.
+//!
+//! While a row the user opened or closed animates its height, the list keeps
+//! its anchor: the row's top stays where it was and the rows below slide. A
+//! following list keeps its end pinned instead, until the row's top would
+//! leave the viewport.
 
 use std::ops::Range;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::scroll::{ScrollableElement as _, ScrollableMask};
@@ -26,6 +31,8 @@ const GLIDE_SECONDS: f32 = 0.08;
 /// Distances longer than this many viewports jump instead of gliding.
 const JUMP_VIEWPORTS: f32 = 2.;
 const SETTLED: Pixels = px(0.5);
+/// Frames past a disclosure's motion during which the list still holds.
+const HOLD_TAIL: Duration = Duration::from_millis(50);
 
 pub(super) struct ChatScroller {
     list: ListState,
@@ -39,6 +46,13 @@ pub(super) struct ChatScroller {
     dirty: bool,
     /// Size of the viewport on the last layout.
     size: Option<gpui_kit::Size<Pixels>>,
+    hold: Option<Hold>,
+}
+
+/// Rows whose height animates after the user toggled them.
+struct Hold {
+    rows: Range<usize>,
+    until: Instant,
 }
 
 impl ChatScroller {
@@ -59,6 +73,7 @@ impl ChatScroller {
             last_frame: None,
             dirty: false,
             size: None,
+            hold: None,
         }
     }
 
@@ -80,6 +95,9 @@ impl ChatScroller {
         // the top, and with rows above still unmeasured the glide would crawl
         // through the whole history.
         let whole = range.start == 0 && range.end == total;
+        if whole {
+            self.hold = None;
+        }
         self.list.splice(range, count);
         if whole && self.following {
             self.list.scroll_to_end();
@@ -104,6 +122,17 @@ impl ChatScroller {
         }
         self.list.remeasure_items(range);
         self.changed(cx);
+    }
+
+    /// Rows the user just opened or closed: they are measured on every frame
+    /// anyway while visible, and once more after their motion, so rows that
+    /// left the viewport mid-way do not keep a height from the middle.
+    pub(super) fn toggled(&mut self, rows: Range<usize>, cx: &mut Context<Self>) {
+        self.hold = Some(Hold {
+            rows: rows.clone(),
+            until: Instant::now() + motion::SLOW + HOLD_TAIL,
+        });
+        self.remeasure_items(rows, cx);
     }
 
     /// Bring the latest row into view; follows again when autoscroll is on.
@@ -169,6 +198,9 @@ impl ChatScroller {
             self.following = true;
         }
         let dirty = std::mem::take(&mut self.dirty);
+        if self.hold(now, gap) {
+            return true;
+        }
 
         let mut running = dirty;
         if self.following && gap > SETTLED {
@@ -194,6 +226,45 @@ impl ChatScroller {
             self.last_frame = None;
         }
         running
+    }
+}
+
+impl ChatScroller {
+    /// One frame of a held list; false once nothing is held.
+    fn hold(&mut self, now: Instant, gap: Pixels) -> bool {
+        let Some(hold) = &self.hold else {
+            return false;
+        };
+        if now >= hold.until {
+            let rows = hold.rows.clone();
+            self.hold = None;
+            if rows.end <= self.list.item_count() {
+                self.list.remeasure_items(rows);
+            }
+            self.dirty = true;
+            return false;
+        }
+        if self.following && gap > SETTLED {
+            let viewport = self.list.viewport_bounds();
+            // A row starting above the anchor has its top out of view already.
+            let room = self
+                .list
+                .bounds_for_item(hold.rows.start)
+                .map_or(px(0.), |row| row.top() - viewport.top());
+            if room < gap {
+                // The grown row would push its own top out: it stops at the
+                // top of the viewport, and the rest opens below.
+                self.list.scroll_by(room.max(px(0.)));
+                self.following = false;
+            } else {
+                // The whole growth of the last frame, without the glide's lag;
+                // measured offsets keep the row's top exact.
+                self.list.scroll_by(gap);
+            }
+        }
+        self.last_offset = Some(-self.list.scroll_px_offset_for_scrollbar().y);
+        self.last_frame = Some(now);
+        true
     }
 }
 

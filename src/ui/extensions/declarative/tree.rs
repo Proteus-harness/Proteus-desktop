@@ -1,46 +1,59 @@
 //! Virtualized hierarchical rows; domain actions belong to the process.
 
 use crate::declarative::tree::Row;
-use crate::declarative::widget::Tone;
-use crate::ui::context::RightClickMenu as _;
-use crate::ui::{fade::faded, kit::Pressable as _, prefs};
-use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::checkbox::Checkbox;
-use gpui_kit::component::*;
-use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::component::v_flex;
 use gpui_kit::*;
+use std::ops::Range;
 use std::rc::Rc;
+
+/// How rows are indented and joined.
+#[derive(Clone, Copy, PartialEq)]
+pub(super) struct Layout {
+    pub indent: f32,
+    pub chevrons: bool,
+    pub guides: bool,
+}
+
+/// Sends an event of the row with this id to the process.
+pub(super) type RowAction = Rc<dyn Fn(String, &'static str, &mut App)>;
 
 pub(super) struct Tree {
     pub rows: Vec<Row>,
-    cursor: usize,
+    pub layout: Layout,
+    pub(super) cursor: usize,
     focus: FocusHandle,
     scroll: UniformListScrollHandle,
-    view: WeakEntity<super::view::DeclarativeView>,
-    action: Rc<dyn Fn(String, &'static str, &mut App)>,
+    pub(super) view: WeakEntity<super::view::DeclarativeView>,
+    action: RowAction,
 }
 
 impl Tree {
     pub fn new(
         rows: Vec<Row>,
+        layout: Layout,
         view: WeakEntity<super::view::DeclarativeView>,
         cx: &mut Context<Self>,
         action: impl Fn(String, &'static str, &mut App) + 'static,
     ) -> Self {
-        Self {
+        let mut tree = Self {
             rows,
+            layout,
             cursor: 0,
-            focus: cx.focus_handle(),
+            focus: cx.focus_handle().tab_stop(true),
             scroll: UniformListScrollHandle::new(),
             view,
             action: Rc::new(action),
-        }
+        };
+        tree.cursor = tree.rows.iter().position(|row| row.selected).unwrap_or(0);
+        tree.cursor = tree.step(tree.cursor, 1);
+        tree
     }
 
-    pub fn set_rows(&mut self, rows: Vec<Row>, cx: &mut Context<Self>) {
-        if self.rows == rows {
+    pub fn set_rows(&mut self, rows: Vec<Row>, layout: Layout, cx: &mut Context<Self>) {
+        if self.rows == rows && self.layout == layout {
             return;
         }
+        self.layout = layout;
         let previous = self.rows.get(self.cursor).map(|row| row.id.as_str());
         let selected = rows.iter().position(|row| row.selected);
         let moved = selected.map(|index| rows[index].id.as_str())
@@ -57,6 +70,7 @@ impl Tree {
             .unwrap_or(self.cursor)
             .min(rows.len().saturating_sub(1));
         self.rows = rows;
+        self.cursor = self.step(self.cursor, 1);
         if moved {
             self.scroll
                 .scroll_to_item(self.cursor, ScrollStrategy::Nearest);
@@ -68,140 +82,128 @@ impl Tree {
         self.focus.clone()
     }
 
-    fn act(&self, event: &'static str, cx: &mut App) {
-        if let Some(row) = self.rows.get(self.cursor) {
+    pub(super) fn act_at(&self, index: usize, event: &'static str, cx: &mut App) {
+        if let Some(row) = self.rows.get(index) {
             (self.action)(row.id.clone(), event, cx);
         }
+    }
+
+    fn act(&self, event: &'static str, cx: &mut App) {
+        self.act_at(self.cursor, event, cx);
+    }
+
+    /// The nearest item from `index` in the direction of `toward` (±1),
+    /// passing headers by; the other way when none is there.
+    fn step(&self, index: usize, toward: isize) -> usize {
+        let item = |index: &usize| self.rows.get(*index).is_some_and(|row| !row.header());
+        let index = index.min(self.rows.len().saturating_sub(1));
+        let forward = (index..self.rows.len()).find(item);
+        let backward = (0..=index).rev().find(item);
+        let found = if toward >= 0 {
+            forward.or(backward)
+        } else {
+            backward.or(forward)
+        };
+        found.unwrap_or(self.cursor)
+    }
+
+    /// Rows under the open branch nearest to the cursor and that branch's
+    /// depth: its guide is drawn brighter.
+    pub(super) fn active_guide(&self) -> Option<(Range<usize>, usize)> {
+        let row = self.rows.get(self.cursor)?;
+        let opened = row.expanded == Some(true)
+            && self
+                .rows
+                .get(self.cursor + 1)
+                .is_some_and(|next| next.depth > row.depth);
+        let anchor = if opened {
+            self.cursor
+        } else {
+            self.rows[..self.cursor]
+                .iter()
+                .rposition(|parent| parent.depth < row.depth)?
+        };
+        let depth = self.rows[anchor].depth;
+        let end = self.rows[anchor + 1..]
+            .iter()
+            .position(|row| row.depth <= depth)
+            .map_or(self.rows.len(), |offset| anchor + 1 + offset);
+        Some((anchor + 1..end, depth))
+    }
+
+    fn key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
+        let last = self.rows.len().saturating_sub(1);
+        match event.keystroke.key.as_str() {
+            "up" => self.cursor = self.step(self.cursor.saturating_sub(1), -1),
+            "down" => self.cursor = self.step((self.cursor + 1).min(last), 1),
+            "home" => self.cursor = self.step(0, 1),
+            "end" => self.cursor = self.step(last, -1),
+            "pageup" => self.cursor = self.step(self.cursor.saturating_sub(12), -1),
+            "pagedown" => self.cursor = self.step((self.cursor + 12).min(last), 1),
+            "space" => {
+                self.act("select", cx);
+                cx.stop_propagation();
+                return;
+            }
+            "enter" => {
+                self.act("open", cx);
+                cx.stop_propagation();
+                return;
+            }
+            "left" => {
+                let Some(row) = self.rows.get(self.cursor) else {
+                    return;
+                };
+                if row.expanded == Some(true) {
+                    self.act("collapse", cx);
+                    cx.stop_propagation();
+                    return;
+                }
+                let depth = row.depth;
+                match self.rows[..self.cursor]
+                    .iter()
+                    .rposition(|row| row.depth < depth && !row.header())
+                {
+                    Some(parent) => self.cursor = parent,
+                    None => return,
+                }
+            }
+            "right" => {
+                let Some(row) = self.rows.get(self.cursor) else {
+                    return;
+                };
+                let child = self
+                    .rows
+                    .get(self.cursor + 1)
+                    .is_some_and(|next| next.depth > row.depth && !next.header());
+                if row.expanded != Some(true) || !child {
+                    self.act("expand", cx);
+                    cx.stop_propagation();
+                    return;
+                }
+                self.cursor += 1;
+            }
+            _ => return,
+        }
+        self.scroll
+            .scroll_to_item(self.cursor, ScrollStrategy::Nearest);
+        self.act("preview", cx);
+        cx.notify();
+        cx.stop_propagation();
     }
 }
 
 impl Render for Tree {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.cursor = self.cursor.min(self.rows.len().saturating_sub(1));
-        let hover = cx.theme().list_hover;
-        let selected = cx.theme().primary.opacity(0.12);
-        let border = cx.theme().primary.opacity(0.5);
         let focused = self.focus.contains_focused(window, cx);
+        let guide = self.active_guide();
         let list = uniform_list(
             "extension-tree",
             self.rows.len(),
-            cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
+            cx.processor(move |this, range: Range<usize>, _, cx| {
                 range
-                    .map(|index| {
-                        let row = &this.rows[index];
-                        let color = super::render::tone_color(row.tone, cx);
-                        let theme = cx.theme();
-                        let (muted, mono, guide) = (
-                            theme.muted_foreground,
-                            theme.mono_font_family.clone(),
-                            theme.border.opacity(0.6),
-                        );
-                        let icon_color = super::render::tone_color(
-                            row.icon_tone.unwrap_or(match row.expanded {
-                                Some(_) => Tone::Muted,
-                                None => row.tone,
-                            }),
-                            cx,
-                        );
-                        let icon = row
-                            .icon
-                            .as_deref()
-                            .and_then(crate::declarative::icons::lucide)
-                            .unwrap_or(match row.expanded {
-                                Some(true) => Lucide::FolderOpen,
-                                Some(false) => Lucide::Folder,
-                                None => Lucide::File,
-                            });
-                        let chevron = row.expanded.map(|open| {
-                            if open {
-                                IconName::ChevronDown
-                            } else {
-                                IconName::ChevronRight
-                            }
-                        });
-                        let checkbox = row.checked.map(|checked| {
-                            Checkbox::new(("tree-check", index))
-                                .checked(checked)
-                                .small()
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.cursor = index;
-                                    this.act("check", cx);
-                                    cx.stop_propagation();
-                                }))
-                        });
-                        let menu =
-                            (!row.menu.is_empty()).then(|| (row.menu.clone(), this.view.clone()));
-                        let indent = |depth: usize| prefs::scaled(4. + depth as f32 * 14.);
-                        let element = h_flex()
-                            .id(("tree-row", index))
-                            .relative()
-                            .w_full()
-                            .h(prefs::scaled(24.))
-                            .gap_1p5()
-                            .pr_2()
-                            .pl(indent(row.depth))
-                            .text_sm()
-                            .text_color(color)
-                            .cursor_pointer()
-                            .pressable(cx)
-                            .when(row.selected, |row| row.bg(selected))
-                            .when(index == this.cursor && focused, |row| {
-                                row.border_1().border_color(border)
-                            })
-                            .hover(move |row| row.bg(hover))
-                            .children((0..row.depth).map(|depth| {
-                                div()
-                                    .absolute()
-                                    .top_0()
-                                    .bottom_0()
-                                    .left(indent(depth) + prefs::scaled(6.))
-                                    .w(px(1.))
-                                    .bg(guide)
-                            }))
-                            .children(checkbox)
-                            .child(
-                                div()
-                                    .flex_none()
-                                    .w(prefs::scaled(12.))
-                                    .text_color(muted)
-                                    .children(chevron.map(|chevron| Icon::new(chevron).xsmall())),
-                            )
-                            .child(Icon::new(icon).small().text_color(icon_color))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .when(row.strike, |label| label.line_through())
-                                    .child(faded(row.label.clone())),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(muted)
-                                    .font_family(mono)
-                                    .child(row.detail.clone()),
-                            )
-                            .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
-                                this.cursor = index;
-                                // The first click already toggled a branch.
-                                let branch = this.rows[index].expanded.is_some();
-                                match event.click_count() {
-                                    1 => this.act("select", cx),
-                                    _ if branch => {}
-                                    _ => this.act("open", cx),
-                                }
-                                cx.notify();
-                            }));
-                        match menu {
-                            Some((items, view)) => element
-                                .right_click_menu(move |menu, _, _| {
-                                    super::menu::fill(menu, &items, &view)
-                                })
-                                .trigger_style(StyleRefinement::default().w_full())
-                                .into_any_element(),
-                            None => element.into_any_element(),
-                        }
-                    })
+                    .map(|index| this.row(index, focused, guide.clone(), cx))
                     .collect()
             }),
         )
@@ -216,66 +218,7 @@ impl Render for Tree {
                 MouseButton::Left,
                 cx.listener(|this, _, window, cx| this.focus.focus(window, cx)),
             )
-            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
-                let last = this.rows.len().saturating_sub(1);
-                match event.keystroke.key.as_str() {
-                    "up" => this.cursor = this.cursor.saturating_sub(1),
-                    "down" => this.cursor = (this.cursor + 1).min(last),
-                    "home" => this.cursor = 0,
-                    "end" => this.cursor = last,
-                    "pageup" => this.cursor = this.cursor.saturating_sub(12),
-                    "pagedown" => this.cursor = (this.cursor + 12).min(last),
-                    "space" => {
-                        this.act("select", cx);
-                        cx.stop_propagation();
-                        return;
-                    }
-                    "enter" => {
-                        this.act("open", cx);
-                        cx.stop_propagation();
-                        return;
-                    }
-                    "left" => {
-                        let Some(row) = this.rows.get(this.cursor) else {
-                            return;
-                        };
-                        if row.expanded == Some(true) {
-                            this.act("collapse", cx);
-                            cx.stop_propagation();
-                            return;
-                        }
-                        let depth = row.depth;
-                        match this.rows[..this.cursor]
-                            .iter()
-                            .rposition(|row| row.depth < depth)
-                        {
-                            Some(parent) => this.cursor = parent,
-                            None => return,
-                        }
-                    }
-                    "right" => {
-                        let Some(row) = this.rows.get(this.cursor) else {
-                            return;
-                        };
-                        let child = this
-                            .rows
-                            .get(this.cursor + 1)
-                            .is_some_and(|next| next.depth > row.depth);
-                        if row.expanded != Some(true) || !child {
-                            this.act("expand", cx);
-                            cx.stop_propagation();
-                            return;
-                        }
-                        this.cursor += 1;
-                    }
-                    _ => return,
-                }
-                this.scroll
-                    .scroll_to_item(this.cursor, ScrollStrategy::Nearest);
-                this.act("preview", cx);
-                cx.notify();
-                cx.stop_propagation();
-            }))
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| this.key(event, cx)))
             .child(list)
     }
 }

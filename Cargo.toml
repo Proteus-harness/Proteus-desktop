@@ -8,7 +8,7 @@ version = "0.1.0-alpha.3"
 edition = "2024"
 publish = false
 description = "Experimental native GPUI client for the Proteus app server"
-license = "MIT"
+license = "GPL-3.0-or-later"
 
 [dependencies]
 gpui-kit = { version = "0.7.1", features = [

@@ -3,6 +3,7 @@ name = "proteus-client-common"
 version = "0.1.0-alpha.2"
 edition = "2024"
 publish = false
+license = "Apache-2.0"
 description = "Shared connection, response and session rules for the Proteus client"
 
 [dependencies]

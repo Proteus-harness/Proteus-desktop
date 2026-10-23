@@ -16,8 +16,9 @@ const MIN_HEIGHT: f32 = 160.;
 /// The line between panes, and the strip around it that can be dragged.
 pub(super) const DIVIDER: f32 = 1.;
 const GRIP: f32 = 7.;
-/// The line over a hovered or dragged divider.
-const MARK: f32 = 3.;
+/// The line over a hovered or dragged divider: the hairline itself, only
+/// coloured.
+const MARK: f32 = 1.;
 
 /// Payload of a divider while it is dragged: the split and the child the
 /// divider follows.

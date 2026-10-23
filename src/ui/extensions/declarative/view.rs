@@ -214,6 +214,13 @@ impl Render for DeclarativeView {
                 .map(|tree| tree.read(cx).focus())
                 .or_else(|| {
                     fields
+                        .lanes
+                        .values()
+                        .next()
+                        .map(|lanes| lanes.read(cx).focus())
+                })
+                .or_else(|| {
+                    fields
                         .terminals
                         .values()
                         .next()
@@ -374,7 +381,7 @@ impl DeclarativeView {
                     self.prepare_steps(child, cx);
                 }
             }
-            Node::Tabs { tabs } => {
+            Node::Tabs { tabs, .. } => {
                 for tab in tabs {
                     for child in &tab.children {
                         self.prepare_steps(child, cx);
@@ -394,6 +401,12 @@ impl DeclarativeView {
             .get(id)
             .map(|input| input.state.focus_handle(cx))
             .or_else(|| self.fields.trees.get(id).map(|tree| tree.read(cx).focus()))
+            .or_else(|| {
+                self.fields
+                    .lanes
+                    .get(id)
+                    .map(|lanes| lanes.read(cx).focus())
+            })
             .or_else(|| {
                 self.fields
                     .codes

@@ -68,6 +68,7 @@ mod tests {
             tool,
             subagent: None,
             streaming: false,
+            time: None,
         }
     }
 

@@ -13,7 +13,7 @@ use crate::tool_display;
 use crate::transcript::{affected_rows, tool_chain};
 use crate::ui::fade::faded;
 use crate::ui::kit::Pressable as _;
-use crate::ui::motion::chevron;
+use crate::ui::motion::{self, chevron};
 
 const LABELS: usize = 3;
 
@@ -23,14 +23,16 @@ impl Chat {
     }
 
     fn toggle_chain(&mut self, head: u64, cx: &mut Context<Self>) {
-        if !self.open_chains.remove(&head) {
+        let open = !self.open_chains.remove(&head);
+        if open {
             self.open_chains.insert(head);
         }
+        motion::toggled(chain_reveal_key(cx.entity_id(), head), open, cx);
         let entries = self.session.transcript.entries();
         if let Some(row) = entries.iter().position(|entry| entry.key == head) {
             let rows = affected_rows(entries, row);
             self.scroller
-                .update(cx, |scroller, cx| scroller.remeasure_items(rows, cx));
+                .update(cx, |scroller, cx| scroller.toggled(rows, cx));
         }
         cx.notify();
     }
@@ -50,6 +52,11 @@ impl Chat {
                 .update(cx, |scroller, cx| scroller.remeasure_items(rows, cx));
         }
     }
+}
+
+/// Motion key of the run starting at row `head`; row keys repeat across chats.
+pub(super) fn chain_reveal_key(chat: EntityId, head: u64) -> SharedString {
+    format!("tool-chain-{chat}-{head}").into()
 }
 
 pub(super) fn render_chain_header(

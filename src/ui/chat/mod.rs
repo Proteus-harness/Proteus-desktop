@@ -16,6 +16,7 @@ mod replies;
 mod requests;
 mod scroller;
 mod session;
+mod stamp;
 mod thread;
 mod tool_chain;
 pub(super) mod tool_row;

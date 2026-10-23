@@ -83,19 +83,35 @@ pub(in crate::ui) fn reveal(
     content: impl FnOnce() -> AnyElement,
 ) -> Option<AnyElement> {
     let key = key.into();
-    let now = Instant::now();
-    let progress = cx
-        .try_global::<Toggles>()
-        .and_then(|toggles| toggles.0.get(&key).copied())
-        .filter(|toggle| toggle.open == open && toggle.tween.running(now))
-        .map(|toggle| toggle.progress(now));
+    let progress = progress(&key, open, cx);
     if !open && progress.is_none() {
         return None;
     }
     // Moving, the reveal lays its child out on its own; without a full width
     // the child would shrink to its content and widen only once it rests.
-    let child = div().w_full().child(content()).into_any_element();
+    // The content fades along with its height, so a tall block does not
+    // show up at full contrast behind the moving edge.
+    let mut child = div().w_full();
+    if let Some(progress) = progress {
+        child = child.opacity(progress);
+    }
+    let child = child.child(content()).into_any_element();
     Some(Reveal::new(ElementId::Name(key), progress, child).into_any_element())
+}
+
+/// Whether `reveal` would show anything: the disclosure is open or still
+/// closing. Lets a caller skip building content that stays hidden.
+pub(in crate::ui) fn showing(key: &str, open: bool, cx: &App) -> bool {
+    open || progress(key, open, cx).is_some()
+}
+
+/// Eased share of the content shown while `toggled` animates `key`.
+fn progress(key: &str, open: bool, cx: &App) -> Option<f32> {
+    let now = Instant::now();
+    cx.try_global::<Toggles>()
+        .and_then(|toggles| toggles.0.get(key).copied())
+        .filter(|toggle| toggle.open == open && toggle.tween.running(now))
+        .map(|toggle| toggle.progress(now))
 }
 
 /// Keeps a view redrawing while any disclosure animates; call from `render`.

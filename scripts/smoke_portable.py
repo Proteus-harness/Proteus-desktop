@@ -74,7 +74,7 @@ def probe(archive, extensions):
         assert source_manifest["version"] in command([portable / "proteus-native", "--version"])
         checks.append("relocated_cli_desktop_launcher_versions")
         for name in ("Proteus-core", "Proteus-modules", "Proteus-desktop", "Proteus-desktop-extensions"):
-            assert (portable / "share/licenses" / name / "LICENSE").is_file()
+            assert list((portable / "share/licenses" / name).glob("LICENSE*")), name
         for relative in ("tool/codex-patch", "hook/codex-context-preparation/src/upstream"):
             for notice in ("LICENSE", "NOTICE"):
                 assert (portable / "share/licenses/Proteus-modules" / relative / notice).is_file()

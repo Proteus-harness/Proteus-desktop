@@ -1,6 +1,8 @@
 //! Persistent native control state for process-owned widget trees.
 
-use super::{terminal::TerminalView, tree::Tree, view::DeclarativeView};
+use super::lanes::Lanes;
+use super::tree::{Layout, Tree};
+use super::{terminal::TerminalView, view::DeclarativeView};
 use crate::declarative::widget::Node;
 use gpui_kit::component::input::{EditorState, InputEvent, InputState, TextareaState};
 use gpui_kit::*;
@@ -26,6 +28,17 @@ impl Text {
         }
     }
 
+    fn set_placeholder(&self, placeholder: String, window: &mut Window, cx: &mut App) {
+        match self {
+            Text::Line(state) => state.update(cx, |input, cx| {
+                input.set_placeholder(placeholder, window, cx)
+            }),
+            Text::Area(state) => state.update(cx, |input, cx| {
+                input.set_placeholder(placeholder, window, cx)
+            }),
+        }
+    }
+
     fn set_value(&self, value: String, window: &mut Window, cx: &mut App) {
         match self {
             Text::Line(state) => state.update(cx, |input, cx| input.set_value(value, window, cx)),
@@ -37,6 +50,7 @@ impl Text {
 pub(super) struct TextInput {
     pub state: Text,
     value: String,
+    placeholder: String,
     _subscription: Subscription,
 }
 
@@ -47,6 +61,7 @@ pub(super) struct Fields {
     pub terminals: HashMap<String, Entity<TerminalView>>,
     pub graphs: HashMap<String, Entity<super::graph::Graph>>,
     pub trees: HashMap<String, Entity<Tree>>,
+    pub lanes: HashMap<String, Entity<Lanes>>,
 }
 
 impl DeclarativeView {
@@ -71,6 +86,9 @@ impl DeclarativeView {
             Node::Steps { id, .. } => {
                 ids.insert((5, id.clone()));
             }
+            Node::Lanes { id, .. } => {
+                ids.insert((6, id.clone()));
+            }
             _ => {}
         });
         self.fields
@@ -89,6 +107,9 @@ impl DeclarativeView {
             .graphs
             .retain(|id, _| ids.contains(&(4, id.clone())));
         self.steps.retain(|id, _| ids.contains(&(5, id.clone())));
+        self.fields
+            .lanes
+            .retain(|id, _| ids.contains(&(6, id.clone())));
     }
 
     pub(super) fn prepare_fields(
@@ -129,6 +150,10 @@ impl DeclarativeView {
                 submit,
             } => {
                 if let Some(input) = self.fields.inputs.get_mut(id) {
+                    if input.placeholder != *placeholder {
+                        input.placeholder = placeholder.clone();
+                        input.state.set_placeholder(placeholder.clone(), window, cx);
+                    }
                     if input.value != *value {
                         input.value = value.clone();
                         if input.state.value(cx).as_ref() != value {
@@ -172,7 +197,7 @@ impl DeclarativeView {
                     let (state, subscription) = if multi {
                         let state = cx.new(|cx| {
                             let mut input = TextareaState::new(window, cx)
-                                .auto_grow(2, *lines)
+                                .auto_grow(*lines, *lines)
                                 .placeholder(placeholder.clone());
                             input.set_value(value.clone(), window, cx);
                             input
@@ -200,6 +225,7 @@ impl DeclarativeView {
                         TextInput {
                             state,
                             value: value.clone(),
+                            placeholder: placeholder.clone(),
                             _subscription: subscription,
                         },
                     );
@@ -242,23 +268,36 @@ impl DeclarativeView {
                     self.fields.terminals.insert(id.clone(), terminal);
                 }
             }
-            Node::Tree { id, rows, action } => {
+            Node::Tree {
+                id,
+                rows,
+                action,
+                indent,
+                chevrons,
+                guides,
+            } => {
+                let layout = Layout {
+                    indent: *indent,
+                    chevrons: *chevrons,
+                    guides: *guides,
+                };
                 if let Some(tree) = self.fields.trees.get(id) {
-                    tree.update(cx, |tree, cx| tree.set_rows(rows.clone(), cx));
+                    tree.update(cx, |tree, cx| tree.set_rows(rows.clone(), layout, cx));
                 } else {
-                    let (this, action) = (cx.weak_entity(), action.clone());
-                    let tree = cx.new(|cx| {
-                        Tree::new(rows.clone(), this.clone(), cx, move |id, event, cx| {
-                            let _ = this.update(cx, |this, cx| {
-                                this.act(
-                                    action.clone(),
-                                    Some(serde_json::json!({"id":id,"event":event})),
-                                    cx,
-                                )
-                            });
-                        })
-                    });
+                    let send = self.row_sender(action, cx);
+                    let view = cx.weak_entity();
+                    let tree = cx.new(|cx| Tree::new(rows.clone(), layout, view, cx, send));
                     self.fields.trees.insert(id.clone(), tree);
+                }
+            }
+            Node::Lanes { id, rows, action } => {
+                if let Some(lanes) = self.fields.lanes.get(id) {
+                    lanes.update(cx, |lanes, cx| lanes.set_rows(rows.clone(), cx));
+                } else {
+                    let send = self.row_sender(action, cx);
+                    let view = cx.weak_entity();
+                    let lanes = cx.new(|cx| Lanes::new(rows.clone(), view, cx, send));
+                    self.fields.lanes.insert(id.clone(), lanes);
                 }
             }
             Node::Stack { children, .. }
@@ -269,7 +308,7 @@ impl DeclarativeView {
                     self.prepare_fields(child, window, cx);
                 }
             }
-            Node::Tabs { tabs } => {
+            Node::Tabs { tabs, .. } => {
                 for tab in tabs {
                     for child in &tab.children {
                         self.prepare_fields(child, window, cx);
@@ -277,6 +316,26 @@ impl DeclarativeView {
                 }
             }
             _ => {}
+        }
+    }
+}
+
+impl DeclarativeView {
+    /// Sends `{id, event}` of a tree or lanes row with `action`.
+    fn row_sender(
+        &self,
+        action: &str,
+        cx: &mut Context<Self>,
+    ) -> impl Fn(String, &'static str, &mut App) + 'static {
+        let (this, action) = (cx.weak_entity(), action.to_string());
+        move |id, event, cx| {
+            let _ = this.update(cx, |this, cx| {
+                this.act(
+                    action.clone(),
+                    Some(serde_json::json!({"id": id, "event": event})),
+                    cx,
+                )
+            });
         }
     }
 }
