@@ -16,7 +16,7 @@ use super::editors::TextInput;
 use super::mcp::mcp_advanced_key;
 use super::widgets::{
     Fit, MenuOption, SHORT_INPUT_WIDTH, changed_dot, described, disclosure, field_row, hashed_id,
-    select_menu,
+    nested, select_menu,
 };
 use crate::settings::mcp::{
     McpProblem, McpText, SAFETY_TITLES, mcp_problems, mcp_text, safety_title,
@@ -136,7 +136,6 @@ impl SettingsView {
         server: &ConfiguredMcpServerConfig,
         cx: &Context<Self>,
     ) -> AnyElement {
-        let theme = cx.theme();
         let saved = self.draft.mcp_baseline(&self.baseline, ix);
         let problems = mcp_problems(&self.draft, self.addons());
         let text_row = |field: McpText| self.mcp_text_row(ix, field, server, saved, &problems, cx);
@@ -189,13 +188,7 @@ impl SettingsView {
                 )
                 .into_any_element(),
         );
-        div()
-            .ml(prefs::scaled(24.))
-            .mb_2()
-            .border_l_2()
-            .border_color(theme.border)
-            .child(stacked(rows, cx))
-            .into_any_element()
+        nested(stacked(rows, cx)).into_any_element()
     }
 
     fn mcp_text_row(

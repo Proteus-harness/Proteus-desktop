@@ -102,6 +102,11 @@ pub(super) fn card(rows: impl IntoIterator<Item = AnyElement>, cx: &App) -> Div 
         }))
 }
 
+/// Nested forms use indentation, without a separate rule under the chevron.
+pub(super) fn nested(body: impl IntoElement) -> Div {
+    div().ml(prefs::scaled(24.)).mb_2().child(body)
+}
+
 /// Muted explanatory text inside a card or under a heading.
 pub(super) fn note(text: impl Into<SharedString>, cx: &App) -> Div {
     div()

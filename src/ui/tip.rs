@@ -11,8 +11,8 @@ use gpui_kit::base::{ElementExt as _, TooltipOverlay, TooltipRequest, TooltipTra
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::{
     AnyElement, AnyView, App, AppContext as _, Bounds, ElementId, Entity, Global,
-    InteractiveElement, IntoElement, ParentElement as _, Pixels, SharedString, Styled as _, Window,
-    div, px,
+    InteractiveElement, IntoElement, ParentElement as _, Pixels, Point, SharedString, Styled as _,
+    Window, div, px,
 };
 
 use super::{motion, prefs};
@@ -45,6 +45,28 @@ thread_local! {
 }
 
 impl Global for Overlay {}
+
+pub(super) fn init(cx: &mut App) {
+    cx.intercept_keystrokes(|_, window, cx| dismiss(window, cx))
+        .detach();
+}
+
+/// Captured window input invalidates both visible and delayed requests before
+/// scrolling, virtualisation or a click can remove the old hover target.
+pub(super) fn dismiss(window: &mut Window, cx: &mut App) {
+    HOVERED.set(None);
+    PRESSED.set(None);
+    update(cx, window, |overlay, _, cx| overlay.hide(cx));
+}
+
+pub(super) fn moved(position: Point<Pixels>, window: &mut Window, cx: &mut App) {
+    if HOVERED
+        .get()
+        .is_some_and(|bounds| !bounds.contains(&position))
+    {
+        dismiss(window, cx);
+    }
+}
 
 /// The overlay that draws the open tooltip; render it once at the window root.
 pub(super) fn layer(cx: &mut App) -> Entity<TooltipOverlay> {

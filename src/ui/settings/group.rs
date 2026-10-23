@@ -8,10 +8,9 @@ use proteus_contracts::domain::ConfigField;
 use serde_json::Value;
 
 use super::SettingsView;
-use super::widgets::{changed_dot, described, disclosure, hashed_id, note, reset_mark};
+use super::widgets::{changed_dot, described, disclosure, hashed_id, nested, note, reset_mark};
 use crate::settings::FieldPath;
 use crate::ui::kit::Pressable as _;
-use crate::ui::prefs;
 
 impl SettingsView {
     /// Rows of `fields` living in `object`: ordinary fields, advanced ones
@@ -152,19 +151,14 @@ impl SettingsView {
             });
         let content = self.reveal(&key, cx, || {
             let rows = self.field_rows(fields, |key| path.child(key), value, &scope, cx);
-            div()
-                .ml(prefs::scaled(24.))
-                .mb_2()
-                .border_l_2()
-                .border_color(theme.border)
-                .child(
-                    v_flex().children(rows.into_iter().enumerate().map(|(ix, row)| {
-                        div()
-                            .when(ix > 0, |cell| cell.border_t_1().border_color(theme.border))
-                            .child(row)
-                    })),
-                )
-                .into_any_element()
+            nested(
+                v_flex().children(rows.into_iter().enumerate().map(|(ix, row)| {
+                    div()
+                        .when(ix > 0, |cell| cell.border_t_1().border_color(theme.border))
+                        .child(row)
+                })),
+            )
+            .into_any_element()
         });
         v_flex()
             .child(self.spotted(&super::spot::field(path), header, cx))

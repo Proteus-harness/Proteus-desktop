@@ -77,6 +77,7 @@ pub(crate) const SETTINGS_CONTEXT: &str = "ProteusSettings";
 pub fn init(cx: &mut App) {
     theme::init(cx);
     drag::init(cx);
+    tip::init(cx);
     // Command shortcuts are bound by `prefs::init` from the preferences.
     prefs::init(cx);
     cx.bind_keys([

@@ -64,7 +64,7 @@ impl SessionList {
         window: &mut Window,
         cx: &mut Context<Workspace>,
     ) -> (Self, Subscription) {
-        let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Поиск по сессиям…"));
+        let filter = cx.new(|cx| InputState::new(window, cx).placeholder("Поиск по сессиям"));
         let events = cx.subscribe_in(
             &filter,
             window,

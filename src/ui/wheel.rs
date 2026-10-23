@@ -44,13 +44,23 @@ pub(super) fn layer() -> impl IntoElement {
     canvas(
         |_, _, _| (),
         |_, _, window, _| {
-            window.on_mouse_event(|_: &MouseDownEvent, phase, _, _| {
+            window.on_mouse_event(|_: &MouseDownEvent, phase, window, cx| {
                 if phase == DispatchPhase::Capture {
                     fling::stop();
+                    super::tip::dismiss(window, cx);
+                }
+            });
+            window.on_mouse_event(|event: &MouseMoveEvent, phase, window, cx| {
+                if phase == DispatchPhase::Capture {
+                    super::tip::moved(event.position, window, cx);
                 }
             });
             window.on_mouse_event(|event: &ScrollWheelEvent, phase, window, cx| {
-                if phase != DispatchPhase::Capture || REPLAYING.get() {
+                if phase != DispatchPhase::Capture {
+                    return;
+                }
+                super::tip::dismiss(window, cx);
+                if REPLAYING.get() {
                     return;
                 }
                 let fast = event.modifiers.control;

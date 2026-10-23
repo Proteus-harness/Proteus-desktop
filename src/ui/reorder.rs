@@ -14,7 +14,7 @@ mod geometry;
 pub(crate) use geometry::move_before;
 use geometry::{Pending, Position, keyboard_target, preview_order};
 
-use super::{drag, fade, motion, prefs};
+use super::{drag, fade, motion};
 
 type Preview = Rc<dyn Fn(&mut App) -> Option<AnyElement>>;
 type Move = Rc<dyn Fn(SharedString, Option<SharedString>, &mut Window, &mut App)>;
@@ -88,7 +88,7 @@ pub(crate) fn controls(child: impl IntoElement) -> Div {
 struct State {
     bounds: Bounds<Pixels>,
     rows: Vec<(SharedString, Bounds<Pixels>)>,
-    pressed: Option<(SharedString, Point<Pixels>)>,
+    pressed: Option<SharedString>,
     press_epoch: u64,
     exclusions: Vec<Bounds<Pixels>>,
     armed: bool,
@@ -195,7 +195,7 @@ impl RenderOnce for List {
                         .read(cx)
                         .pressed
                         .as_ref()
-                        .is_some_and(|(id, _)| *id == row.id);
+                        .is_some_and(|id| *id == row.id);
                 let active = state.read(cx).active.as_ref() == Some(&row.id);
                 let focus = state.update(cx, |state, cx| {
                     state
@@ -289,7 +289,7 @@ impl RenderOnce for List {
                         let epoch = drag::cancel_epoch(cx);
                         press.update(cx, |state, _| {
                             state.release();
-                            state.pressed = Some((id.clone(), event.position));
+                            state.pressed = Some(id.clone());
                             state.press_epoch = epoch;
                         });
                         let weak = press.downgrade();
@@ -534,22 +534,16 @@ impl Element for Arrange {
                 window.refresh();
             }
         });
-        // Escape is handled at the Workspace root before focused child
-        // inputs/actions can consume it. A layout Element's key listener
-        // is not necessarily on the focused dispatch path.
+        // Escape is intercepted before the keymap by the shared drag state.
+        // Movement during HOLD must not permanently disarm the same press:
+        // touchpad jitter and beginning to move before the timer are normal.
         let cancel = self.state.clone();
-        let slop = prefs::scaled(6.).to_pixels(window.rem_size());
         window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
             if phase != DispatchPhase::Capture || cx.has_active_drag() {
                 return;
             }
             cancel.update(cx, |state, _| {
-                if !state.armed
-                    && state.pressed.as_ref().is_some_and(|(_, origin)| {
-                        !event.dragging()
-                            || (event.position - *origin).magnitude() > slop.as_f32() as f64
-                    })
-                {
+                if state.pressed.is_some() && !event.dragging() {
                     state.release();
                 }
             });

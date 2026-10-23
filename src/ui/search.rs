@@ -68,7 +68,7 @@ impl RenderOnce for Search {
         let input = self.input.clone();
         let trigger = kit::button(ElementId::Name(format!("{:?}:trigger", self.id).into()))
             .ghost()
-            .xsmall()
+            .small()
             .icon(IconName::Search)
             .selected(open)
             .hint_keys(&self.hint, Some("Ctrl+F"), cx)
@@ -87,7 +87,7 @@ impl RenderOnce for Search {
         let mut row = h_flex()
             .id(self.id)
             .min_w_0()
-            .h(prefs::scaled(28.))
+            .h(prefs::scaled(24.))
             .max_w_full()
             .items_center()
             .when(has_title, |row| row.flex_1())
