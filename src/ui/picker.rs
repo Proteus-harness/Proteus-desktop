@@ -3,7 +3,7 @@
 //! values; keyboard navigation, filtering, focus and selection belong here.
 
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -235,10 +235,8 @@ impl<T: Clone + PartialEq + 'static> Render for Picker<T> {
             .gap_1()
             .capture_key_down(cx.listener(Self::keys))
             .child(
-                Input::new(&self.search)
+                super::search::field(&self.search)
                     .small()
-                    .appearance(false)
-                    .bordered(false)
                     .prefix(Icon::new(Lucide::Search).small()),
             )
             .when(count > 0, |body| body.child(rows))

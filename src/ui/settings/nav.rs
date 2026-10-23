@@ -112,7 +112,6 @@ impl SettingsView {
         cx: &Context<Self>,
     ) -> impl IntoElement + use<> {
         let theme = cx.theme();
-        let searching = crate::ui::search::active(&self.search, window, cx);
         // The list holds focus as a whole; its selected page shows it.
         let marked = self.nav_focus.is_focused(window) && window.last_input_was_keyboard();
         let snapshot = self.snapshot();
@@ -211,23 +210,15 @@ impl SettingsView {
                     .gap_1()
                     .min_w_0()
                     .items_center()
-                    .when(!searching, |header| {
-                        header.child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .pl_2()
-                                .text_lg()
-                                .font_semibold()
-                                .child(faded("Настройки")),
+                    .child(
+                        crate::ui::search::Search::new(
+                            "settings-search",
+                            self.search.clone(),
+                            self.nav_focus.clone(),
+                            "Поиск настроек",
                         )
-                    })
-                    .child(crate::ui::search::Search::new(
-                        "settings-search",
-                        self.search.clone(),
-                        self.nav_focus.clone(),
-                        "Поиск настроек",
-                    )),
+                        .title("Настройки"),
+                    ),
             ))
             .child(if self.query.is_empty() {
                 self.nav_keys(v_flex().id("settings-pages"))

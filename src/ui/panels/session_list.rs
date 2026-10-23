@@ -37,7 +37,7 @@ pub(in crate::ui) fn bind_keys(cx: &mut App) {
         KeyBinding::new("end", SelectLast, context),
         KeyBinding::new("enter", OpenSession, context),
         KeyBinding::new("f2", RenameSession, context),
-        KeyBinding::new("ctrl-f", FocusFilter, context),
+        KeyBinding::new("ctrl-f", FocusFilter, Some(PANEL_CONTEXT)),
         KeyBinding::new("escape", Dismiss, Some(PANEL_CONTEXT)),
     ]);
 }
@@ -113,18 +113,18 @@ impl Workspace {
                     this.start_rename(dir, window, cx);
                 }
             }))
-            .on_action(cx.listener(|this, _: &FocusFilter, window, cx| {
-                this.session_list
-                    .filter
-                    .update(cx, |filter, cx| filter.focus(window, cx));
-            }))
     }
 
     /// Esc anywhere on the panel, the filter included.
     pub(super) fn session_panel_actions(&self, element: Div, cx: &mut Context<Self>) -> Div {
-        element.key_context(PANEL_CONTEXT).on_action(
-            cx.listener(|this, _: &Dismiss, window, cx| this.dismiss_session_list(window, cx)),
-        )
+        element
+            .key_context(PANEL_CONTEXT)
+            .on_action(cx.listener(|this, _: &FocusFilter, window, cx| {
+                crate::ui::search::focus(&this.session_list.filter, window, cx);
+            }))
+            .on_action(
+                cx.listener(|this, _: &Dismiss, window, cx| this.dismiss_session_list(window, cx)),
+            )
     }
 
     fn dismiss_session_list(&mut self, window: &mut Window, cx: &mut Context<Self>) {

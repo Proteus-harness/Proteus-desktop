@@ -1,15 +1,23 @@
 // Адаптировано из Zed: crates/settings_ui/src/settings_ui.rs (render_search, clear_search), crates/git_ui/src/git_graph.rs (search focus)
 //! Inline toolbar search. The caller keeps its InputState and filtering;
-//! this control owns the compact trigger, borderless field and Esc behavior.
+//! this control owns the compact trigger, quiet field and Esc behavior.
 //! An inactive empty field occupies only one icon, never another toolbar row.
+//! All search surfaces, including popup pickers, use `field` for the same
+//! quiet appearance with a thin border and no focus ring. Header titles
+//! yield space to the field throughout the shared opening/closing animation.
 
 use gpui_kit::component::button::ButtonVariants as _;
-use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::input::{Escape, Input, InputEvent, InputState};
 use gpui_kit::component::*;
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::kit::{self, Hint as _};
 use super::{motion, prefs};
+
+pub(in crate::ui) fn field(input: &Entity<InputState>) -> Input {
+    Input::new(input).focus_bordered(false)
+}
 
 #[derive(IntoElement)]
 pub(in crate::ui) struct Search {
@@ -17,6 +25,7 @@ pub(in crate::ui) struct Search {
     input: Entity<InputState>,
     restore: FocusHandle,
     hint: SharedString,
+    title: Option<SharedString>,
 }
 
 impl Search {
@@ -31,7 +40,13 @@ impl Search {
             input,
             restore,
             hint: hint.into(),
+            title: None,
         }
+    }
+
+    pub fn title(mut self, title: impl Into<SharedString>) -> Self {
+        self.title = Some(title.into());
+        self
     }
 }
 
@@ -42,8 +57,7 @@ pub(in crate::ui) fn focus(input: &Entity<InputState>, window: &mut Window, cx: 
     window.refresh();
 }
 
-/// Active search may replace a header title without reserving a second row.
-pub(in crate::ui) fn active(input: &Entity<InputState>, window: &Window, cx: &App) -> bool {
+fn active(input: &Entity<InputState>, window: &Window, cx: &App) -> bool {
     let input = input.read(cx);
     input.focus_handle(cx).is_focused(window) || !input.value().is_empty()
 }
@@ -69,130 +83,53 @@ impl RenderOnce for Search {
             window,
             cx,
         );
+        let has_title = self.title.is_some();
         let mut row = h_flex()
             .id(self.id)
             .min_w_0()
             .h(prefs::scaled(28.))
             .max_w_full()
             .items_center()
+            .when(has_title, |row| row.flex_1())
+            .when(!has_title, |row| row.flex_none().max_w(prefs::scaled(240.)))
+            .when_some(self.title, |row, title| {
+                row.child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .opacity(1. - progress)
+                        .text_sm()
+                        .font_semibold()
+                        .child(super::fade::faded(title)),
+                )
+            })
             .child(trigger);
         if open || progress > 0. {
             let input = self.input.clone();
             let restore = self.restore;
-            let field = div().min_w_0().w_full().child(
-                Input::new(&self.input)
-                    .small()
-                    .w_full()
-                    .appearance(false)
-                    .cleanable(true),
-            );
             row = row
-                .flex_1()
-                .max_w(prefs::scaled(240.))
                 .child(
-                    motion::Collapse::new(
-                        "search-field",
-                        progress,
-                        Field {
-                            child: field.into_any_element(),
-                        }
-                        .into_any_element(),
-                    )
-                    .squeeze(prefs::scaled(0.), prefs::scaled(200.)),
+                    div()
+                        .w(prefs::scaled(200. * progress))
+                        .h_full()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .child(field(&self.input).small().w_full().cleanable(true)),
                 )
-                .capture_key_down(move |event: &KeyDownEvent, window, cx| {
-                    if event.keystroke.key != "escape" || event.keystroke.modifiers.modified() {
-                        return;
-                    }
+                .on_action(move |_: &Escape, window, cx| {
                     if !input.read(cx).value().is_empty() {
-                        input.update(cx, |input, cx| input.set_value("", window, cx));
+                        input.update(cx, |input, cx| {
+                            input.set_value("", window, cx);
+                            cx.emit(InputEvent::Change);
+                        });
                     } else {
                         restore.focus(window, cx);
                     }
                     window.refresh();
                     cx.stop_propagation();
                 });
-        } else {
-            row = row.flex_none();
         }
         row
-    }
-}
-
-/// Gives a percentage-width native input an intrinsic toolbar width for the
-/// shared horizontal reveal, then lays it out at the actual squeezed width.
-/// The text cursor and its scroll viewport therefore never use a clipped,
-/// imaginary fixed-width input on narrow toolbars.
-struct Field {
-    child: AnyElement,
-}
-
-impl IntoElement for Field {
-    type Element = Self;
-    fn into_element(self) -> Self {
-        self
-    }
-}
-
-impl Element for Field {
-    type RequestLayoutState = ();
-    type PrepaintState = ();
-    fn id(&self) -> Option<ElementId> {
-        None
-    }
-    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
-        None
-    }
-    fn request_layout(
-        &mut self,
-        _: Option<&GlobalElementId>,
-        _: Option<&InspectorElementId>,
-        window: &mut Window,
-        _: &mut App,
-    ) -> (LayoutId, ()) {
-        let preferred = prefs::scaled(200.).to_pixels(window.rem_size());
-        let height = prefs::scaled(28.).to_pixels(window.rem_size());
-        let style = Style::default();
-        (
-            window.request_measured_layout(style, move |known, available, _, _| {
-                let width = known.width.unwrap_or(match available.width {
-                    AvailableSpace::Definite(width) => width.min(preferred),
-                    _ => preferred,
-                });
-                size(width, height)
-            }),
-            (),
-        )
-    }
-    fn prepaint(
-        &mut self,
-        _: Option<&GlobalElementId>,
-        _: Option<&InspectorElementId>,
-        bounds: Bounds<Pixels>,
-        _: &mut (),
-        window: &mut Window,
-        cx: &mut App,
-    ) {
-        self.child.layout_as_root(
-            size(
-                AvailableSpace::Definite(bounds.size.width),
-                AvailableSpace::Definite(bounds.size.height),
-            ),
-            window,
-            cx,
-        );
-        self.child.prepaint_at(bounds.origin, window, cx);
-    }
-    fn paint(
-        &mut self,
-        _: Option<&GlobalElementId>,
-        _: Option<&InspectorElementId>,
-        _: Bounds<Pixels>,
-        _: &mut (),
-        _: &mut (),
-        window: &mut Window,
-        cx: &mut App,
-    ) {
-        self.child.paint(window, cx);
     }
 }

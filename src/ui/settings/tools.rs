@@ -2,7 +2,6 @@
 
 use crate::ui::kit::ButtonLabel as _;
 use gpui_kit::component::button::ButtonVariants as _;
-use gpui_kit::component::input::Input;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -46,7 +45,7 @@ impl SettingsView {
         if rows.is_empty() {
             rows.push(note("Ничего не найдено.", cx).into_any_element());
         }
-        let search = Input::new(&self.tool_search)
+        let search = crate::ui::search::field(&self.tool_search)
             .small()
             .cleanable(true)
             .prefix(Icon::new(IconName::Search).small())

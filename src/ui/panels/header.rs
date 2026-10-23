@@ -14,6 +14,7 @@ use crate::shortcuts::Command;
 use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
+use crate::ui::search;
 use crate::ui::workspace::Workspace;
 
 impl Workspace {
@@ -29,29 +30,41 @@ impl Workspace {
             .pl_4()
             .pr_2()
             .gap_1()
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_sm()
-                    .font_semibold()
-                    .child(faded(panel.title)),
-            )
-            .when(name == SESSIONS_PANEL, |header| {
+            .when(name != SESSIONS_PANEL, |header| {
                 header.child(
-                    kit::button("new-session")
-                        .icon(IconName::Plus)
-                        .ghost()
-                        .small()
-                        .hint_keys(
-                            "Новая сессия",
-                            kit::command_keys(Command::NewSession, cx).as_deref(),
-                            cx,
-                        )
-                        .on_click(
-                            cx.listener(|this, _, window, cx| this.new_session(None, window, cx)),
-                        ),
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_sm()
+                        .font_semibold()
+                        .child(faded(panel.title)),
                 )
+            })
+            .when(name == SESSIONS_PANEL, |header| {
+                header
+                    .child(
+                        search::Search::new(
+                            "sessions-search",
+                            self.session_list.filter.clone(),
+                            self.session_list.focus.clone(),
+                            "Поиск по сессиям",
+                        )
+                        .title(panel.title),
+                    )
+                    .child(
+                        kit::button("new-session")
+                            .icon(IconName::Plus)
+                            .ghost()
+                            .small()
+                            .hint_keys(
+                                "Новая сессия",
+                                kit::command_keys(Command::NewSession, cx).as_deref(),
+                                cx,
+                            )
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.new_session(None, window, cx)
+                            })),
+                    )
             })
             .child(
                 kit::button("panel-hide")

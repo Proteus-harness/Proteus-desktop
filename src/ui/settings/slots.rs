@@ -287,7 +287,11 @@ impl SettingsView {
                 .border_t_1()
                 .border_color(cx.theme().border),
             )
-            .children(self.reveal(key, cx, || self.params_nested(slot, module, cx)))
+            .children(self.reveal(key, cx, || {
+                crate::ui::reorder::controls(self.params_nested(slot, module, cx))
+                    .w_full()
+                    .into_any_element()
+            }))
             .into_any_element()
     }
 }

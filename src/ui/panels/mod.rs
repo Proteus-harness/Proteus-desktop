@@ -93,11 +93,16 @@ impl Workspace {
             }
         };
         let header = self.render_panel_header(panel, cx).into_any_element();
-        v_flex()
+        let panel_view = v_flex()
             .size_full()
             .child(header)
-            .child(div().flex_1().min_h_0().w_full().child(content))
-            .into_any_element()
+            .child(div().flex_1().min_h_0().w_full().child(content));
+        if panel.name == SESSIONS_PANEL {
+            self.session_panel_actions(panel_view, cx)
+                .into_any_element()
+        } else {
+            panel_view.into_any_element()
+        }
     }
 
     /// Moves the keyboard into a panel.
@@ -114,7 +119,12 @@ impl Workspace {
     /// Whether the keyboard is in the panel `name`.
     fn panel_focused(&self, name: &str, window: &Window, cx: &App) -> bool {
         if name == SESSIONS_PANEL {
-            return self.session_list.focus.contains_focused(window, cx);
+            return self.session_list.focus.contains_focused(window, cx)
+                || self
+                    .session_list
+                    .filter
+                    .focus_handle(cx)
+                    .contains_focused(window, cx);
         }
         match extensions::panel(name, cx).and_then(|m| self.panels.get(m.id)) {
             Some(view) => view.focus.contains_focused(window, cx),

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::popover::{Popover, PopoverState};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::*;
@@ -325,7 +325,7 @@ impl Render for ProjectPicker {
             }))
             .child(
                 div().p_1().child(
-                    Input::new(&self.search)
+                    super::search::field(&self.search)
                         .small()
                         .prefix(Icon::new(IconName::Search).small()),
                 ),

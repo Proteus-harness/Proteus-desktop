@@ -340,7 +340,24 @@ impl DeclarativeView {
                                 .w_full()
                                 .into_any_element()
                         };
-                        crate::ui::reorder::Row::new(item.id.clone(), item.label.clone(), child)
+                        let row = crate::ui::reorder::Row::new(
+                            item.id.clone(),
+                            item.label.clone(),
+                            child,
+                        );
+                        if item.children.is_empty() {
+                            row
+                        } else {
+                            let (view, children) = (cx.weak_entity(), item.children.clone());
+                            row.preview(move |cx| {
+                                view.update(cx, |this, cx| {
+                                    this.fill(&children, &child_path, cx)
+                                        .w_full()
+                                        .into_any_element()
+                                })
+                                .ok()
+                            })
+                        }
                     })
                     .collect();
                 let (this, action) = (cx.weak_entity(), action.clone());

@@ -203,15 +203,7 @@ impl Workspace {
             .session_list_actions(v_flex().flex_1().min_h_0().relative(), cx)
             .child(list)
             .vertical_scrollbar(&self.session_list.scroll);
-        let filter = div().flex_none().px_2().pb_2().child(
-            Input::new(&self.session_list.filter)
-                .small()
-                .cleanable(true)
-                .prefix(Icon::new(IconName::Search).small()),
-        );
-        self.session_panel_actions(v_flex().size_full(), cx)
-            .child(filter)
-            .child(list)
+        v_flex().size_full().child(list)
     }
 
     /// A project folder's header: folds its chats and starts a new one there.

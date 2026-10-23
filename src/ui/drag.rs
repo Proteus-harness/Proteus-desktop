@@ -8,20 +8,32 @@ use gpui_kit::*;
 #[derive(Default)]
 struct DragSource {
     key: Option<SharedString>,
-    cancelled_release: bool,
+    press_window: Option<WindowId>,
+    cancelled_release: Option<WindowId>,
     epoch: u64,
 }
 
 impl Global for DragSource {}
 
+pub(super) fn init(cx: &mut App) {
+    // GPUI resolves key bindings before raw key listeners. Intercept once,
+    // before an input, disclosure or popup can turn Escape into an action.
+    cx.intercept_keystrokes(|event, window, cx| {
+        if event.keystroke.key == "escape"
+            && !event.keystroke.modifiers.modified()
+            && cancel(window, cx)
+        {
+            cx.stop_propagation();
+        }
+    })
+    .detach();
+}
+
 /// Remembers the element a drag starts from; call in the drag constructor.
 pub(super) fn start(key: impl Into<SharedString>, cx: &mut App) {
-    let epoch = cancel_epoch(cx);
-    cx.set_global(DragSource {
-        key: Some(key.into()),
-        cancelled_release: false,
-        epoch,
-    });
+    let state = cx.default_global::<DragSource>();
+    state.key = Some(key.into());
+    state.cancelled_release = None;
 }
 
 /// Whether the element with `key` is being dragged.
@@ -40,13 +52,21 @@ pub(super) fn current(cx: &App) -> Option<&str> {
 /// Cancel before a focused child handles Escape. This also invalidates
 /// hold timers that have not started a native drag yet.
 pub(super) fn cancel(window: &mut Window, cx: &mut App) -> bool {
+    let window_id = window.window_handle().window_id();
+    let pressed = cx
+        .try_global::<DragSource>()
+        .is_some_and(|state| state.press_window == Some(window_id));
     let stopped = cx.stop_active_drag(window);
+    if !stopped && !pressed {
+        return false;
+    }
     let state = cx.default_global::<DragSource>();
     state.key = None;
+    state.press_window = None;
     state.epoch = state.epoch.wrapping_add(1);
-    state.cancelled_release |= stopped;
+    state.cancelled_release = Some(window_id);
     window.refresh();
-    stopped
+    true
 }
 
 pub(super) fn cancel_epoch(cx: &App) -> u64 {
@@ -55,16 +75,26 @@ pub(super) fn cancel_epoch(cx: &App) -> u64 {
 
 /// A release after Escape belongs to the cancelled drag, not to a click
 /// on the source child. The next press starts an ordinary new gesture.
-pub(super) fn begin_press(cx: &mut App) {
+pub(super) fn begin_press(window: &Window, cx: &mut App) {
     let state = cx.default_global::<DragSource>();
     // A new native drag may belong to a control that does not need a
     // source marker. Never lend it the previous gesture's source key.
     state.key = None;
-    state.cancelled_release = false;
+    state.press_window = Some(window.window_handle().window_id());
+    state.cancelled_release = None;
 }
 
-pub(super) fn discard_release(cx: &mut App) -> bool {
-    std::mem::take(&mut cx.default_global::<DragSource>().cancelled_release)
+pub(super) fn discard_release(window: &Window, cx: &mut App) -> bool {
+    let window_id = window.window_handle().window_id();
+    let state = cx.default_global::<DragSource>();
+    if state.press_window == Some(window_id) {
+        state.press_window = None;
+    }
+    if state.cancelled_release == Some(window_id) {
+        state.cancelled_release = None;
+        return true;
+    }
+    false
 }
 
 /// Opacity of the place an element was lifted from.

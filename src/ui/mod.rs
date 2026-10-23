@@ -76,6 +76,7 @@ pub(crate) const SETTINGS_CONTEXT: &str = "ProteusSettings";
 
 pub fn init(cx: &mut App) {
     theme::init(cx);
+    drag::init(cx);
     // Command shortcuts are bound by `prefs::init` from the preferences.
     prefs::init(cx);
     cx.bind_keys([
@@ -96,18 +97,13 @@ impl Render for Workspace {
             v_flex()
                 .size_full()
                 .track_focus(&self.focus_handle)
-                .capture_key_down(|event: &KeyDownEvent, window: &mut Window, cx: &mut App| {
-                    if event.keystroke.key == "escape" && drag::cancel(window, cx) {
-                        cx.stop_propagation();
-                    }
-                })
-                .capture_any_mouse_down(|event: &MouseDownEvent, _, cx| {
+                .capture_any_mouse_down(|event: &MouseDownEvent, window, cx| {
                     if event.button == MouseButton::Left {
-                        drag::begin_press(cx);
+                        drag::begin_press(window, cx);
                     }
                 })
-                .capture_any_mouse_up(|event: &MouseUpEvent, _, cx| {
-                    if event.button == MouseButton::Left && drag::discard_release(cx) {
+                .capture_any_mouse_up(|event: &MouseUpEvent, window, cx| {
+                    if event.button == MouseButton::Left && drag::discard_release(window, cx) {
                         cx.stop_propagation();
                     }
                 })

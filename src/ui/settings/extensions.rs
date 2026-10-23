@@ -35,21 +35,14 @@ impl SettingsView {
                     manifest.title,
                     self.extension_row(manifest, cx),
                 )
-                .preview(move |_| {
-                    h_flex()
-                        .px_3()
-                        .py_2()
-                        .gap_2()
-                        .items_center()
-                        .text_sm()
-                        .child(Icon::new(manifest.icon).small())
-                        .child(
-                            div()
-                                .min_w_0()
-                                .flex_1()
-                                .child(crate::ui::fade::faded(manifest.title)),
-                        )
-                        .into_any_element()
+                .preview({
+                    let view = cx.weak_entity();
+                    move |cx| {
+                        view.update(cx, |this, cx| {
+                            this.extension_row(manifest, cx).into_any_element()
+                        })
+                        .ok()
+                    }
                 })
             })
             .collect::<Vec<_>>();

@@ -6,7 +6,6 @@ use std::ops::Range;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::base::ElementExt as _;
 use gpui_kit::component::button::ButtonVariants as _;
-use gpui_kit::component::input::Input;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -275,7 +274,7 @@ impl SettingsView {
                     .items_center()
                     .child(
                         Self::catalog_search_keys(div()).flex_1().min_w_0().child(
-                            Input::new(&self.catalogs.search)
+                            crate::ui::search::field(&self.catalogs.search)
                                 .small()
                                 .cleanable(true)
                                 .prefix(Icon::new(IconName::Search).small()),

@@ -16,7 +16,7 @@ use geometry::{Pending, Position, keyboard_target, preview_order};
 
 use super::{drag, fade, motion, prefs};
 
-type Preview = Rc<dyn Fn(&App) -> AnyElement>;
+type Preview = Rc<dyn Fn(&mut App) -> Option<AnyElement>>;
 type Move = Rc<dyn Fn(SharedString, Option<SharedString>, &mut Window, &mut App)>;
 
 pub(crate) struct Row {
@@ -40,7 +40,8 @@ impl Row {
         }
     }
 
-    pub fn preview(mut self, build: impl Fn(&App) -> AnyElement + 'static) -> Self {
+    /// Rebuild the same row for the lifted copy; a removed owner falls back to its label.
+    pub fn preview(mut self, build: impl Fn(&mut App) -> Option<AnyElement> + 'static) -> Self {
         self.preview = Some(Rc::new(build));
         self
     }
@@ -119,28 +120,26 @@ struct Dragged {
 }
 
 impl Render for Dragged {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let content = self.preview.as_ref().map_or_else(
-            || {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let content = self
+            .preview
+            .as_ref()
+            .and_then(|preview| preview(cx))
+            .unwrap_or_else(|| {
                 div()
                     .px_3()
                     .py_2()
                     .text_sm()
                     .child(fade::faded(self.label.clone()))
                     .into_any_element()
-            },
-            |preview| preview(cx),
-        );
+            });
         drag::lifted(
             div()
                 .w(self.width)
                 .min_w(self.width)
-                .min_h(
-                    self.height
-                        .min(prefs::scaled(100.).to_pixels(window.rem_size())),
-                )
+                .h(self.height)
                 .overflow_hidden()
-                .child(content),
+                .child(div().size_full().child(content)),
             cx,
         )
     }

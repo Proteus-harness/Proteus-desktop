@@ -225,8 +225,11 @@ impl DeclarativeView {
                     .small()
                     .outline()
                     .faded_label("Перезапустить")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.runtime.update(cx, |runtime, cx| runtime.restart(cx));
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        let runtime = this.runtime.clone();
+                        window.defer(cx, move |_, cx| {
+                            runtime.update(cx, |runtime, cx| runtime.restart(cx));
+                        });
                     })),
             )
     }
