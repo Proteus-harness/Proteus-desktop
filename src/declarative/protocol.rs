@@ -182,8 +182,27 @@ fn yes() -> bool {
 /// Parses one line from the process.
 pub fn parse(line: &str) -> anyhow::Result<Incoming> {
     let message: Incoming = serde_json::from_str(line)?;
-    if let Incoming::View { root, .. } = &message {
-        root.validate()?;
+    if let Incoming::View {
+        view,
+        session_dir,
+        sequence,
+        root,
+        ..
+    } = &message
+        && let Err(error) = root.validate()
+    {
+        // A valid envelope still identifies the failed content surface.
+        // Keep its error local, just like a renderer's own content_error;
+        // a bad SVG must not invalidate other views of the same process.
+        if view.starts_with("content:") {
+            return Ok(Incoming::ContentError {
+                view: view.clone(),
+                session_dir: session_dir.clone(),
+                sequence: *sequence,
+                error: format!("{error:#}"),
+            });
+        }
+        return Err(error);
     }
     if let Incoming::Badge { face, .. } = &message {
         face.validate()?;
@@ -260,6 +279,43 @@ mod tests {
             Ok(Incoming::SetSession { .. })
         ));
         assert!(parse(r#"{"type":"set_session","id":"a","session_dir":"/s","setting":{"type":"mode","value":"auto"}}"#).is_err());
+    }
+
+    #[test]
+    fn invalid_content_trees_keep_their_view_session_and_action_sequence() {
+        for source in [
+            "<svg",
+            "<svg><image href=\"/tmp/private.png\"/></svg>",
+            "<svg><foreignObject/></svg>",
+        ] {
+            // The SVG can be nested in any renderer's public widget tree.
+            let root = json!({"type":"stack", "children":[{
+                "type":"svg", "source":source, "width":640, "height":360
+            }]});
+            let mut envelope = json!({
+                "type":"view", "view":"content:broken-block",
+                "session_dir":"/fixture/chat-one", "sequence":7, "root":root
+            });
+            let failure = parse(&envelope.to_string()).unwrap();
+            assert!(matches!(failure, Incoming::ContentError {
+                view, session_dir: Some(session), sequence: 7, error,
+            } if view == "content:broken-block"
+                && session == std::path::Path::new("/fixture/chat-one")
+                && !error.is_empty()));
+
+            // A subsequent healthy block remains a normal view; it cannot
+            // clear the failure addressed to broken-block.
+            envelope["view"] = json!("content:healthy-block");
+            envelope["root"] = json!({"type":"text", "text":"healthy"});
+            assert!(matches!(
+                parse(&envelope.to_string()).unwrap(),
+                Incoming::View { .. }
+            ));
+
+            envelope["view"] = json!("panel");
+            envelope["root"] = root;
+            assert!(parse(&envelope.to_string()).is_err());
+        }
     }
 
     #[test]

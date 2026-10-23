@@ -1,8 +1,15 @@
 # UI checkpoint — 23 октября 2026
 
-Работа остановлена по просьбе владельца: сохранить всё коммитами для
-продолжения дома. Это WIP, не завершённый выпуск. Portable и рабочее
-приложение остаются на прежней сборке `a8e182fc92b7`.
+Исходный checkpoint сохранён по просьбе владельца для продолжения дома.
+На тот момент portable оставался на `a8e182fc92b7`.
+
+После продолжения пункты 1–4 прошли повторную native-проверку; исправлены
+автопрокрутка rich content, адресация SVG errors, hover соседних tooltip и
+позиция Show more. Условия и фактические проверки — в заключительном разделе
+[ux-review.md](ux-review.md#заключительная-native-проверка-23-октября).
+Доставка пункта 5 подтверждается отдельно manifest готового portable и
+локальным отчётом `build/verification/ui-2026-10-23/`. Пункт 6 остаётся
+отдельным продолжением широкого Zed-аудита.
 
 ## Что сохранено
 
@@ -26,7 +33,7 @@
 - SDK отвечает запрошенной поверхности раньше скрытых документов; Core
   отдаёт per-path source revision для актуального working diff cache.
 
-## Что именно доделать по просьбам владельца
+## Исходный список продолжения
 
 1. Собрать новый native и проверить последние изменения в реальном окне:
    Search button/inline field в Settings и Git Graph (Ctrl+F, два Esc, narrow);
@@ -60,8 +67,10 @@
   sidebar, resize по полной высоте, отмену Sortable через Esc, child controls,
   keyboard reorder/задержанный ответ, actual Extensions/Hooks reorder, dirty
   close guard; Settings/Picker selected colors и failed draft/image restore.
-- Последние Search/dock/tail/tooltip/theme/rich content после объединения
-  ещё не прошли полную повторную native-проверку.
+- На момент исходного checkpoint последние Search/dock/tail/tooltip/theme/rich
+  content после объединения ещё не проходили повторную native-проверку.
+  После продолжения: client 165 + 4, Extensions 84 Rust + 14 Python и
+  106 wire messages; synthetic native-сценарии перечислены в UX-аудите.
 
 Общие правила: DESIGN.md. Аудит: docs/ux-review.md. Примеры renderer и skill:
 соседний Extensions/packages/json-render/README.md и examples/rich-content.md.

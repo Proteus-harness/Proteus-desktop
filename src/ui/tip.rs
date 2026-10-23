@@ -39,6 +39,9 @@ struct Overlay(Entity<TooltipOverlay>);
 thread_local! {
     /// The element pressed last; its tooltip stays away until the pointer leaves.
     static PRESSED: Cell<Option<Bounds<Pixels>>> = const { Cell::new(None) };
+    /// Hover callbacks for adjacent controls can arrive enter-before-leave.
+    /// A late leave may hide only its own request, never the new trigger's.
+    static HOVERED: Cell<Option<Bounds<Pixels>>> = const { Cell::new(None) };
 }
 
 impl Global for Overlay {}
@@ -138,9 +141,15 @@ pub(crate) trait Tip: InteractiveElement + gpui_kit::ParentElement + Sized {
             let hovered = *hovered;
             let build = build.clone();
             let trigger = anchor.bounds();
-            if !hovered {
+            if hovered {
+                HOVERED.set(Some(trigger));
+            } else if HOVERED.get() != Some(trigger) {
+                return;
+            } else {
+                HOVERED.set(None);
                 PRESSED.set(None);
-            } else if PRESSED.get() == Some(trigger) {
+            }
+            if hovered && PRESSED.get() == Some(trigger) {
                 return;
             }
             update(cx, window, move |overlay, window, cx| {

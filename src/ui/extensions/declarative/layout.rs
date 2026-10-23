@@ -145,6 +145,9 @@ impl DeclarativeView {
                     .child(div().min_w_0().child(faded(tab.label.clone())))
                     .children(count)
                     .on_click(cx.listener(move |this, _, window, cx| {
+                        if !active {
+                            cx.emit(super::view::WillResize);
+                        }
                         this.tabs.insert(key.clone(), index);
                         if !active {
                             // A control in the tab being hidden must not keep

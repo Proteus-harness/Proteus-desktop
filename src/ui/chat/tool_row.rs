@@ -1,5 +1,5 @@
 // Адаптировано из Zed: crates/agent_ui/src/conversation_view/thread_view.rs
-// (bounded tool previews, output disclosure and bottom collapse control).
+// (bounded tool previews and output disclosure).
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::base::SelectableText;
 use gpui_kit::component::button::ButtonVariants as _;
@@ -167,16 +167,6 @@ impl Fold {
         };
         v_flex()
             .gap_1()
-            .child(preview_reveal(
-                full_reveal_key(self.chat.entity_id(), key, part),
-                full,
-                cx,
-                div()
-                    .relative()
-                    .child(build(preview))
-                    .child(bottom_fade(theme.muted, theme.radius)),
-                build(format::clip_block(text, FULL_LINES, FULL_CHARS)),
-            ))
             .child(
                 h_flex()
                     .gap_1()
@@ -226,6 +216,19 @@ impl Fold {
                         }),
                     ),
             )
+            // Keep the trigger above the changing height. A bottom control
+            // disappears above the viewport when a long output collapses,
+            // even though the scroller correctly retains the freed room.
+            .child(preview_reveal(
+                full_reveal_key(self.chat.entity_id(), key, part),
+                full,
+                cx,
+                div()
+                    .relative()
+                    .child(build(preview))
+                    .child(bottom_fade(theme.muted, theme.radius)),
+                build(format::clip_block(text, FULL_LINES, FULL_CHARS)),
+            ))
     }
 }
 

@@ -16,6 +16,12 @@ use crate::declarative::protocol::{Content, Outgoing, SurfaceKind};
 use crate::declarative::widget::Node;
 use crate::ui::kit;
 
+/// A user gesture can change content height. Runtime notifications and the
+/// first asynchronous preview only remeasure; they must not stop following.
+pub(super) struct WillResize;
+
+impl EventEmitter<WillResize> for DeclarativeView {}
+
 pub(super) struct DeclarativeView {
     runtime: Entity<Runtime>,
     view: String,
@@ -26,6 +32,7 @@ pub(super) struct DeclarativeView {
     pub(super) root_revision: u64,
     keys: HashMap<String, String>,
     action_sequence: u64,
+    resize_on_reply: bool,
     pub(super) presentation: Option<Presentation>,
     /// Selected tab of every `tabs` node, by tree path.
     pub(super) tabs: HashMap<String, usize>,
@@ -77,6 +84,7 @@ impl DeclarativeView {
             root_revision: 0,
             keys: HashMap::new(),
             action_sequence: 0,
+            resize_on_reply: false,
             presentation: None,
             tabs: HashMap::new(),
             steps: HashMap::new(),
@@ -99,6 +107,9 @@ impl DeclarativeView {
         if sequence < self.action_sequence {
             return false;
         }
+        if std::mem::take(&mut self.resize_on_reply) {
+            cx.emit(WillResize);
+        }
         self.failure = None;
         self.images.prepare(&root, cx);
         self.keys = keys;
@@ -110,6 +121,9 @@ impl DeclarativeView {
 
     pub(super) fn fail(&mut self, error: String, sequence: u64, cx: &mut Context<Self>) {
         if sequence >= self.action_sequence {
+            if std::mem::take(&mut self.resize_on_reply) {
+                cx.emit(WillResize);
+            }
             self.failure = Some(error);
             cx.notify();
         }
@@ -136,6 +150,8 @@ impl DeclarativeView {
     }
 
     pub(super) fn act(&mut self, action: String, value: Option<Value>, cx: &mut Context<Self>) {
+        self.resize_on_reply = true;
+        cx.emit(WillResize);
         self.action_sequence += 1;
         let message = Outgoing::Action {
             sequence: self.action_sequence,
@@ -172,6 +188,7 @@ impl DeclarativeView {
         self.keys.clear();
         self.presentation = None;
         self.action_sequence = 0;
+        self.resize_on_reply = false;
         // Shells outlive a restarted process: the next tree with the same
         // terminal id picks its PTY up again, and pruning drops the rest.
         let terminals = std::mem::take(&mut self.fields.terminals);

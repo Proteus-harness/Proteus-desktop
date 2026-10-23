@@ -73,6 +73,7 @@ impl DeclarativeView {
                     ))
                     .child(faded(label.clone()))
                     .on_click(cx.listener(move |this, _, _, cx| {
+                        cx.emit(super::view::WillResize);
                         this.fields.disclosures.insert(id.clone(), !opened);
                         crate::ui::motion::toggled(toggle.clone(), !opened, cx);
                         cx.notify();

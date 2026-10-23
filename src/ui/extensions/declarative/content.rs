@@ -48,6 +48,7 @@ pub(in crate::ui) struct ContentView {
     extension: &'static str,
     show_source: bool,
     _rendered: Subscription,
+    _resize: Subscription,
     _source: Subscription,
 }
 
@@ -73,9 +74,9 @@ impl ContentView {
         });
         let source = cx.new(|cx| TextViewState::markdown(&fence, cx));
         Self {
-            _rendered: cx.observe(&rendered, |_, _, cx| {
+            _rendered: cx.observe(&rendered, |_, _, cx| cx.notify()),
+            _resize: cx.subscribe(&rendered, |_, _, _: &super::view::WillResize, cx| {
                 cx.emit(WillResize);
-                cx.notify();
             }),
             _source: cx.observe(&source, |_, _, cx| cx.notify()),
             rendered,
