@@ -19,6 +19,7 @@ mod collapse;
 mod disclosure;
 mod enter;
 mod number;
+mod popup;
 mod reveal;
 mod slide;
 mod spinner;
@@ -28,8 +29,9 @@ pub(super) use collapse::Collapse;
 pub(super) use disclosure::{
     chevron, drive, menu_chevron, moving, preview_reveal, reveal, toggled,
 };
-pub(super) use enter::{fade_in_if, late_in, popup, rise_in, rise_in_if, stagger_in, switch_in};
+pub(super) use enter::{fade_in_if, late_in, rise_in, rise_in_if, stagger_in, switch_in};
 pub(super) use number::Number;
+pub(super) use popup::{Popup, popup, restore_focus};
 pub(super) use reveal::PopupOrigin;
 pub(super) use slide::{Slide, glide};
 pub(super) use spinner::Spinner;

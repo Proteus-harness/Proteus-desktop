@@ -78,8 +78,7 @@ pub(super) fn render_chain_header(
         .gap_2()
         .text_sm()
         .min_w_0()
-        .cursor_pointer()
-        .pressable(cx)
+        .disclosure(cx)
         .child(status_icon(chain_status(tools), cx))
         .child(
             div()

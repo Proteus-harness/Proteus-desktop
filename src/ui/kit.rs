@@ -69,6 +69,17 @@ pub(crate) fn checkbox(id: impl Into<ElementId>) -> Checkbox {
 /// presses it, and it is marked while the keyboard holds focus on it. A
 /// mouse press leaves focus where it was, as with buttons.
 pub(crate) trait Pressable: StatefulInteractiveElement + Styled {
+    /// Quiet disclosure headings brighten slightly on hover; their child
+    /// status/error colors and the expanded body keep their own appearance.
+    fn disclosure(self, cx: &App) -> Self {
+        let theme = cx.theme();
+        self.pressable(cx)
+            .cursor_pointer()
+            .rounded(theme.radius)
+            .text_color(theme.muted_foreground)
+            .hover(|style| style.bg(theme.list_hover).text_color(theme.foreground))
+    }
+
     fn pressable(self, cx: &App) -> Self {
         let theme = cx.theme();
         let ring = theme.ring;

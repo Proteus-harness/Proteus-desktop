@@ -3,17 +3,17 @@
 use super::SurfaceKind;
 use super::badge::DeclarativeBadge;
 use super::view::DeclarativeView;
-use crate::ui::prefs;
+use crate::ui::{motion, prefs};
 use gpui_kit::component::*;
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 impl DeclarativeBadge {
     pub(super) fn toggle_popup(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.popup.is_some() {
+        if self.popup.is_open() {
             self.close_popup(window, cx);
         } else {
             self.restore = window.focused(cx);
-            self.popup_generation += 1;
             let popup = super::surface(self.host.clone(), SurfaceKind::Popup, None, window, cx);
             if let Some((root, keys)) = self.last_popup.clone()
                 && let Ok(view) = popup.view.clone().downcast::<DeclarativeView>()
@@ -21,112 +21,94 @@ impl DeclarativeBadge {
                 view.update(cx, |view, cx| view.show(root, 0, keys, cx));
             }
             popup.focus.focus(window, cx);
-            self.popup = Some(popup);
+            self.popup.show(popup);
         }
         cx.notify();
     }
 
     pub(super) fn close_popup(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let popup = self.popup.take();
-        if let Some(view) = popup
-            .as_ref()
-            .and_then(|popup| popup.view.clone().downcast::<DeclarativeView>().ok())
-        {
+        let Some(popup) = self.popup.current().cloned() else {
+            return;
+        };
+        self.popup.close();
+        if let Ok(view) = popup.view.clone().downcast::<DeclarativeView>() {
             self.last_popup = view.read(cx).snapshot().or(self.last_popup.take());
         }
-        if popup
-            .as_ref()
-            .is_some_and(|popup| popup.focus.contains_focused(window, cx))
-            && let Some(restore) = self.restore.take()
-        {
-            restore.focus(window, cx);
-        }
+        motion::restore_focus(&popup.focus, self.restore.take(), window, cx);
         cx.notify();
     }
 
     pub(super) fn render_popup(
-        &self,
+        &mut self,
         width: f32,
         height: f32,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let popup = self.popup.as_ref()?;
         let bounds = self.bounds.get();
-        let below = bounds.center().y < window.viewport_size().height / 2.;
-        let (anchor, position) = if below {
-            (
-                Anchor::TopLeft,
-                bounds.bottom_left() + point(px(0.), px(4.)),
-            )
-        } else {
-            (Anchor::BottomLeft, bounds.origin - point(px(0.), px(4.)))
-        };
+        let frame = self.popup.frame(bounds, window, cx)?;
+        let popup = self.popup.value()?.clone();
+        let generation = self.popup.generation();
         let this = cx.entity().downgrade();
         let trigger = self.bounds.clone();
-        Some(
-            deferred(
-                anchored()
-                    .anchor(anchor)
-                    .position(position)
-                    .snap_to_window_with_margin(px(8.))
-                    .child(crate::ui::motion::popup(
-                        v_flex()
-                            .relative()
-                            .id("extension-popup")
-                            .track_focus(&popup.focus)
-                            .occlude()
-                            .popover_style(cx)
-                            .w(prefs::scaled(width))
-                            .max_h(prefs::scaled(height))
-                            .text_sm()
-                            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                                if event.keystroke.key == "tab" {
-                                    if let Some(popup) = &this.popup {
-                                        crate::ui::kit::cycle_focus(
-                                            &popup.focus,
-                                            !event.keystroke.modifiers.shift,
-                                            window,
-                                            cx,
-                                        );
-                                    }
-                                    cx.stop_propagation();
-                                } else if event.keystroke.key == "escape" {
-                                    let action = super::installed(this.host.extension())
-                                        .and_then(|extension| {
-                                            extension.manifest.surfaces.popup.as_ref()
-                                        })
-                                        .and_then(|popup| popup.escape_action.clone());
-                                    if let Some(action) = action {
-                                        this.view.update(cx, |view, cx| view.act(action, None, cx));
-                                    } else {
+        let surface = v_flex()
+            .relative()
+            .id("extension-popup")
+            .track_focus(&popup.focus)
+            .popover_style(cx)
+            .w(prefs::scaled(width))
+            .max_h(prefs::scaled(height))
+            .text_sm()
+            .child(popup.view.clone())
+            .when(frame.open, |surface| {
+                surface
+                    .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                        if event.keystroke.key == "tab" {
+                            if let Some(popup) = this.popup.current() {
+                                crate::ui::kit::cycle_focus(
+                                    &popup.focus,
+                                    !event.keystroke.modifiers.shift,
+                                    window,
+                                    cx,
+                                );
+                            }
+                            cx.stop_propagation();
+                        } else if event.keystroke.key == "escape" {
+                            let action = super::installed(this.host.extension())
+                                .and_then(|extension| extension.manifest.surfaces.popup.as_ref())
+                                .and_then(|popup| popup.escape_action.clone());
+                            if let Some(action) = action {
+                                this.view.update(cx, |view, cx| view.act(action, None, cx));
+                            } else {
+                                this.close_popup(window, cx);
+                            }
+                            cx.stop_propagation();
+                        }
+                    }))
+                    .on_mouse_down_out(move |event, window, cx| {
+                        if !trigger.get().contains(&event.position) {
+                            let this = this.clone();
+                            window.defer(cx, move |window, cx| {
+                                let _ = this.update(cx, |this, cx| {
+                                    if this.popup.is_current(generation) {
                                         this.close_popup(window, cx);
                                     }
-                                    cx.stop_propagation();
-                                }
-                            }))
-                            .on_mouse_down_out(move |event, window, cx| {
-                                if !trigger.get().contains(&event.position) {
-                                    let this = this.clone();
-                                    window.defer(cx, move |window, cx| {
-                                        let _ = this
-                                            .update(cx, |this, cx| this.close_popup(window, cx));
-                                    });
-                                }
-                            })
-                            .child(popup.view.clone())
-                            .focus_trap("extension-popup-trap", &popup.focus),
-                        SharedString::from(format!(
-                            "badge-popup-{}-{}",
-                            cx.entity_id(),
-                            self.popup_generation
-                        )),
-                        crate::ui::motion::PopupOrigin::Anchor(bounds),
-                        cx,
-                    )),
-            )
-            .with_priority(1)
-            .into_any_element(),
-        )
+                                });
+                            });
+                        }
+                    })
+            });
+        let surface = if frame.open {
+            surface
+                .focus_trap("extension-popup-trap", &popup.focus)
+                .into_any_element()
+        } else {
+            surface.into_any_element()
+        };
+        Some(motion::popup(
+            surface,
+            SharedString::from(format!("badge-popup-{}", cx.entity_id())),
+            frame,
+        ))
     }
 }

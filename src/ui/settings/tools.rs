@@ -48,7 +48,6 @@ impl SettingsView {
         let search = crate::ui::search::field(&self.tool_search)
             .small()
             .cleanable(true)
-            .prefix(Icon::new(IconName::Search).small())
             .w(prefs::scaled(260.));
         vec![
             section(

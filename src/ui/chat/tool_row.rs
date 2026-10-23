@@ -123,8 +123,7 @@ pub(super) fn render_tool(
         .child(
             tool_line(tool, cx)
                 .id(row_id("tool", key))
-                .cursor_pointer()
-                .pressable(cx)
+                .disclosure(cx)
                 .child(chevron(row_id("tool-chevron", key), expanded, muted))
                 .on_click(cx.listener(move |this, _, _, cx| this.toggle_expanded(key, cx))),
         )
@@ -180,10 +179,7 @@ impl Fold {
                             .min_w_0()
                             .gap_1()
                             .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .cursor_pointer()
-                            .pressable(cx)
-                            .hover(|row| row.text_color(theme.foreground))
+                            .disclosure(cx)
                             .child(chevron(
                                 ElementId::NamedInteger(
                                     format!("tool-more-chevron-{part}").into(),

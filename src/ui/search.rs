@@ -16,7 +16,14 @@ use super::kit::{self, Hint as _};
 use super::{motion, prefs};
 
 pub(in crate::ui) fn field(input: &Entity<InputState>) -> Input {
-    Input::new(input).focus_bordered(false)
+    let focus = input.clone();
+    Input::new(input).focus_bordered(false).prefix(
+        div()
+            .child(Icon::new(IconName::Search).small())
+            .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                self::focus(&focus, window, cx)
+            }),
+    )
 }
 
 #[derive(IntoElement)]
@@ -65,17 +72,6 @@ fn active(input: &Entity<InputState>, window: &Window, cx: &App) -> bool {
 impl RenderOnce for Search {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let open = active(&self.input, window, cx);
-        let input = self.input.clone();
-        let trigger = kit::button(ElementId::Name(format!("{:?}:trigger", self.id).into()))
-            .ghost()
-            .small()
-            .icon(IconName::Search)
-            .selected(open)
-            .hint_keys(&self.hint, Some("Ctrl+F"), cx)
-            .on_click(move |_, window, cx| {
-                cx.stop_propagation();
-                focus(&input, window, cx);
-            });
         let progress = motion::glide(
             ElementId::Name(format!("{:?}:reveal", self.id).into()),
             open,
@@ -103,19 +99,24 @@ impl RenderOnce for Search {
                         .font_semibold()
                         .child(super::fade::faded(title)),
                 )
-            })
-            .child(trigger);
+            });
         if open || progress > 0. {
             let input = self.input.clone();
             let restore = self.restore;
             row = row
                 .child(
                     div()
-                        .w(prefs::scaled(200. * progress))
+                        .w(prefs::scaled(24. + 200. * progress))
                         .h_full()
                         .min_w_0()
                         .overflow_hidden()
-                        .child(field(&self.input).small().w_full().cleanable(true)),
+                        .child(
+                            field(&self.input)
+                                .small()
+                                .w_full()
+                                .pl(prefs::scaled(4. + 4. * progress))
+                                .cleanable(true),
+                        ),
                 )
                 .on_action(move |_: &Escape, window, cx| {
                     if !input.read(cx).value().is_empty() {
@@ -129,6 +130,19 @@ impl RenderOnce for Search {
                     window.refresh();
                     cx.stop_propagation();
                 });
+        } else {
+            let input = self.input;
+            row = row.child(
+                kit::button("search-trigger")
+                    .ghost()
+                    .small()
+                    .icon(IconName::Search)
+                    .hint_keys(&self.hint, Some("Ctrl+F"), cx)
+                    .on_click(move |_, window, cx| {
+                        cx.stop_propagation();
+                        focus(&input, window, cx);
+                    }),
+            );
         }
         row
     }

@@ -60,15 +60,15 @@ pub(crate) fn menu_option(label: impl Into<SharedString>, selected: bool) -> Pop
             .aria_label(label.clone())
             .aria_selected(selected)
             .relative()
-            .w(natural_width + prefs::scaled(8.).to_pixels(window.rem_size()))
+            .w(natural_width + px(16.))
             .min_w_0()
             .flex_1()
             .text_sm()
-            // The native MenuItemElement has 8px side padding. Extending
-            // the child by 4px leaves the selected pill inset by 4px while
-            // the caption stays aligned with ordinary menu entries.
-            .mx_neg_1()
-            .px_1()
+            // Cancel the native MenuItemElement's fixed 8px side padding:
+            // committed selection and native hover cover the same contour,
+            // while the caption keeps its ordinary menu alignment.
+            .mx(px(-8.))
+            .px(px(8.))
             .min_h(prefs::scaled(26.))
             .rounded(theme.radius)
             .when(selected, |row| {

@@ -3,12 +3,15 @@
 //! A project with saved chats reuses its latest session's settings.
 
 use crate::ui::kit::ButtonLabel as _;
-use std::path::{Path, PathBuf};
+use std::{
+    cell::Cell,
+    path::{Path, PathBuf},
+    rc::Rc,
+};
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
-use gpui_kit::component::input::{InputEvent, InputState};
-use gpui_kit::component::popover::{Popover, PopoverState};
+use gpui_kit::component::input::{Escape, InputEvent, InputState};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -18,9 +21,9 @@ use super::chrome::{WorkspaceRequest, folder_name};
 use super::fade::faded;
 use super::kit;
 use super::kit::Pressable as _;
-use super::prefs;
 use super::tip::Tip as _;
 use super::workspace::Workspace;
+use super::{motion, prefs};
 use crate::tabs;
 
 /// Width of the picker before zoom.
@@ -39,51 +42,13 @@ impl Workspace {
             .unwrap_or_else(|| self.workspace_path.clone())
     }
 
-    pub(super) fn render_project_chip(&self, chat: EntityId, cx: &App) -> AnyElement {
-        let project = self.chat_project(chat);
-        let picker = self.project_picker.clone();
-        let focus = picker.read(cx).search.focus_handle(cx);
-        let opened = picker.read(cx).open;
-        let workspace = picker.read(cx).workspace.clone();
-        let trigger = kit::button("project-chip")
-            .ghost()
-            .xsmall()
-            .icon(Lucide::Folder)
-            .faded_label(folder_name(&project))
-            .child(crate::ui::motion::menu_chevron(
-                SharedString::from(format!("project-chevron-{chat}")),
-                opened,
-                cx.theme().muted_foreground,
-            ))
-            .text_color(cx.theme().muted_foreground);
-        let popover = Popover::new("project-chip-popover")
-            .anchor(Anchor::BottomLeft)
-            .appearance(false)
-            .track_focus(&focus)
-            .trigger(trigger)
-            .on_open_change({
-                let picker = picker.clone();
-                move |open, window, cx| {
-                    picker.update(cx, |picker, cx| {
-                        picker.open = *open;
-                        cx.notify();
-                    });
-                    let _ = workspace.update(cx, |_, cx| cx.notify());
-                    if *open {
-                        let project = project.clone();
-                        picker.update(cx, |picker, cx| picker.reset(project, window, cx));
-                    }
-                }
-            })
-            .content(move |_, _, cx: &mut Context<PopoverState>| {
-                let popover = cx.entity().downgrade();
-                picker.update(cx, |picker, _| picker.popover = Some(popover));
-                picker.clone()
-            });
-        h_flex()
-            .tip_text(self.chat_project(chat).display().to_string())
-            .child(popover)
-            .into_any_element()
+    pub(super) fn render_project_chip(&self, chat: EntityId, _: &App) -> AnyElement {
+        ProjectChip {
+            chat,
+            project: self.chat_project(chat),
+            picker: self.project_picker.clone(),
+        }
+        .into_any_element()
     }
 
     /// Starts a chat in `project`. A blank active chat gives way to it, so
@@ -183,16 +148,80 @@ impl Workspace {
     }
 }
 
+/// Every chat has its own measured trigger; the shared picker belongs to
+/// exactly one of them, including while its closing drawing is retained.
+#[derive(IntoElement)]
+struct ProjectChip {
+    chat: EntityId,
+    project: PathBuf,
+    picker: Entity<ProjectPicker>,
+}
+
+impl RenderOnce for ProjectChip {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let id = SharedString::from(format!("project-chip-{}", self.chat));
+        let bounds = window
+            .use_keyed_state(id.clone(), cx, |_, _| {
+                Rc::new(Cell::new(Bounds::<Pixels>::default()))
+            })
+            .read(cx)
+            .clone();
+        let chat = self.chat;
+        let open = self.picker.read(cx).popup.is_open()
+            && self.picker.read(cx).popup.value().copied() == Some(chat);
+        let picker = self.picker.clone();
+        let project = self.project.clone();
+        let anchor = bounds.clone();
+        let trigger = kit::button("project-chip")
+            .ghost()
+            .xsmall()
+            .icon(Lucide::Folder)
+            .faded_label(folder_name(&self.project))
+            .selected(open)
+            .child(motion::menu_chevron(
+                SharedString::from(format!("project-chevron-{chat}")),
+                open,
+                cx.theme().muted_foreground,
+            ))
+            .text_color(cx.theme().muted_foreground)
+            .on_click(move |_, window, cx| {
+                cx.stop_propagation();
+                picker.update(cx, |picker, cx| {
+                    if picker.popup.is_open() && picker.popup.value().copied() == Some(chat) {
+                        picker.close(window, cx);
+                    } else {
+                        picker.show(chat, project.clone(), anchor.clone(), window, cx);
+                    }
+                });
+            });
+        let frame = self.picker.update(cx, |picker, cx| {
+            if picker.popup.value().copied() != Some(chat) {
+                return None;
+            }
+            picker.popup.frame(bounds.get(), window, cx)
+        });
+        let root = h_flex()
+            .id(id.clone())
+            .tip_text(self.project.display().to_string())
+            .on_prepaint(move |rect, _, _| bounds.set(rect))
+            .child(trigger);
+        match frame {
+            Some(frame) => root.child(motion::popup(self.picker, id, frame)),
+            None => root,
+        }
+    }
+}
+
 /// The picker's content: a search over projects and the folder dialog.
 pub(super) struct ProjectPicker {
     workspace: WeakEntity<Workspace>,
     search: Entity<InputState>,
     /// Project of the chat the picker was opened from.
     current: PathBuf,
-    /// The open popover, closed once a project is chosen.
-    popover: Option<WeakEntity<PopoverState>>,
-    generation: usize,
-    open: bool,
+    popup: motion::Popup<EntityId>,
+    anchor: Rc<Cell<Bounds<Pixels>>>,
+    focus: FocusHandle,
+    restore: Option<FocusHandle>,
     _subscription: Subscription,
 }
 
@@ -203,6 +232,11 @@ impl ProjectPicker {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        cx.bind_keys([KeyBinding::new(
+            "escape",
+            Escape,
+            Some("ProteusProjectPicker"),
+        )]);
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Поиск проектов"));
         let subscription =
             cx.subscribe_in(&search, window, |this, _, event, window, cx| match event {
@@ -218,19 +252,34 @@ impl ProjectPicker {
             workspace,
             search,
             current,
-            popover: None,
-            generation: 0,
-            open: false,
+            popup: motion::Popup::default(),
+            anchor: Rc::default(),
+            focus: cx.focus_handle(),
+            restore: None,
             _subscription: subscription,
         }
     }
 
-    fn reset(&mut self, current: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
-        self.generation += 1;
+    fn show(
+        &mut self,
+        chat: EntityId,
+        current: PathBuf,
+        anchor: Rc<Cell<Bounds<Pixels>>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.focus.contains_focused(window, cx) {
+            self.restore = window.focused(cx);
+        }
         self.current = current;
-        self.search
-            .update(cx, |search, cx| search.set_value("", window, cx));
+        self.anchor = anchor;
+        self.popup.show(chat);
+        self.search.update(cx, |search, cx| {
+            search.set_value("", window, cx);
+            search.focus(window, cx);
+        });
         cx.notify();
+        let _ = self.workspace.update(cx, |_, cx| cx.notify());
     }
 
     fn matches(&self, cx: &App) -> Vec<PathBuf> {
@@ -249,16 +298,30 @@ impl ProjectPicker {
     }
 
     fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(popover) = self.popover.take().and_then(|popover| popover.upgrade()) {
-            // Dismiss calls on_open_change, which updates this picker.
-            // Release its current lease before entering that callback.
-            window.defer(cx, move |window, cx| {
-                popover.update(cx, |popover, cx| popover.dismiss(window, cx));
-            });
+        let generation = self.popup.generation();
+        if !self.popup.close() {
+            return;
         }
+        cx.notify();
+        let picker = cx.weak_entity();
+        // Logical dismissal is immediate; focus/parent notification remains
+        // outside this lease. A late close cannot affect a fresh opening.
+        window.defer(cx, move |window, cx| {
+            let _ = picker.update(cx, |picker, cx| {
+                if picker.popup.generation() != generation || picker.popup.is_open() {
+                    return;
+                }
+                motion::restore_focus(&picker.focus, picker.restore.take(), window, cx);
+                cx.notify();
+                let _ = picker.workspace.update(cx, |_, cx| cx.notify());
+            });
+        });
     }
 
     fn pick(&mut self, project: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.popup.is_open() {
+            return;
+        }
         self.close(window, cx);
         self.workspace
             .update(cx, |workspace, cx| {
@@ -268,6 +331,9 @@ impl ProjectPicker {
     }
 
     fn choose(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.popup.is_open() {
+            return;
+        }
         self.close(window, cx);
         self.workspace
             .update(cx, |_, cx| cx.emit(WorkspaceRequest::Choose))
@@ -311,24 +377,37 @@ impl Render for ProjectPicker {
         });
         let projects: Vec<_> = projects.collect();
         let empty = projects.is_empty();
+        let generation = self.popup.generation();
+        let anchor = self.anchor.clone();
         let surface = v_flex()
+            .id("project-picker")
+            .key_context("ProteusProjectPicker")
+            .track_focus(&self.focus)
             .relative()
             .w(prefs::scaled(PICKER_WIDTH))
             .popover_style(cx)
             .p_1()
             .gap_1()
-            .capture_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
-                if event.keystroke.key == "escape" {
-                    this.close(window, cx);
-                    cx.stop_propagation();
-                }
-            }))
+            .when(self.popup.is_open(), |surface| {
+                surface
+                    .on_action(cx.listener(|this, _: &Escape, window, cx| {
+                        this.close(window, cx);
+                        cx.stop_propagation();
+                    }))
+                    .on_mouse_down_out(cx.listener(
+                        move |this, event: &MouseDownEvent, window, cx| {
+                            if !anchor.get().contains(&event.position)
+                                && this.popup.is_current(generation)
+                            {
+                                this.close(window, cx);
+                            }
+                        },
+                    ))
+            })
             .child(
-                div().p_1().child(
-                    super::search::field(&self.search)
-                        .small()
-                        .prefix(Icon::new(IconName::Search).small()),
-                ),
+                div()
+                    .p_1()
+                    .child(super::search::field(&self.search).small()),
             )
             .child(
                 v_flex()
@@ -360,15 +439,12 @@ impl Render for ProjectPicker {
                     .child("Открыть папку…")
                     .on_click(cx.listener(|this, _, window, cx| this.choose(window, cx))),
             );
-        crate::ui::motion::popup(
-            surface,
-            SharedString::from(format!(
-                "project-picker-{}-{}",
-                cx.entity_id(),
-                self.generation
-            )),
-            crate::ui::motion::PopupOrigin::Bottom,
-            cx,
-        )
+        if self.popup.is_open() {
+            surface
+                .focus_trap("project-picker-trap", &self.focus)
+                .into_any_element()
+        } else {
+            surface.into_any_element()
+        }
     }
 }

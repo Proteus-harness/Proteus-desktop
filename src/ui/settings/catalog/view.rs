@@ -276,8 +276,7 @@ impl SettingsView {
                         Self::catalog_search_keys(div()).flex_1().min_w_0().child(
                             crate::ui::search::field(&self.catalogs.search)
                                 .small()
-                                .cleanable(true)
-                                .prefix(Icon::new(IconName::Search).small()),
+                                .cleanable(true),
                         ),
                     )
                     .child(

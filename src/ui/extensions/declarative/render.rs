@@ -64,8 +64,7 @@ impl DeclarativeView {
                     .px_2()
                     .py_1p5()
                     .gap_2()
-                    .cursor_pointer()
-                    .pressable(cx)
+                    .disclosure(cx)
                     .child(crate::ui::motion::chevron(
                         ElementId::Name(key.clone()),
                         opened,

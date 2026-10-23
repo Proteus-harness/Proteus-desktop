@@ -2,7 +2,6 @@
 //! A searchable, virtualized single-choice control. Callers supply labels and
 //! values; keyboard navigation, filtering, focus and selection belong here.
 
-use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -234,11 +233,7 @@ impl<T: Clone + PartialEq + 'static> Render for Picker<T> {
             .min_w_0()
             .gap_1()
             .capture_key_down(cx.listener(Self::keys))
-            .child(
-                super::search::field(&self.search)
-                    .small()
-                    .prefix(Icon::new(Lucide::Search).small()),
-            )
+            .child(super::search::field(&self.search).small())
             .when(count > 0, |body| body.child(rows))
             .when(count == 0, |body| {
                 body.child(

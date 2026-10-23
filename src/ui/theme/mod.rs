@@ -97,6 +97,7 @@ fn pick(name: &str, mode: ThemeMode, fallback: &str, cx: &App) -> Option<Rc<Them
 pub(super) fn label(name: &str) -> SharedString {
     match name {
         "Proteus Graphite" => "Графит".into(),
+        "Proteus Slate" => "Сланец".into(),
         "Proteus Light" => "Светлая".into(),
         "Default Dark" => "Чёрная".into(),
         "Default Light" => "Белая".into(),

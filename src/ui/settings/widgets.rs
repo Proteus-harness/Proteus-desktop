@@ -429,10 +429,7 @@ pub(super) fn disclosure(
         .gap_2()
         .items_center()
         .text_sm()
-        .text_color(theme.muted_foreground)
-        .cursor_pointer()
-        .hover(|row| row.bg(theme.list_hover))
-        .pressable(cx)
+        .disclosure(cx)
         .child(crate::ui::motion::chevron(
             chevron_id,
             open,

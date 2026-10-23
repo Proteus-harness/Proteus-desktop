@@ -6,7 +6,6 @@
 //! element, flipped above it when there is no room, sliding in the same way.
 
 use super::{motion, prefs};
-use gpui_kit::base::{Align, POPUP_PRIORITY, Placement, Positioner};
 use gpui_kit::component::button::Button;
 use gpui_kit::component::menu::PopupMenu;
 use gpui_kit::component::*;
@@ -14,14 +13,13 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, Bounds, Context, DismissEvent, ElementId, Entity, Focusable as _,
     InteractiveElement, IntoElement, MouseButton, ParentElement as _, Pixels, Refineable as _,
-    RenderOnce, SharedString, StyleRefinement, Styled, Window, canvas, deferred, div, px,
+    RenderOnce, SharedString, StyleRefinement, Styled, Window, canvas, div, px,
 };
 
 #[derive(Default)]
 struct MenuState {
     bounds: Bounds<Pixels>,
-    menu: Option<Entity<PopupMenu>>,
-    generation: usize,
+    popup: motion::Popup<Entity<PopupMenu>>,
     /// Whether this pointer press began while the menu was still open.
     pressed_open: bool,
 }
@@ -99,7 +97,7 @@ impl RenderOnce for ContextMenu {
         let opened = state.clone();
         let pressed = state.clone();
         let build = self.build;
-        let menu_open = state.read(cx).menu.is_some();
+        let menu_open = state.read(cx).popup.is_open();
         let disabled = matches!(&self.trigger, Trigger::Split(_, _, true));
         let (click_state, click_build) = (state.clone(), build.clone());
         let trigger = match self.trigger {
@@ -172,36 +170,25 @@ impl RenderOnce for ContextMenu {
                     open(&opened, &build, window, cx);
                 }
             });
-        let (bounds, menu) = {
-            let state = state.read(cx);
-            (state.bounds, state.menu.clone())
-        };
-        let Some(menu) = menu else {
+        let shown = state.update(cx, |state, cx| {
+            let frame = state.popup.frame(state.bounds, window, cx)?;
+            Some((state.popup.value()?.clone(), frame))
+        });
+        let Some((menu, frame)) = shown else {
             return root;
         };
-        let generation = state.read(cx).generation;
-        let animation = ElementId::Name(format!("{:?}:enter:{generation}", self.id).into());
-        let surface = div().relative().child(menu);
-        let surface = motion::popup(surface, animation, motion::PopupOrigin::Anchor(bounds), cx);
-        root.child(
-            deferred(
-                Positioner::side(bounds)
-                    .placement(Placement::Bottom)
-                    .align(Align::Start)
-                    .offset(px(4.))
-                    .margin(px(8.))
-                    .occlude()
-                    .child(surface),
-            )
-            .with_priority(POPUP_PRIORITY),
-        )
+        root.child(motion::popup(
+            div().relative().child(menu),
+            ElementId::Name(format!("{:?}:popup", self.id).into()),
+            frame,
+        ))
     }
 }
 
 fn click(state: &Entity<MenuState>, build: &Build, window: &mut Window, cx: &mut App) {
     let pressed_open = state.update(cx, |state, _| std::mem::take(&mut state.pressed_open));
     if pressed_open && !window.last_input_was_keyboard() {
-        if let Some(menu) = state.read(cx).menu.clone() {
+        if let Some(menu) = state.read(cx).popup.current().cloned() {
             menu.update(cx, |_, cx| cx.emit(DismissEvent));
         }
         return;
@@ -210,9 +197,9 @@ fn click(state: &Entity<MenuState>, build: &Build, window: &mut Window, cx: &mut
 }
 
 /// Builds the menu afresh, so its items reflect the moment it opens, and
-/// forgets it once dismissed.
+/// retains only its inert drawing while dismissal animates.
 fn open(state: &Entity<MenuState>, build: &Build, window: &mut Window, cx: &mut App) {
-    if let Some(menu) = state.read(cx).menu.clone() {
+    if let Some(menu) = state.read(cx).popup.current().cloned() {
         menu.update(cx, |_, cx| cx.emit(DismissEvent));
         return;
     }
@@ -237,22 +224,19 @@ fn open(state: &Entity<MenuState>, build: &Build, window: &mut Window, cx: &mut 
     });
     let menu_focus = menu.focus_handle(cx);
     menu_focus.focus(window, cx);
+    let generation = state.update(cx, |state, _| state.popup.show(menu.clone()));
     let held = state.downgrade();
     window
         .subscribe(&menu, cx, move |_, _: &DismissEvent, window, cx| {
-            if menu_focus.contains_focused(window, cx)
-                && let Some(previous) = &previous_focus
-            {
-                previous.focus(window, cx);
+            let closed = held
+                .update(cx, |state, _| state.popup.close_if(generation))
+                .unwrap_or(false);
+            if closed {
+                motion::restore_focus(&menu_focus, previous_focus.clone(), window, cx);
+                window.refresh();
             }
-            _ = held.update(cx, |state, _| state.menu = None);
-            window.refresh();
         })
         .detach();
-    state.update(cx, |state, _| {
-        state.menu = Some(menu);
-        state.generation += 1;
-    });
     window.refresh();
 }
 

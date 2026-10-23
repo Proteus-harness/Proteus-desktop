@@ -19,13 +19,12 @@ use std::cell::Cell;
 pub(super) struct DeclarativeBadge {
     pub(super) host: Host,
     pub(super) view: Entity<DeclarativeView>,
-    pub(super) popup: Option<super::super::SurfaceView>,
+    pub(super) popup: crate::ui::motion::Popup<super::super::SurfaceView>,
     pub(super) last_popup: Option<(
         crate::declarative::widget::Node,
         std::collections::HashMap<String, String>,
     )>,
     pub(super) popup_epoch: u64,
-    pub(super) popup_generation: u64,
     pub(super) bounds: Rc<Cell<Bounds<Pixels>>>,
     pub(super) restore: Option<FocusHandle>,
     _view: Subscription,
@@ -38,10 +37,9 @@ pub(super) fn build(host: Host, window: &mut Window, cx: &mut App) -> AnyView {
         _view: cx.observe(&view, |_, _, cx| cx.notify()),
         host,
         view,
-        popup: None,
+        popup: crate::ui::motion::Popup::default(),
         last_popup: None,
         popup_epoch: 0,
-        popup_generation: 0,
         bounds: Rc::default(),
         restore: None,
     })
@@ -52,6 +50,8 @@ impl Render for DeclarativeBadge {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let id = self.host.extension();
         let Some(extension) = installed(id) else {
+            self.close_popup(window, cx);
+            self.popup.clear();
             return div().into_any_element();
         };
         let manifest = &extension.manifest;
@@ -62,7 +62,8 @@ impl Render for DeclarativeBadge {
             .as_ref()
             .is_some_and(|presentation| presentation.hidden)
         {
-            self.popup = None;
+            self.close_popup(window, cx);
+            self.popup.clear();
             return div().into_any_element();
         }
         let epoch = view.popup_closed(cx);
@@ -91,7 +92,7 @@ impl Render for DeclarativeBadge {
         } else {
             gpui_kit::component::Size::Small
         };
-        let open = self.popup.is_some();
+        let open = self.popup.is_open();
         let face: Rc<dyn Fn() -> AnyElement> = if let Some(presentation) = presentation {
             match &presentation.face {
                 Face::Icon { tone, count } => {

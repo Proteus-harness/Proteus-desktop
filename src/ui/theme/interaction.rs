@@ -8,7 +8,7 @@ use std::rc::Rc;
 use gpui_kit::component::{Colorize as _, Theme, ThemeConfig};
 use gpui_kit::{App, SharedString};
 
-const HOVER_SHARE: f32 = 0.4;
+const HOVER_SHARE: f32 = 0.55;
 
 /// ThemeConfig clamps list/table active alpha to 0.2. Apply the shared
 /// committed selection after loading a config, including System changes.

@@ -168,7 +168,7 @@ impl SettingsView {
             let advanced = std::iter::once(self.mcp_parallel_row(ix, server, saved, cx))
                 .chain(ADVANCED.into_iter().map(&text_row))
                 .collect();
-            stacked(advanced, cx).into_any_element()
+            nested(stacked(advanced, cx)).into_any_element()
         }));
         rows.push(
             h_flex()

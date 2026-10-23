@@ -42,14 +42,13 @@ impl SettingsView {
             // The divider under the toggle is part of the revealed rows, so
             // nothing is left over once they close.
             let content = self.reveal(&key, cx, || {
-                v_flex()
-                    .children(advanced.into_iter().map(|field| {
-                        div()
-                            .border_t_1()
-                            .border_color(border)
-                            .child(field_row(field))
-                    }))
-                    .into_any_element()
+                nested(v_flex().children(advanced.into_iter().map(|field| {
+                    div()
+                        .border_t_1()
+                        .border_color(border)
+                        .child(field_row(field))
+                })))
+                .into_any_element()
             });
             let view = cx.weak_entity();
             let toggle_key = key.clone();
@@ -129,9 +128,7 @@ impl SettingsView {
             .gap_2()
             .items_center()
             .text_sm()
-            .cursor_pointer()
-            .hover(|row| row.bg(theme.list_hover))
-            .pressable(cx)
+            .disclosure(cx)
             .child(crate::ui::motion::chevron(
                 ElementId::Name(format!("{key}-chevron").into()),
                 open,
