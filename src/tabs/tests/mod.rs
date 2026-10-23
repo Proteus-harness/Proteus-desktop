@@ -166,6 +166,10 @@ fn active_chat_follows_focus_and_survives_hiding() {
 #[test]
 fn preview_tab_is_replaced_until_kept() {
     let mut layout = with_chat();
+    layout.open_preview("git:commit:abc1234", |_| false);
+    layout.open_preview("git:commit:def5678", |_| false);
+    assert_eq!(shape(&layout), "0[a, git:commit:def5678*]");
+    assert_eq!(layout.preview.as_deref(), Some("git:commit:def5678"));
     layout.open_preview("files:a.rs", |_| false);
     layout.open_preview("files:b.rs", |_| false);
     assert_eq!(shape(&layout), "0[a, files:b.rs*]");

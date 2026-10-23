@@ -34,6 +34,62 @@ impl DeclarativeView {
     /// selected tab, so they survive a new tree of the same shape.
     pub(super) fn node(&self, node: &Node, path: &str, cx: &mut Context<Self>) -> AnyElement {
         match node {
+            Node::Person { name, detail } => v_flex()
+                .w_full()
+                .items_center()
+                .py_3()
+                .gap_2()
+                .child(super::person::avatar(name, 36., cx))
+                .child(div().max_w_full().text_lg().child(faded(name.clone())))
+                .child(
+                    div()
+                        .max_w_full()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(faded(detail.clone())),
+                )
+                .into_any_element(),
+            Node::Disclosure {
+                id,
+                label,
+                open,
+                children,
+            } => {
+                let opened = self.fields.disclosures.get(id).copied().unwrap_or(*open);
+                let key: SharedString =
+                    format!("extension-disclosure-{}-{id}", cx.entity_id()).into();
+                let (id, toggle) = (id.clone(), key.clone());
+                let header = h_flex()
+                    .id(ElementId::Name(key.clone()))
+                    .w_full()
+                    .px_2()
+                    .py_1p5()
+                    .gap_2()
+                    .cursor_pointer()
+                    .pressable(cx)
+                    .child(crate::ui::motion::chevron(
+                        ElementId::Name(key.clone()),
+                        opened,
+                        cx.theme().muted_foreground,
+                    ))
+                    .child(faded(label.clone()))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.fields.disclosures.insert(id.clone(), !opened);
+                        crate::ui::motion::toggled(toggle.clone(), !opened, cx);
+                        cx.notify();
+                    }));
+                let content = self
+                    .fill(children, path, cx)
+                    .w_full()
+                    .px_2()
+                    .pb_2()
+                    .into_any_element();
+                v_flex()
+                    .w_full()
+                    .child(header)
+                    .children(crate::ui::motion::reveal(key, opened, cx, || content))
+                    .into_any_element()
+            }
             Node::Cells { columns, segments } => super::cells::cells(path, *columns, segments, cx),
             Node::Graph { id, .. } => div()
                 .flex_1()

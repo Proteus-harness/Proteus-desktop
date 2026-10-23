@@ -51,11 +51,24 @@ pub enum Node {
     /// A virtualized list with a lane column, such as a commit history.
     Lanes {
         id: String,
+        columns: Vec<super::lanes::Column>,
         rows: Vec<super::lanes::Row>,
         action: String,
     },
     Fill {
         children: Vec<Node>,
+    },
+    /// Native animated disclosure; open is the initial state, remembered by id.
+    Disclosure {
+        id: String,
+        label: String,
+        #[serde(default = "yes")]
+        open: bool,
+        children: Vec<Node>,
+    },
+    Person {
+        name: String,
+        detail: String,
     },
     /// A compact strip at an edge of a panel, like the footers of Zed's git
     /// panel: what comes before a `spacer` sits at the start and may shrink,
@@ -423,6 +436,7 @@ impl Node {
             Node::Stack { children, .. }
             | Node::Card { children, .. }
             | Node::Fill { children }
+            | Node::Disclosure { children, .. }
             | Node::Bar { children, .. }
             | Node::PanelEditor { children }
             | Node::Split { children, .. } => {
@@ -496,6 +510,7 @@ impl Node {
             | Node::Bar { children, .. }
             | Node::PanelEditor { children }
             | Node::Fill { children } => children,
+            Node::Disclosure { children, .. } => children,
             Node::Icon { name, .. } => {
                 known_icon(Some(name))?;
                 &[]
@@ -581,8 +596,8 @@ impl Node {
                 }
                 &[]
             }
-            Node::Lanes { rows, .. } => {
-                super::lanes::check(rows)?;
+            Node::Lanes { columns, rows, .. } => {
+                super::lanes::check(columns, rows)?;
                 &[]
             }
             Node::List { rows, .. } => {

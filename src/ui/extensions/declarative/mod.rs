@@ -14,6 +14,7 @@ mod lanes_paint;
 mod layout;
 mod list;
 mod menu;
+mod person;
 mod popup;
 mod prompt;
 mod render;

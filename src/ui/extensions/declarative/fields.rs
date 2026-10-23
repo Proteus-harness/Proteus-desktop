@@ -57,6 +57,7 @@ pub(super) struct TextInput {
 
 #[derive(Default)]
 pub(super) struct Fields {
+    pub disclosures: HashMap<String, bool>,
     pub inputs: HashMap<String, TextInput>,
     pub codes: HashMap<String, Entity<EditorState>>,
     pub terminals: HashMap<String, Entity<TerminalView>>,
@@ -98,6 +99,9 @@ impl DeclarativeView {
             Node::Diff { id, .. } => {
                 ids.insert((8, id.clone()));
             }
+            Node::Disclosure { id, .. } => {
+                ids.insert((9, id.clone()));
+            }
             _ => {}
         });
         self.fields
@@ -125,6 +129,9 @@ impl DeclarativeView {
         self.fields
             .diffs
             .retain(|id, _| ids.contains(&(8, id.clone())));
+        self.fields
+            .disclosures
+            .retain(|id, _| ids.contains(&(9, id.clone())));
     }
 
     pub(super) fn prepare_fields(
@@ -134,6 +141,14 @@ impl DeclarativeView {
         cx: &mut Context<Self>,
     ) {
         match node {
+            Node::Disclosure {
+                id, open, children, ..
+            } => {
+                self.fields.disclosures.entry(id.clone()).or_insert(*open);
+                for child in children {
+                    self.prepare_fields(child, window, cx);
+                }
+            }
             Node::Diff {
                 id, patch, files, ..
             } => {
@@ -317,13 +332,25 @@ impl DeclarativeView {
                     self.fields.trees.insert(id.clone(), tree);
                 }
             }
-            Node::Lanes { id, rows, action } => {
+            Node::Lanes {
+                id,
+                columns,
+                rows,
+                action,
+            } => {
                 if let Some(lanes) = self.fields.lanes.get(id) {
-                    lanes.update(cx, |lanes, cx| lanes.set_rows(rows.clone(), cx));
+                    lanes.update(cx, |lanes, cx| {
+                        lanes.set_columns(columns, cx);
+                        lanes.set_rows(rows.clone(), cx);
+                    });
                 } else {
                     let send = self.row_sender(action, cx);
                     let view = cx.weak_entity();
-                    let lanes = cx.new(|cx| Lanes::new(rows.clone(), view, cx, send));
+                    let lanes = cx.new(|cx| {
+                        let mut lanes = Lanes::new(rows.clone(), view, cx, send);
+                        lanes.set_columns(columns, cx);
+                        lanes
+                    });
                     self.fields.lanes.insert(id.clone(), lanes);
                 }
             }

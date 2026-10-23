@@ -57,10 +57,10 @@ fn cell(file: &File, index: Option<usize>, old: bool, split: bool, cx: &App) -> 
         ));
     };
     let line = &file.lines[index];
-    let (mark, tint) = match line.kind {
-        Kind::Added => ("+", Some(theme.success)),
-        Kind::Removed => ("−", Some(theme.danger)),
-        _ => (" ", None),
+    let tint = match line.kind {
+        Kind::Added => Some(theme.success),
+        Kind::Removed => Some(theme.danger),
+        _ => None,
     };
     h_flex()
         .flex_1()
@@ -68,6 +68,8 @@ fn cell(file: &File, index: Option<usize>, old: bool, split: bool, cx: &App) -> 
         .min_w_0()
         .h_full()
         .overflow_hidden()
+        .border_l_2()
+        .border_color(tint.unwrap_or(theme.border.opacity(0.)))
         .when_some(tint, |cell, color| cell.bg(color.opacity(0.09)))
         .child(number(
             if old {
@@ -82,15 +84,9 @@ fn cell(file: &File, index: Option<usize>, old: bool, split: bool, cx: &App) -> 
         .when(!split, |cell| cell.child(number(line.new, cx)))
         .child(
             div()
-                .flex_none()
-                .w(prefs::scaled(16.))
-                .text_color(tint.unwrap_or(theme.muted_foreground))
-                .child(mark),
-        )
-        .child(
-            div()
                 .flex_1()
                 .min_w_0()
+                .pl_2()
                 .whitespace_nowrap()
                 .child(SelectableText::new(
                     ElementId::Name(format!("{}-{index}-{old}", file.path).into()),

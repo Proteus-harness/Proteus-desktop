@@ -8,6 +8,7 @@ use gpui_kit::component::*;
 use gpui_kit::*;
 
 use super::Chat;
+use crate::ui::kit::Hint as _;
 use crate::ui::{kit, motion, prefs};
 
 const SHOWN: Duration = Duration::from_secs(4);
@@ -68,12 +69,19 @@ impl Chat {
             .shadow_sm()
             .text_xs()
             .text_color(theme.muted_foreground)
-            .child(div().flex_1().min_w_0().child(text))
+            .child(div().flex_1().min_w_0().child(text.clone()))
+            .child(
+                clipboard::Clipboard::new("notice-copy")
+                    .value(text)
+                    .hint("Копировать полный текст уведомления", cx)
+                    .xsmall(),
+            )
             .child(
                 kit::button("notice-close")
                     .icon(IconName::Close)
                     .ghost()
                     .xsmall()
+                    .hint("Закрыть уведомление", cx)
                     .on_click(cx.listener(|this, _, _, cx| this.clear_notice(cx))),
             );
         Some(

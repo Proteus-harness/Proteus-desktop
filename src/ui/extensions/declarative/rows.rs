@@ -31,10 +31,17 @@ pub(super) trait Kind: Default + 'static {
     fn measure(&mut self, rows: &[Rc<Self::Row>]);
     /// One row without its click and menu; `ring` marks the cursor.
     fn draw(&self, row: &Self::Row, index: usize, ring: bool, cx: &App) -> Stateful<Div>;
+
+    fn header(&self, _: &mut Context<Rows<Self>>) -> Option<AnyElement>
+    where
+        Self: Sized,
+    {
+        None
+    }
 }
 
 pub(super) struct Rows<K: Kind> {
-    kind: K,
+    pub(super) kind: K,
     rows: Vec<Rc<K::Row>>,
     cursor: usize,
     /// The keyboard moved the cursor last, not the mouse.
@@ -163,6 +170,7 @@ impl<K: Kind> Render for Rows<K> {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.cursor = self.cursor.min(self.rows.len().saturating_sub(1));
         let focused = self.focus.contains_focused(window, cx);
+        let header = self.kind.header(cx);
         let list = uniform_list(
             K::NAME,
             self.rows.len(),
@@ -182,6 +190,7 @@ impl<K: Kind> Render for Rows<K> {
                 cx.listener(|this, _, window, cx| this.focus.focus(window, cx)),
             )
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| this.key(event, cx)))
+            .children(header)
             .child(list)
     }
 }

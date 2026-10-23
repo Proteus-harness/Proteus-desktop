@@ -200,6 +200,7 @@ impl Focusable for DeclarativeView {
 
 impl Render for DeclarativeView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        crate::ui::motion::drive(window, cx);
         if let Some(root) = self.root.clone() {
             self.prune_fields(&root);
             self.prepare_steps(&root, cx);
@@ -384,6 +385,7 @@ impl DeclarativeView {
             Node::Stack { children, .. }
             | Node::Card { children, .. }
             | Node::Fill { children }
+            | Node::Disclosure { children, .. }
             | Node::Bar { children, .. }
             | Node::PanelEditor { children }
             | Node::Split { children, .. } => {

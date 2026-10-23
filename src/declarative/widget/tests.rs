@@ -231,18 +231,32 @@ fn reads_lanes_and_checks_their_indexes() {
             "up": [{"from": 0, "to": lane, "color": color}],
             "down": [{"from": lane, "to": 1, "color": 2}],
             "refs": [{"label": "main", "tone": "accent"}],
-            "detail": "Ann", "time": "2 h", "selected": true, "hint": "abc123",
+            "cells": ["", "Ann", "2 h"], "selected": true, "hint": "abc123",
             "menu": [{"label": "Copy", "action": "copy"}]})
     };
     let node =
-        parse(json!({"type": "lanes", "id": "log", "action": "log", "rows": [row(1, 7)]})).unwrap();
+        parse(json!({"type": "lanes", "columns":[{"label":"Graph","kind":"graph","weight":1},{"label":"Author","weight":1},{"label":"Time","weight":1}], "id": "log", "action": "log", "rows": [row(1, 7)]})).unwrap();
     let Node::Lanes { rows, .. } = node else {
         panic!("lanes expected")
     };
     assert_eq!(rows[0].width(), 2);
+    for columns in [
+        json!([]),
+        json!([{"label":"Graph","kind":"graph","weight":0}]),
+        json!([{"label":"Text","weight":1}]),
+        json!([{"label":"Graph","kind":"graph","weight":1}]),
+    ] {
+        // Empty/invalid layouts and mismatched cells cannot reach native rows.
+        assert!(
+            parse(
+                json!({"type":"lanes","id":"l","action":"l","columns":columns,"rows":[row(1,7)]})
+            )
+            .is_err()
+        );
+    }
     for (lane, color) in [(64, 0), (0, 8)] {
         assert!(
-            parse(json!({"type": "lanes", "id": "l", "action": "l", "rows": [row(lane, color)]}))
+            parse(json!({"type": "lanes", "columns":[{"label":"Graph","kind":"graph","weight":1},{"label":"Author","weight":1},{"label":"Time","weight":1}], "id": "l", "action": "l", "rows": [row(lane, color)]}))
                 .is_err()
         );
     }

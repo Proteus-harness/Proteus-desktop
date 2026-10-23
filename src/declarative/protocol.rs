@@ -18,6 +18,9 @@ pub const FEATURES: &[&str] = &[
     "session.settings.v1",
     "widgets.controls.v1",
     "widgets.diff.v1",
+    "widgets.lanes.v2",
+    "widgets.disclosure.v1",
+    "widgets.person.v1",
 ];
 
 #[derive(Clone, Debug, Serialize)]

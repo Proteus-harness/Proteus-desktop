@@ -1,7 +1,7 @@
 // Адаптировано из Zed: crates/git_ui/src/git_panel.rs (render_commit_history), crates/git_ui/src/commit_tooltip.rs (CommitAvatar)
 //! The `list` node: a virtualized list of two-line rows like the commit
-//! history of Zed's git panel. A click or Enter opens a row; the arrows move
-//! the cursor without sending anything.
+//! history of Zed's git panel. A click previews a row, double click or Enter
+//! keeps it; the arrows move the cursor without sending anything.
 
 use super::rows::{Kind, Rows};
 use crate::declarative::control::MenuItem;
@@ -44,8 +44,8 @@ impl Kind for ListRows {
         &row.menu
     }
 
-    fn clicked(_: usize) -> &'static str {
-        "open"
+    fn clicked(count: usize) -> &'static str {
+        if count > 1 { "open" } else { "preview" }
     }
 
     fn measure(&mut self, _: &[Rc<Row>]) {}

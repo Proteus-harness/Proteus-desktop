@@ -11,6 +11,27 @@ pub const LANES: usize = 64;
 /// Distinct line colors.
 pub const COLORS: usize = 8;
 
+/// Shared column layout for graph lists. The process supplies captions and
+/// data; resizing, visibility and drawing belong to the native control.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Column {
+    pub label: String,
+    pub weight: f32,
+    #[serde(default)]
+    pub kind: ColumnKind,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ColumnKind {
+    Graph,
+    #[default]
+    Text,
+    Person,
+    Mono,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Row {
@@ -26,14 +47,11 @@ pub struct Row {
     #[serde(default)]
     pub down: Vec<Segment>,
     pub label: String,
-    /// Chips after the label, such as branch names.
+    /// Chips in the graph column, such as branch names.
     #[serde(default)]
     pub refs: Vec<Ref>,
-    #[serde(default)]
-    pub detail: Option<String>,
-    /// Right-aligned muted text.
-    #[serde(default)]
-    pub time: Option<String>,
+    /// One string per column; the graph column's string is empty.
+    pub cells: Vec<String>,
     #[serde(default)]
     pub selected: bool,
     /// Opened on right click.
@@ -72,8 +90,26 @@ impl Row {
     }
 }
 
-pub fn check(rows: &[Row]) -> Result<()> {
+pub fn check(columns: &[Column], rows: &[Row]) -> Result<()> {
+    if columns.is_empty()
+        || columns
+            .iter()
+            .filter(|c| c.kind == ColumnKind::Graph)
+            .count()
+            != 1
+    {
+        bail!("lanes needs exactly one graph column");
+    }
+    if columns
+        .iter()
+        .any(|c| !c.weight.is_finite() || c.weight <= 0.)
+    {
+        bail!("column weights must be finite and positive");
+    }
     for row in rows {
+        if row.cells.len() != columns.len() {
+            bail!("lane row must have one cell per column");
+        }
         let segments = row.up.iter().chain(&row.down);
         if row.lane >= LANES
             || segments
