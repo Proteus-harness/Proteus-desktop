@@ -235,7 +235,7 @@ impl SettingsView {
                     .child(heading("Клиент"))
                     .children(CLIENT_PAGES.iter().cloned().map(|page| item(page, cx)))
                     .when(!installed.is_empty(), |list| {
-                        list.child(heading("Расширения"))
+                        list.child(heading("Extensions"))
                             .children(installed.into_iter().map(|page| item(page, cx)))
                     })
                     .overflow_y_scrollbar()

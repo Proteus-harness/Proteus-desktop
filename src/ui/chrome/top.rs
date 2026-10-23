@@ -4,7 +4,7 @@
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
-use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
+use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -68,16 +68,20 @@ fn logo_button(
     busy: bool,
     menu: impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static,
 ) -> impl IntoElement {
-    kit::button("top-logo")
-        .ghost()
-        .small()
-        .tip_text(if busy {
-            "Proteus · агент работает"
-        } else {
-            "Proteus"
-        })
-        .child(logo(LOGO_CELL, busy))
-        .dropdown_menu_with_anchor(Anchor::TopLeft, menu)
+    crate::ui::context::menu_button(
+        "top-logo-menu",
+        kit::button("top-logo")
+            .ghost()
+            .small()
+            .tip_text(if busy {
+                "Proteus · агент работает"
+            } else {
+                "Proteus"
+            })
+            .child(logo(LOGO_CELL, busy)),
+        false,
+        menu,
+    )
 }
 
 /// Projects of the picker screen, the settings of a running workspace, the

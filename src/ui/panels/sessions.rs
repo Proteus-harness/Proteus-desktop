@@ -8,7 +8,6 @@ use crate::ui::context::RightClickMenu as _;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::Input;
-use gpui_kit::component::menu::DropdownMenu as _;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -414,12 +413,16 @@ impl Workspace {
             .gap_2()
             .rounded(theme.radius)
             .cursor_pointer()
+            .child(crate::ui::selection::background(
+                selected,
+                !selected && cursor,
+                "session-row",
+                false,
+                cx,
+            ))
             .when(selected, |row| {
-                row.bg(theme.sidebar_accent)
-                    .text_color(theme.sidebar_accent_foreground)
+                row.text_color(theme.sidebar_accent_foreground)
             })
-            .when(!selected && cursor, |row| row.bg(theme.list_hover))
-            .when(!selected, |row| row.hover(|row| row.bg(theme.list_hover)))
             .when(mark.archived && !selected, |row| {
                 row.text_color(theme.muted_foreground)
             })
@@ -468,19 +471,21 @@ impl Workspace {
                     .invisible()
                     .group_hover("session-row", |menu| menu.visible())
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .child(
+                    .child(crate::ui::context::menu_button(
+                        ("session-dropdown", ix),
                         kit::button(("session-menu", ix))
                             .icon(Lucide::Ellipsis)
                             .ghost()
-                            .xsmall()
-                            .dropdown_menu_with_anchor(Anchor::TopRight, {
-                                let (dir, mark) = (dir.clone(), mark.clone());
-                                let workspace = workspace.clone();
-                                move |menu, _, _| {
-                                    session_menu::build(menu, &dir, mark.clone(), &workspace)
-                                }
-                            }),
-                    ),
+                            .xsmall(),
+                        false,
+                        {
+                            let (dir, mark) = (dir.clone(), mark.clone());
+                            let workspace = workspace.clone();
+                            move |menu, _, _| {
+                                session_menu::build(menu, &dir, mark.clone(), &workspace)
+                            }
+                        },
+                    )),
             )
             .on_click(cx.listener({
                 let dir = dir.clone();

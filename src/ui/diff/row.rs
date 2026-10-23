@@ -2,25 +2,36 @@
 use crate::diff::{File, Kind, Line, Pair};
 use crate::ui::fade::faded;
 use crate::ui::prefs;
-use gpui_kit::base::SelectableText;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-pub(super) fn row(file: &File, index: usize, side: Option<bool>, cx: &App) -> Div {
+pub(super) fn row(
+    file: &File,
+    syntax: &super::syntax::Syntax,
+    index: usize,
+    side: Option<bool>,
+    cx: &App,
+) -> Div {
     let row = h_flex().w_full().h(prefs::scaled(super::LINE)).flex_none();
     if let Some(old) = side {
         match file.pairs[index] {
             Pair::Full(line) => row.child(full(&file.lines[line], cx)),
-            Pair::Lines(before, after) => {
-                row.child(cell(file, if old { before } else { after }, old, true, cx))
-            }
+            Pair::Lines(before, after) => row.child(cell(
+                file,
+                if old { before } else { after },
+                old,
+                true,
+                syntax,
+                cx,
+            )),
         }
     } else {
+        let index = file.unified[index];
         let line = &file.lines[index];
         match line.kind {
             Kind::Hunk | Kind::Note => row.child(full(line, cx)),
-            _ => row.child(cell(file, Some(index), false, false, cx)),
+            _ => row.child(cell(file, Some(index), false, false, syntax, cx)),
         }
     }
 }
@@ -46,7 +57,14 @@ fn number(value: Option<usize>, cx: &App) -> Div {
         .child(value.map(|n| n.to_string()).unwrap_or_default())
 }
 
-fn cell(file: &File, index: Option<usize>, old: bool, split: bool, cx: &App) -> Div {
+fn cell(
+    file: &File,
+    index: Option<usize>,
+    old: bool,
+    split: bool,
+    syntax: &super::syntax::Syntax,
+    cx: &App,
+) -> Div {
     let theme = cx.theme();
     let Some(index) = index else {
         // Transparent stripes adapt to the actual theme behind them.
@@ -88,9 +106,10 @@ fn cell(file: &File, index: Option<usize>, old: bool, split: bool, cx: &App) -> 
                 .min_w_0()
                 .pl_2()
                 .whitespace_nowrap()
-                .child(SelectableText::new(
+                .child(super::syntax::code(
                     ElementId::Name(format!("{}-{index}-{old}", file.path).into()),
-                    line.text.replace('\t', "    "),
+                    line.text.replace('\t', "    ").into(),
+                    syntax.line(index, old || line.kind == Kind::Removed),
                 )),
         )
 }

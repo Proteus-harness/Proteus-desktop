@@ -25,6 +25,7 @@ pub(super) struct DeclarativeBadge {
         std::collections::HashMap<String, String>,
     )>,
     pub(super) popup_epoch: u64,
+    pub(super) popup_generation: u64,
     pub(super) bounds: Rc<Cell<Bounds<Pixels>>>,
     pub(super) restore: Option<FocusHandle>,
     _view: Subscription,
@@ -40,6 +41,7 @@ pub(super) fn build(host: Host, window: &mut Window, cx: &mut App) -> AnyView {
         popup: None,
         last_popup: None,
         popup_epoch: 0,
+        popup_generation: 0,
         bounds: Rc::default(),
         restore: None,
     })
@@ -136,18 +138,22 @@ impl Render for DeclarativeBadge {
                     let color = (!matches!(tone, Tone::Muted | Tone::Default))
                         .then(|| super::render::tone_color(*tone, cx));
                     let text = text.clone();
-                    let chevron = if open {
-                        gpui_kit::assets::IconName::ChevronUp
-                    } else {
-                        gpui_kit::assets::IconName::ChevronDown
-                    };
+                    let chevron_key =
+                        SharedString::from(format!("badge-chevron-{}", cx.entity_id()));
+                    let chevron_color = cx.theme().muted_foreground;
                     Rc::new(move || {
                         h_flex()
                             .gap_1()
                             .when_some(color, |face, color| face.text_color(color))
                             .children(show_icon.then(|| Icon::new(icon).small()))
                             .child(text.clone())
-                            .children(caret.then(|| Icon::new(chevron.clone()).xsmall()))
+                            .children(caret.then(|| {
+                                crate::ui::motion::menu_chevron(
+                                    ElementId::Name(chevron_key.clone()),
+                                    open,
+                                    chevron_color,
+                                )
+                            }))
                             .into_any_element()
                     })
                 }

@@ -18,9 +18,6 @@ pub(super) trait Kind: Default + 'static {
     const MOVED: Option<&'static str>;
     /// Where the cursor's row scrolls to when it leaves the view.
     const SCROLL: ScrollStrategy;
-    /// The cursor is ringed only after the keyboard moved it, not after a
-    /// click.
-    const RING_AFTER_KEYS: bool;
 
     fn id(row: &Self::Row) -> &str;
     fn selected(row: &Self::Row) -> bool;
@@ -31,6 +28,13 @@ pub(super) trait Kind: Default + 'static {
     fn measure(&mut self, rows: &[Rc<Self::Row>]);
     /// One row without its click and menu; `ring` marks the cursor.
     fn draw(&self, row: &Self::Row, index: usize, ring: bool, cx: &App) -> Stateful<Div>;
+
+    fn frame(&self, frame: Stateful<Div>, _: &Context<Rows<Self>>) -> Stateful<Div>
+    where
+        Self: Sized,
+    {
+        frame
+    }
 
     fn header(&self, _: &mut Context<Rows<Self>>) -> Option<AnyElement>
     where
@@ -44,8 +48,6 @@ pub(super) struct Rows<K: Kind> {
     pub(super) kind: K,
     rows: Vec<Rc<K::Row>>,
     cursor: usize,
-    /// The keyboard moved the cursor last, not the mouse.
-    keyboard: bool,
     focus: FocusHandle,
     scroll: UniformListScrollHandle,
     view: WeakEntity<super::view::DeclarativeView>,
@@ -63,7 +65,6 @@ impl<K: Kind> Rows<K> {
             kind: K::default(),
             rows: Vec::new(),
             cursor: 0,
-            keyboard: true,
             focus: cx.focus_handle().tab_stop(true),
             scroll: UniformListScrollHandle::new(),
             view,
@@ -127,7 +128,6 @@ impl<K: Kind> Rows<K> {
             }
             _ => return,
         };
-        self.keyboard = true;
         self.scroll.scroll_to_item(self.cursor, K::SCROLL);
         if let Some(event) = K::MOVED {
             self.act_at(self.cursor, event, cx);
@@ -138,7 +138,7 @@ impl<K: Kind> Rows<K> {
 
     fn row(&self, index: usize, focused: bool, cx: &mut Context<Self>) -> AnyElement {
         let row = self.rows[index].clone();
-        let ring = index == self.cursor && focused && (self.keyboard || !K::RING_AFTER_KEYS);
+        let ring = index == self.cursor && focused && crate::ui::kit::keyboard();
         let element = self
             .kind
             .draw(&row, index, ring, cx)
@@ -146,7 +146,6 @@ impl<K: Kind> Rows<K> {
                 MouseButton::Left,
                 cx.listener(move |this, _, _, cx| {
                     this.cursor = index;
-                    this.keyboard = false;
                     cx.notify();
                 }),
             )
@@ -182,7 +181,8 @@ impl<K: Kind> Render for Rows<K> {
         .flex_1()
         .min_h_0()
         .w_full();
-        v_flex()
+        let frame = v_flex()
+            .id(K::NAME)
             .size_full()
             .track_focus(&self.focus)
             .on_mouse_down(
@@ -191,6 +191,7 @@ impl<K: Kind> Render for Rows<K> {
             )
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| this.key(event, cx)))
             .children(header)
-            .child(list)
+            .child(list);
+        self.kind.frame(frame, cx)
     }
 }

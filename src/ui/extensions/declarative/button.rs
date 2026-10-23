@@ -4,8 +4,8 @@
 //! `ButtonSize::Compact` buttons of Zed's panel footers.
 
 use crate::ui::kit::ButtonLabel as _;
-use gpui_kit::component::button::{Button, ButtonVariants as _, DropdownButton};
-use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu};
+use gpui_kit::component::button::{Button, ButtonVariants as _};
+
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -13,8 +13,8 @@ use gpui_kit::*;
 use super::menu::{self, Ask};
 use super::view::DeclarativeView;
 use crate::declarative::widget::{Node, Variant};
-use crate::ui::kit;
 use crate::ui::tip::Tip as _;
+use crate::ui::{kit, prefs};
 
 /// Where a button sits and so how it is sized.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -55,11 +55,6 @@ pub(super) fn menu(
     };
     let (items, view) = (items.clone(), cx.weak_entity());
     let icon = icon.as_deref().or(label.is_empty().then_some("ellipsis"));
-    let anchor = if fit == Fit::Shrink {
-        Anchor::BottomLeft
-    } else {
-        Anchor::TopRight
-    };
     let button = kit::button(ElementId::Name(format!("decl-menu-{path}").into()));
     let button = sized(button, fit)
         .ghost()
@@ -67,10 +62,19 @@ pub(super) fn menu(
             button.faded_label(label.clone())
         })
         .when_some(hint.clone(), |button, hint| button.tooltip(hint))
-        .when_some(icon, |button, icon| button.icon(super::icon(Some(icon))))
-        .dropdown_menu_with_anchor(anchor, move |menu: PopupMenu, _, _| {
-            menu::fill(menu.min_w(px(180.)), &items, &view)
-        });
+        .when_some(icon, |button, icon| button.icon(super::icon(Some(icon))));
+    let button = crate::ui::context::menu_button(
+        ElementId::Name(format!("decl-dropdown-{path}").into()),
+        button,
+        !label.is_empty(),
+        move |popup, window, _| {
+            menu::fill(
+                popup.min_w(prefs::scaled(180.).to_pixels(window.rem_size())),
+                &items,
+                &view,
+            )
+        },
+    );
     if fit == Fit::Shrink {
         return div()
             .min_w_0()
@@ -134,12 +138,25 @@ pub(super) fn button(
         return button.into_any_element();
     }
     let items = items.clone();
-    DropdownButton::new(ElementId::Name(format!("decl-split-{path}").into()))
-        .button(button)
-        .disabled(*disabled)
-        .when(*variant == Variant::Default, |split| split.outline())
-        .dropdown_menu_with_anchor(Anchor::TopRight, move |popup, _, _| {
-            menu::fill(popup.min_w(px(180.)), &items, &view)
-        })
-        .into_any_element()
+    let arrow = kit::button(ElementId::Name(format!("decl-arrow-{path}").into())).small();
+    let arrow = match variant {
+        Variant::Primary => arrow.primary(),
+        Variant::Default => arrow.outline(),
+        Variant::Ghost => arrow.ghost(),
+        Variant::Danger => arrow.danger(),
+    };
+    crate::ui::context::split_button(
+        ElementId::Name(format!("decl-split-{path}").into()),
+        button,
+        arrow,
+        *disabled,
+        move |popup, window, _| {
+            menu::fill(
+                popup.min_w(prefs::scaled(180.).to_pixels(window.rem_size())),
+                &items,
+                &view,
+            )
+        },
+    )
+    .into_any_element()
 }

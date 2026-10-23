@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
-use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
+use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -451,12 +451,12 @@ pub(super) fn select_menu<T: Clone + 'static>(
 ) -> AnyElement {
     let select = Rc::new(select);
     let options = Rc::new(options);
-    kit::button(id)
-        .faded_label(label)
-        .outline()
-        .small()
-        .dropdown_caret(true)
-        .dropdown_menu_with_anchor(Anchor::TopRight, move |menu: PopupMenu, _, _| {
+    let id: ElementId = id.into();
+    crate::ui::context::menu_button(
+        ElementId::Name(format!("settings-menu-{id:?}").into()),
+        kit::button(id).faded_label(label).outline().small(),
+        true,
+        move |menu: PopupMenu, _, _| {
             let menu = menu.min_w(px(200.)).max_h(px(360.)).scrollable(true);
             options.iter().fold(menu, |menu, option| {
                 let (select, value) = (select.clone(), option.value.clone());
@@ -466,8 +466,9 @@ pub(super) fn select_menu<T: Clone + 'static>(
                         .on_click(move |_, _, cx| select(value.clone(), cx)),
                 )
             })
-        })
-        .into_any_element()
+        },
+    )
+    .into_any_element()
 }
 
 /// Small muted line, skipped when the text is blank.

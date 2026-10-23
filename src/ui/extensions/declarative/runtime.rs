@@ -332,6 +332,7 @@ impl Runtime {
                 }
             }
             Signal::Message(Incoming::View {
+                title,
                 keys,
                 view,
                 root,
@@ -359,7 +360,14 @@ impl Runtime {
                     return;
                 }
                 if let Some(entity) = self.views.get(&view).and_then(|a| a.view.upgrade()) {
-                    entity.update(cx, |view, cx| view.show(root, sequence, keys, cx));
+                    let accepted =
+                        entity.update(cx, |view, cx| view.show(root, sequence, keys, cx));
+                    if accepted
+                        && let Some(title) = title
+                        && let Some(argument) = view.strip_prefix("document:")
+                    {
+                        self.host.document_title(argument, title, cx);
+                    }
                 }
                 self.error = None;
             }

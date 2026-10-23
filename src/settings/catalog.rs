@@ -155,7 +155,7 @@ pub fn page_title(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId) -> St
         PageId::Appearance => "Внешний вид".into(),
         PageId::Chat => "Чат".into(),
         PageId::Shortcuts => "Сочетания клавиш".into(),
-        PageId::Extensions => "Расширения".into(),
+        PageId::Extensions => "Extensions".into(),
         // The client names extension pages after their manifests.
         PageId::Extension(id) => id.clone(),
     }

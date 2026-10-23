@@ -13,6 +13,7 @@ impl DeclarativeBadge {
             self.close_popup(window, cx);
         } else {
             self.restore = window.focused(cx);
+            self.popup_generation += 1;
             let popup = super::surface(self.host.clone(), SurfaceKind::Popup, None, window, cx);
             if let Some((root, keys)) = self.last_popup.clone()
                 && let Ok(view) = popup.view.clone().downcast::<DeclarativeView>()
@@ -69,8 +70,9 @@ impl DeclarativeBadge {
                     .anchor(anchor)
                     .position(position)
                     .snap_to_window_with_margin(px(8.))
-                    .child(
+                    .child(crate::ui::motion::popup(
                         v_flex()
+                            .relative()
                             .id("extension-popup")
                             .track_focus(&popup.focus)
                             .occlude()
@@ -114,7 +116,13 @@ impl DeclarativeBadge {
                             })
                             .child(popup.view.clone())
                             .focus_trap("extension-popup-trap", &popup.focus),
-                    ),
+                        SharedString::from(format!(
+                            "badge-popup-{}-{}",
+                            cx.entity_id(),
+                            self.popup_generation
+                        )),
+                        cx,
+                    )),
             )
             .with_priority(1)
             .into_any_element(),

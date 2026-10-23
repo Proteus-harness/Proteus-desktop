@@ -52,8 +52,7 @@ impl Tree {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = cx.theme();
-        let (hover, active, primary) = (theme.list_hover, theme.list_active, theme.primary);
-        let ring = theme.ring;
+        let selected_foreground = theme.sidebar_accent_foreground;
         let (line, lit_line) = (theme.border, theme.muted_foreground.opacity(0.5));
         let indent = self.layout.indent;
         let start = move |depth: usize| INSET + depth as f32 * indent;
@@ -92,21 +91,15 @@ impl Tree {
             .gap_1p5()
             .text_sm()
             .cursor_pointer()
-            .when(selected, |element| element.bg(primary.opacity(0.1)))
-            .hover(move |style| {
-                style.bg(if selected {
-                    primary.opacity(0.14)
-                } else {
-                    hover
-                })
-            })
-            .active(move |style| {
-                style.bg(if selected {
-                    primary.opacity(0.18)
-                } else {
-                    active
-                })
-            })
+            .group("tree-selection")
+            .child(crate::ui::selection::background(
+                selected,
+                false,
+                "tree-selection",
+                true,
+                cx,
+            ))
+            .when(selected, |element| element.text_color(selected_foreground))
             .children(guides.into_iter().flatten())
             .child(body)
             .when_some(row.stats, |element, stats| {
@@ -117,8 +110,11 @@ impl Tree {
             })
             .children(checkbox)
             .when(
-                index == Some(self.cursor) && focused && !row.header(),
-                |element| element.child(div().absolute().inset_0().border_1().border_color(ring)),
+                index == Some(self.cursor)
+                    && focused
+                    && !row.header()
+                    && crate::ui::kit::keyboard(),
+                |element| element.child(crate::ui::selection::focus(cx)),
             )
             .when_some(row.hint.clone(), |element, hint| element.tip_text(hint));
         let Some(index) = index else {

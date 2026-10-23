@@ -6,7 +6,63 @@
 use gpui_kit::*;
 
 /// Width of the fade in font sizes.
-const FADE: f32 = 2.5;
+const FADE: f32 = 1.;
+
+/// A full-text tooltip appears only when the native layout actually clips
+/// this caption. The caller gives an id inside the row/cell that owns it.
+#[derive(IntoElement)]
+pub(in crate::ui) struct Caption {
+    id: ElementId,
+    text: SharedString,
+}
+
+pub(in crate::ui) fn caption(id: impl Into<ElementId>, text: impl Into<SharedString>) -> Caption {
+    Caption {
+        id: id.into(),
+        text: text.into(),
+    }
+}
+
+impl RenderOnce for Caption {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        use crate::ui::tip::Tip as _;
+        use gpui_kit::prelude::FluentBuilder as _;
+        let measured = window.use_keyed_state(self.id.clone(), cx, |_, _| None::<Pixels>);
+        let Metrics {
+            font_size, style, ..
+        } = metrics(window);
+        let width = window
+            .text_system()
+            .shape_line(
+                self.text.clone(),
+                font_size,
+                &[style.to_run(self.text.len())],
+                None,
+            )
+            .width();
+        let clipped = measured.read(cx).is_some_and(|room| width > room + px(0.5));
+        let text = self.text.clone();
+        div()
+            .id(self.id)
+            .relative()
+            .min_w_0()
+            .child(faded(self.text))
+            .when(clipped, |label| label.tip_text(text))
+            .child(
+                canvas(
+                    move |bounds, window, cx| {
+                        if measured.read(cx).is_none_or(|old| old != bounds.size.width) {
+                            measured.update(cx, |value, _| *value = Some(bounds.size.width));
+                            window.refresh();
+                        }
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .inset_0(),
+            )
+    }
+}
 
 /// A cut multi-line preview fades into its actual background, using the
 /// same treatment in tool output and long settings descriptions. Its
@@ -147,7 +203,10 @@ impl Element for Faded {
         if line.width() <= room {
             return Some((line, line_height, px(0.)));
         }
-        let fade = (font_size * FADE).min(room);
+        let fade = (font_size * FADE).min(room * 0.25);
+        if fade <= px(0.) {
+            return None;
+        }
         if self.start {
             let shift = line.width() - room;
             let mut runs = Vec::new();

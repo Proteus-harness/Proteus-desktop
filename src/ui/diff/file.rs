@@ -116,9 +116,10 @@ impl DiffView {
                         | crate::diff::Kind::Removed
                 )
             });
+        let syntax = self.syntax[index].clone();
         let body = motion::reveal(self.key(index, cx), open, cx, || {
             if !split {
-                return code(file, None, width, cx);
+                return code(file, syntax, None, width, cx);
             }
             h_flex()
                 .w_full()
@@ -140,7 +141,7 @@ impl DiffView {
                                 .bg(cx.theme().muted.opacity(0.35))
                                 .child(if old { "Было" } else { "Стало" }),
                         )
-                        .child(code(file.clone(), Some(old), width, cx))
+                        .child(code(file.clone(), syntax.clone(), Some(old), width, cx))
                 }))
                 .into_any_element()
         });
@@ -152,14 +153,20 @@ impl DiffView {
     }
 }
 
-fn code(file: Rc<File>, side: Option<bool>, width: Pixels, cx: &App) -> AnyElement {
+fn code(
+    file: Rc<File>,
+    syntax: Rc<super::syntax::Syntax>,
+    side: Option<bool>,
+    width: Pixels,
+    cx: &App,
+) -> AnyElement {
     let id = SharedString::from(format!("diff-code-{}-{side:?}", file.path));
     div()
         .w_full()
         .min_w_0()
         .font_family(cx.theme().mono_font_family.clone())
         .text_xs()
-        .child(lines::Lines::new(file, side, width, cx))
+        .child(lines::Lines::new(file, syntax, side, width, cx))
         .overflow_x_scrollbar()
         .id(id)
         .into_any_element()

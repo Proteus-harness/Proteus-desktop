@@ -33,6 +33,19 @@ pub(in crate::ui) enum HostEvent {
 impl EventEmitter<HostEvent> for Workspace {}
 
 impl Host {
+    pub(in crate::ui) fn document_title(&self, argument: &str, title: String, cx: &mut App) {
+        let id = crate::tabs::document(self.extension, argument);
+        let _ = self.workspace.update(cx, |workspace, cx| {
+            if workspace
+                .document_titles
+                .get(&id)
+                .is_none_or(|current| current.as_ref() != title)
+            {
+                workspace.document_titles.insert(id, title.into());
+                cx.notify();
+            }
+        });
+    }
     pub(in crate::ui) fn retain_process(&self, process: AnyEntity, cx: &mut App) {
         let _ = self.workspace.update(cx, |workspace, _| {
             workspace

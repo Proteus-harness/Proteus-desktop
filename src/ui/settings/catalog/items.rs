@@ -84,7 +84,7 @@ pub(super) fn version_label(version: &str) -> String {
 /// Short plural for the type filter.
 pub(super) fn kind_filter(kind: Kind) -> &'static str {
     match kind {
-        Kind::ClientExtension => "Расширения",
+        Kind::ClientExtension => "Extensions",
         Kind::AgentPlugin => "Agent Plugins",
         Kind::Skill => "Skills",
         Kind::McpServer => "MCP",

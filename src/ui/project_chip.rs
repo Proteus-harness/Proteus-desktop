@@ -44,12 +44,18 @@ impl Workspace {
         let project = self.chat_project(chat);
         let picker = self.project_picker.clone();
         let focus = picker.read(cx).search.focus_handle(cx);
+        let opened = picker.read(cx).open;
+        let workspace = picker.read(cx).workspace.clone();
         let trigger = kit::button("project-chip")
             .ghost()
             .xsmall()
             .icon(Lucide::Folder)
             .faded_label(folder_name(&project))
-            .dropdown_caret(true)
+            .child(crate::ui::motion::menu_chevron(
+                SharedString::from(format!("project-chevron-{chat}")),
+                opened,
+                cx.theme().muted_foreground,
+            ))
             .text_color(cx.theme().muted_foreground);
         let popover = Popover::new("project-chip-popover")
             .anchor(Anchor::BottomLeft)
@@ -59,6 +65,11 @@ impl Workspace {
             .on_open_change({
                 let picker = picker.clone();
                 move |open, window, cx| {
+                    picker.update(cx, |picker, cx| {
+                        picker.open = *open;
+                        cx.notify();
+                    });
+                    let _ = workspace.update(cx, |_, cx| cx.notify());
                     if *open {
                         let project = project.clone();
                         picker.update(cx, |picker, cx| picker.reset(project, window, cx));
@@ -181,6 +192,8 @@ pub(super) struct ProjectPicker {
     current: PathBuf,
     /// The open popover, closed once a project is chosen.
     popover: Option<WeakEntity<PopoverState>>,
+    generation: usize,
+    open: bool,
     _subscription: Subscription,
 }
 
@@ -207,11 +220,14 @@ impl ProjectPicker {
             search,
             current,
             popover: None,
+            generation: 0,
+            open: false,
             _subscription: subscription,
         }
     }
 
     fn reset(&mut self, current: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        self.generation += 1;
         self.current = current;
         self.search
             .update(cx, |search, cx| search.set_value("", window, cx));
@@ -292,7 +308,8 @@ impl Render for ProjectPicker {
         });
         let projects: Vec<_> = projects.collect();
         let empty = projects.is_empty();
-        v_flex()
+        let surface = v_flex()
+            .relative()
             .w(prefs::scaled(PICKER_WIDTH))
             .popover_style(cx)
             .p_1()
@@ -339,6 +356,15 @@ impl Render for ProjectPicker {
                     )
                     .child("Открыть папку…")
                     .on_click(cx.listener(|this, _, window, cx| this.choose(window, cx))),
-            )
+            );
+        crate::ui::motion::popup(
+            surface,
+            SharedString::from(format!(
+                "project-picker-{}-{}",
+                cx.entity_id(),
+                self.generation
+            )),
+            cx,
+        )
     }
 }

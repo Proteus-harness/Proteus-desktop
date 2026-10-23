@@ -49,6 +49,8 @@ pub struct File {
     pub old_path: Option<String>,
     pub status: String,
     pub lines: Vec<Line>,
+    /// Visible unified rows. Hunk markers remain parser metadata only.
+    pub unified: Vec<usize>,
     pub pairs: Vec<Pair>,
     pub added: usize,
     pub removed: usize,
@@ -59,7 +61,7 @@ pub struct File {
 impl File {
     fn finish(&mut self) {
         if self.path.is_empty() {
-            self.path = "Изменения".into();
+            self.path = "Changes".into();
         }
         if self.lines.is_empty() {
             self.note(match self.status.as_str() {
@@ -80,6 +82,13 @@ impl File {
             .filter(|line| line.kind == Kind::Removed)
             .count();
         self.pairs = pairs(&self.lines);
+        self.unified = self
+            .lines
+            .iter()
+            .enumerate()
+            .filter(|(_, line)| line.kind != Kind::Hunk)
+            .map(|(index, _)| index)
+            .collect();
     }
 
     fn note(&mut self, text: impl Into<String>) {
@@ -133,7 +142,10 @@ fn pairs(lines: &[Line]) -> Vec<Pair> {
                 result.push(Pair::Lines(Some(at), Some(at)));
                 at += 1;
             }
-            Kind::Hunk | Kind::Note => {
+            Kind::Hunk => {
+                at += 1;
+            }
+            Kind::Note => {
                 result.push(Pair::Full(at));
                 at += 1;
             }

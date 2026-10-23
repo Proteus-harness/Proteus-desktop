@@ -15,13 +15,13 @@ fn aligns_replacements_without_losing_unified_order() {
     assert_eq!(
         file.pairs,
         [
-            Pair::Full(0),
             Pair::Lines(Some(1), Some(1)),
             Pair::Lines(Some(2), Some(3)),
             Pair::Lines(None, Some(4)),
             Pair::Lines(Some(5), Some(5))
         ]
     );
+    assert_eq!(file.unified, [1, 2, 3, 4, 5]);
 }
 
 #[test]

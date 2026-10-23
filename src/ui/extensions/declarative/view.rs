@@ -99,13 +99,14 @@ impl DeclarativeView {
         sequence: u64,
         keys: HashMap<String, String>,
         cx: &mut Context<Self>,
-    ) {
+    ) -> bool {
         if sequence < self.action_sequence {
-            return;
+            return false;
         }
         self.keys = keys;
         self.root = Some(root);
         cx.notify();
+        true
     }
 
     /// Last tree and keys, to seed a reopened popup until the process answers.

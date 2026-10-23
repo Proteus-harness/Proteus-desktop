@@ -62,15 +62,7 @@ impl Chat {
         };
         let send = kit::button("send")
             .icon(IconName::ArrowUp)
-            .hint_keys(
-                if running {
-                    "В очередь"
-                } else {
-                    "Отправить"
-                },
-                Some(keys),
-                cx,
-            )
+            .hint_keys(if running { "В очередь" } else { "Push" }, Some(keys), cx)
             .primary()
             .small()
             .disabled(!ready)

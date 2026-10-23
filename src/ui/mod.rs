@@ -19,6 +19,7 @@ mod notifications;
 mod panels;
 mod prefs;
 mod project_chip;
+mod selection;
 mod settings;
 mod tabs;
 mod theme;

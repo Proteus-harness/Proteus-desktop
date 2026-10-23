@@ -7,6 +7,25 @@ use gpui_kit::*;
 
 use super::{BASE, FAST, ease_enter, shift};
 
+/// Shared entrance for menus and pickers, including process-owned popups.
+pub(in crate::ui) fn popup(
+    element: impl IntoElement + Styled + 'static,
+    id: impl Into<ElementId>,
+    cx: &App,
+) -> AnyElement {
+    if !super::plays() || cx.reduce_motion() {
+        return element.into_any_element();
+    }
+    let travel = shift(6. * crate::ui::prefs::scale(cx));
+    element
+        .with_animation(
+            id,
+            Animation::new(BASE).with_easing(ease_enter),
+            move |e, delta| e.opacity(delta).top(-travel * (1. - delta)),
+        )
+        .into_any_element()
+}
+
 /// Rows of a list that join a staggered entrance; later ones appear at once.
 const STAGGER_ROWS: usize = 14;
 const STAGGER_STEP: Duration = Duration::from_millis(18);

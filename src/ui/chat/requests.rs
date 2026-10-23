@@ -2,7 +2,7 @@ use crate::ui::kit::ButtonLabel as _;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::button::{ButtonVariants as _, DropdownButton};
+use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::menu::PopupMenuItem;
 use gpui_kit::component::*;
 use gpui_kit::*;
@@ -238,11 +238,14 @@ fn render_approval(request: &AppApprovalRequest, cx: &mut Context<Chat>) -> AnyE
     } else {
         let chat = cx.entity().downgrade();
         let menu_id = id.clone();
-        DropdownButton::new(SharedString::from(format!("approve-menu-{id}")))
-            .button(allow)
-            .primary()
-            .small()
-            .dropdown_menu_with_anchor(Anchor::BottomRight, move |menu, _, _| {
+        crate::ui::context::split_button(
+            SharedString::from(format!("approve-menu-{id}")),
+            allow,
+            kit::button(SharedString::from(format!("approve-arrow-{id}")))
+                .primary()
+                .small(),
+            false,
+            move |menu, _, _| {
                 choices.iter().fold(menu, |menu, &(label, scope)| {
                     let (chat, id) = (chat.clone(), menu_id.clone());
                     menu.item(PopupMenuItem::new(label).on_click(move |_, _, cx| {
@@ -252,8 +255,9 @@ fn render_approval(request: &AppApprovalRequest, cx: &mut Context<Chat>) -> AnyE
                         .ok();
                     }))
                 })
-            })
-            .into_any_element()
+            },
+        )
+        .into_any_element()
     };
     panel_card(cx)
         .gap_2()

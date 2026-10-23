@@ -125,11 +125,7 @@ impl Chat {
             )
             .child(
                 kit::button(SharedString::from(format!("question-go-{rid}")))
-                    .faded_label(if last {
-                        "Отправить"
-                    } else {
-                        "Далее"
-                    })
+                    .faded_label(if last { "Push" } else { "Далее" })
                     .primary()
                     .small()
                     .disabled(!answered)

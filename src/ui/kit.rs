@@ -30,7 +30,9 @@ impl ButtonLabel for Button {
         use gpui_kit::{ParentElement as _, Styled as _, div};
         let label = label.into();
         self.accessibility_label(label.clone())
-            .child(div().min_w_0().child(super::fade::faded(label)))
+            .px_2p5()
+            .min_h(prefs::scaled(26.))
+            .child(div().text_sm().min_w_0().child(super::fade::faded(label)))
     }
 }
 
@@ -44,6 +46,10 @@ thread_local! {
 /// built with a stale answer.
 pub(crate) fn track_input(window: &gpui_kit::Window) {
     KEYBOARD.set(window.last_input_was_keyboard());
+}
+
+pub(crate) fn keyboard() -> bool {
+    KEYBOARD.get()
 }
 
 pub(crate) fn button(id: impl Into<ElementId>) -> Button {

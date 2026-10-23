@@ -21,6 +21,7 @@ pub const FEATURES: &[&str] = &[
     "widgets.lanes.v2",
     "widgets.disclosure.v1",
     "widgets.person.v1",
+    "documents.title.v1",
 ];
 
 #[derive(Clone, Debug, Serialize)]
@@ -129,6 +130,8 @@ pub enum Incoming {
     },
     /// The whole tree of one view.
     View {
+        #[serde(default)]
+        title: Option<String>,
         #[serde(default)]
         keys: std::collections::HashMap<String, String>,
         session_dir: Option<PathBuf>,

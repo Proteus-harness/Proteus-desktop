@@ -5,7 +5,7 @@
 use crate::ui::context::RightClickMenu as _;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
-use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
+use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::component::*;
 use gpui_kit::*;
 
@@ -35,11 +35,11 @@ impl Workspace {
             .ghost()
             .xsmall()
             .icon(IconName::Plus)
-            .hint("Новая вкладка", cx)
-            .dropdown_menu_with_anchor(Anchor::TopRight, {
-                let workspace = workspace.clone();
-                move |popup, _, _| menu::new_tab_menu(popup, id, &workspace)
-            });
+            .hint("Новая вкладка", cx);
+        let add = crate::ui::context::menu_button(("pane-menu", key), add, false, {
+            let workspace = workspace.clone();
+            move |popup, _, _| menu::new_tab_menu(popup, id, &workspace)
+        });
         h_flex()
             .id(("pane-controls", key))
             .flex_none()

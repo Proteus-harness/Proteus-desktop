@@ -43,12 +43,29 @@ pub(in crate::ui) struct DraggedTab {
 }
 
 impl Render for DraggedTab {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let foreground = cx.theme().tab_active_foreground;
+        let style = window.text_style();
+        let font_size = prefs::scaled(14.).to_pixels(window.rem_size());
+        let width = window
+            .text_system()
+            .shape_line(
+                self.title.clone(),
+                font_size,
+                &[style.to_run(self.title.len())],
+                None,
+            )
+            .width();
+        let width = (width + prefs::scaled(64.).to_pixels(window.rem_size())).clamp(
+            prefs::scaled(120.).to_pixels(window.rem_size()),
+            prefs::scaled(MAX_WIDTH).to_pixels(window.rem_size()),
+        );
         drag::lifted(
             h_flex()
-                .h(prefs::scaled(BAR_HEIGHT - 4.))
-                .max_w(prefs::scaled(MAX_WIDTH))
+                .h(prefs::scaled(BAR_HEIGHT))
+                .w(width)
+                .min_w(width)
+                .flex_none()
                 .px_3()
                 .gap_2()
                 .text_sm()
@@ -57,6 +74,7 @@ impl Render for DraggedTab {
                 .child(
                     div()
                         .min_w_0()
+                        .flex_1()
                         .when(self.preview, |title| title.italic())
                         .child(faded(self.title.clone())),
                 ),
@@ -100,11 +118,16 @@ impl Workspace {
         match extensions::document(id, cx) {
             Some((manifest, argument)) => TabLabel {
                 icon: Icon::new(IconName::File),
-                title: manifest
-                    .document
-                    .as_ref()
-                    .map_or_else(|| argument.clone().into(), |doc| doc.title(&argument)),
-                tooltip: Some(argument.into()),
+                title: self.document_titles.get(id).cloned().unwrap_or_else(|| {
+                    manifest
+                        .document
+                        .as_ref()
+                        .map_or_else(|| argument.clone().into(), |doc| doc.title(&argument))
+                }),
+                tooltip: std::path::Path::new(&argument)
+                    .parent()
+                    .filter(|parent| !parent.as_os_str().is_empty())
+                    .map(|_| argument.clone().into()),
             },
             None => TabLabel {
                 icon: Icon::new(IconName::File),
@@ -176,7 +199,7 @@ impl Workspace {
                 div()
                     .min_w_0()
                     .when(state.preview, |title| title.italic())
-                    .child(faded(label.title)),
+                    .child(crate::ui::fade::caption("tab-caption", label.title)),
             )
             .when(!state.pinned, |tab| {
                 tab.child(

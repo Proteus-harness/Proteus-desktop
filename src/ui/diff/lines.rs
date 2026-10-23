@@ -10,14 +10,22 @@ use std::rc::Rc;
 
 pub(super) struct Lines {
     file: Rc<File>,
+    syntax: Rc<super::syntax::Syntax>,
     side: Option<bool>,
     code_width: Pixels,
 }
 
 impl Lines {
-    pub fn new(file: Rc<File>, side: Option<bool>, code_width: Pixels, _: &App) -> Self {
+    pub fn new(
+        file: Rc<File>,
+        syntax: Rc<super::syntax::Syntax>,
+        side: Option<bool>,
+        code_width: Pixels,
+        _: &App,
+    ) -> Self {
         Self {
             file,
+            syntax,
             side,
             code_width,
         }
@@ -53,7 +61,7 @@ impl Element for Lines {
         let count = if self.side.is_some() {
             self.file.pairs.len()
         } else {
-            self.file.lines.len()
+            self.file.unified.len()
         };
         let height = prefs::scaled(super::LINE).to_pixels(window.rem_size()) * count as f32;
         let mut style = Style::default();
@@ -88,13 +96,14 @@ impl Element for Lines {
         let count = if self.side.is_some() {
             self.file.pairs.len()
         } else {
-            self.file.lines.len()
+            self.file.unified.len()
         };
         let start = ((mask.top() - bounds.top()) / height).floor().max(0.) as usize;
         let end = (((mask.bottom() - bounds.top()) / height).ceil() as usize).min(count);
         let mut visible = Vec::with_capacity(end.saturating_sub(start));
         for index in start..end {
-            let mut row = super::row::row(&self.file, index, self.side, cx).into_any_element();
+            let mut row =
+                super::row::row(&self.file, &self.syntax, index, self.side, cx).into_any_element();
             row.layout_as_root(
                 size(
                     AvailableSpace::Definite(bounds.size.width),

@@ -25,6 +25,23 @@ pub(in crate::ui) fn chevron(id: impl Into<ElementId>, open: bool, color: Hsla) 
     .into_any_element()
 }
 
+/// Dropdown chevron, using the same spring and reduced-motion policy.
+pub(in crate::ui) fn menu_chevron(id: impl Into<ElementId>, open: bool, color: Hsla) -> AnyElement {
+    let icon = Icon::new(IconName::ChevronDown).xsmall().text_color(color);
+    let target = std::f32::consts::PI;
+    if !moves() {
+        return icon
+            .rotate(radians(if open { target } else { 0. }))
+            .into_any_element();
+    }
+    icon.with_spring(
+        id,
+        SpringAnimation::new(SPRING).to(open),
+        move |icon, phase| icon.rotate(radians(phase.interpolate(0., target))),
+    )
+    .into_any_element()
+}
+
 /// Disclosures toggled a moment ago, keyed by caller-chosen names.
 #[derive(Default)]
 struct Toggles(HashMap<SharedString, Toggle>);

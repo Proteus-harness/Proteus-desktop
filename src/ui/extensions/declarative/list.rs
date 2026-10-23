@@ -30,7 +30,6 @@ impl Kind for ListRows {
     const NAME: &'static str = "extension-list";
     const MOVED: Option<&'static str> = None;
     const SCROLL: ScrollStrategy = ScrollStrategy::Top;
-    const RING_AFTER_KEYS: bool = true;
 
     fn id(row: &Row) -> &str {
         &row.id
@@ -52,7 +51,7 @@ impl Kind for ListRows {
 
     fn draw(&self, row: &Row, index: usize, ring: bool, cx: &App) -> Stateful<Div> {
         let theme = cx.theme();
-        let (hover, muted, border) = (theme.list_hover, theme.muted_foreground, theme.border);
+        let (muted, border) = (theme.muted_foreground, theme.border);
         let hidden = row.chips.len().saturating_sub(CHIPS);
         let chips = (!row.chips.is_empty()).then(|| {
             h_flex()
@@ -125,9 +124,19 @@ impl Kind for ListRows {
             .gap_0p5()
             .border_1()
             .border_color(transparent_black())
-            .when(ring, |element| element.border_color(theme.ring))
+            .when(ring, |element| {
+                element.child(crate::ui::selection::focus(cx))
+            })
             .text_sm()
-            .hover(move |style| style.bg(hover))
+            .relative()
+            .group("list-selection")
+            .child(crate::ui::selection::background(
+                false,
+                ring,
+                "list-selection",
+                true,
+                cx,
+            ))
             .child(first)
             .child(second)
             .when_some(hint, |element, hint| {

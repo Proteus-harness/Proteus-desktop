@@ -54,8 +54,9 @@ impl LaneRows {
             .sum::<f32>()
             .max(0.01)
     }
-    fn slot(&self, i: usize, cx: &App) -> Div {
+    fn slot(&self, i: usize, cx: &App) -> Stateful<Div> {
         div()
+            .id(("graph-column", i))
             .relative()
             .flex_none()
             .min_w_0()
@@ -99,8 +100,7 @@ impl LaneRows {
                             .bg(color.opacity(0.08))
                             .text_xs()
                             .text_color(color)
-                            .child(faded(chip.label.clone()))
-                            .tip_text(chip.label.clone())
+                            .child(crate::ui::fade::caption("ref-name", chip.label.clone()))
                     })),
             )
             .child(graph)
@@ -111,7 +111,6 @@ impl Kind for LaneRows {
     const NAME: &'static str = "extension-lanes";
     const MOVED: Option<&'static str> = Some("select");
     const SCROLL: ScrollStrategy = ScrollStrategy::Nearest;
-    const RING_AFTER_KEYS: bool = false;
     fn id(row: &Row) -> &str {
         &row.id
     }
@@ -129,7 +128,7 @@ impl Kind for LaneRows {
     }
     fn draw(&self, row: &Row, index: usize, ring: bool, cx: &App) -> Stateful<Div> {
         let theme = cx.theme();
-        let (hover, selected, focus) = (theme.list_hover, theme.list_active, theme.ring);
+        let selected = theme.sidebar_accent_foreground;
         h_flex()
             .id(("lanes-row", index))
             .relative()
@@ -137,8 +136,15 @@ impl Kind for LaneRows {
             .h(prefs::scaled(28.))
             .text_sm()
             .cursor_pointer()
-            .when(row.selected, |r| r.bg(selected))
-            .hover(move |r| r.bg(hover))
+            .group("graph-selection")
+            .child(crate::ui::selection::background(
+                row.selected,
+                false,
+                "graph-selection",
+                true,
+                cx,
+            ))
+            .when(row.selected, |r| r.text_color(selected))
             .children(
                 self.columns
                     .iter()
@@ -146,9 +152,6 @@ impl Kind for LaneRows {
                     .filter(|(i, _)| self.visible[*i])
                     .map(|(i, column)| {
                         let cell = self.slot(i, cx);
-                        if column.kind == ColumnKind::Graph {
-                            return cell.child(self.graph(row, cx));
-                        }
                         let text = row.cells.get(i).cloned().unwrap_or_default();
                         let content = h_flex()
                             .size_full()
@@ -161,30 +164,24 @@ impl Kind for LaneRows {
                             .when(column.kind == ColumnKind::Person, |r| {
                                 r.child(super::person::avatar(&text, 14., cx))
                             })
-                            .child(div().min_w_0().child(faded(text)));
-                        cell.child(content)
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .child(crate::ui::fade::caption("cell-caption", text)),
+                            );
+                        if column.kind == ColumnKind::Graph {
+                            cell.child(self.graph(row, cx))
+                        } else {
+                            cell.child(content)
+                        }
                     }),
             )
-            .when(ring, |r| {
-                r.child(div().absolute().inset_0().border_1().border_color(focus))
-            })
+            .when(ring, |r| r.child(crate::ui::selection::focus(cx)))
             .when_some(row.hint.clone(), |r, hint| r.tip_text(hint))
     }
-    fn header(&self, cx: &mut Context<Lanes>) -> Option<AnyElement> {
-        let owner = cx.entity_id();
-        let view = cx.weak_entity();
-        let labels = self.columns.clone();
-        let visible = self.visible.clone();
-        let accent = cx.theme().primary.opacity(0.3);
-        let header = h_flex()
-            .id("graph-columns")
-            .w_full()
-            .flex_none()
-            .h(prefs::scaled(32.))
-            .border_b_1()
-            .border_color(cx.theme().border)
-            .text_sm()
-            .text_color(cx.theme().muted_foreground)
+    fn frame(&self, frame: Stateful<Div>, cx: &Context<Lanes>) -> Stateful<Div> {
+        frame
+            .relative()
             .on_drag_move::<ColumnDrag>(cx.listener(
                 |this, event: &DragMoveEvent<ColumnDrag>, _, cx| {
                     let drag = event.drag(cx);
@@ -222,24 +219,42 @@ impl Kind for LaneRows {
                 self.columns
                     .iter()
                     .enumerate()
+                    .filter(|(i, _)| self.visible[*i] && self.visible[i + 1..].iter().any(|v| *v))
+                    .map(|(i, _)| {
+                        let left = self.weights[..=i]
+                            .iter()
+                            .zip(&self.visible[..=i])
+                            .filter(|(_, v)| **v)
+                            .map(|(w, _)| w)
+                            .sum::<f32>()
+                            / self.total();
+                        column_grip(cx.entity_id(), i, cx)
+                            .left(relative(left))
+                            .ml(prefs::scaled(-3.5))
+                    }),
+            )
+    }
+    fn header(&self, cx: &mut Context<Lanes>) -> Option<AnyElement> {
+        let view = cx.weak_entity();
+        let labels = self.columns.clone();
+        let visible = self.visible.clone();
+        let header = h_flex()
+            .id("graph-columns")
+            .w_full()
+            .flex_none()
+            .h(prefs::scaled(32.))
+            .border_b_1()
+            .border_color(cx.theme().border)
+            .text_sm()
+            .text_color(cx.theme().muted_foreground)
+            .children(
+                self.columns
+                    .iter()
+                    .enumerate()
                     .filter(|(i, _)| self.visible[*i])
                     .map(|(i, c)| {
-                        let last = !self.visible[i + 1..].iter().any(|v| *v);
-                        let grip = div()
-                            .id(("column-grip", i))
-                            .absolute()
-                            .right_0()
-                            .top_0()
-                            .bottom_0()
-                            .w(prefs::scaled(6.))
-                            .cursor(CursorStyle::ResizeLeftRight)
-                            .hover(move |s| s.bg(accent))
-                            .on_drag(ColumnDrag { owner, index: i }, |d, _, _, cx| {
-                                cx.new(|_| d.clone())
-                            });
                         self.slot(i, cx)
                             .child(h_flex().size_full().px_2().child(faded(c.label.clone())))
-                            .when(!last, |cell| cell.child(grip))
                     }),
             );
         Some(
@@ -264,4 +279,30 @@ impl Kind for LaneRows {
                 .into_any_element(),
         )
     }
+}
+
+fn column_grip(owner: EntityId, index: usize, cx: &App) -> Stateful<Div> {
+    let accent = cx.theme().primary.opacity(0.3);
+    div()
+        .id(("column-grip", index))
+        .absolute()
+        .top_0()
+        .bottom_0()
+        .w(prefs::scaled(7.))
+        .child(
+            div()
+                .absolute()
+                .left(prefs::scaled(3.))
+                .top_0()
+                .bottom_0()
+                .w(prefs::scaled(1.))
+                .bg(cx.theme().border.opacity(0.6)),
+        )
+        .cursor(CursorStyle::ResizeLeftRight)
+        .hover(move |s| s.bg(accent))
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_click(|_, _, cx| cx.stop_propagation())
+        .on_drag(ColumnDrag { owner, index }, |d, _, _, cx| {
+            cx.new(|_| d.clone())
+        })
 }

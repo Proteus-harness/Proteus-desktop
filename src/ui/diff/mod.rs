@@ -7,6 +7,7 @@ use crate::ui::kit::ButtonLabel as _;
 mod file;
 mod lines;
 mod row;
+mod syntax;
 
 use std::collections::HashSet;
 use std::rc::Rc;
@@ -32,6 +33,8 @@ pub(in crate::ui) struct DiffView {
     patch: String,
     info: Vec<FileInfo>,
     files: Vec<Rc<File>>,
+    syntax: Vec<Rc<syntax::Syntax>>,
+    syntax_theme: std::sync::Arc<gpui_kit::component::highlighter::HighlightTheme>,
     folded: HashSet<String>,
     list: ListState,
     /// The user's choice survives an automatic narrow-width fallback.
@@ -52,10 +55,17 @@ impl DiffView {
             .collect();
         let list = ListState::new(files.len(), ListAlignment::Top, px(160.));
         let file_focus = files.iter().map(|_| cx.focus_handle()).collect();
+        let syntax_theme = cx.theme().highlight_theme.clone();
+        let syntax = files
+            .iter()
+            .map(|file| Rc::new(syntax::Syntax::new(file, &syntax_theme)))
+            .collect();
         Self {
             patch,
             info,
             files,
+            syntax,
+            syntax_theme,
             folded: HashSet::new(),
             list,
             split: true,
@@ -102,6 +112,11 @@ impl DiffView {
                     .unwrap_or_else(|| cx.focus_handle())
             })
             .collect();
+        self.syntax_theme = cx.theme().highlight_theme.clone();
+        self.syntax = files
+            .iter()
+            .map(|file| Rc::new(syntax::Syntax::new(file, &self.syntax_theme)))
+            .collect();
         self.files = files;
         self.folded
             .retain(|path| self.files.iter().any(|file| &file.path == path));
@@ -111,7 +126,7 @@ impl DiffView {
 
     /// An embedded chat diff grows to a modest height, then scrolls inside.
     pub fn embedded_height(&self) -> f32 {
-        let rows: usize = self.files.iter().map(|file| file.lines.len()).sum();
+        let rows: usize = self.files.iter().map(|file| file.unified.len()).sum();
         (HEADER * (self.files.len() + 1) as f32 + LINE * rows as f32).clamp(100., 360.)
     }
 
@@ -234,6 +249,14 @@ impl DiffView {
 impl Render for DiffView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         motion::drive(window, cx);
+        if !std::sync::Arc::ptr_eq(&self.syntax_theme, &cx.theme().highlight_theme) {
+            self.syntax_theme = cx.theme().highlight_theme.clone();
+            self.syntax = self
+                .files
+                .iter()
+                .map(|file| Rc::new(syntax::Syntax::new(file, &self.syntax_theme)))
+                .collect();
+        }
         let font = Font {
             family: cx.theme().mono_font_family.clone(),
             ..Font::default()

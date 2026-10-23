@@ -286,12 +286,12 @@ fn reads_spacers_and_tab_actions() {
 #[test]
 fn reads_panel_strips_lists_and_tab_counts() {
     let node = parse(json!({"type": "fill", "children": [
-        {"type": "tabs", "tabs": [{"label": "Изменения", "count": 3, "children": [
+        {"type": "tabs", "tabs": [{"label": "Changes", "count": 3, "children": [
             {"type": "empty", "text": "Нет изменений"}
-        ]}, {"label": "История", "children": [
+        ]}, {"label": "History", "children": [
             {"type": "list", "id": "log", "action": "log", "rows": [
                 {"id": "c1", "label": "Fix", "chips": ["v1", "v2", "v3", "v4"], "mark": "arrow-up",
-                 "avatar": true, "meta": ["Ann", "2 ч", "abc1234"], "hint": "Открыть коммит",
+                 "avatar": true, "meta": ["Ann", "2 ч", "abc1234"], "hint": "View Commit",
                  "hint_detail": "abc1234", "menu": [{"label": "Copy", "action": "copy"}]}
             ]}
         ]}]},
@@ -299,7 +299,7 @@ fn reads_panel_strips_lists_and_tab_counts() {
             {"type": "icon", "name": "git-branch"},
             {"type": "menu", "label": "main", "items": [{"label": "main", "action": "checkout"}]},
             {"type": "spacer"},
-            {"type": "button", "label": "Получить", "action": "fetch"}
+            {"type": "button", "label": "Fetch", "action": "fetch"}
         ]},
         {"type": "panel_editor", "children": [
             {"type": "input", "id": "m", "value": "", "placeholder": "", "action": "m",

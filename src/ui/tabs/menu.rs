@@ -106,7 +106,7 @@ pub(super) fn new_tab_menu(
             })),
     )
     .item(
-        PopupMenuItem::new("Терминал")
+        PopupMenuItem::new("Terminal")
             .icon(Icon::new(Lucide::SquareTerminal))
             .on_click(open(|this, pane, window, cx| {
                 this.open_terminal(Some(pane), window, cx)

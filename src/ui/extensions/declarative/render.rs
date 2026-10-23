@@ -2,7 +2,7 @@
 
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::input::{Editor, Input, Textarea};
-use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
+use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -103,12 +103,14 @@ impl DeclarativeView {
                 action,
             } => {
                 let (options, action, this) = (options.clone(), action.clone(), cx.weak_entity());
-                kit::button(ElementId::Name(format!("select-{id}").into()))
-                    .small()
-                    .faded_label(label.clone())
-                    .outline()
-                    .dropdown_caret(true)
-                    .dropdown_menu_with_anchor(Anchor::TopRight, move |menu: PopupMenu, _, _| {
+                crate::ui::context::menu_button(
+                    ElementId::Name(format!("select-menu-{id}").into()),
+                    kit::button(ElementId::Name(format!("select-{id}").into()))
+                        .small()
+                        .faded_label(label.clone())
+                        .outline(),
+                    true,
+                    move |menu: PopupMenu, _, _| {
                         options.iter().fold(
                             menu.min_w(px(200.)).max_h(px(360.)).scrollable(true),
                             |menu, option| {
@@ -125,8 +127,9 @@ impl DeclarativeView {
                                 )
                             },
                         )
-                    })
-                    .into_any_element()
+                    },
+                )
+                .into_any_element()
             }
             Node::Menu { .. } => super::button::menu(node, path, Fit::Normal, cx),
             Node::Checkbox {
@@ -286,7 +289,7 @@ impl DeclarativeView {
                 value,
             } => {
                 let theme = cx.theme();
-                let (hover, primary) = (theme.list_hover, theme.primary);
+                let selected_foreground = theme.sidebar_accent_foreground;
                 let cursor = self
                     .choices()
                     .iter()
@@ -302,13 +305,18 @@ impl DeclarativeView {
                     .rounded(theme.radius)
                     .cursor_pointer()
                     .pressable(cx)
-                    .when(keyboard, |row| row.bg(hover))
+                    .relative()
+                    .group("choice-selection")
+                    .child(crate::ui::selection::background(
+                        *selected,
+                        keyboard,
+                        "choice-selection",
+                        false,
+                        cx,
+                    ))
                     .when(*selected, |row| {
-                        row.text_color(primary)
-                            .font_medium()
-                            .bg(primary.opacity(0.12))
+                        row.text_color(selected_foreground).font_medium()
                     })
-                    .when(!*selected, |row| row.hover(move |style| style.bg(hover)))
                     .child(faded(label.clone()))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.act(action.clone(), Some(value.clone()), cx)

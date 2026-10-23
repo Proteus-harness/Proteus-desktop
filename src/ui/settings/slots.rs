@@ -56,7 +56,7 @@ impl SettingsView {
         } else {
             v_flex().gap_2().children(cards)
         };
-        let mut parts = vec![section("Провайдер", None, None, providers, cx).into_any_element()];
+        let mut parts = vec![section("Provider", None, None, providers, cx).into_any_element()];
         if let Some(module) = model_module(snapshot, &self.draft) {
             parts.push(self.params_section(MODEL_SLOT, &module, cx));
         }
@@ -246,7 +246,7 @@ impl SettingsView {
         };
         Some(
             section(
-                "Поставщики контекста",
+                "Context Providers",
                 Some(
                     "Какие поставщики читаются автоматически, задают параметры модуля Context выше."
                         .into(),

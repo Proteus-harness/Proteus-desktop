@@ -91,21 +91,30 @@ fn rail_button(
     cx: &App,
 ) -> Stateful<Div> {
     let theme = cx.theme();
-    let (hover, foreground) = (theme.list_hover, theme.foreground);
+    let foreground = theme.foreground;
     div()
         .id(id)
         .size_8()
+        .relative()
+        .group("rail-selection")
         .flex()
         .items_center()
         .justify_center()
         .rounded(theme.radius)
         .cursor_pointer()
         .pressable(cx)
+        .child(crate::ui::selection::background(
+            active,
+            false,
+            "rail-selection",
+            false,
+            cx,
+        ))
         .when(active, |button| {
-            button.bg(theme.accent).text_color(theme.accent_foreground)
+            button.text_color(theme.sidebar_accent_foreground)
         })
         .when(!active, |button| {
-            button.hover(move |style| style.bg(hover).text_color(foreground))
+            button.hover(move |style| style.text_color(foreground))
         })
         .child(icon.with_size(gpui_kit::component::Size::Medium))
         .when_some(hint, |button, hint| button.tip_text(hint))
