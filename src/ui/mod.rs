@@ -96,6 +96,7 @@ impl Render for Workspace {
         let theme = cx.theme();
         let root =
             v_flex()
+                .on_children_prepainted(kit::record_first_child(self.header_bounds.clone()))
                 .size_full()
                 .track_focus(&self.focus_handle)
                 .capture_any_mouse_down(|event: &MouseDownEvent, window, cx| {
@@ -223,7 +224,15 @@ impl Render for Workspace {
                         .into_any_element()
                     }
                 };
-                root.child(h_flex().flex_1().min_h_0().w_full().child(rail).child(main))
+                root.child(
+                    h_flex()
+                        .on_children_prepainted(kit::record_first_child(self.rail_bounds.clone()))
+                        .flex_1()
+                        .min_h_0()
+                        .w_full()
+                        .child(rail)
+                        .child(main),
+                )
             }
         }
     }

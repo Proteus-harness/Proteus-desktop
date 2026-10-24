@@ -47,10 +47,7 @@ impl Workspace {
         let right = h_flex().gap_1().items_center().when(ready, |right| {
             right.child(self.render_badge_strip(BadgePlace::HeaderEnd, cx))
         });
-        let bounds = self.header_bounds.clone();
         title_bar(left, right, window, cx)
-            .relative()
-            .on_prepaint(move |rect, _, _| bounds.set(rect))
     }
 }
 

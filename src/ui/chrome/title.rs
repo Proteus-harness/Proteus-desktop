@@ -15,7 +15,7 @@ pub(super) fn title_bar<L: IntoElement, R: IntoElement>(
     right: R,
     window: &mut Window,
     cx: &mut App,
-) -> Stateful<Div> {
+) -> impl IntoElement + use<L, R> {
     let theme = cx.theme();
     let (background, border) = (theme.title_bar, theme.title_bar_border);
     let decorated = matches!(window.window_decorations(), Decorations::Client { .. });

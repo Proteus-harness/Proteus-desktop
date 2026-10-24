@@ -20,10 +20,7 @@ const RAIL_WIDTH: f32 = 40.;
 impl Workspace {
     pub(in crate::ui) fn render_rail(&self, cx: &Context<Self>) -> impl IntoElement + use<> {
         let theme = cx.theme();
-        let bounds = self.rail_bounds.clone();
         v_flex()
-            .relative()
-            .on_prepaint(move |rect, _, _| bounds.set(rect))
             .flex_none()
             .w(prefs::scaled(RAIL_WIDTH))
             .h_full()

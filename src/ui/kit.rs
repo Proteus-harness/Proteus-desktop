@@ -23,7 +23,7 @@ use crate::shortcuts::{self, Command};
 mod controls;
 mod frame;
 pub(crate) use controls::{Clipboard, Switch};
-pub(crate) use frame::{Frame, RowRule};
+pub(crate) use frame::{Frame, RowRule, record_first_child};
 
 /// Shared button captions and quiet surfaces. Icons, sizes, focus and
 /// keyboard behavior stay native.
