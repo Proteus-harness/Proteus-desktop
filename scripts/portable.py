@@ -73,6 +73,7 @@ def assemble(agent_profile, client_profile):
     install_notices(staging, NATIVE, ROOT, MODULES, EXTENSIONS)
     write_manifest(staging, NATIVE, ROOT, MODULES, EXTENSIONS)
     install_file(ICON, staging / "share/icons/proteus-native.png")
+    install_file(NATIVE / "assets/proteus-logo.svg", staging / "share/icons/proteus-native.svg")
     install_file(ASSETS / "proteus-native", staging / "proteus-native", True)
     install_file(ASSETS / "install-shortcut", staging / "install-shortcut", True)
     shutil.rmtree(PORTABLE, ignore_errors=True)
