@@ -190,6 +190,12 @@ LTO и инкрементально, поэтому правка клиента 
   (`~/.local/share/applications/dev.proteus.native.desktop` и значок); ярлык
   открывает выбор папки. После переноса папки запустите его снова,
   `--remove` убирает ярлык;
+- `${PROTEUS_CONFIG_HOME:-~/.config/Proteus-agent}/environment` — необязательный
+  локальный файл окружения в формате POSIX sh (`export HTTPS_PROXY=…`,
+  `export HTTP_PROXY=…`, `export NO_PROXY=localhost,127.0.0.1,::1`). Launcher
+  загружает его до запуска клиента: настройки сети общие для приложения,
+  сервера и расширений; model-worker получает их через `env_allowlist`
+  своего профиля. Ярлык использует тот же launcher, что запуск из терминала;
 - `bin/` — клиент, сервер агента и reference-модуль одной сборки;
 - `share/extensions/` — самостоятельные процессные пакеты стандартных расширений.
   Поставляемые Rust-бинарники запускаются без Python и исходного checkout; SDK
