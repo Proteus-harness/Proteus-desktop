@@ -80,7 +80,7 @@ pub(crate) fn menu_option(label: impl Into<SharedString>, selected: bool) -> Pop
                         .right(px(-8.))
                         .top_0()
                         .bottom_0()
-                        .rounded(theme.radius.min(px(8.)))
+                        .rounded(theme.radius)
                         .bg(theme.sidebar_accent),
                 )
             })

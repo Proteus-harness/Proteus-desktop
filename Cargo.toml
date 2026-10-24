@@ -1,6 +1,10 @@
 [workspace]
 resolver = "2"
 members = ["crates/client-common"]
+exclude = ["vendor/gpui-pre-wgpu"]
+
+[patch.crates-io]
+gpui-pre-wgpu = { path = "vendor/gpui-pre-wgpu" }
 
 [package]
 name = "proteus-native"
@@ -44,6 +48,9 @@ url = "2"
 uuid = { version = "1", features = ["v4"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 alacritty_terminal = "0.25"
+
+[dev-dependencies]
+naga = { version = "29.0.4", features = ["wgsl-in"] }
 
 [profile.release]
 opt-level = 3

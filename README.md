@@ -4,6 +4,12 @@
 с HTTP/SSE app-server через DTO из `proteus-contracts::app_protocol`; общие
 правила подключения и сессий — в `crates/client-common`.
 
+Непрерывные углы фона, рамок и изображений задаёт общий WGPU-рендерер,
+включая элементы Settings и процессных расширений. Его закреплённая локальная
+правка находится в `vendor/gpui-pre-wgpu` и подключается через Cargo patch;
+круги и капсулы сохраняют исходную форму. Происхождение и порядок обновления
+описаны в `vendor/gpui-pre-wgpu/README.proteus.md`.
+
 Источники разделены на четыре репозитория. Этот содержит приложение и
 `crates/client-common`; DTO берутся из закреплённого Git commit Proteus-core.
 `repositories.json` задаёт revisions Core, модулей и расширений для поставки.
