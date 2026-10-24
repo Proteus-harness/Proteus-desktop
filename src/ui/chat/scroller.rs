@@ -177,7 +177,7 @@ impl ChatScroller {
         cx.notify();
     }
 
-    /// Pixels between the current position and the end of the content.
+    /// Pixels to the scrollable end, including retained blank room.
     fn gap(&self) -> Pixels {
         let max = self.list.max_offset_for_scrollbar().y;
         let offset = -self.list.scroll_px_offset_for_scrollbar().y;
@@ -185,7 +185,19 @@ impl ChatScroller {
     }
 
     fn scrolled_up(&self) -> bool {
-        !self.following && (self.tail.height() > SETTLED || self.gap() > SETTLED)
+        // Collapsing a row retains blank room to keep the viewport steady.
+        // Only actual content below the viewport warrants a jump button.
+        !self.following
+            && self.row_count().checked_sub(1).is_some_and(|last| {
+                self.list.bounds_for_item(last).map_or_else(
+                    || self.gap() > self.tail.height() + SETTLED,
+                    |bounds| {
+                        // Item bounds omit the list's top padding. Prefer
+                        // actual row geometry to the frozen scrollbar range.
+                        bounds.bottom() + EDGE > self.list.viewport_bounds().bottom() + SETTLED
+                    },
+                )
+            })
     }
 
     /// Advance following by one frame; returns whether another frame is needed.

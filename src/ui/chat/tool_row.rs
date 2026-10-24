@@ -13,7 +13,7 @@ use super::Chat;
 use crate::tool_display::{self, PlanStep, StepStatus};
 use crate::ui::fade::faded;
 use crate::ui::format;
-use crate::ui::kit::{self, Hint as _, Pressable as _};
+use crate::ui::kit::{self, Frame as _, Hint as _, Pressable as _};
 use crate::ui::motion::{Spinner, chevron, preview_reveal, reveal};
 
 /// Lines of a long block shown until the user asks for all of them.
@@ -222,7 +222,7 @@ impl Fold {
                 div()
                     .relative()
                     .child(build(preview))
-                    .child(bottom_fade(theme.muted, theme.radius)),
+                    .child(bottom_fade(theme.muted, theme.radius_lg)),
                 build(format::clip_block(text, FULL_LINES, FULL_CHARS)),
             ))
     }
@@ -292,9 +292,7 @@ fn tool_details(
                 .w_full()
                 .min_w_0()
                 .h(crate::ui::prefs::scaled(diff.read(cx).embedded_height()))
-                .rounded(cx.theme().radius)
-                .border_1()
-                .border_color(cx.theme().border)
+                .surface_frame(cx)
                 .overflow_hidden()
                 .child(diff)
         })),
@@ -402,7 +400,7 @@ pub(super) fn code_block(id: ElementId, text: String, cx: &App) -> Div {
         .w_full()
         .px_3()
         .py_2()
-        .rounded(theme.radius)
+        .rounded(theme.radius_lg)
         .bg(theme.muted)
         .font_family(theme.mono_font_family.clone())
         .text_xs()
