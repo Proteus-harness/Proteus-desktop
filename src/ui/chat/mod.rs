@@ -27,6 +27,7 @@ pub(super) mod tool_row;
 mod user_input;
 mod view;
 
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -84,6 +85,7 @@ pub(super) struct Chat {
     pub session: Session,
     scroller: Entity<ChatScroller>,
     composer: Entity<TextareaState>,
+    composer_strip_bounds: Rc<Cell<Bounds<Pixels>>>,
     attachments: Attachments,
     attachments_loading: bool,
     /// A delayed picker/read must not land in a newer composer draft.
@@ -182,6 +184,7 @@ impl Chat {
             session: Session::new(session_dir),
             scroller,
             composer,
+            composer_strip_bounds: Rc::default(),
             attachments: Attachments::default(),
             attachments_loading: false,
             attachment_generation: 0,

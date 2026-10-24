@@ -18,6 +18,11 @@ use crate::ui::motion::Spinner;
 use crate::ui::{format, prefs};
 
 impl Chat {
+    /// The whole framed strip, including padding and expanded activity details.
+    pub(in crate::ui) fn composer_strip_bounds(&self) -> Bounds<Pixels> {
+        self.composer_strip_bounds.get()
+    }
+
     /// The composer with what the agent waits on and its plan right above.
     pub(super) fn render_composer(
         &mut self,
@@ -26,6 +31,7 @@ impl Chat {
     ) -> impl IntoElement {
         let theme = cx.theme().clone();
         let dock = self.render_activity_dock(window, cx);
+        let strip_bounds = self.composer_strip_bounds.clone();
         h_flex()
             .w_full()
             .justify_center()
@@ -45,6 +51,7 @@ impl Chat {
                             .border_1()
                             .border_color(theme.border)
                             .bg(theme.group_box)
+                            .on_prepaint(move |bounds, _, _| strip_bounds.set(bounds))
                             .child(dock),
                     )
                     .child(

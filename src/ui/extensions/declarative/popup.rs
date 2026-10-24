@@ -45,17 +45,27 @@ impl DeclarativeBadge {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let bounds = self.bounds.get();
-        let frame = self.popup.frame(bounds, window, cx)?;
-        // Zed composer selectors anchor above the input regardless of menu size:
-        // crates/agent_ui/src/mode_selector.rs, model_selector_popover.rs.
-        let frame = if super::super::find(self.host.extension()).is_some_and(|manifest| {
+        let composer = super::super::find(self.host.extension()).is_some_and(|manifest| {
             matches!(
                 super::super::badge_place(manifest, cx),
                 crate::preferences::BadgePlace::ComposerStart
                     | crate::preferences::BadgePlace::ComposerEnd
             )
-        }) {
+        });
+        let mut bounds = self.bounds.get();
+        if composer && let Some(chat) = self.host.chat(cx) {
+            let strip = chat.read(cx).composer_strip_bounds();
+            if strip.size.height > px(0.) {
+                // Keep horizontal alignment with the badge, but leave the
+                // entire framed strip clear, including padding and details.
+                bounds.origin.y = strip.top();
+                bounds.size.height = strip.size.height;
+            }
+        }
+        let frame = self.popup.frame(bounds, window, cx)?;
+        // Zed composer selectors anchor above the input regardless of menu size:
+        // crates/agent_ui/src/mode_selector.rs, model_selector_popover.rs.
+        let frame = if composer {
             frame.placement(gpui_kit::base::Placement::Top)
         } else {
             frame
