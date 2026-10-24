@@ -13,7 +13,7 @@ use super::widgets::{
 };
 use crate::settings::FieldPath;
 use crate::settings::catalog::editable_field;
-use crate::ui::kit::Pressable as _;
+use crate::ui::kit::{Pressable as _, RowRule as _};
 
 impl SettingsView {
     /// Rows of `fields` living in `object`: ordinary fields, advanced ones
@@ -43,17 +43,17 @@ impl SettingsView {
                 let path = path_of(&field.key);
                 self.draft.value(&path) != self.baseline.value(&path)
             });
-            let border = cx.theme().border;
             let advanced_count = advanced.len();
             // The divider under the toggle is part of the revealed rows, so
             // nothing is left over once they close.
             let content = self.reveal(&key, cx, || {
-                nested(v_flex().children(advanced.into_iter().map(|field| {
-                    div()
-                        .border_t_1()
-                        .border_color(border)
-                        .child(field_row(field))
-                })))
+                nested(
+                    v_flex().children(
+                        advanced
+                            .into_iter()
+                            .map(|field| div().row_rule(cx).child(field_row(field))),
+                    ),
+                )
                 .into_any_element()
             });
             let view = cx.weak_entity();
@@ -157,11 +157,11 @@ impl SettingsView {
         let content = self.reveal(&key, cx, || {
             let rows = self.field_rows(fields, |key| path.child(key), value, &scope, cx);
             nested(
-                v_flex().children(rows.into_iter().enumerate().map(|(ix, row)| {
-                    div()
-                        .when(ix > 0, |cell| cell.border_t_1().border_color(theme.border))
-                        .child(row)
-                })),
+                v_flex().children(
+                    rows.into_iter()
+                        .enumerate()
+                        .map(|(ix, row)| div().when(ix > 0, |cell| cell.row_rule(cx)).child(row)),
+                ),
             )
             .into_any_element()
         });

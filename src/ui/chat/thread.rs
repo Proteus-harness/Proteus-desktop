@@ -1,3 +1,4 @@
+use crate::ui::kit::Frame as _;
 use std::ops::Range;
 
 use crate::ui::kit::Clipboard;
@@ -399,9 +400,7 @@ fn render_subagent(
     v_flex()
         .px_3()
         .py_2()
-        .rounded(theme.radius_lg)
-        .border_1()
-        .border_color(theme.border)
+        .frame(cx)
         .child(
             h_flex()
                 .id(ElementId::NamedInteger("subagent".into(), key))

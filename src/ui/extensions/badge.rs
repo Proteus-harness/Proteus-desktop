@@ -83,6 +83,7 @@ pub(super) fn pressable_badge(
     details: Details,
     host: &Host,
     press: Option<Press>,
+    drag_start: Option<Press>,
     cx: &App,
 ) -> impl IntoElement + use<> {
     let theme = cx.theme();
@@ -121,7 +122,10 @@ pub(super) fn pressable_badge(
         .child(face())
         .tip_element(move |_, cx| tooltip_body(&details, cx))
         .when(!pinned, |badge| {
-            badge.on_drag(dragged, |dragged, _, _, cx| {
+            badge.on_drag(dragged, move |dragged, _, window, cx| {
+                if let Some(drag_start) = &drag_start {
+                    drag_start(window, cx);
+                }
                 drag::start(drag_key(dragged.id), cx);
                 cx.new(|_| dragged.clone())
             })

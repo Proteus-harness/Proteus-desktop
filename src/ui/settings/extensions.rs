@@ -3,6 +3,7 @@
 //! standard list.
 
 use crate::ui::kit::ButtonLabel as _;
+use crate::ui::kit::Frame as _;
 use std::path::{Path, PathBuf};
 
 use gpui_kit::assets::IconName as Lucide;
@@ -167,8 +168,7 @@ impl SettingsView {
                 .items_start()
                 .px_4()
                 .py_3()
-                .rounded(theme.radius_lg)
-                .border_1()
+                .frame(cx)
                 .border_color(color.opacity(0.4))
                 .bg(color.opacity(0.08))
                 .text_sm()
@@ -327,8 +327,7 @@ impl SettingsView {
                         .gap_2()
                         .px_4()
                         .py_5()
-                        .rounded(theme.radius_lg)
-                        .border_1()
+                        .frame(cx)
                         .border_dashed()
                         .border_color(theme.border)
                         .text_sm()

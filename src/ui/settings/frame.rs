@@ -1,6 +1,7 @@
 //! Page frame: title, description, scrolled body and the save bar.
 
 use crate::ui::kit::ButtonLabel as _;
+use crate::ui::kit::Frame as _;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::*;
@@ -201,8 +202,7 @@ impl SettingsView {
                 .gap_1p5()
                 .px_4()
                 .py_3()
-                .rounded(theme.radius_lg)
-                .border_1()
+                .frame(cx)
                 .border_color(theme.warning.opacity(0.4))
                 .bg(theme.warning.opacity(0.08))
                 .children(snapshot.warnings.iter().map(|warning| {

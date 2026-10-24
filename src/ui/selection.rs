@@ -54,26 +54,35 @@ pub(crate) fn menu_option(label: impl Into<SharedString>, selected: bool) -> Pop
         let natural_width = window
             .text_system()
             .shape_line(label.clone(), font, &[style.to_run(label.len())], None)
-            .width();
+            .width()
+            .ceil();
         h_flex()
             .id("menu-option")
             .aria_label(label.clone())
             .aria_selected(selected)
             .relative()
-            .w(natural_width + px(16.))
+            .w(natural_width)
             .min_w_0()
             .flex_grow(1.)
             .text_sm()
-            // Cancel the native MenuItemElement's fixed 8px side padding:
-            // committed selection and native hover cover the same contour,
-            // while the caption keeps its ordinary menu alignment.
-            .mx(px(-8.))
-            .px(px(8.))
             .min_h(prefs::scaled(26.))
-            .rounded(theme.radius)
             .when(selected, |row| {
-                row.bg(theme.sidebar_accent)
-                    .text_color(theme.sidebar_accent_foreground)
+                row.text_color(theme.sidebar_accent_foreground)
+            })
+            // Keep native menu padding in the layout. Only the selected
+            // paint extends into it; negative margins on the caption used
+            // to reduce its measured room and fade fitting final letters.
+            .when(selected, |row| {
+                row.child(
+                    div()
+                        .absolute()
+                        .left(px(-8.))
+                        .right(px(-8.))
+                        .top_0()
+                        .bottom_0()
+                        .rounded(theme.radius.min(px(8.)))
+                        .bg(theme.sidebar_accent),
+                )
             })
             .child(
                 div()

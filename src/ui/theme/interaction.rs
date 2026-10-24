@@ -24,6 +24,8 @@ pub(super) fn enforce(cx: &mut App) {
         && theme.table_active == selected
         && theme.tokens.list_active.background == selected.into()
         && theme.tokens.table_active.background == selected.into()
+        && theme.input == theme.border
+        && theme.tokens.input == theme.tokens.border
     {
         return;
     }
@@ -36,6 +38,10 @@ fn project(theme: &mut Theme) {
     theme.colors.table_active = selected;
     theme.tokens.list_active.background = selected.into();
     theme.tokens.table_active.background = selected.into();
+    // Input, outlined buttons and application surfaces share one neutral edge.
+    // Project both token paths so System and custom themes cannot diverge.
+    theme.colors.input = theme.border;
+    theme.tokens.input = theme.tokens.border;
 }
 
 /// Normalize the selected theme configuration before installing either
@@ -53,6 +59,10 @@ pub(super) fn normalize(config: &Rc<ThemeConfig>) -> Rc<ThemeConfig> {
     let hover: SharedString = resolved.sidebar_accent.opacity(HOVER_SHARE).to_hex().into();
     let mut config = config.as_ref().clone();
     let colors = &mut config.colors;
+    colors.input = colors
+        .border
+        .clone()
+        .or_else(|| Some(resolved.border.to_hex().into()));
     // Freeze the resolved selected fallback before accent becomes hover;
     // otherwise custom themes without sidebar.accent would inherit hover
     // as their selection and get weaker again on each normalization.
@@ -130,6 +140,8 @@ mod tests {
             assert_eq!(theme.tokens.accent.background, theme.accent.into());
             assert_eq!(theme.tokens.list_hover.background, theme.list_hover.into());
             assert_eq!(theme.primary, original.primary);
+            assert_eq!(theme.input, theme.border);
+            assert_eq!(theme.tokens.input, theme.tokens.border);
             assert_eq!(theme.danger, original.danger);
             assert_eq!(resolve(&normalize(&normalized)).colors, theme.colors);
         }
@@ -141,13 +153,17 @@ mod tests {
             "name":"Synthetic custom theme", "mode":"dark", "colors":{
                 "sidebar.accent.background":"blue-600/80",
                 "accent.background":"red-500",
-                "list.hover.background":"green-500"
+                "list.hover.background":"green-500",
+                "border":"blue-500",
+                "input.border":"red-500"
             }
         }))
         .unwrap();
         let original = resolve(&Rc::new(config.clone()));
         let theme = resolve(&normalize(&Rc::new(config)));
         assert_eq!(theme.sidebar_accent, original.sidebar_accent);
+        assert_eq!(theme.input, theme.border);
+        assert_eq!(theme.tokens.input, theme.tokens.border);
         assert!(theme.accent.a < theme.sidebar_accent.a);
         assert!((theme.accent.h - theme.sidebar_accent.h).abs() < 0.01);
         assert!((theme.accent.s - theme.sidebar_accent.s).abs() < 0.01);

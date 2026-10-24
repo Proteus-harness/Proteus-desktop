@@ -1,4 +1,5 @@
 use crate::ui::kit::ButtonLabel as _;
+use crate::ui::kit::Frame as _;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::Input;
@@ -166,8 +167,7 @@ impl Chat {
             .flex()
             .items_center()
             .justify_center()
-            .rounded(theme.radius)
-            .border_1()
+            .frame(cx)
             .text_xs()
             .map(|badge| {
                 if selected {

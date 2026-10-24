@@ -3,6 +3,7 @@
 //! The whole list only opens once a search, a filter or a scope asks for it.
 
 use crate::ui::kit::ButtonLabel as _;
+use crate::ui::kit::Frame as _;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::*;
@@ -368,9 +369,7 @@ fn card(id: ElementId, cx: &App) -> Stateful<Div> {
         .px_3()
         .py_2p5()
         .gap_2()
-        .rounded(theme.radius)
-        .border_1()
-        .border_color(theme.border)
+        .frame(cx)
         .cursor_pointer()
         .hover(|card| card.bg(theme.list_hover))
         .pressable(cx)

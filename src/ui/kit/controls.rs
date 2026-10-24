@@ -51,7 +51,9 @@ impl Hinted<NativeSwitch> {
     pub fn new(id: impl Into<ElementId>) -> Self {
         let id = id.into();
         Self {
-            inner: NativeSwitch::new(id.clone()),
+            // Compact native track (28 x 16), with the native thumb travel,
+            // spring, keyboard, focus and disabled semantics kept together.
+            inner: NativeSwitch::new(id.clone()).small(),
             id,
             hint: None,
         }

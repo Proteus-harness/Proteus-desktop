@@ -1,6 +1,7 @@
 //! What is being dragged right now, so its own place can fade while the
 //! preview follows the cursor, and the look of that preview.
 
+use crate::ui::kit::Frame as _;
 use gpui_kit::component::*;
 use gpui_kit::*;
 
@@ -104,9 +105,7 @@ pub(super) const SOURCE_OPACITY: f32 = 0.35;
 pub(super) fn lifted(element: Div, cx: &App) -> Div {
     let theme = cx.theme();
     element
-        .rounded(theme.radius)
-        .border_1()
-        .border_color(theme.border)
+        .frame(cx)
         .bg(theme.popover)
         .text_color(theme.popover_foreground)
         .shadow_lg()

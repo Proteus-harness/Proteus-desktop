@@ -1,6 +1,7 @@
 //! «Сочетания клавиш»: window command shortcuts, recorded from the keyboard.
 
 use crate::ui::kit::ButtonLabel as _;
+use crate::ui::kit::Frame as _;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::*;
 use gpui_kit::*;
@@ -102,9 +103,7 @@ impl SettingsView {
         h_flex()
             .gap_0p5()
             .pl_2()
-            .rounded(theme.radius)
-            .border_1()
-            .border_color(theme.border)
+            .frame(cx)
             .bg(theme.secondary)
             .text_xs()
             .font_family(theme.mono_font_family.clone())

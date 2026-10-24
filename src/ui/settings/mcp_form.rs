@@ -117,12 +117,12 @@ fn row_title(
 
 /// Rows one under another, divided by hairlines.
 fn stacked(rows: Vec<AnyElement>, cx: &App) -> Div {
-    let border = cx.theme().border;
-    v_flex().children(rows.into_iter().enumerate().map(|(ix, row)| {
-        div()
-            .when(ix > 0, |cell| cell.border_t_1().border_color(border))
-            .child(row)
-    }))
+    use crate::ui::kit::RowRule as _;
+    v_flex().children(
+        rows.into_iter()
+            .enumerate()
+            .map(|(ix, row)| div().when(ix > 0, |cell| cell.row_rule(cx)).child(row)),
+    )
 }
 
 impl SettingsView {

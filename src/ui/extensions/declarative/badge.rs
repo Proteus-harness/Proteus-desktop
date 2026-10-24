@@ -193,6 +193,16 @@ impl Render for DeclarativeBadge {
             }) as Press
         });
         let bounds = self.bounds.clone();
+        let this = cx.entity().downgrade();
+        let drag_start = Rc::new(move |window: &mut Window, cx: &mut App| {
+            let _ = this.update(cx, |this, cx| {
+                this.close_popup(window, cx);
+                // The anchor is moving: discard its inert exit too, so no
+                // detached menu can follow the badge or return after Escape.
+                this.popup.clear();
+                cx.notify();
+            });
+        }) as Press;
         let popup = manifest
             .surfaces
             .popup
@@ -201,7 +211,15 @@ impl Render for DeclarativeBadge {
         div()
             .relative()
             .on_prepaint(move |rect, _, _| bounds.set(rect))
-            .child(pressable_badge(id, face, details, &self.host, press, cx))
+            .child(pressable_badge(
+                id,
+                face,
+                details,
+                &self.host,
+                press,
+                Some(drag_start),
+                cx,
+            ))
             .children(popup)
             .into_any_element()
     }

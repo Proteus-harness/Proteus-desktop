@@ -21,7 +21,9 @@ use crate::preferences::Hints;
 use crate::shortcuts::{self, Command};
 
 mod controls;
+mod frame;
 pub(crate) use controls::{Clipboard, Switch};
+pub(crate) use frame::{Frame, RowRule};
 
 /// Shared button captions and quiet surfaces. Icons, sizes, focus and
 /// keyboard behavior stay native.
@@ -88,26 +90,20 @@ pub(crate) fn input(state: &gpui_kit::Entity<InputState>) -> Input {
 }
 
 /// One opaque popup, with an actual thin border and clipped child paint.
-/// The outer shadow stays outside the clipping of the popup's contents.
+/// Menus use the same flat outline as fields and cards, without an outer shadow.
 pub(crate) fn popup_surface(cx: &App) -> gpui_kit::Div {
     use gpui_kit::{Styled as _, div};
     div()
         .bg(cx.theme().popover)
         .text_color(cx.theme().popover_foreground)
-        .rounded(cx.theme().radius)
-        .border_1()
-        .border_color(cx.theme().border)
-        .shadow_md()
+        .frame(cx)
         .overflow_hidden()
 }
 
 /// Textarea has no public focus-ring opt-out, so keep its native appearance
 /// and restore only the thin border after disabling its bordered focus style.
 pub(crate) fn textarea(state: &gpui_kit::Entity<TextareaState>, cx: &App) -> Textarea {
-    Textarea::new(state)
-        .bordered(false)
-        .border_1()
-        .border_color(cx.theme().input)
+    Textarea::new(state).bordered(false).frame(cx)
 }
 
 /// Let the descendant editor consume wheel motion first. At either edge,

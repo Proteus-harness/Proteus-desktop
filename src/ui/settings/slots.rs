@@ -9,6 +9,7 @@ use crate::settings::catalog::{
     CONTEXT_PROVIDER_SLOT, CONTEXT_SLOT, MODEL_SLOT, POLICY_SLOT, exports, find_slot, model_module,
     permission_description, selected_module,
 };
+use crate::ui::kit::RowRule as _;
 
 impl SettingsView {
     pub(super) fn model_page(&self, cx: &Context<Self>) -> Vec<AnyElement> {
@@ -277,20 +278,16 @@ impl SettingsView {
         let toggle_key = key.to_string();
         Some(
             v_flex()
-                .child(
-                    super::widgets::disclosure(
-                        hashed_id("params-open", &key),
-                        open,
-                        "Параметры",
-                        changed,
-                        move |cx| {
-                            let _ = view.update(cx, |this, cx| this.toggle_open(&toggle_key, cx));
-                        },
-                        cx,
-                    )
-                    .border_t_1()
-                    .border_color(cx.theme().border),
-                )
+                .child(div().row_rule(cx).child(super::widgets::disclosure(
+                    hashed_id("params-open", &key),
+                    open,
+                    "Параметры",
+                    changed,
+                    move |cx| {
+                        let _ = view.update(cx, |this, cx| this.toggle_open(&toggle_key, cx));
+                    },
+                    cx,
+                )))
                 .children(self.reveal(key, cx, || {
                     crate::ui::reorder::controls(self.params_nested(slot, module, cx))
                         .w_full()

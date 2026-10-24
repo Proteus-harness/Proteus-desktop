@@ -1,5 +1,6 @@
 //! Native rendering of the widget tree an extension sends.
 
+use crate::ui::kit::Frame as _;
 use gpui_kit::component::input::{Editor, Textarea};
 use gpui_kit::component::menu::PopupMenu;
 use gpui_kit::component::*;
@@ -420,9 +421,7 @@ impl DeclarativeView {
                     .min_w_0()
                     .gap_2()
                     .p_3()
-                    .rounded(theme.radius)
-                    .border_1()
-                    .border_color(theme.border)
+                    .frame(cx)
                     .bg(theme.secondary)
                     .when_some(title.clone(), |card, title| {
                         card.child(div().text_sm().font_semibold().child(title))

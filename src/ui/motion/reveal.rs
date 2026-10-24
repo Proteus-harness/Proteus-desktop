@@ -6,10 +6,6 @@
 
 use gpui_kit::*;
 
-/// Room for the native popover's outside ring and shadow-md. It is paint
-/// overflow only: layout and popup positioning keep the final surface size.
-const POPUP_SHADOW_OVERFLOW: Pixels = px(16.);
-
 pub(super) struct Reveal {
     id: ElementId,
     /// `None` while the disclosure rests open.
@@ -97,13 +93,9 @@ impl Reveal {
             bounds.origin.y += bounds.size.height - height;
         }
         bounds.size.height = height;
-        // popover_style draws its ring outside the surface as a shadow.
-        // Clipping exactly at its bounds hides that whole ring until the
-        // final frame. Uncover the overflow continuously with the content,
-        // including the trailing edge before the animation settles.
-        ContentMask {
-            bounds: bounds.dilate(POPUP_SHADOW_OVERFLOW * self.progress.unwrap_or(1.)),
-        }
+        // The shared surface owns an inset border; child paint must never
+        // escape its revealed bounds, including the final frame.
+        ContentMask { bounds }
     }
 }
 
@@ -309,21 +301,18 @@ mod tests {
         let below = Bounds::new(point(px(20.), px(228.)), size(px(200.), px(160.)));
         assert_eq!(
             opening.popup_mask(below).bounds,
-            Bounds::new(point(px(20.), px(228.)), size(px(200.), px(80.))).dilate(px(8.))
+            Bounds::new(point(px(20.), px(228.)), size(px(200.), px(80.)))
         );
         let above = Bounds::new(point(px(20.), px(36.)), size(px(200.), px(160.)));
         assert_eq!(
             opening.popup_mask(above).bounds,
-            Bounds::new(point(px(20.), px(116.)), size(px(200.), px(80.))).dilate(px(8.))
+            Bounds::new(point(px(20.), px(116.)), size(px(200.), px(80.)))
         );
-        assert_eq!(
-            opening.with_progress(1.).popup_mask(above).bounds,
-            above.dilate(px(16.))
-        );
+        assert_eq!(opening.with_progress(1.).popup_mask(above).bounds, above);
     }
 
     #[::core::prelude::v1::test]
-    fn popup_shadow_uncover_is_empty_at_zero_and_continuous_at_rest() {
+    fn popup_clip_is_empty_at_zero_and_continuous_at_rest() {
         let bounds = Bounds::new(point(px(20.), px(36.)), size(px(200.), px(160.)));
         for origin in [
             PopupOrigin::Anchor(Bounds::new(point(px(20.), px(0.)), size(px(80.), px(24.)))),
@@ -338,10 +327,11 @@ mod tests {
             assert_eq!(popup(0.).size.height, px(0.));
             let almost = popup(0.999);
             let settled = popup(1.);
-            assert!(almost.left() < bounds.left());
-            assert!(almost.right() > bounds.right());
-            assert!(almost.top() < bounds.top());
-            assert!(almost.bottom() > bounds.bottom());
+            assert_eq!(settled, bounds);
+            assert_eq!(almost.left(), bounds.left());
+            assert_eq!(almost.right(), bounds.right());
+            assert!(almost.top() >= bounds.top());
+            assert!(almost.bottom() <= bounds.bottom());
             assert!((settled.top() - almost.top()).abs() < px(0.2));
             assert!((settled.bottom() - almost.bottom()).abs() < px(0.2));
         }

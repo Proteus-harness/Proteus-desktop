@@ -1,6 +1,7 @@
 //! Images of the composer draft: picked or dropped files and clipboard
 //! pastes, checked against the host limits before they are sent.
 
+use crate::ui::kit::Frame as _;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -230,9 +231,7 @@ impl Chat {
                     .group("attachment")
                     .relative()
                     .size(prefs::scaled(THUMB))
-                    .rounded(theme.radius)
-                    .border_1()
-                    .border_color(theme.border)
+                    .frame(cx)
                     .tip_text(item.image.name.clone())
                     .child(
                         img(item.preview.clone())

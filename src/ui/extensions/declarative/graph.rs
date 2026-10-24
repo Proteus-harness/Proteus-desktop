@@ -173,7 +173,6 @@ impl Render for Graph {
                     .h(px(NODE_HEIGHT * zoom))
                     .rounded(px(6. * zoom))
                     .border_1()
-                    .when(node.selected, |node| node.border_2())
                     .border_color(if node.selected { primary } else { border })
                     .bg(background)
                     .overflow_hidden()

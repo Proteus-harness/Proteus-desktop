@@ -2,6 +2,7 @@
 //! A note stays a few seconds, longer for a longer text, or until closed.
 
 use crate::ui::kit::ButtonLabel as _;
+use crate::ui::kit::Frame as _;
 use std::time::{Duration, Instant};
 
 use gpui_kit::component::*;
@@ -62,11 +63,8 @@ impl Chat {
             .pl_3()
             .pr_1()
             .py_0p5()
-            .rounded(theme.radius)
-            .border_1()
-            .border_color(theme.border)
+            .frame(cx)
             .bg(theme.popover)
-            .shadow_sm()
             .text_xs()
             .text_color(theme.muted_foreground)
             .child(div().flex_1().min_w_0().child(text.clone()))

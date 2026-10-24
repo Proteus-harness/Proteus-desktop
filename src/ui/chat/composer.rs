@@ -52,7 +52,7 @@ impl Chat {
                             .relative()
                             .rounded(theme.radius_lg)
                             .border_1()
-                            .border_color(theme.input)
+                            .border_color(theme.border)
                             .bg(theme.secondary)
                             .child(self.render_input_box(cx)),
                     ),

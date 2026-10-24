@@ -3,6 +3,7 @@
 //! cards and select menus.
 
 use crate::ui::kit::ButtonLabel as _;
+use crate::ui::kit::{Frame as _, RowRule as _};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
@@ -85,12 +86,11 @@ pub(super) fn section(
         .child(body)
 }
 
-/// Rounded card with hairline dividers between rows.
+/// Rounded card with quiet, inset hairline dividers between rows.
 pub(super) fn card(rows: impl IntoIterator<Item = AnyElement>, cx: &App) -> Div {
-    let theme = cx.theme();
     group_box(cx).children(rows.into_iter().enumerate().map(|(ix, row)| {
         super::reveal::cell(cx)
-            .when(ix > 0, |cell| cell.border_t_1().border_color(theme.border))
+            .when(ix > 0, |cell| cell.row_rule(cx))
             .child(row)
     }))
 }
@@ -98,12 +98,7 @@ pub(super) fn card(rows: impl IntoIterator<Item = AnyElement>, cx: &App) -> Div 
 /// One surface for cards and every depth of foldable parameter groups.
 fn group_box(cx: &App) -> Div {
     let theme = cx.theme();
-    v_flex()
-        .rounded(theme.radius_lg)
-        .border_1()
-        .border_color(theme.border)
-        .bg(theme.group_box)
-        .overflow_hidden()
+    v_flex().frame(cx).bg(theme.group_box).overflow_hidden()
 }
 
 /// The whole disclosure owns its surface, including its persistent header.
@@ -386,8 +381,7 @@ pub(super) fn radio_card(
         .items_start()
         .px_4()
         .py_3()
-        .rounded(theme.radius_lg)
-        .border_1()
+        .frame(cx)
         .cursor_pointer()
         .pressable(cx)
         .map(|card| {

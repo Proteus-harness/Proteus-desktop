@@ -192,7 +192,11 @@ impl Element for Faded {
         let width = window
             .text_system()
             .shape_line(self.text.clone(), font_size, &runs, None)
-            .width();
+            // Taffy snaps layout edges to pixels. A fractional intrinsic
+            // width must round up, or a fitting label can lose its final
+            // fraction of a pixel and incorrectly enter the fade branch.
+            .width()
+            .ceil();
         let mut layout = Style::default();
         layout.size.height = line_height.into();
         layout.min_size.width = px(0.).into();
@@ -226,7 +230,7 @@ impl Element for Faded {
         let system = window.text_system();
         let line = system.shape_line(text.clone(), font_size, &[style.to_run(text.len())], None);
         let room = bounds.size.width;
-        if line.width() <= room {
+        if line.width() <= room + px(0.5) {
             return Some((line, line_height, px(0.)));
         }
         let fade = (font_size * FADE).min(room * 0.25);

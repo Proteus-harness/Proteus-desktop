@@ -1,9 +1,11 @@
 //! Dialog with the git repositories the catalog reads.
 
 use crate::ui::kit::ButtonLabel as _;
+use crate::ui::kit::{Frame as _, RowRule as _};
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::super::{SettingsView, widgets::hashed_id};
@@ -57,12 +59,10 @@ fn sources(view: &Entity<SettingsView>, cx: &App) -> AnyElement {
                 let (update, forget) = (view.downgrade(), view.downgrade());
                 let (updated, forgotten) = (source.clone(), source.clone());
                 h_flex()
-                    .px_3()
+                    .px_4()
                     .py_2()
                     .gap_3()
                     .items_center()
-                    .border_b_1()
-                    .border_color(theme.border)
                     .child(
                         v_flex()
                             .flex_1()
@@ -153,10 +153,10 @@ fn sources(view: &Entity<SettingsView>, cx: &App) -> AnyElement {
                 .into_any_element()
         } else {
             v_flex()
-                .rounded(theme.radius)
-                .border_1()
-                .border_color(theme.border)
-                .children(rows)
+                .frame(cx)
+                .children(rows.into_iter().enumerate().map(|(ix, row)| {
+                    div().when(ix > 0, |cell| cell.row_rule(cx)).child(row)
+                }))
                 .into_any_element()
         })
         .children(open_sources(view, cx))
@@ -180,12 +180,10 @@ fn open_sources(view: &Entity<SettingsView>, cx: &App) -> Option<AnyElement> {
             let view = view.downgrade();
             let source = open.source();
             h_flex()
-                .px_3()
+                .px_4()
                 .py_2()
                 .gap_3()
                 .items_center()
-                .border_b_1()
-                .border_color(theme.border)
                 .child(
                     v_flex()
                         .flex_1()
@@ -238,11 +236,11 @@ fn open_sources(view: &Entity<SettingsView>, cx: &App) -> Option<AnyElement> {
                     .child("Открытые каталоги skills"),
             )
             .child(
-                v_flex()
-                    .rounded(theme.radius)
-                    .border_1()
-                    .border_color(theme.border)
-                    .children(rows),
+                v_flex().frame(cx).children(
+                    rows.into_iter()
+                        .enumerate()
+                        .map(|(ix, row)| div().when(ix > 0, |cell| cell.row_rule(cx)).child(row)),
+                ),
             )
             .into_any_element(),
     )
