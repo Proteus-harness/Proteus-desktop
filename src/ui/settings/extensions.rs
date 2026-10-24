@@ -303,7 +303,9 @@ impl SettingsView {
             .py_2p5()
             .gap_2()
             .items_center()
-            .hover(|row| row.bg(theme.list_hover.opacity(0.5)))
+            .relative()
+            .group("extension-surface")
+            .child(kit::surface_highlight("extension-surface", cx))
             .child(text)
             .child(reorder::controls(controls))
     }
@@ -395,7 +397,7 @@ impl SettingsView {
         )
     }
 
-    fn restore_section(&self, cx: &Context<Self>) -> Div {
+    fn restore_section(&self, cx: &Context<Self>) -> AnyElement {
         let open = self.is_open(RESTORE_KEY);
         let content = self.reveal(RESTORE_KEY, cx, || {
             h_flex()

@@ -106,6 +106,8 @@ pub const SCALES: [u16; 9] = [75, 80, 90, 100, 110, 125, 150, 175, 200];
 pub const CHAT_TEXT: RangeInclusive<u16> = 12..=22;
 /// Widest conversation column, px at 100%.
 pub const CHAT_WIDTH: RangeInclusive<u16> = 420..=1600;
+/// Radius of large surfaces, px at 100%.
+pub const SURFACE_RADIUS: RangeInclusive<u16> = 0..=32;
 
 /// Sizes of the interface.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -115,6 +117,8 @@ pub struct ViewPreferences {
     pub scale: u16,
     pub chat_text: u16,
     pub chat_width: u16,
+    /// Radius of large surfaces, px at 100%.
+    pub surface_radius: u16,
     /// Fold runs of tool calls into one row.
     pub compact_tools: bool,
     /// Follow a streaming answer to the end of the chat.
@@ -127,6 +131,7 @@ impl Default for ViewPreferences {
             scale: 100,
             chat_text: 16,
             chat_width: 820,
+            surface_radius: 16,
             compact_tools: true,
             autoscroll: true,
         }
@@ -166,6 +171,12 @@ impl ViewPreferences {
             return Err(anyhow!(
                 "chat_width {} is outside {CHAT_WIDTH:?}",
                 self.chat_width
+            ));
+        }
+        if !SURFACE_RADIUS.contains(&self.surface_radius) {
+            return Err(anyhow!(
+                "surface_radius {} is outside {SURFACE_RADIUS:?}",
+                self.surface_radius
             ));
         }
         Ok(())
@@ -428,7 +439,7 @@ pub fn save(preferences: &Preferences) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{BadgePlace, ExtensionPreferences, ViewPreferences};
+    use super::{BadgePlace, ExtensionPreferences, Preferences, SURFACE_RADIUS, ViewPreferences};
 
     const KNOWN: [&str; 3] = ["context", "plan", "files"];
 
@@ -506,5 +517,32 @@ mod tests {
         assert!(view.validate().is_ok());
         view.chat_width = 100;
         assert!(view.validate().is_err());
+    }
+
+    #[test]
+    fn surface_radius_defaults_validates_and_roundtrips() {
+        let defaults = ViewPreferences::default();
+        assert_eq!(defaults.surface_radius, 16);
+        assert!(defaults.validate().is_ok());
+
+        // Older preference files omit the new field and keep its default.
+        let legacy: Preferences = serde_json::from_str(
+            r#"{"view":{"scale":100,"chat_text":16,"chat_width":820,"compact_tools":true,"autoscroll":true}}"#,
+        )
+        .unwrap();
+        assert_eq!(legacy.view.surface_radius, 16);
+
+        for radius in [*SURFACE_RADIUS.start(), 16, *SURFACE_RADIUS.end()] {
+            let mut preferences = Preferences::default();
+            preferences.view.surface_radius = radius;
+            assert!(preferences.view.validate().is_ok());
+            let serialized = serde_json::to_string(&preferences).unwrap();
+            let roundtrip: Preferences = serde_json::from_str(&serialized).unwrap();
+            assert_eq!(roundtrip, preferences);
+        }
+
+        let mut invalid = defaults;
+        invalid.surface_radius = *SURFACE_RADIUS.end() + 1;
+        assert!(invalid.validate().is_err());
     }
 }

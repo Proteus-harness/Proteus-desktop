@@ -151,17 +151,22 @@ class MetadataTests(unittest.TestCase):
                 path.mkdir(parents=True)
                 for name in ("LICENSE", "NOTICE"):
                     (path / name).write_text(relative + name)
-            renderer = roots[0] / "vendor/gpui-pre-wgpu"
-            renderer.mkdir(parents=True)
-            for name in ("LICENSE.upstream", "README.proteus.md"):
-                (renderer / name).write_text("synthetic renderer " + name)
+            for vendored_name in ("gpui-pre-wgpu", "gpui-component"):
+                vendored = roots[0] / "vendor" / vendored_name
+                vendored.mkdir(parents=True)
+                for name in ("LICENSE.upstream", "README.proteus.md"):
+                    (vendored / name).write_text("synthetic " + vendored_name + " " + name)
             portable = base / "portable"
             install_notices(portable, *roots)
             self.assertEqual((portable / "share/licenses/Proteus-core/LICENSE").read_text(), "core")
             self.assertTrue((portable / "share/licenses/Proteus-modules/tool/codex-patch/NOTICE").is_file())
             self.assertEqual(
                 (portable / "share/licenses/Proteus-desktop/vendor/gpui-pre-wgpu/LICENSE.upstream").read_text(),
-                "synthetic renderer LICENSE.upstream",
+                "synthetic gpui-pre-wgpu LICENSE.upstream",
+            )
+            self.assertEqual(
+                (portable / "share/licenses/Proteus-desktop/vendor/gpui-component/LICENSE.upstream").read_text(),
+                "synthetic gpui-component LICENSE.upstream",
             )
             self.assertIn("AGPL-3.0-or-later", (portable / "share/licenses/README.txt").read_text())
 

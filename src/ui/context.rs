@@ -203,8 +203,14 @@ impl RenderOnce for ContextMenu {
         let Some((menu, frame)) = shown else {
             return root;
         };
+        // Native items already have 4 px of padding. Keep their rectangular
+        // paint inside the shared corner even at the largest surface radius.
+        let inset = (f32::from(prefs::current(cx).view.surface_radius) * 0.3)
+            .ceil()
+            .max(4.)
+            - 4.;
         root.child(motion::popup(
-            div().relative().child(menu),
+            div().relative().p(prefs::scaled(inset)).child(menu),
             ElementId::Name(format!("{:?}:popup", self.id).into()),
             frame,
             cx,
@@ -239,6 +245,7 @@ fn open(state: &Entity<MenuState>, build: &Build, window: &mut Window, cx: &mut 
         .min((room.height - margin).max(px(0.)));
     let menu = PopupMenu::build(window, cx, move |menu, window, cx| {
         let menu = menu
+            .appearance(false)
             .min_w(px(0.))
             .max_w(
                 prefs::scaled(560.)

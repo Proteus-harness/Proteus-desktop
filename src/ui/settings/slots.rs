@@ -55,7 +55,7 @@ impl SettingsView {
                 cx,
             )
         } else {
-            v_flex().gap_2().children(cards)
+            v_flex().gap_2().children(cards).into_any_element()
         };
         let mut parts = vec![section("Provider", None, None, providers, cx).into_any_element()];
         if let Some(module) = model_module(snapshot, &self.draft) {

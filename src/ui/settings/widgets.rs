@@ -87,12 +87,15 @@ pub(super) fn section(
 }
 
 /// Rounded card with quiet, inset hairline dividers between rows.
-pub(super) fn card(rows: impl IntoIterator<Item = AnyElement>, cx: &App) -> Div {
-    group_box(cx).children(rows.into_iter().enumerate().map(|(ix, row)| {
-        super::reveal::cell(cx)
-            .when(ix > 0, |cell| cell.row_rule(cx))
-            .child(row)
-    }))
+pub(super) fn card(rows: impl IntoIterator<Item = AnyElement>, cx: &App) -> AnyElement {
+    kit::surface(
+        group_box(cx).children(rows.into_iter().enumerate().map(|(ix, row)| {
+            super::reveal::cell(cx)
+                .when(ix > 0, |cell| cell.row_rule(cx))
+                .child(row)
+        })),
+        cx,
+    )
 }
 
 /// One surface for cards and every depth of foldable parameter groups.
@@ -106,8 +109,12 @@ fn group_box(cx: &App) -> Div {
 
 /// The whole disclosure owns its surface, including its persistent header.
 /// The caller retains the common reveal animation around the body.
-pub(super) fn nested_group(header: impl IntoElement, body: Option<AnyElement>, cx: &App) -> Div {
-    group_box(cx).m_2().child(header).children(body)
+pub(super) fn nested_group(
+    header: impl IntoElement,
+    body: Option<AnyElement>,
+    cx: &App,
+) -> AnyElement {
+    kit::surface(group_box(cx).m_2().child(header).children(body), cx)
 }
 
 /// Equal side insets, without a separate rule under the chevron.

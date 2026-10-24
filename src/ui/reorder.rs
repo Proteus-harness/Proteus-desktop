@@ -3,7 +3,6 @@
 //! identities and contents; gesture, preview, insertion geometry and motion
 //! are shared. Data changes only on a successful drop inside the same list.
 
-use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::HashMap;
@@ -14,6 +13,7 @@ mod geometry;
 pub(crate) use geometry::move_before;
 use geometry::{Pending, Position, keyboard_target, preview_order};
 
+use super::kit::RowRule as _;
 use super::{drag, fade, motion};
 
 type Preview = Rc<dyn Fn(&mut App) -> Option<AnyElement>>;
@@ -267,9 +267,7 @@ impl RenderOnce for List {
                             cx.stop_propagation();
                         },
                     )
-                    .when(index > 0, |row| {
-                        row.border_t_1().border_color(cx.theme().border)
-                    })
+                    .when(index > 0, |row| row.row_rule(cx))
                     .when(armed, |row| row.cursor_grab())
                     .when(active, |row| row.opacity(drag::SOURCE_OPACITY))
                     .on_mouse_down(MouseButton::Left, move |event, window, cx| {

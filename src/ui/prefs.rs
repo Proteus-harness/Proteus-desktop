@@ -8,8 +8,8 @@ use crate::preferences::{self, MotionPreference, Preferences, ThemePreference};
 
 const BASE_FONT: f32 = 16.;
 const BASE_MONO_FONT: f32 = 13.;
-/// Corners of compact controls and rows. Surfaces (composer, popup and
-/// settings cards) take twice that as `radius_lg`, small marks half of it.
+/// Corners of compact controls and rows; large surfaces have an independent
+/// per-device radius in `ViewPreferences::surface_radius`.
 const RADIUS: f32 = 8.;
 
 /// Interface scale: 1.0 at 100%.
@@ -92,12 +92,16 @@ fn apply(value: &Preferences, previous: Option<&Preferences>, cx: &mut App) {
     // Corners follow the same scale.
     let scale = value.view.scale_factor();
     let theme = Theme::global(cx);
-    if theme.font_size != px(BASE_FONT * scale) || theme.radius != px(RADIUS * scale) {
+    let surface_radius = px(f32::from(value.view.surface_radius) * scale);
+    if theme.font_size != px(BASE_FONT * scale)
+        || theme.radius != px(RADIUS * scale)
+        || theme.radius_lg != surface_radius
+    {
         Theme::update(cx, |theme| {
             theme.font_size = px(BASE_FONT * scale);
             theme.mono_font_size = px(BASE_MONO_FONT * scale);
             theme.radius = px(RADIUS * scale);
-            theme.radius_lg = px(RADIUS * 2. * scale);
+            theme.radius_lg = surface_radius;
         });
     }
     if previous.is_none_or(|previous| previous.shortcuts != value.shortcuts) {

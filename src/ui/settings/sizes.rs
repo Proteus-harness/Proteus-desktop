@@ -5,12 +5,13 @@ use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
 use gpui_kit::*;
 
 use super::SettingsView;
-use crate::preferences::{CHAT_TEXT, CHAT_WIDTH, Preferences};
+use crate::preferences::{CHAT_TEXT, CHAT_WIDTH, Preferences, SURFACE_RADIUS};
 use crate::ui::prefs;
 
 pub(super) struct SizeSliders {
     pub chat_text: Entity<SliderState>,
     pub chat_width: Entity<SliderState>,
+    pub surface_radius: Entity<SliderState>,
 }
 
 impl SizeSliders {
@@ -30,6 +31,13 @@ impl SizeSliders {
                 .step(10.)
                 .default_value(f32::from(view.chat_width))
         });
+        let surface_radius = cx.new(|_| {
+            SliderState::new()
+                .max(f32::from(*SURFACE_RADIUS.end()))
+                .min(f32::from(*SURFACE_RADIUS.start()))
+                .step(1.)
+                .default_value(f32::from(view.surface_radius))
+        });
         let subscriptions = vec![
             follow(&chat_text, window, cx, |prefs, value| {
                 prefs.view.chat_text = value
@@ -37,11 +45,15 @@ impl SizeSliders {
             follow(&chat_width, window, cx, |prefs, value| {
                 prefs.view.chat_width = value
             }),
+            follow(&surface_radius, window, cx, |prefs, value| {
+                prefs.view.surface_radius = value
+            }),
         ];
         (
             Self {
                 chat_text,
                 chat_width,
+                surface_radius,
             },
             subscriptions,
         )

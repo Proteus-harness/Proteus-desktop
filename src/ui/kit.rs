@@ -22,8 +22,10 @@ use crate::shortcuts::{self, Command};
 
 mod controls;
 mod frame;
+mod surface;
 pub(crate) use controls::{Clipboard, Switch};
 pub(crate) use frame::{Frame, RowRule, record_first_child};
+pub(crate) use surface::{surface, surface_highlight};
 
 /// Shared button captions and quiet surfaces. Icons, sizes, focus and
 /// keyboard behavior stay native.
@@ -134,9 +136,15 @@ pub(crate) trait Pressable: StatefulInteractiveElement + Styled {
     }
 
     /// Bounded form disclosures also highlight their shared surface.
-    fn disclosure_surface(self, cx: &App) -> Self {
+    fn disclosure_surface(self, cx: &App) -> Self
+    where
+        Self: gpui_kit::ParentElement,
+    {
         self.disclosure(cx)
-            .hover(|style| style.bg(cx.theme().list_hover))
+            .relative()
+            .rounded(cx.theme().radius_lg)
+            .group("disclosure-surface")
+            .child(surface_highlight("disclosure-surface", cx))
     }
 
     fn pressable(self, cx: &App) -> Self {

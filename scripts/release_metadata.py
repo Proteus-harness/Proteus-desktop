@@ -78,11 +78,11 @@ def install_notices(portable, desktop, core, modules, extensions):
             destination = target / "Proteus-modules" / relative / name
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
-    renderer = "vendor/gpui-pre-wgpu"
-    for name in ("LICENSE.upstream", "README.proteus.md"):
-        destination = target / "Proteus-desktop" / renderer / name
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(desktop / renderer / name, destination)
+    for vendored in ("vendor/gpui-pre-wgpu", "vendor/gpui-component"):
+        for name in ("LICENSE.upstream", "README.proteus.md"):
+            destination = target / "Proteus-desktop" / vendored / name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(desktop / vendored / name, destination)
     (target / "README.txt").write_text(
         "Proteus-core and Proteus-modules are MIT licensed. Proteus-desktop and the\n"
         "bundled extensions are GPL-3.0-or-later (they include code derived from Zed);\n"
@@ -90,8 +90,8 @@ def install_notices(portable, desktop, core, modules, extensions):
         "its license in Cargo.toml.\n"
         "Local notices take precedence.\n"
         "The Codex-derived code includes Apache-2.0 LICENSE and NOTICE files below.\n"
-        "The patched Apache-2.0 WGPU renderer keeps its upstream license and source\n"
-        "provenance below Proteus-desktop/vendor/gpui-pre-wgpu.\n"
+        "Patched Apache-2.0 vendored crates keep upstream licenses and source\n"
+        "provenance below Proteus-desktop/vendor/.\n"
         "The separate DCP worker is AGPL-3.0-or-later. Its corresponding tracked sources,\n"
         "build instructions, package lock, upstream sources and dependency licenses are\n"
         "included in ../modules/dcp (including dist/LICENSE.upstream).\n"

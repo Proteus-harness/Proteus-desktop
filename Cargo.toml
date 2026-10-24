@@ -1,10 +1,11 @@
 [workspace]
 resolver = "2"
 members = ["crates/client-common"]
-exclude = ["vendor/gpui-pre-wgpu"]
+exclude = ["vendor/gpui-pre-wgpu", "vendor/gpui-component"]
 
 [patch.crates-io]
 gpui-pre-wgpu = { path = "vendor/gpui-pre-wgpu" }
+gpui-component = { path = "vendor/gpui-component" }
 
 [package]
 name = "proteus-native"

@@ -76,6 +76,12 @@ const SCALE: RowText = text(
     "Масштаб",
     Some("Ctrl + = и Ctrl + − меняют масштаб, Ctrl + 0 возвращает 100%."),
 );
+const SURFACE_RADIUS: RowText = text(
+    "Скругление углов",
+    Some(
+        "Радиус углов поля сообщения, раскрытых виджетов, меню и блоков настроек. Размер указан для масштаба 100%.",
+    ),
+);
 const MOTION: RowText = text(
     "Анимации",
     Some("Уменьшенные оставляют плавное появление без сдвигов; выключенные показывают всё сразу."),
@@ -108,11 +114,12 @@ const NOTIFICATIONS_ROW: RowText = text(
     Some("Когда окно в фоне: агент закончил, ждёт подтверждения или ответа."),
 );
 
-pub(super) const APPEARANCE_ROWS: [&RowText; 6] = [
+pub(super) const APPEARANCE_ROWS: [&RowText; 7] = [
     &THEME,
     &DARK_PALETTE,
     &LIGHT_PALETTE,
     &SCALE,
+    &SURFACE_RADIUS,
     &MOTION,
     &HINTS_ROW,
 ];
@@ -178,6 +185,12 @@ impl SettingsView {
                 choice("pref-scale", &SCALES, current.view.scale, |prefs, value| {
                     prefs.view.scale = value
                 }),
+                cx,
+            )
+            .into_any_element(),
+            self.text_row(
+                &SURFACE_RADIUS,
+                slider(&self.sizes.surface_radius, "px", cx),
                 cx,
             )
             .into_any_element(),
