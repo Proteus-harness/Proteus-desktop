@@ -53,6 +53,7 @@ const FEEDBACK_TIMEOUT: Duration = Duration::from_secs(4);
 pub enum SettingsEvent {
     Saved,
     Close,
+    NavigationChanged,
 }
 
 enum LoadState {
@@ -257,6 +258,10 @@ impl SettingsView {
         self.draft.is_dirty(&self.baseline)
     }
 
+    pub(super) fn has_unsaved_changes(&self) -> bool {
+        self.dirty()
+    }
+
     fn can_save(&self) -> bool {
         self.snapshot().is_some_and(|snapshot| snapshot.writable)
             && !self.saving
@@ -294,6 +299,20 @@ impl SettingsView {
         self.json.clear();
     }
 
+    pub(super) fn location(&self) -> (String, PageId) {
+        (crate::tabs::chat(&self.session_dir), self.page.clone())
+    }
+
+    pub(super) fn navigate_to(
+        &mut self,
+        page: PageId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.select_page(page, window, cx);
+        window.focus(&self.nav_focus, cx);
+    }
+
     fn select_page(&mut self, page: PageId, window: &mut Window, cx: &mut Context<Self>) {
         if page == PageId::Catalog {
             self.open_catalogs(cx);
@@ -302,7 +321,12 @@ impl SettingsView {
         if page == PageId::History && matches!(self.history, HistoryState::Idle) {
             self.load_history(cx);
         }
+        self.set_page(page, cx);
+    }
+
+    fn set_page(&mut self, page: PageId, cx: &mut Context<Self>) {
         self.page = page;
+        cx.emit(SettingsEvent::NavigationChanged);
         self.removing = None;
         self.spot = None;
         cx.notify();

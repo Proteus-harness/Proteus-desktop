@@ -105,6 +105,7 @@ pub struct Workspace {
     pub(super) window_title: String,
     pub(super) settings: Option<Entity<SettingsView>>,
     pub(super) settings_subscription: Option<Subscription>,
+    pub(super) navigation: crate::navigation::History<super::navigation::Destination>,
     /// Extension panels, document tabs and icons built so far; the tab
     /// layout and the side panel themselves are client preferences.
     pub(super) panels: HashMap<&'static str, SurfaceView>,
@@ -188,6 +189,7 @@ impl Workspace {
             window_title: String::new(),
             settings: None,
             settings_subscription: None,
+            navigation: crate::navigation::History::default(),
             panels: HashMap::new(),
             documents: HashMap::new(),
             document_titles: HashMap::new(),

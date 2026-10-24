@@ -20,6 +20,7 @@ impl Workspace {
             window,
             |this, _, event: &SettingsEvent, window, cx| match event {
                 SettingsEvent::Saved => this.reload_chat_configs(cx),
+                SettingsEvent::NavigationChanged => cx.notify(),
                 SettingsEvent::Close => {
                     this.close_settings(cx);
                     this.focus_active_chat(window, cx);

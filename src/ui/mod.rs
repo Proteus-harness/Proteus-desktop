@@ -16,6 +16,7 @@ mod keys;
 mod kit;
 mod launcher;
 mod motion;
+mod navigation;
 mod notifications;
 mod panels;
 mod picker;
@@ -58,6 +59,8 @@ gpui_kit::actions!(
         DismissSettings,
         NextTab,
         PreviousTab,
+        NavigateBack,
+        NavigateForward,
         CloseTab,
         ReopenClosedTab,
         SplitRight,
@@ -93,6 +96,7 @@ pub fn init(cx: &mut App) {
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         motion::drive(window, cx);
+        self.record_navigation(cx);
         let theme = cx.theme();
         let root =
             v_flex()
@@ -104,11 +108,22 @@ impl Render for Workspace {
                         drag::begin_press(window, cx);
                     }
                 })
-                .capture_any_mouse_up(|event: &MouseUpEvent, window, cx| {
-                    if event.button == MouseButton::Left && drag::discard_release(window, cx) {
+                .on_mouse_down(
+                    MouseButton::Navigate(NavigationDirection::Back),
+                    cx.listener(|this, _, window, cx| {
+                        window.prevent_default();
                         cx.stop_propagation();
-                    }
-                })
+                        this.navigate(NavigationDirection::Back, window, cx);
+                    }),
+                )
+                .on_mouse_down(
+                    MouseButton::Navigate(NavigationDirection::Forward),
+                    cx.listener(|this, _, window, cx| {
+                        window.prevent_default();
+                        cx.stop_propagation();
+                        this.navigate(NavigationDirection::Forward, window, cx);
+                    }),
+                )
                 // The window root already paints the background.
                 .text_color(theme.foreground)
                 .on_action(cx.listener(|this, _: &ToggleSettings, window, cx| {
@@ -138,6 +153,12 @@ impl Render for Workspace {
                 .on_action(
                     cx.listener(|this, _: &PreviousTab, window, cx| this.step_tab(-1, window, cx)),
                 )
+                .on_action(cx.listener(|this, _: &NavigateBack, window, cx| {
+                    this.navigate(NavigationDirection::Back, window, cx)
+                }))
+                .on_action(cx.listener(|this, _: &NavigateForward, window, cx| {
+                    this.navigate(NavigationDirection::Forward, window, cx)
+                }))
                 .on_action(
                     cx.listener(|this, _: &CloseTab, window, cx| this.close_active_tab(window, cx)),
                 )
@@ -169,7 +190,9 @@ impl Render for Workspace {
                 .on_drop(cx.listener(|this, _: &panels::SidebarDrag, _, cx| {
                     this.finish_sidebar_resize(cx)
                 }));
-        let root = root.child(self.render_top_bar(window, cx));
+        let root = root
+            .child(self.render_top_bar(window, cx))
+            .child(drag::release_boundary());
         match &self.status {
             Status::Starting => root.child(centered(
                 h_flex()

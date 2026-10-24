@@ -7,6 +7,7 @@ mod declarative;
 mod diff;
 mod graphics;
 mod launch;
+mod navigation;
 mod notify;
 mod packages;
 mod preferences;

@@ -421,7 +421,8 @@ impl DeclarativeView {
                     v_flex()
                         .min_w_0()
                         .gap_2()
-                        .p_3()
+                        .px_4()
+                        .py_3()
                         .surface_frame(cx)
                         .bg(theme.secondary)
                         .when_some(title.clone(), |card, title| {

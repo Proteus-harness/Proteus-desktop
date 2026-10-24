@@ -15,6 +15,8 @@ pub enum Command {
     ToggleFiles,
     NextTab,
     PreviousTab,
+    NavigateBack,
+    NavigateForward,
     CloseTab,
     ReopenClosedTab,
     SplitRight,
@@ -29,7 +31,7 @@ pub enum Command {
 }
 
 impl Command {
-    pub const ALL: [Command; 18] = [
+    pub const ALL: [Command; 20] = [
         Command::NewSession,
         Command::NewTerminal,
         Command::ToggleSettings,
@@ -37,6 +39,8 @@ impl Command {
         Command::ToggleFiles,
         Command::NextTab,
         Command::PreviousTab,
+        Command::NavigateBack,
+        Command::NavigateForward,
         Command::CloseTab,
         Command::ReopenClosedTab,
         Command::SplitRight,
@@ -60,6 +64,8 @@ impl Command {
             Command::ToggleFiles => "toggle_files",
             Command::NextTab => "next_tab",
             Command::PreviousTab => "previous_tab",
+            Command::NavigateBack => "navigate_back",
+            Command::NavigateForward => "navigate_forward",
             Command::CloseTab => "close_tab",
             Command::ReopenClosedTab => "reopen_closed_tab",
             Command::SplitRight => "split_right",
@@ -83,6 +89,8 @@ impl Command {
             Command::ToggleFiles => "Панель файлов",
             Command::NextTab => "Следующая вкладка",
             Command::PreviousTab => "Предыдущая вкладка",
+            Command::NavigateBack => "Назад",
+            Command::NavigateForward => "Вперёд",
             Command::CloseTab => "Закрыть вкладку",
             Command::ReopenClosedTab => "Вернуть закрытую вкладку",
             Command::SplitRight => "Отделить вкладку вправо",
@@ -106,6 +114,8 @@ impl Command {
             Command::ToggleFiles => &["ctrl-shift-e"],
             Command::NextTab => &["ctrl-tab"],
             Command::PreviousTab => &["ctrl-shift-tab"],
+            Command::NavigateBack => &["alt-left"],
+            Command::NavigateForward => &["alt-right"],
             Command::CloseTab => &["ctrl-w", "ctrl-f4"],
             Command::ReopenClosedTab => &["ctrl-shift-t"],
             Command::SplitRight => &["ctrl-\\"],

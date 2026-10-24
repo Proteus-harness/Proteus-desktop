@@ -98,6 +98,32 @@ pub(super) fn discard_release(window: &Window, cx: &mut App) -> bool {
     false
 }
 
+/// Finish pointer gestures before a closing popup can consume MouseUp. Keep
+/// text highlighted while stopping its drag; recover outside-window releases
+/// on the next move without buttons. No hitbox or layout space is added.
+pub(super) fn release_boundary() -> impl IntoElement {
+    canvas(
+        |_, _, _| (),
+        |_, (), window, _| {
+            window.on_mouse_event(|event: &MouseUpEvent, phase, window, cx| {
+                if phase.capture() && event.button == MouseButton::Left {
+                    gpui_kit::base::TextSelection::end(window, cx);
+                    if discard_release(window, cx) {
+                        cx.stop_propagation();
+                    }
+                }
+            });
+            window.on_mouse_event(|event: &MouseMoveEvent, phase, window, cx| {
+                if phase.capture() && event.pressed_button.is_none() {
+                    gpui_kit::base::TextSelection::end(window, cx);
+                }
+            });
+        },
+    )
+    .absolute()
+    .inset_0()
+}
+
 /// Opacity of the place an element was lifted from.
 pub(super) const SOURCE_OPACITY: f32 = 0.35;
 

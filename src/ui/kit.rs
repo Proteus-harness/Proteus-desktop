@@ -102,6 +102,20 @@ pub(crate) fn popup_surface(cx: &App) -> gpui_kit::Div {
         .overflow_hidden()
 }
 
+/// Preformatted tool output and request previews share their geometry and
+/// typography; callers supply selectable content and semantic error colors.
+pub(crate) fn code_surface(cx: &App) -> gpui_kit::Div {
+    let theme = cx.theme();
+    gpui_kit::div()
+        .w_full()
+        .px_3()
+        .py_2()
+        .rounded(theme.radius_lg)
+        .bg(theme.muted)
+        .font_family(theme.mono_font_family.clone())
+        .text_xs()
+}
+
 /// Textarea has no public focus-ring opt-out, so keep its native appearance
 /// and restore only the thin border after disabling its bordered focus style.
 pub(crate) fn textarea(state: &gpui_kit::Entity<TextareaState>, cx: &App) -> Textarea {

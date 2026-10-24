@@ -262,17 +262,11 @@ fn render_approval(request: &AppApprovalRequest, cx: &mut Context<Chat>) -> AnyE
         )
         .children(approval_reason(request).map(|reason| div().text_sm().child(reason)))
         .children(body.map(|body| {
-            div()
+            kit::code_surface(cx)
                 .id(SharedString::from(format!("approval-body-{id}")))
                 .max_h(prefs::scaled(280.))
                 .overflow_y_scroll()
-                .px_3()
-                .py_2()
-                .rounded(theme.radius)
-                .bg(theme.muted)
                 .text_color(theme.muted_foreground)
-                .font_family(theme.mono_font_family.clone())
-                .text_xs()
                 .child(body)
         }))
         .child(

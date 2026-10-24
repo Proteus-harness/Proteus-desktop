@@ -1,6 +1,6 @@
 //! A surface of an installed extension: panel, document or icon.
 
-use crate::ui::kit::ButtonLabel as _;
+use crate::ui::kit::{ButtonLabel as _, Frame as _};
 use std::collections::HashMap;
 
 use gpui_kit::component::scroll::ScrollableElement as _;
@@ -218,9 +218,9 @@ impl DeclarativeView {
         let theme = cx.theme();
         v_flex()
             .gap_2()
-            .p_3()
-            .rounded(theme.radius)
-            .border_1()
+            .px_4()
+            .py_3()
+            .surface_frame(cx)
             .border_color(theme.danger.opacity(0.4))
             .child(
                 div()

@@ -12,7 +12,7 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use super::widgets::{Tone, card, chip, disclosure, mono, note, section};
+use super::widgets::{Tone, card, chip, disclosure, item_row, mono, note, section};
 use super::{Feedback, SettingsView};
 use crate::preferences::ExtensionPreferences;
 use crate::settings::catalog::PageId;
@@ -137,7 +137,11 @@ impl SettingsView {
 
     pub(super) fn remove_extension(&mut self, id: &str, cx: &mut Context<Self>) {
         self.removing = None;
-        self.extension_notice = Some(match extensions::remove(id, cx) {
+        let removed = extensions::remove(id, cx);
+        if removed.is_ok() && self.page == PageId::Extension(id.to_string()) {
+            self.set_page(PageId::Extensions, cx);
+        }
+        self.extension_notice = Some(match removed {
             Ok(()) => Feedback {
                 text: "Пользовательский пакет удалён; поставляемая версия, если есть, выключена"
                     .into(),
@@ -148,9 +152,6 @@ impl SettingsView {
                 error: true,
             },
         });
-        if self.page == PageId::Extension(id.to_string()) {
-            self.page = PageId::Extensions;
-        }
         cx.notify();
     }
 
@@ -297,17 +298,15 @@ impl SettingsView {
                     .small()
                     .text_color(theme.muted_foreground),
             );
+        let row = item_row(text, [reorder::controls(controls).into_any_element()]);
         h_flex()
             .id(ElementId::Name(format!("extension-row-{id}").into()))
-            .px_2()
-            .py_2p5()
-            .gap_2()
-            .items_center()
+            .w_full()
+            .min_w_0()
             .relative()
             .group("extension-surface")
             .child(kit::surface_highlight("extension-surface", cx))
-            .child(text)
-            .child(reorder::controls(controls))
+            .child(row.w_full().min_w_0())
     }
 
     fn install_section(&self, cx: &Context<Self>) -> Div {

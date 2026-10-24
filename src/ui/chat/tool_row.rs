@@ -395,14 +395,5 @@ pub(super) fn plan_list(steps: &[PlanStep], cx: &App) -> Div {
 }
 
 pub(super) fn code_block(id: ElementId, text: String, cx: &App) -> Div {
-    let theme = cx.theme();
-    div()
-        .w_full()
-        .px_3()
-        .py_2()
-        .rounded(theme.radius_lg)
-        .bg(theme.muted)
-        .font_family(theme.mono_font_family.clone())
-        .text_xs()
-        .child(SelectableText::new(id, text))
+    kit::code_surface(cx).child(SelectableText::new(id, text))
 }
