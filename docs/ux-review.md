@@ -316,3 +316,29 @@ dwell и получает подсказку у своего нового пол
 сессиях и Settings, object-форма с двумя уровнями вложенности, MCP-форма,
 tooltip до/после scroll и клавиатуры. Client gate: 165 + 4; Extensions:
 84 Rust + 14 Python. Артефакты: `build/verification/interaction-2026-10-24/`.
+
+## Popup и поиск, 24 октября
+
+Общий `kit::popup_surface` задаёт непрозрачный фон, настоящую границу 1 px,
+радиус темы, внешнюю тень и обрезку содержимого. Его использует `motion::popup`
+для native context menus, Settings и процессных popup. У badge больше нет
+второй собственной рамки. Composer-меню предпочитают верхнюю сторону по месту
+badge, а не по id пакета или числу вариантов: короткий Model не закрывает ввод.
+Образец — `ui/src/traits/styled_ext.rs`, `agent_ui/src/mode_selector.rs` и
+`model_selector_popover.rs` Zed.
+
+Picker получил общий заголовок с `title`, `back_action` и компактным Search;
+публичная capability — `widgets.picker.v3`. Model и Permissions используют его.
+При открытии фокус остаётся у списка, лупа/Ctrl+F раскрывает поиск; Esc очищает
+запрос, затем сворачивает поле, следующий Esc обрабатывает сам popup.
+Общий Search отдаёт полю всю ширину раскрытого заголовка: исчезнувший текст
+«Сессии», Settings или Model не оставляет пустого места слева.
+
+Проверка выполнена в отдельном GPUI-окне Xvfb с software Mesa, настоящим
+app-server и fake model на собственном workspace. Проверены Model/Permissions,
+Ctrl+F, пустой результат и последовательные Esc, поиск сессий и Settings,
+native enum menu, три цикла открытия/закрытия (ROI после закрытия совпадает),
+ограничение popup до 120 px и прокрутка без выступающих за рамку строк.
+Реальные сессии и live provider не использовались. Client: 179 + 4 tests;
+Extensions: 89 Rust + 14 Python, 108 wire messages. Лицензии и форматирование —
+PASS. Локальные артефакты: `build/verification/popup-search-2026-10-24/`.

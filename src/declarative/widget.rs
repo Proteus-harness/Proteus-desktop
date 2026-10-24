@@ -188,6 +188,10 @@ pub enum Node {
     /// Native searchable, keyboard-navigable and virtualized single choice.
     Picker {
         id: String,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default)]
+        back_action: Option<String>,
         options: Vec<super::graph::Choice>,
         action: String,
         #[serde(default = "search_placeholder")]

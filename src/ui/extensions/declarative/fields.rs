@@ -158,6 +158,8 @@ impl DeclarativeView {
 
             Node::Picker {
                 id,
+                title,
+                back_action,
                 options,
                 action,
                 placeholder,
@@ -176,8 +178,16 @@ impl DeclarativeView {
                 let pick = move |value, _: &mut Window, cx: &mut App| {
                     let _ = this.update(cx, |this, cx| this.act(action.clone(), Some(value), cx));
                 };
+                let back: Option<std::rc::Rc<dyn Fn(&mut Window, &mut App)>> =
+                    back_action.as_ref().map(|action| {
+                        let (this, action) = (cx.weak_entity(), action.clone());
+                        std::rc::Rc::new(move |_: &mut Window, cx: &mut App| {
+                            let _ = this.update(cx, |this, cx| this.act(action.clone(), None, cx));
+                        }) as std::rc::Rc<dyn Fn(&mut Window, &mut App)>
+                    });
                 if let Some(picker) = self.fields.pickers.get(id) {
                     picker.update(cx, |picker, cx| {
+                        picker.set_header(title.clone().map(Into::into), back, cx);
                         picker.set_pick(pick);
                         picker.set_options(
                             options,
@@ -198,6 +208,7 @@ impl DeclarativeView {
                             cx,
                             pick,
                         );
+                        picker.set_header(title.clone().map(Into::into), back, cx);
                         picker.set_searchable(*search, window, cx);
                         picker
                     });

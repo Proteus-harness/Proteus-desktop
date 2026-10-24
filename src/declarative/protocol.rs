@@ -21,6 +21,7 @@ pub const FEATURES: &[&str] = &[
     "widgets.selection.v1",
     "widgets.picker.v1",
     "widgets.picker.v2",
+    "widgets.picker.v3",
     "widgets.transitions.v1",
     "widgets.sortable.v1",
     "widgets.status.v1",

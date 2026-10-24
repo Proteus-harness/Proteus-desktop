@@ -207,6 +207,7 @@ impl RenderOnce for ContextMenu {
             div().relative().child(menu),
             ElementId::Name(format!("{:?}:popup", self.id).into()),
             frame,
+            cx,
         ))
     }
 }

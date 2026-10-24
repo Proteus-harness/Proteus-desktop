@@ -8,6 +8,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::rc::Rc;
 
+use super::kit::{ButtonLabel as _, Hint as _};
 use super::{fade, prefs, selection};
 
 const ROW: f32 = 28.;
@@ -21,10 +22,13 @@ pub(super) struct Choice<T> {
 }
 
 type Pick<T> = Rc<dyn Fn(T, &mut Window, &mut App)>;
+type Back = Rc<dyn Fn(&mut Window, &mut App)>;
 
 pub(super) struct Picker<T: Clone + PartialEq + 'static> {
     search: Entity<InputState>,
     searchable: bool,
+    title: Option<SharedString>,
+    back: Option<Back>,
     list_focus: FocusHandle,
     options: Vec<Choice<T>>,
     matches: Vec<usize>,
@@ -54,6 +58,8 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
         let mut picker = Self {
             search,
             searchable: true,
+            title: None,
+            back: None,
             list_focus: cx.focus_handle(),
             options,
             matches: Vec::new(),
@@ -94,6 +100,20 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
         self.pick = Rc::new(pick);
     }
 
+    pub fn set_header(
+        &mut self,
+        title: Option<SharedString>,
+        back: Option<Back>,
+        cx: &mut Context<Self>,
+    ) {
+        let changed = self.title != title || self.back.is_some() != back.is_some();
+        self.title = title;
+        self.back = back;
+        if changed {
+            cx.notify();
+        }
+    }
+
     /// The same rows, cursor and keyboard handling serve compact selectors.
     pub fn set_searchable(
         &mut self,
@@ -116,12 +136,16 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
         }
     }
 
-    pub fn focus(&self, cx: &App) -> FocusHandle {
-        if self.searchable {
-            self.search.read(cx).focus_handle(cx)
-        } else {
-            self.list_focus.clone()
-        }
+    pub fn focus(&self, _: &App) -> FocusHandle {
+        self.list_focus.clone()
+    }
+
+    pub fn search_focus(&self, cx: &App) -> FocusHandle {
+        self.search.read(cx).focus_handle(cx)
+    }
+
+    pub fn contains_focused(&self, window: &Window, cx: &App) -> bool {
+        self.list_focus.contains_focused(window, cx)
     }
 
     fn current(&self) -> Option<&Choice<T>> {
@@ -153,6 +177,17 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
     }
 
     fn keys(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self.searchable
+            && event.keystroke.modifiers.control
+            && !event.keystroke.modifiers.alt
+            && !event.keystroke.modifiers.shift
+            && event.keystroke.key == "f"
+        {
+            super::search::focus(&self.search, window, cx);
+            cx.notify();
+            cx.stop_propagation();
+            return;
+        }
         if event.keystroke.modifiers.modified() {
             return;
         }
@@ -176,10 +211,7 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
             }
             // Esc first clears the local filter. The next Esc can dismiss
             // the containing popup, without selecting or changing anything.
-            "escape" if !self.search.read(cx).value().is_empty() => {
-                self.search
-                    .update(cx, |search, cx| search.set_value("", window, cx));
-            }
+            "escape" if self.search_focus(cx).is_focused(window) => return,
             _ => return,
         }
         cx.stop_propagation();
@@ -201,7 +233,7 @@ fn matching<T>(options: &[Choice<T>], query: &str) -> Vec<usize> {
 impl<T: Clone + PartialEq + 'static> Render for Picker<T> {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let count = self.matches.len();
-        let focused = self.focus(cx).is_focused(window);
+        let focused = self.contains_focused(window, cx);
         let rows = uniform_list(
             "picker-rows",
             count,
@@ -261,13 +293,51 @@ impl<T: Clone + PartialEq + 'static> Render for Picker<T> {
         v_flex()
             .id("picker")
             .track_focus(&self.list_focus)
-            .tab_stop(!self.searchable)
+            .tab_stop(true)
             .w_full()
             .min_w_0()
             .gap_1()
             .capture_key_down(cx.listener(Self::keys))
-            .when(self.searchable, |body| {
-                body.child(super::search::field(&self.search).small())
+            .when(self.searchable || self.title.is_some(), |body| {
+                let mut header = h_flex().w_full().min_w_0().items_center().gap_1();
+                if self.back.is_some() {
+                    header = header.child(
+                        super::kit::button("picker-back")
+                            .small()
+                            .quiet(cx)
+                            .icon(IconName::ChevronLeft)
+                            .hint("Назад", cx)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                if let Some(back) = this.back.clone() {
+                                    back(window, cx);
+                                }
+                            })),
+                    );
+                }
+                if self.searchable {
+                    header = header.child(
+                        super::search::Search::new(
+                            "picker-search",
+                            self.search.clone(),
+                            self.list_focus.clone(),
+                            self.placeholder.clone(),
+                        )
+                        .title(
+                            self.title
+                                .clone()
+                                .unwrap_or_else(|| self.placeholder.clone()),
+                        ),
+                    );
+                } else if let Some(title) = self.title.clone() {
+                    header = header.child(
+                        div()
+                            .px_2()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(fade::faded(title)),
+                    );
+                }
+                body.child(header)
             })
             .when(count > 0, |body| body.child(rows))
             .when(count == 0, |body| {

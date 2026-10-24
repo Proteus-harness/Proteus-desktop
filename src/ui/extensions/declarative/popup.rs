@@ -47,6 +47,19 @@ impl DeclarativeBadge {
     ) -> Option<AnyElement> {
         let bounds = self.bounds.get();
         let frame = self.popup.frame(bounds, window, cx)?;
+        // Zed composer selectors anchor above the input regardless of menu size:
+        // crates/agent_ui/src/mode_selector.rs, model_selector_popover.rs.
+        let frame = if super::super::find(self.host.extension()).is_some_and(|manifest| {
+            matches!(
+                super::super::badge_place(manifest, cx),
+                crate::preferences::BadgePlace::ComposerStart
+                    | crate::preferences::BadgePlace::ComposerEnd
+            )
+        }) {
+            frame.placement(gpui_kit::base::Placement::Top)
+        } else {
+            frame
+        };
         let popup = self.popup.value()?.clone();
         let generation = self.popup.generation();
         let this = cx.entity().downgrade();
@@ -55,7 +68,6 @@ impl DeclarativeBadge {
             .relative()
             .id("extension-popup")
             .track_focus(&popup.focus)
-            .popover_style(cx)
             .w(prefs::scaled(width))
             .max_h(prefs::scaled(height))
             .text_sm()
@@ -109,6 +121,7 @@ impl DeclarativeBadge {
             surface,
             SharedString::from(format!("badge-popup-{}", cx.entity_id())),
             frame,
+            cx,
         ))
     }
 }

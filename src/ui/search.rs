@@ -107,6 +107,9 @@ impl RenderOnce for Search {
                 .child(
                     div()
                         .w(prefs::scaled(24. + 200. * progress))
+                        .when(has_title, |field| {
+                            field.w(relative(progress)).min_w(prefs::scaled(24.))
+                        })
                         .h_full()
                         .min_w_0()
                         .overflow_hidden()

@@ -310,7 +310,7 @@ impl Render for DeclarativeView {
                         .fields
                         .pickers
                         .values()
-                        .any(|picker| picker.read(cx).focus(cx).is_focused(window))
+                        .any(|picker| picker.read(cx).contains_focused(window, cx))
                 {
                     // The picker owns arrows, Enter and Esc-clear before an
                     // outer popup action is allowed to dismiss it.
@@ -480,6 +480,13 @@ impl DeclarativeView {
         cx: &App,
     ) -> Option<FocusHandle> {
         let focus = match node {
+            Node::Picker {
+                id, search: true, ..
+            } if priority == 3 => self
+                .fields
+                .pickers
+                .get(id)
+                .map(|picker| picker.read(cx).search_focus(cx)),
             Node::Picker { id, .. } if priority == 0 => self
                 .fields
                 .pickers

@@ -354,11 +354,13 @@ fn reads_panel_strips_lists_and_tab_counts() {
 
 #[test]
 fn picker_keeps_arbitrary_values_but_rejects_ambiguous_selection() {
-    let root = json!({"type":"picker", "id":"models", "action":"choose", "options":[
+    let root = json!({"type":"picker", "id":"models", "action":"choose", "title":"Model", "back_action":"back", "options":[
         {"label":"Обычная", "value":{"provider":"local","model":"a"}, "selected":true},
         {"label":"Быстрая", "value":42, "selected":false}
     ]});
-    assert!(matches!(parse(root.clone()).unwrap(), Node::Picker { .. }));
+    assert!(
+        matches!(parse(root.clone()).unwrap(), Node::Picker { title: Some(title), back_action: Some(back), .. } if title == "Model" && back == "back")
+    );
     assert!(matches!(
         parse(root.clone()).unwrap(),
         Node::Picker { search: true, .. }

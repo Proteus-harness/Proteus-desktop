@@ -31,10 +31,18 @@ fn effect(moves: bool, plays: bool, reduced: bool) -> Effect {
 #[derive(Clone)]
 pub(in crate::ui) struct PopupFrame {
     pub open: bool,
+    placement: Placement,
     progress: f32,
     effect: Effect,
     anchor: Bounds<Pixels>,
     position: Rc<Cell<Option<ResolvedPosition>>>,
+}
+
+impl PopupFrame {
+    pub fn placement(mut self, placement: Placement) -> Self {
+        self.placement = placement;
+        self
+    }
 }
 
 fn destination(open: bool) -> f32 {
@@ -184,6 +192,7 @@ impl<T> Popup<T> {
         }
         Some(PopupFrame {
             open: self.presence.open,
+            placement: Placement::Bottom,
             progress,
             effect,
             anchor: self.anchor.unwrap_or_default(),
@@ -197,10 +206,11 @@ pub(in crate::ui) fn popup(
     element: impl IntoElement + 'static,
     id: impl Into<ElementId>,
     frame: PopupFrame,
+    cx: &App,
 ) -> AnyElement {
     let id = id.into();
     let fixed = (!frame.open).then(|| frame.position.get()).flatten();
-    let surface = div()
+    let surface = crate::ui::kit::popup_surface(cx)
         .relative()
         .child(element)
         .when_some(fixed, |surface, position| {
@@ -247,7 +257,7 @@ pub(in crate::ui) fn popup(
     } else {
         let position = frame.position.clone();
         Positioner::side(frame.anchor)
-            .placement(Placement::Bottom)
+            .placement(frame.placement)
             .align(Align::Start)
             .offset(px(4.))
             .on_position(move |resolved| position.set(Some(resolved)))

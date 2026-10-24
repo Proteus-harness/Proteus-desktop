@@ -1,5 +1,6 @@
 // Адаптировано из Zed: crates/settings_ui/src/components/input_field.rs
 // (thin input frames), crates/editor/src/element/mouse.rs (wheel bubbling).
+// Popup surfaces follow Zed: crates/ui/src/traits/styled_ext.rs (elevated).
 //! gpui-kit controls as the client builds them. A focused control is ringed
 //! only while the keyboard drives the window, so one focused by a click or
 //! by the client itself stays plain. Hints are the tooltips of controls,
@@ -84,6 +85,20 @@ pub(crate) fn checkbox(id: impl Into<ElementId>) -> Checkbox {
 /// Ordinary single-line fields retain their thin input border on focus.
 pub(crate) fn input(state: &gpui_kit::Entity<InputState>) -> Input {
     Input::new(state).focus_bordered(false)
+}
+
+/// One opaque popup, with an actual thin border and clipped child paint.
+/// The outer shadow stays outside the clipping of the popup's contents.
+pub(crate) fn popup_surface(cx: &App) -> gpui_kit::Div {
+    use gpui_kit::{Styled as _, div};
+    div()
+        .bg(cx.theme().popover)
+        .text_color(cx.theme().popover_foreground)
+        .rounded(cx.theme().radius)
+        .border_1()
+        .border_color(cx.theme().border)
+        .shadow_md()
+        .overflow_hidden()
 }
 
 /// Textarea has no public focus-ring opt-out, so keep its native appearance
