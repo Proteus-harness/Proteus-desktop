@@ -21,6 +21,7 @@ pub(super) struct Reveal {
 #[derive(Clone, Copy)]
 pub(in crate::ui) enum PopupOrigin {
     Bottom,
+    Horizontal(Bounds<Pixels>),
     Anchor(Bounds<Pixels>),
 }
 
@@ -83,12 +84,24 @@ impl Reveal {
     }
 
     fn popup_mask(&self, mut bounds: Bounds<Pixels>) -> ContentMask<Pixels> {
+        let progress = self.progress.unwrap_or(1.);
+        if let Some(PopupOrigin::Horizontal(anchor)) = self.popup_origin {
+            let width = bounds.size.width * progress;
+            // A popup on the panel's left opens from its right edge; one on
+            // the right opens from its left edge. This follows a flipped
+            // resolved position without needing separate left/right modes.
+            if bounds.center().x < anchor.center().x {
+                bounds.origin.x += bounds.size.width - width;
+            }
+            bounds.size.width = width;
+            return ContentMask { bounds };
+        }
         let from_bottom = match self.popup_origin {
             Some(PopupOrigin::Bottom) => true,
             Some(PopupOrigin::Anchor(anchor)) => bounds.center().y < anchor.center().y,
-            None => false,
+            _ => false,
         };
-        let height = bounds.size.height * self.progress.unwrap_or(1.);
+        let height = bounds.size.height * progress;
         if from_bottom {
             bounds.origin.y += bounds.size.height - height;
         }
@@ -335,5 +348,42 @@ mod tests {
             assert!((settled.top() - almost.top()).abs() < px(0.2));
             assert!((settled.bottom() - almost.bottom()).abs() < px(0.2));
         }
+    }
+
+    #[::core::prelude::v1::test]
+    fn horizontal_popup_reveals_from_the_panel_edge_at_zero_half_and_full() {
+        let panel = Bounds::new(point(px(100.), px(36.)), size(px(20.), px(160.)));
+        let left = Bounds::new(point(px(20.), px(36.)), size(px(80.), px(160.)));
+        let right = Bounds::new(point(px(120.), px(36.)), size(px(80.), px(160.)));
+        let mask = |bounds, progress| {
+            Reveal::popup(
+                "horizontal",
+                PopupOrigin::Horizontal(panel),
+                div().into_any_element(),
+            )
+            .with_progress(progress)
+            .popup_mask(bounds)
+            .bounds
+        };
+
+        assert_eq!(
+            mask(left, 0.),
+            Bounds::new(point(px(100.), px(36.)), size(px(0.), px(160.)))
+        );
+        assert_eq!(
+            mask(left, 0.5),
+            Bounds::new(point(px(60.), px(36.)), size(px(40.), px(160.)))
+        );
+        assert_eq!(mask(left, 1.), left);
+
+        assert_eq!(
+            mask(right, 0.),
+            Bounds::new(point(px(120.), px(36.)), size(px(0.), px(160.)))
+        );
+        assert_eq!(
+            mask(right, 0.5),
+            Bounds::new(point(px(120.), px(36.)), size(px(40.), px(160.)))
+        );
+        assert_eq!(mask(right, 1.), right);
     }
 }

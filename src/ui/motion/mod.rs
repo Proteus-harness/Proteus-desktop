@@ -34,7 +34,7 @@ pub(super) use disclosure::{
 };
 pub(super) use enter::{fade_in_if, late_in, rise_in, rise_in_if, stagger_in, switch_in};
 pub(super) use number::Number;
-pub(super) use popup::{Popup, popup, restore_focus};
+pub(super) use popup::{Popup, PopupPanel, popup, restore_focus};
 pub(super) use reveal::PopupOrigin;
 pub(super) use slide::{Slide, glide};
 pub(super) use spinner::Spinner;

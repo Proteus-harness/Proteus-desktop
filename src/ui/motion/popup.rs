@@ -32,6 +32,8 @@ fn effect(moves: bool, plays: bool, reduced: bool) -> Effect {
 pub(in crate::ui) struct PopupFrame {
     pub open: bool,
     placement: Placement,
+    gap: Pixels,
+    attachment: Option<Hsla>,
     progress: f32,
     effect: Effect,
     anchor: Bounds<Pixels>,
@@ -39,9 +41,38 @@ pub(in crate::ui) struct PopupFrame {
 }
 
 impl PopupFrame {
-    pub fn placement(mut self, placement: Placement) -> Self {
+    /// Join this popup to a panel edge, covering its one-pixel outline.
+    pub fn attached(mut self, placement: Placement, background: Hsla) -> Self {
         self.placement = placement;
+        self.gap = px(-1.);
+        self.attachment = Some(background);
         self
+    }
+}
+
+/// Geometry and presentation of a panel that can open an attached popup.
+#[derive(Clone, Copy)]
+pub(in crate::ui) struct PopupPanel {
+    pub bounds: Bounds<Pixels>,
+    pub placement: Placement,
+    pub background: Hsla,
+}
+
+impl PopupPanel {
+    /// Extend the trigger across the panel's normal axis while retaining its
+    /// alignment along the popup's other axis.
+    pub fn anchor(self, mut trigger: Bounds<Pixels>) -> Bounds<Pixels> {
+        match self.placement {
+            Placement::Top | Placement::Bottom => {
+                trigger.origin.y = self.bounds.origin.y;
+                trigger.size.height = self.bounds.size.height;
+            }
+            Placement::Left | Placement::Right => {
+                trigger.origin.x = self.bounds.origin.x;
+                trigger.size.width = self.bounds.size.width;
+            }
+        }
+        trigger
     }
 }
 
@@ -173,7 +204,10 @@ impl<T> Popup<T> {
             Instant::now(),
             effect(super::moves(), super::plays(), cx.reduce_motion()),
         )?;
-        if frame.progress != destination(frame.open) {
+        // A first position pass resolves possible flipping. Schedule one more
+        // frame so attached styling and the reveal mask use that actual side,
+        // including when motion is disabled.
+        if frame.progress != destination(frame.open) || frame.position.get().is_none() {
             window.request_animation_frame();
         }
         Some(frame)
@@ -193,6 +227,8 @@ impl<T> Popup<T> {
         Some(PopupFrame {
             open: self.presence.open,
             placement: Placement::Bottom,
+            gap: px(4.),
+            attachment: None,
             progress,
             effect,
             anchor: self.anchor.unwrap_or_default(),
@@ -210,7 +246,20 @@ pub(in crate::ui) fn popup(
 ) -> AnyElement {
     let id = id.into();
     let fixed = (!frame.open).then(|| frame.position.get()).flatten();
+    let position = frame.position.get();
+    let resolved_placement = position
+        .and_then(|position| position.placement)
+        .unwrap_or(frame.placement);
     let surface = crate::ui::kit::popup_surface(cx)
+        .when_some(frame.attachment, |surface, background| {
+            let surface = surface.bg(background);
+            match resolved_placement {
+                Placement::Top => surface.border_b_0().rounded_bl(px(0.)).rounded_br(px(0.)),
+                Placement::Bottom => surface.border_t_0().rounded_tl(px(0.)).rounded_tr(px(0.)),
+                Placement::Left => surface.border_r_0().rounded_tr(px(0.)).rounded_br(px(0.)),
+                Placement::Right => surface.border_l_0().rounded_tl(px(0.)).rounded_bl(px(0.)),
+            }
+        })
         .relative()
         .child(element)
         .when_some(fixed, |surface, position| {
@@ -236,7 +285,9 @@ pub(in crate::ui) fn popup(
     let surface = match frame.effect {
         Effect::Reveal => super::reveal::Reveal::popup(
             id,
-            if fixed.is_some_and(|position| position.placement == Some(Placement::Top)) {
+            if frame.attachment.is_some() && resolved_placement.is_horizontal() {
+                PopupOrigin::Horizontal(frame.anchor)
+            } else if fixed.is_some_and(|position| position.placement == Some(Placement::Top)) {
                 PopupOrigin::Bottom
             } else {
                 PopupOrigin::Anchor(frame.anchor)
@@ -249,17 +300,19 @@ pub(in crate::ui) fn popup(
         Effect::None => surface.into_any_element(),
     };
     let positioner = if let Some(position) = fixed {
-        if position.placement == Some(Placement::Top) {
-            Positioner::corner(Anchor::BottomLeft, position.bounds.bottom_left())
-        } else {
-            Positioner::corner(Anchor::TopLeft, position.bounds.origin)
+        match position.placement.unwrap_or(frame.placement) {
+            Placement::Top => Positioner::corner(Anchor::BottomLeft, position.bounds.bottom_left()),
+            Placement::Bottom | Placement::Right => {
+                Positioner::corner(Anchor::TopLeft, position.bounds.origin)
+            }
+            Placement::Left => Positioner::corner(Anchor::TopRight, position.bounds.top_right()),
         }
     } else {
         let position = frame.position.clone();
         Positioner::side(frame.anchor)
             .placement(frame.placement)
             .align(Align::Start)
-            .offset(px(4.))
+            .offset(frame.gap)
             .on_position(move |resolved| position.set(Some(resolved)))
     };
     deferred(
@@ -394,6 +447,34 @@ mod tests {
         assert!(reopened.position.get().is_none());
         open.position.set(Some(resolved));
         assert!(reopened.position.get().is_none());
+    }
+
+    #[::core::prelude::v1::test]
+    fn panel_anchor_replaces_only_the_normal_axis() {
+        let panel_bounds = Bounds::new(point(px(100.), px(40.)), size(px(300.), px(500.)));
+        let trigger = Bounds::new(point(px(160.), px(220.)), size(px(80.), px(32.)));
+        for placement in [Placement::Top, Placement::Bottom] {
+            assert_eq!(
+                PopupPanel {
+                    bounds: panel_bounds,
+                    placement,
+                    background: Hsla::default(),
+                }
+                .anchor(trigger),
+                Bounds::new(point(px(160.), px(40.)), size(px(80.), px(500.)))
+            );
+        }
+        for placement in [Placement::Left, Placement::Right] {
+            assert_eq!(
+                PopupPanel {
+                    bounds: panel_bounds,
+                    placement,
+                    background: Hsla::default(),
+                }
+                .anchor(trigger),
+                Bounds::new(point(px(100.), px(220.)), size(px(300.), px(32.)))
+            );
+        }
     }
 
     #[::core::prelude::v1::test]

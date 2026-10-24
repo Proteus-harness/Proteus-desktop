@@ -1,10 +1,13 @@
 use std::path::PathBuf;
 
+use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::*;
 use proteus_contracts::app_protocol::AppSessionActivity;
 
 use crate::api::Api;
+use crate::preferences::BadgePlace;
 use crate::ui::chat::{Chat, Session};
+use crate::ui::motion::PopupPanel;
 use crate::ui::workspace::Workspace;
 
 /// What an extension gets from the client: read access to the active chat's
@@ -137,6 +140,38 @@ impl Host {
             workspace.active_chat_view().map(|chat| chat.read(cx))
         };
         Some(read(&HostView { workspace, chat }))
+    }
+
+    /// The actual framed panel behind a badge, shared by every process popup.
+    pub(in crate::ui) fn badge_panel(&self, place: BadgePlace, cx: &App) -> Option<PopupPanel> {
+        use gpui_kit::base::Placement;
+        let theme = cx.theme();
+        self.read(cx, |host| {
+            let (bounds, placement, background) = match place {
+                BadgePlace::ComposerStart | BadgePlace::ComposerEnd => (
+                    host.chat?.composer_strip_bounds(),
+                    Placement::Top,
+                    theme.group_box,
+                ),
+                BadgePlace::HeaderStart | BadgePlace::HeaderEnd => (
+                    host.workspace.header_bounds.get(),
+                    Placement::Bottom,
+                    theme.title_bar,
+                ),
+                BadgePlace::RailStart | BadgePlace::RailEnd => (
+                    host.workspace.rail_bounds.get(),
+                    Placement::Right,
+                    theme.status_bar,
+                ),
+                BadgePlace::Hidden => return None,
+            };
+            (bounds.size.width > px(0.) && bounds.size.height > px(0.)).then_some(PopupPanel {
+                bounds,
+                placement,
+                background,
+            })
+        })
+        .flatten()
     }
 
     /// The active chat, for extensions that change its session settings.

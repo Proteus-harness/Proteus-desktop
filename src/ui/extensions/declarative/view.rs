@@ -385,6 +385,7 @@ impl Render for DeclarativeView {
             )
             .p_3()
             .gap_3()
+            .when(self.surface == SurfaceKind::Popup, |view| view.p_1p5())
             .when(fill, |view| view.p_0().gap_0())
             .when_some(error, |view, error| {
                 view.child(self.render_error(error, cx))

@@ -112,6 +112,8 @@ pub struct Workspace {
     pub(super) document_titles: HashMap<String, SharedString>,
     pub(super) extension_processes: HashMap<&'static str, AnyEntity>,
     pub(super) badges: HashMap<&'static str, AnyView>,
+    pub(super) header_bounds: Rc<Cell<Bounds<Pixels>>>,
+    pub(super) rail_bounds: Rc<Cell<Bounds<Pixels>>>,
     /// Size of the split whose divider is being dragged.
     pub(super) split_drag: Option<SplitResize>,
     /// Width of the side panel while its edge is dragged.
@@ -191,6 +193,8 @@ impl Workspace {
             document_titles: HashMap::new(),
             extension_processes: HashMap::new(),
             badges: HashMap::new(),
+            header_bounds: Rc::default(),
+            rail_bounds: Rc::default(),
             split_drag: None,
             sidebar_drag: None,
             sidebar_last: None,
