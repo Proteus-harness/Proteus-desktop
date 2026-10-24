@@ -4,35 +4,46 @@
 use crate::ui::kit::ButtonLabel as _;
 use std::path::Path;
 
-use gpui_kit::component::button::ButtonVariants as _;
-use gpui_kit::component::input::Textarea;
 use gpui_kit::component::*;
 use gpui_kit::*;
 
 use super::SettingsView;
 use super::editors::module_key;
-use super::widgets::{card, hashed_id, note, section};
+use super::widgets::{card, hashed_id, section};
 use crate::settings::FieldPath;
-use crate::settings::catalog::module_info;
+use crate::settings::catalog::{editable_fields, editable_params, module_info};
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 
 impl SettingsView {
+    pub(super) fn has_params(&self, slot: &str, module: &str) -> bool {
+        let schema = self
+            .snapshot()
+            .and_then(|snapshot| module_info(snapshot, slot, module))
+            .and_then(|info| info.schema);
+        editable_params(schema, self.draft.module_config(slot, module))
+    }
+
     /// Parameters as a titled section of a page.
     pub(super) fn params_section(
         &self,
         slot: &str,
         module: &str,
         cx: &Context<Self>,
-    ) -> AnyElement {
-        section(
-            "Параметры",
-            None,
-            self.mode_switch(slot, module, cx),
-            self.params_body(slot, module, cx),
-            cx,
+    ) -> Option<AnyElement> {
+        if !self.has_params(slot, module) {
+            return None;
+        }
+        Some(
+            section(
+                "Параметры",
+                None,
+                self.mode_switch(slot, module, cx),
+                self.params_body(slot, module, cx),
+                cx,
+            )
+            .into_any_element(),
         )
-        .into_any_element()
     }
 
     /// Parameters nested in a card row (hooks, plugin exports): a mode
@@ -57,7 +68,7 @@ impl SettingsView {
         let file = snapshot.target_path.clone().map(|path| {
             kit::button(hashed_id("params-file", &(slot, module)))
                 .faded_label("Файл профиля")
-                .ghost()
+                .quiet(cx)
                 .xsmall()
                 .hint(
                     &format!("Открыть [module_config.{slot}.{module}] в {path}"),
@@ -65,24 +76,29 @@ impl SettingsView {
                 )
                 .on_click(move |_, _, cx| cx.open_with_system(Path::new(&path)))
         });
-        let mode = module_info(snapshot, slot, module)?.schema.map(|_| {
-            let json = self.is_json(slot, module);
-            let (slot, module) = (slot.to_string(), module.to_string());
-            kit::button(hashed_id("params-mode", &(&slot, &module)))
-                .faded_label(if json { "Форма" } else { "JSON" })
-                .ghost()
-                .xsmall()
-                .disabled(json && self.json_error(&slot, &module))
-                .hint(
-                    if json {
-                        "Вернуться к форме"
-                    } else {
-                        "Править как JSON"
-                    },
-                    cx,
-                )
-                .on_click(cx.listener(move |this, _, _, cx| this.toggle_json(&slot, &module, cx)))
-        });
+        let mode = module_info(snapshot, slot, module)
+            .and_then(|info| info.schema)
+            .filter(|schema| editable_fields(&schema.fields))
+            .map(|_| {
+                let json = self.is_json(slot, module);
+                let (slot, module) = (slot.to_string(), module.to_string());
+                kit::button(hashed_id("params-mode", &(&slot, &module)))
+                    .faded_label(if json { "Форма" } else { "JSON" })
+                    .quiet(cx)
+                    .xsmall()
+                    .disabled(json && self.json_error(&slot, &module))
+                    .hint(
+                        if json {
+                            "Вернуться к форме"
+                        } else {
+                            "Править как JSON"
+                        },
+                        cx,
+                    )
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.toggle_json(&slot, &module, cx)),
+                    )
+            });
         (file.is_some() || mode.is_some()).then(|| {
             h_flex()
                 .gap_1()
@@ -106,8 +122,9 @@ impl SettingsView {
             return v_flex()
                 .gap_1p5()
                 .children(
-                    field
-                        .map(|field| Self::text_keys(Textarea::new(&field.input).small().w_full())),
+                    field.map(|field| {
+                        Self::text_keys(kit::textarea(&field.input, cx).small().w_full())
+                    }),
                 )
                 .children(
                     field
@@ -123,13 +140,6 @@ impl SettingsView {
                 .into_any_element();
         }
         let schema = schema.expect("form mode needs a schema");
-        if schema.fields.is_empty() {
-            return card(
-                [note("У этого модуля нет настраиваемых параметров.", cx).into_any_element()],
-                cx,
-            )
-            .into_any_element();
-        }
         let rows = self.field_rows(
             &schema.fields,
             |key| FieldPath::new(slot, module, key),

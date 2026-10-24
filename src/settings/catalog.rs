@@ -6,7 +6,8 @@ use proteus_contracts::app_protocol::config_builder::{
     ConfigBuilderPlugin, ConfigBuilderPluginExport, ConfigBuilderSlot, ConfigBuilderSnapshot,
     ConfigBuilderTool, ConfigBuilderToolPack,
 };
-use proteus_contracts::domain::ModuleConfigSchema;
+use proteus_contracts::domain::{ConfigField, ConfigValueSchema, ModuleConfigSchema};
+use serde_json::Value;
 
 use super::draft::{Area, Draft};
 
@@ -295,6 +296,33 @@ pub fn exports<'a>(
 pub struct ModuleInfo<'a> {
     pub schema: Option<&'a ModuleConfigSchema>,
     pub description: Option<&'a str>,
+}
+
+/// A form needs at least one actionable leaf. Empty object groups and
+/// selectors with no choices do not create a parameter editor on their own.
+pub fn editable_field(field: &ConfigField) -> bool {
+    match &field.value {
+        ConfigValueSchema::Object { fields } => editable_fields(fields),
+        ConfigValueSchema::Enum { options } => !options.is_empty(),
+        ConfigValueSchema::Array { items } => match items.as_ref() {
+            ConfigValueSchema::Enum { options } => !options.is_empty(),
+            _ => true,
+        },
+        _ => true,
+    }
+}
+
+pub fn editable_fields(fields: &[ConfigField]) -> bool {
+    fields.iter().any(editable_field)
+}
+
+/// Saved keys remain editable as JSON even when a module has no usable
+/// schema. An absent/empty module object alone does not need a disclosure.
+pub fn editable_params(schema: Option<&ModuleConfigSchema>, saved: Option<&Value>) -> bool {
+    schema.is_some_and(|schema| editable_fields(&schema.fields))
+        || saved
+            .and_then(Value::as_object)
+            .is_some_and(|object| !object.is_empty())
 }
 
 pub fn module_info<'a>(

@@ -1,9 +1,9 @@
 //! Short notes over the composer: a refused attachment, a server error.
 //! A note stays a few seconds, longer for a longer text, or until closed.
 
+use crate::ui::kit::ButtonLabel as _;
 use std::time::{Duration, Instant};
 
-use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::*;
 
@@ -79,7 +79,7 @@ impl Chat {
             .child(
                 kit::button("notice-close")
                     .icon(IconName::Close)
-                    .ghost()
+                    .quiet(cx)
                     .xsmall()
                     .hint("Закрыть уведомление", cx)
                     .on_click(cx.listener(|this, _, _, cx| this.clear_notice(cx))),

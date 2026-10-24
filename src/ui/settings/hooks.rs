@@ -1,7 +1,6 @@
 //! Hooks page: the ordered hook chain and the hooks still available.
 
 use crate::ui::kit::ButtonLabel as _;
-use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::*;
 
@@ -134,7 +133,7 @@ impl SettingsView {
             [reorder::controls(
                 kit::button(hashed_id("hook-off", &id))
                     .faded_label("Отключить")
-                    .ghost()
+                    .quiet(cx)
                     .xsmall()
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.update_draft(cx, |draft| draft.set_hook(&off, false))
@@ -144,6 +143,6 @@ impl SettingsView {
         );
         v_flex()
             .child(self.spotted(&super::spot::hook(id), header, cx))
-            .child(self.params_disclosure(HOOK_SLOT, id, &key, open, cx))
+            .children(self.params_disclosure(HOOK_SLOT, id, &key, open, cx))
     }
 }

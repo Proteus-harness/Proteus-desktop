@@ -8,7 +8,6 @@ use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::menu::PopupMenu;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -89,22 +88,33 @@ pub(super) fn section(
 /// Rounded card with hairline dividers between rows.
 pub(super) fn card(rows: impl IntoIterator<Item = AnyElement>, cx: &App) -> Div {
     let theme = cx.theme();
+    group_box(cx).children(rows.into_iter().enumerate().map(|(ix, row)| {
+        super::reveal::cell(cx)
+            .when(ix > 0, |cell| cell.border_t_1().border_color(theme.border))
+            .child(row)
+    }))
+}
+
+/// One surface for cards and every depth of foldable parameter groups.
+fn group_box(cx: &App) -> Div {
+    let theme = cx.theme();
     v_flex()
         .rounded(theme.radius_lg)
         .border_1()
         .border_color(theme.border)
         .bg(theme.group_box)
         .overflow_hidden()
-        .children(rows.into_iter().enumerate().map(|(ix, row)| {
-            super::reveal::cell(cx)
-                .when(ix > 0, |cell| cell.border_t_1().border_color(theme.border))
-                .child(row)
-        }))
 }
 
-/// Nested forms use indentation, without a separate rule under the chevron.
+/// The whole disclosure owns its surface, including its persistent header.
+/// The caller retains the common reveal animation around the body.
+pub(super) fn nested_group(header: impl IntoElement, body: Option<AnyElement>, cx: &App) -> Div {
+    group_box(cx).m_2().child(header).children(body)
+}
+
+/// Equal side insets, without a separate rule under the chevron.
 pub(super) fn nested(body: impl IntoElement) -> Div {
-    div().ml(prefs::scaled(24.)).mb_2().child(body)
+    div().px_2().pb_2().child(body)
 }
 
 /// Muted explanatory text inside a card or under a heading.
@@ -289,7 +299,7 @@ pub(super) fn reset_mark(
 ) -> AnyElement {
     kit::button(id)
         .icon(IconName::Undo2)
-        .ghost()
+        .quiet(cx)
         .xsmall()
         .hint(hint, cx)
         .on_click(move |_, window, cx| {
@@ -429,7 +439,7 @@ pub(super) fn disclosure(
         .gap_2()
         .items_center()
         .text_sm()
-        .disclosure(cx)
+        .disclosure_surface(cx)
         .child(crate::ui::motion::chevron(
             chevron_id,
             open,

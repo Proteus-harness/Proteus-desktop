@@ -212,7 +212,7 @@ impl SettingsView {
                     .child(
                         kit::button("catalog-refresh-all")
                             .icon(Icon::new(Lucide::RefreshCw))
-                            .ghost()
+                            .quiet(cx)
                             .small()
                             .loading(loading)
                             .loading_icon(IconName::LoaderCircle)
@@ -244,7 +244,7 @@ impl SettingsView {
         let show = |id: &'static str, show: Show, label: String| {
             kit::button(id)
                 .faded_label(label)
-                .ghost()
+                .quiet(cx)
                 .small()
                 .selected(self.catalogs.show == show)
                 .on_click(cx.listener(move |this, _, _, cx| {
@@ -256,7 +256,7 @@ impl SettingsView {
             kit::button(id)
                 .faded_label(label)
                 .when_some(kind, |button, kind| button.icon(kind_icon(kind)))
-                .ghost()
+                .quiet(cx)
                 .xsmall()
                 .selected(self.catalogs.kind == kind)
                 .on_click(cx.listener(move |this, _, _, cx| {
@@ -531,7 +531,7 @@ impl SettingsView {
                         )
                         .child(
                             kit::button("catalog-add-first")
-                                .faded_label("Источники…")
+                                .faded_label("Источники")
                                 .small()
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.open_catalog_sources(window, cx)

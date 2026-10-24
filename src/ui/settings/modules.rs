@@ -3,7 +3,6 @@
 
 use crate::ui::kit::ButtonLabel as _;
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -223,7 +222,7 @@ impl SettingsView {
             if export.is_some() {
                 let params_key = format!("params:{TOOL_SLOT}:{}", pack.id);
                 let params_open = self.is_open(&params_key);
-                content = content.child(self.params_disclosure(
+                content = content.children(self.params_disclosure(
                     TOOL_SLOT,
                     &pack.id,
                     &params_key,
@@ -300,7 +299,7 @@ impl SettingsView {
         let order = position.is_some().then(|| {
             kit::button(hashed_id("hook-order", &export.id))
                 .faded_label("Порядок")
-                .ghost()
+                .quiet(cx)
                 .xsmall()
                 .on_click(
                     cx.listener(|this, _, window, cx| this.select_page(PageId::Hooks, window, cx)),
@@ -319,7 +318,7 @@ impl SettingsView {
             .chain([switch.into_any_element()]);
         v_flex()
             .child(export_row(export, trailing, cx))
-            .child(self.params_disclosure(HOOK_SLOT, &export.id, &key, open, cx))
+            .children(self.params_disclosure(HOOK_SLOT, &export.id, &key, open, cx))
             .into_any_element()
     }
 
@@ -338,7 +337,7 @@ impl SettingsView {
         trailing.push(
             kit::button(hashed_id("open-slot", &(&export.slot, &export.id)))
                 .faded_label(format!("Открыть {}", page_title(Some(snapshot), &page)))
-                .ghost()
+                .quiet(cx)
                 .xsmall()
                 .on_click(cx.listener(move |this, _, window, cx| {
                     this.select_page(page.clone(), window, cx)

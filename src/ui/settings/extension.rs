@@ -204,7 +204,7 @@ impl SettingsView {
                             .child(
                                 kit::button("extension-page-remove-no")
                                     .faded_label("Отмена")
-                                    .ghost()
+                                    .quiet(cx)
                                     .small()
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.removing = None;

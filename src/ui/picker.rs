@@ -24,6 +24,8 @@ type Pick<T> = Rc<dyn Fn(T, &mut Window, &mut App)>;
 
 pub(super) struct Picker<T: Clone + PartialEq + 'static> {
     search: Entity<InputState>,
+    searchable: bool,
+    list_focus: FocusHandle,
     options: Vec<Choice<T>>,
     matches: Vec<usize>,
     cursor: usize,
@@ -51,6 +53,8 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
         });
         let mut picker = Self {
             search,
+            searchable: true,
+            list_focus: cx.focus_handle(),
             options,
             matches: Vec::new(),
             cursor: 0,
@@ -90,8 +94,34 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
         self.pick = Rc::new(pick);
     }
 
+    /// The same rows, cursor and keyboard handling serve compact selectors.
+    pub fn set_searchable(
+        &mut self,
+        searchable: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.searchable == searchable {
+            return;
+        }
+        let focused = self.focus(cx).contains_focused(window, cx);
+        self.searchable = searchable;
+        if !searchable {
+            self.search
+                .update(cx, |input, cx| input.set_value("", window, cx));
+        }
+        self.filter(None, cx);
+        if focused {
+            self.focus(cx).focus(window, cx);
+        }
+    }
+
     pub fn focus(&self, cx: &App) -> FocusHandle {
-        self.search.read(cx).focus_handle(cx)
+        if self.searchable {
+            self.search.read(cx).focus_handle(cx)
+        } else {
+            self.list_focus.clone()
+        }
     }
 
     fn current(&self) -> Option<&Choice<T>> {
@@ -229,11 +259,16 @@ impl<T: Clone + PartialEq + 'static> Render for Picker<T> {
         .w_full()
         .h(prefs::scaled(ROW * count.min(VISIBLE) as f32));
         v_flex()
+            .id("picker")
+            .track_focus(&self.list_focus)
+            .tab_stop(!self.searchable)
             .w_full()
             .min_w_0()
             .gap_1()
             .capture_key_down(cx.listener(Self::keys))
-            .child(super::search::field(&self.search).small())
+            .when(self.searchable, |body| {
+                body.child(super::search::field(&self.search).small())
+            })
             .when(count > 0, |body| body.child(rows))
             .when(count == 0, |body| {
                 body.child(

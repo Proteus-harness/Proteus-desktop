@@ -33,6 +33,7 @@ pub(super) struct DeclarativeView {
     keys: HashMap<String, String>,
     action_sequence: u64,
     resize_on_reply: bool,
+    focus_page: bool,
     pub(super) presentation: Option<Presentation>,
     /// Selected tab of every `tabs` node, by tree path.
     pub(super) tabs: HashMap<String, usize>,
@@ -85,6 +86,7 @@ impl DeclarativeView {
             keys: HashMap::new(),
             action_sequence: 0,
             resize_on_reply: false,
+            focus_page: false,
             presentation: None,
             tabs: HashMap::new(),
             steps: HashMap::new(),
@@ -114,6 +116,19 @@ impl DeclarativeView {
         self.images.prepare(&root, cx);
         self.keys = keys;
         self.root_revision = self.root_revision.wrapping_add(1);
+        if let (
+            Some(Node::Stack {
+                transition: Some(old),
+                ..
+            }),
+            Node::Stack {
+                transition: Some(new),
+                ..
+            },
+        ) = (&self.root, &root)
+        {
+            self.focus_page |= old != new;
+        }
         self.root = Some(root);
         cx.notify();
         true
@@ -244,6 +259,11 @@ impl Focusable for DeclarativeView {
 impl Render for DeclarativeView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         crate::ui::motion::drive(window, cx);
+        if std::mem::take(&mut self.focus_page) && self.focus.contains_focused(window, cx) {
+            // A root page replaces its controls. Release the old control's
+            // focus so the visible page gets the normal first-control focus.
+            self.focus.focus(window, cx);
+        }
         if let Some(root) = self.root.clone() {
             let scale = window.scale_factor() * crate::ui::prefs::scale(cx);
             if self.images.rasterize(&root, scale, cx) {

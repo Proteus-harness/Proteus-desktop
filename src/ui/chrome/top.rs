@@ -3,7 +3,6 @@
 //! composer and in the session list.
 
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -15,6 +14,7 @@ use super::title::title_bar;
 use crate::preferences::BadgePlace;
 use crate::ui::chat::ChatState;
 use crate::ui::kit;
+use crate::ui::kit::ButtonLabel as _;
 use crate::ui::tip::Tip as _;
 use crate::ui::workspace::{Status, Workspace};
 
@@ -39,6 +39,7 @@ impl Workspace {
             .child(logo_button(
                 busy,
                 logo_menu(None, ready.then_some(workspace)),
+                cx,
             ))
             .when(ready, |left| {
                 left.child(self.render_badge_strip(BadgePlace::HeaderStart, cx))
@@ -57,21 +58,21 @@ pub(in crate::ui) fn picker_top_bar(
     cx: &mut App,
 ) -> impl IntoElement + use<> {
     title_bar(
-        logo_button(false, logo_menu(Some(projects), None)),
+        logo_button(false, logo_menu(Some(projects), None), cx),
         div(),
         window,
         cx,
     )
 }
 
-fn logo_button(
-    busy: bool,
-    menu: impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static,
-) -> impl IntoElement {
+fn logo_button<M>(busy: bool, menu: M, cx: &App) -> impl IntoElement + use<M>
+where
+    M: Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static,
+{
     crate::ui::context::menu_button(
         "top-logo-menu",
         kit::button("top-logo")
-            .ghost()
+            .quiet(cx)
             .small()
             .tip_text(if busy {
                 "Proteus · агент работает"

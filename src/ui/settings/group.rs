@@ -8,8 +8,11 @@ use proteus_contracts::domain::ConfigField;
 use serde_json::Value;
 
 use super::SettingsView;
-use super::widgets::{changed_dot, described, disclosure, hashed_id, nested, note, reset_mark};
+use super::widgets::{
+    changed_dot, described, disclosure, hashed_id, nested, nested_group, note, reset_mark,
+};
 use crate::settings::FieldPath;
+use crate::settings::catalog::editable_field;
 use crate::ui::kit::Pressable as _;
 
 impl SettingsView {
@@ -26,10 +29,13 @@ impl SettingsView {
         let field_row = |field: &ConfigField| self.render_field(&path_of(&field.key), field, cx);
         let mut rows: Vec<AnyElement> = fields
             .iter()
-            .filter(|field| !field.advanced)
+            .filter(|field| !field.advanced && editable_field(field))
             .map(field_row)
             .collect();
-        let advanced: Vec<_> = fields.iter().filter(|field| field.advanced).collect();
+        let advanced: Vec<_> = fields
+            .iter()
+            .filter(|field| field.advanced && editable_field(field))
+            .collect();
         if !advanced.is_empty() {
             let key = format!("advanced:{scope}");
             let open = self.is_open(&key);
@@ -53,8 +59,8 @@ impl SettingsView {
             let view = cx.weak_entity();
             let toggle_key = key.clone();
             rows.push(
-                v_flex()
-                    .child(disclosure(
+                nested_group(
+                    disclosure(
                         hashed_id("params-advanced", &key),
                         open,
                         format!("Дополнительно · {}", advanced_count),
@@ -63,9 +69,11 @@ impl SettingsView {
                             let _ = view.update(cx, |this, cx| this.toggle_open(&toggle_key, cx));
                         },
                         cx,
-                    ))
-                    .children(content)
-                    .into_any_element(),
+                    ),
+                    content,
+                    cx,
+                )
+                .into_any_element(),
             );
         }
         let extra: Vec<&str> = object
@@ -128,7 +136,7 @@ impl SettingsView {
             .gap_2()
             .items_center()
             .text_sm()
-            .disclosure(cx)
+            .disclosure_surface(cx)
             .child(crate::ui::motion::chevron(
                 ElementId::Name(format!("{key}-chevron").into()),
                 open,
@@ -157,9 +165,11 @@ impl SettingsView {
             )
             .into_any_element()
         });
-        v_flex()
-            .child(self.spotted(&super::spot::field(path), header, cx))
-            .children(content)
-            .into_any_element()
+        nested_group(
+            self.spotted(&super::spot::field(path), header, cx),
+            content,
+            cx,
+        )
+        .into_any_element()
     }
 }

@@ -3,7 +3,6 @@
 
 use crate::ui::context::RightClickMenu as _;
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -14,6 +13,7 @@ use crate::tabs::{self, PaneId, TabLayout};
 use crate::ui::chat::ChatState;
 use crate::ui::fade::faded;
 use crate::ui::kit;
+use crate::ui::kit::ButtonLabel as _;
 use crate::ui::kit::Hint as _;
 use crate::ui::motion::Spinner;
 use crate::ui::prefs;
@@ -221,7 +221,7 @@ impl Workspace {
                         })
                         .child(
                             kit::button(ElementId::Name(format!("tab-close-{id}").into()))
-                                .ghost()
+                                .quiet(cx)
                                 .xsmall()
                                 .icon(IconName::Close)
                                 .hint_keys("Закрыть", close_keys.as_deref(), cx)

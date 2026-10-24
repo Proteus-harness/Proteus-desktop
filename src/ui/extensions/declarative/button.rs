@@ -57,7 +57,7 @@ pub(super) fn menu(
     let icon = icon.as_deref().or(label.is_empty().then_some("ellipsis"));
     let button = kit::button(ElementId::Name(format!("decl-menu-{path}").into()));
     let button = sized(button, fit)
-        .ghost()
+        .quiet(cx)
         .when(!label.is_empty(), |button| {
             button.faded_label(label.clone())
         })
@@ -121,7 +121,7 @@ pub(super) fn button(
     let button = match variant {
         Variant::Primary => button.primary(),
         Variant::Default => button.outline(),
-        Variant::Ghost => button.ghost(),
+        Variant::Ghost => button.quiet(cx),
         Variant::Danger => button.danger(),
     };
     let button = match hint {
@@ -136,7 +136,7 @@ pub(super) fn button(
     let arrow = match variant {
         Variant::Primary => arrow.primary(),
         Variant::Default => arrow.outline(),
-        Variant::Ghost => arrow.ghost(),
+        Variant::Ghost => arrow.quiet(cx),
         Variant::Danger => arrow.danger(),
     };
     crate::ui::context::split_button(

@@ -4,7 +4,6 @@
 
 use crate::ui::kit::ButtonLabel as _;
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::*;
 
@@ -56,7 +55,7 @@ impl SettingsView {
         let add = kit::button("mcp-add")
             .icon(Lucide::Plus)
             .faded_label("Добавить сервер")
-            .ghost()
+            .quiet(cx)
             .xsmall()
             .hint("Новая запись [[tools.mcp_servers]] профиля", cx)
             .on_click(cx.listener(|this, _, _, cx| this.add_mcp_server(cx)));

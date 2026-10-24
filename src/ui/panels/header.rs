@@ -3,7 +3,6 @@
 //! and padding for all panels.
 
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -13,6 +12,7 @@ use crate::preferences::SESSIONS_PANEL;
 use crate::shortcuts::Command;
 use crate::ui::fade::faded;
 use crate::ui::kit;
+use crate::ui::kit::ButtonLabel as _;
 use crate::ui::kit::Hint as _;
 use crate::ui::search;
 use crate::ui::workspace::Workspace;
@@ -54,7 +54,7 @@ impl Workspace {
                     .child(
                         kit::button("new-session")
                             .icon(IconName::Plus)
-                            .ghost()
+                            .quiet(cx)
                             .small()
                             .hint_keys(
                                 "Новая сессия",
@@ -69,7 +69,7 @@ impl Workspace {
             .child(
                 kit::button("panel-hide")
                     .icon(Lucide::PanelLeftClose)
-                    .ghost()
+                    .quiet(cx)
                     .small()
                     .hint("Скрыть панель", cx)
                     .on_click(

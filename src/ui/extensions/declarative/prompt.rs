@@ -5,7 +5,8 @@ use std::rc::Rc;
 
 use super::view::DeclarativeView;
 use crate::declarative::control::Prompt;
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use crate::ui::kit;
+use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::*;
 use gpui_kit::*;
 use serde_json::{Value, json};
@@ -57,7 +58,7 @@ pub(super) fn open(
         let (input, submit) = (field.clone(), submit.clone());
         alert
             .title(prompt.title.clone())
-            .child(Input::new(&field).w_full())
+            .child(kit::input(&field).w_full())
             .ok_text(prompt.ok.clone().unwrap_or_else(|| "OK".into()))
             .show_cancel(true)
             .cancel_text("Отмена")

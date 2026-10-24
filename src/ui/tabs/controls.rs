@@ -4,7 +4,6 @@
 
 use crate::ui::context::RightClickMenu as _;
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::component::*;
 use gpui_kit::*;
@@ -12,6 +11,7 @@ use gpui_kit::*;
 use super::menu;
 use crate::tabs::{Pane, PaneId, TabLayout};
 use crate::ui::kit;
+use crate::ui::kit::ButtonLabel as _;
 use crate::ui::kit::Hint as _;
 use crate::ui::workspace::Workspace;
 
@@ -32,7 +32,7 @@ impl Workspace {
             .filter(|locked| *locked || !pane.tabs.is_empty());
         let workspace = cx.weak_entity();
         let add = kit::button(("pane-add", key))
-            .ghost()
+            .quiet(cx)
             .xsmall()
             .icon(IconName::Plus)
             .hint("Новая вкладка", cx);

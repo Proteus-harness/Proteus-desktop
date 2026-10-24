@@ -11,15 +11,17 @@ use gpui_kit::component::menu::PopupMenu;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, App, Bounds, Context, DismissEvent, ElementId, Entity, Focusable as _,
-    InteractiveElement, IntoElement, MouseButton, ParentElement as _, Pixels, Refineable as _,
-    RenderOnce, SharedString, StyleRefinement, Styled, Window, canvas, div, px,
+    AnyElement, App, AvailableSpace, Bounds, Context, DismissEvent, ElementId, Entity,
+    Focusable as _, InteractiveElement, IntoElement, MouseButton, ParentElement as _, Pixels,
+    Refineable as _, RenderOnce, SharedString, StyleRefinement, Styled, Window, canvas, div, px,
+    size,
 };
 
 #[derive(Default)]
 struct MenuState {
     bounds: Bounds<Pixels>,
     popup: motion::Popup<Entity<PopupMenu>>,
+    measure_height: Option<Pixels>,
     /// Whether this pointer press began while the menu was still open.
     pressed_open: bool,
 }
@@ -97,6 +99,7 @@ impl RenderOnce for ContextMenu {
         let opened = state.clone();
         let pressed = state.clone();
         let build = self.build;
+        let measure_build = build.clone();
         let menu_open = state.read(cx).popup.is_open();
         let disabled = matches!(&self.trigger, Trigger::Split(_, _, true));
         let (click_state, click_build) = (state.clone(), build.clone());
@@ -170,6 +173,29 @@ impl RenderOnce for ContextMenu {
                     open(&opened, &build, window, cx);
                 }
             });
+        let measuring = state.update(cx, |state, _| {
+            state
+                .measure_height
+                .take()
+                .zip(state.popup.current().cloned())
+        });
+        if let Some((max_height, menu)) = measuring {
+            // Measure during layout, through the native view so stateful
+            // captions keep their entity scope. Fitting menus need no scroll
+            // area (including its padding overflow).
+            let natural = menu.clone().into_any_element().layout_as_root(
+                size(AvailableSpace::MaxContent, AvailableSpace::MaxContent),
+                window,
+                cx,
+            );
+            if natural.height > max_height {
+                menu.update(cx, |menu, cx| {
+                    menu.rebuild(window, cx, |menu, window, cx| {
+                        measure_build(menu, window, cx).scrollable(true)
+                    });
+                });
+            }
+        }
         let shown = state.update(cx, |state, cx| {
             let frame = state.popup.frame(state.bounds, window, cx)?;
             Some((state.popup.value()?.clone(), frame))
@@ -205,26 +231,28 @@ fn open(state: &Entity<MenuState>, build: &Build, window: &mut Window, cx: &mut 
     }
     let build = build.clone();
     let previous_focus = window.focused(cx);
+    let margin = prefs::scaled(16.).to_pixels(window.rem_size());
+    let room = window.viewport_size();
+    let max_height = prefs::scaled(360.)
+        .to_pixels(window.rem_size())
+        .min((room.height - margin).max(px(0.)));
     let menu = PopupMenu::build(window, cx, move |menu, window, cx| {
-        let margin = prefs::scaled(16.).to_pixels(window.rem_size());
-        let room = window.viewport_size();
         let menu = menu
+            .min_w(px(0.))
             .max_w(
                 prefs::scaled(560.)
                     .to_pixels(window.rem_size())
                     .min((room.width - margin).max(px(0.))),
             )
-            .max_h(
-                prefs::scaled(360.)
-                    .to_pixels(window.rem_size())
-                    .min((room.height - margin).max(px(0.))),
-            )
-            .scrollable(true);
-        build(menu, window, cx)
+            .max_h(max_height);
+        build(menu, window, cx).scrollable(false)
     });
     let menu_focus = menu.focus_handle(cx);
     menu_focus.focus(window, cx);
-    let generation = state.update(cx, |state, _| state.popup.show(menu.clone()));
+    let generation = state.update(cx, |state, _| {
+        state.measure_height = Some(max_height);
+        state.popup.show(menu.clone())
+    });
     let held = state.downgrade();
     window
         .subscribe(&menu, cx, move |_, _: &DismissEvent, window, cx| {

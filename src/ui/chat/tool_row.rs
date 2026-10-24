@@ -1,8 +1,8 @@
 // Адаптировано из Zed: crates/agent_ui/src/conversation_view/thread_view.rs
 // (bounded tool previews and output disclosure).
+use crate::ui::kit::ButtonLabel as _;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::base::SelectableText;
-use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -202,7 +202,7 @@ impl Fold {
                         ))
                         .icon(IconName::Copy)
                         .hint("Копировать весь текст", cx)
-                        .ghost()
+                        .quiet(cx)
                         .xsmall()
                         .on_click(move |_, _, cx| {
                             cx.stop_propagation();

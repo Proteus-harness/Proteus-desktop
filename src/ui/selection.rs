@@ -62,7 +62,7 @@ pub(crate) fn menu_option(label: impl Into<SharedString>, selected: bool) -> Pop
             .relative()
             .w(natural_width + px(16.))
             .min_w_0()
-            .flex_1()
+            .flex_grow(1.)
             .text_sm()
             // Cancel the native MenuItemElement's fixed 8px side padding:
             // committed selection and native hover cover the same contour,

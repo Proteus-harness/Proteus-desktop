@@ -5,11 +5,11 @@
 use super::{DiffView, HEADER, LINE, lines, stat};
 use crate::diff::File;
 use crate::ui::fade::caption;
+use crate::ui::kit::ButtonLabel as _;
 use crate::ui::kit::{self, Hint as _, Pressable as _};
 use crate::ui::tip::{Tip as _, TooltipAnchor};
 use crate::ui::{motion, prefs};
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -82,7 +82,7 @@ impl DiffView {
                     )
                     .child(
                         kit::button(("copy-patch", index))
-                            .ghost()
+                            .quiet(cx)
                             .xsmall()
                             .icon(Lucide::Copy)
                             .disabled(file.patch.is_empty())

@@ -194,6 +194,9 @@ pub enum Node {
         placeholder: String,
         #[serde(default = "no_matches")]
         empty: String,
+        /// Short selectors share the picker rows without a search field.
+        #[serde(default = "yes")]
+        search: bool,
     },
     Steps {
         id: String,
@@ -206,6 +209,9 @@ pub enum Node {
         direction: Direction,
         #[serde(default)]
         gap: Gap,
+        /// Stable page key; changing it uses the shared page transition.
+        #[serde(default)]
+        transition: Option<String>,
         #[serde(default)]
         children: Vec<Node>,
     },

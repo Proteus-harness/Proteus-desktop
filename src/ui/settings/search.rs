@@ -17,7 +17,8 @@ use crate::settings::FieldPath;
 use crate::settings::addons;
 use crate::settings::catalog::{
     CONTEXT_PROVIDER_SLOT, CONTEXT_SLOT, HOOK_SLOT, MODEL_SLOT, PageId, TOOL_SLOT, agent_pages,
-    exports, find_slot, model_module, module_info, page_description, page_title, selected_module,
+    editable_field, exports, find_slot, model_module, module_info, page_description, page_title,
+    selected_module,
 };
 use crate::shortcuts::Command;
 use crate::ui::extensions;
@@ -381,7 +382,7 @@ impl Scope<'_> {
             None => format!("{}:{}", self.slot, self.module),
             Some(path) => format!("{}:{}:{}", self.slot, self.module, path.dotted()),
         };
-        for field in fields {
+        for field in fields.iter().filter(|field| editable_field(field)) {
             let path = match parent {
                 None => FieldPath::new(self.slot, self.module, &field.key),
                 Some(parent) => parent.child(&field.key),

@@ -2,7 +2,6 @@
 
 use std::rc::Rc;
 
-use gpui_kit::component::input::{Input, Textarea};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -100,7 +99,7 @@ impl SettingsView {
             FieldKind::MultiChoice(options) => multi_choice(&spec, options),
             FieldKind::Group(fields) => return self.render_group(path, field, fields, cx),
             FieldKind::Text(_) => match text.map(|text| &text.input) {
-                Some(TextInput::Line(state)) => Input::new(state)
+                Some(TextInput::Line(state)) => kit::input(state)
                     .small()
                     .map(|input| {
                         if short {
@@ -111,7 +110,7 @@ impl SettingsView {
                     })
                     .into_any_element(),
                 Some(TextInput::Area(state)) => {
-                    Self::text_keys(Textarea::new(state).small().w_full())
+                    Self::text_keys(kit::textarea(state, cx).small().w_full())
                 }
                 None => div().into_any_element(),
             },

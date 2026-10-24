@@ -252,7 +252,7 @@ impl SettingsView {
                                 format!("extension-remove-no-{id}").into(),
                             ))
                             .faded_label("Отмена")
-                            .ghost()
+                            .quiet(cx)
                             .small()
                             .on_click(cx.listener(
                                 |this, _, _, cx| {
@@ -279,7 +279,7 @@ impl SettingsView {
                                     format!("extension-remove-{id}").into(),
                                 ))
                                 .icon(Lucide::Trash)
-                                .ghost()
+                                .quiet(cx)
                                 .small()
                                 .hint("Удалить", cx)
                                 .on_click(cx.listener(

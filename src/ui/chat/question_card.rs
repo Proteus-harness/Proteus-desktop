@@ -51,7 +51,7 @@ impl Chat {
                 .child(
                     kit::button(SharedString::from(format!("question-back-{rid}")))
                         .icon(IconName::ChevronLeft)
-                        .ghost()
+                        .quiet(cx)
                         .xsmall()
                         .disabled(page == 0)
                         .on_click(cx.listener(move |this, _, _, cx| {
@@ -63,7 +63,7 @@ impl Chat {
                 .child(
                     kit::button(SharedString::from(format!("question-next-{rid}")))
                         .icon(IconName::ChevronRight)
-                        .ghost()
+                        .quiet(cx)
                         .xsmall()
                         .disabled(last)
                         .on_click(cx.listener(move |this, _, _, cx| {
@@ -87,7 +87,7 @@ impl Chat {
                 kit::button(SharedString::from(format!("question-close-{rid}")))
                     .icon(IconName::Close)
                     .hint("Закрыть без ответа", cx)
-                    .ghost()
+                    .quiet(cx)
                     .xsmall()
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.submit_user_input(&close_id, true, cx);

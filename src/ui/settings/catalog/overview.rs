@@ -4,7 +4,6 @@
 
 use crate::ui::kit::ButtonLabel as _;
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -350,7 +349,7 @@ fn section(title: &'static str, count: usize, show: Show, cx: &Context<SettingsV
                 row.child(
                     kit::button(hashed_id("catalog-overview-more", &title))
                         .faded_label("Показать все")
-                        .ghost()
+                        .quiet(cx)
                         .xsmall()
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.catalogs.show = show;

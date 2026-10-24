@@ -21,11 +21,13 @@ fn reads_a_nested_tree_with_defaults() {
     let Node::Stack {
         direction,
         gap,
+        transition,
         children,
     } = node
     else {
         panic!("stack expected");
     };
+    assert_eq!(transition, None);
     assert_eq!(
         (direction, gap, children.len()),
         (Direction::Column, Gap::Small, 3)
@@ -357,6 +359,16 @@ fn picker_keeps_arbitrary_values_but_rejects_ambiguous_selection() {
         {"label":"Быстрая", "value":42, "selected":false}
     ]});
     assert!(matches!(parse(root.clone()).unwrap(), Node::Picker { .. }));
+    assert!(matches!(
+        parse(root.clone()).unwrap(),
+        Node::Picker { search: true, .. }
+    ));
+    let mut compact = root.clone();
+    compact["search"] = json!(false);
+    assert!(matches!(
+        parse(compact).unwrap(),
+        Node::Picker { search: false, .. }
+    ));
     let mut bad = root.clone();
     bad["options"][1]["selected"] = json!(true);
     assert!(parse(bad).is_err());

@@ -1,7 +1,6 @@
 //! Details of the selected catalog entry beside the list.
 
 use crate::ui::kit::ButtonLabel as _;
-use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::text::TextView;
 use gpui_kit::component::*;
@@ -104,7 +103,7 @@ impl SettingsView {
                             .child(
                                 kit::button("catalog-details-close")
                                     .icon(IconName::Close)
-                                    .ghost()
+                                    .quiet(cx)
                                     .xsmall()
                                     .hint("Закрыть", cx)
                                     .on_click(cx.listener(|this, _, _, cx| {
@@ -120,7 +119,7 @@ impl SettingsView {
                             .children(removable.map(|installed| {
                                 kit::button(hashed_id("catalog-remove", &item.key()))
                                     .faded_label("Удалить")
-                                    .ghost()
+                                    .quiet(cx)
                                     .small()
                                     .disabled(
                                         !self.catalog_idle()

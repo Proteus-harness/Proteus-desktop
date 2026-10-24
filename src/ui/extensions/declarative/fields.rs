@@ -162,6 +162,7 @@ impl DeclarativeView {
                 action,
                 placeholder,
                 empty,
+                search,
             } => {
                 let options = options
                     .iter()
@@ -185,17 +186,20 @@ impl DeclarativeView {
                             window,
                             cx,
                         );
+                        picker.set_searchable(*search, window, cx);
                     });
                 } else {
                     let picker = cx.new(|cx| {
-                        crate::ui::picker::Picker::new(
+                        let mut picker = crate::ui::picker::Picker::new(
                             options,
                             placeholder.clone().into(),
                             empty.clone().into(),
                             window,
                             cx,
                             pick,
-                        )
+                        );
+                        picker.set_searchable(*search, window, cx);
+                        picker
                     });
                     self.fields.pickers.insert(id.clone(), picker);
                 }

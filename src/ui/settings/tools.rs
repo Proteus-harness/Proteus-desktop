@@ -1,7 +1,6 @@
 //! Tools page: which tools the profile allows.
 
 use crate::ui::kit::ButtonLabel as _;
-use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -105,7 +104,7 @@ impl SettingsView {
             let view = cx.weak_entity();
             kit::button(hashed_id("tool-owner", &tool.name))
                 .faded_label(label)
-                .ghost()
+                .quiet(cx)
                 .xsmall()
                 .hint(&hint, cx)
                 .on_click(move |_, window, cx| {

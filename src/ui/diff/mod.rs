@@ -13,7 +13,6 @@ use std::collections::HashSet;
 use std::rc::Rc;
 
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -199,7 +198,7 @@ impl DiffView {
                 .into_iter()
                 .map(|(split, icon, label, hint)| {
                     kit::button(if split { "split-diff" } else { "unified-diff" })
-                        .ghost()
+                        .quiet(cx)
                         .xsmall()
                         .icon(icon)
                         .when(!self.compact, |button| button.faded_label(label))
@@ -215,7 +214,7 @@ impl DiffView {
             .child(div().h(prefs::scaled(16.)).w(px(1.)).bg(cx.theme().border))
             .child(
                 kit::button("fold-diffs")
-                    .ghost()
+                    .quiet(cx)
                     .xsmall()
                     .icon(if self.folded.is_empty() {
                         Lucide::FoldVertical
@@ -234,7 +233,7 @@ impl DiffView {
             )
             .child(
                 kit::button("copy-diffs")
-                    .ghost()
+                    .quiet(cx)
                     .xsmall()
                     .icon(Lucide::Copy)
                     .disabled(self.patch.is_empty())

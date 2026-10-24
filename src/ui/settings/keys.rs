@@ -103,10 +103,8 @@ impl SettingsView {
 
     /// A multi-line field, which keeps Up and Down for its own lines.
     pub(super) fn text_keys(area: impl IntoElement) -> AnyElement {
-        div()
-            .w_full()
+        kit::contain_scroll(area)
             .key_context(TEXT_CONTEXT)
-            .child(area)
             .into_any_element()
     }
 

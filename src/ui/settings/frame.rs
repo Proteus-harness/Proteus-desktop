@@ -291,7 +291,7 @@ impl SettingsView {
                 bar.child(
                     kit::button("settings-reload")
                         .faded_label("Обновить")
-                        .ghost()
+                        .quiet(cx)
                         .small()
                         .loading(self.reloading)
                         .loading_icon(IconName::LoaderCircle)
@@ -306,7 +306,7 @@ impl SettingsView {
             .child(
                 kit::button("settings-discard")
                     .faded_label("Сбросить")
-                    .ghost()
+                    .quiet(cx)
                     .small()
                     .disabled(!dirty || self.saving)
                     .on_click(cx.listener(|this, _, _, cx| this.discard(cx))),

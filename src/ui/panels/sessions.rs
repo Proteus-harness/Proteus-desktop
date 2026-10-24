@@ -6,8 +6,6 @@ use std::time::Duration;
 
 use crate::ui::context::RightClickMenu as _;
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::button::ButtonVariants as _;
-use gpui_kit::component::input::Input;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -19,6 +17,7 @@ use crate::sessions::{Project, Row, View};
 use crate::ui::chrome::folder_name;
 use crate::ui::fade::faded;
 use crate::ui::kit;
+use crate::ui::kit::ButtonLabel as _;
 use crate::ui::motion::Spinner;
 use crate::ui::tip::{Tip as _, TooltipAnchor};
 use crate::ui::workspace::Workspace;
@@ -267,7 +266,7 @@ impl Workspace {
                     .child(
                         kit::button(("session-project-new", gi))
                             .icon(Lucide::SquarePen)
-                            .ghost()
+                            .quiet(cx)
                             .xsmall()
                             .tip_text("Новый чат в этом проекте")
                             .on_click(cx.listener({
@@ -440,7 +439,7 @@ impl Workspace {
                         }
                     }))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .child(Input::new(&input).xsmall())
+                    .child(kit::input(&input).xsmall())
                     .into_any_element(),
                 None => div()
                     .flex_1()
@@ -469,7 +468,7 @@ impl Workspace {
                         ("session-dropdown", ix),
                         kit::button(("session-menu", ix))
                             .icon(Lucide::Ellipsis)
-                            .ghost()
+                            .quiet(cx)
                             .xsmall(),
                         false,
                         {

@@ -2,7 +2,6 @@
 use crate::ui::kit::ButtonLabel as _;
 use std::time::Instant;
 
-use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -293,7 +292,7 @@ impl Workspace {
             .when(self.chats.is_empty(), |column| {
                 column.child(
                     kit::button(("empty-pane-new-session", pane.0 as usize))
-                        .ghost()
+                        .quiet(cx)
                         .small()
                         .icon(IconName::Plus)
                         .faded_label("Новая сессия")

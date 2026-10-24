@@ -17,7 +17,6 @@ const RECENT_SHOWN: usize = 8;
 /// The workspace asks the window to show another folder in its place.
 pub(in crate::ui) enum WorkspaceRequest {
     Open(PathBuf),
-    Choose,
 }
 
 type OpenFolder = Rc<dyn Fn(PathBuf, &mut Window, &mut App)>;

@@ -4,7 +4,6 @@
 //! places, context, pending requests and the real plan use one compact surface.
 
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -146,7 +145,7 @@ impl Chat {
             let trigger = kit::button(key.clone())
                 .icon(activity.icon)
                 .faded_label(activity.label)
-                .ghost()
+                .quiet(cx)
                 .xsmall()
                 .selected(open)
                 .toggled(open)
@@ -206,7 +205,6 @@ impl Chat {
                 }));
             }
         }
-        let above = (self.extras)(cx.entity_id(), ComposerSlot::Above, cx);
         let start = (self.extras)(cx.entity_id(), ComposerSlot::Start, cx);
         let end = (self.extras)(cx.entity_id(), ComposerSlot::End, cx);
         // Keep the strip's own geometry independent of selection. The
@@ -229,9 +227,6 @@ impl Chat {
                     .gap_1()
                     .px_2()
                     .py_1()
-                    .border_b_1()
-                    .border_color(theme.border)
-                    .children(above)
                     .children(start)
                     .children(triggers)
                     .children(summary.map(|summary| {

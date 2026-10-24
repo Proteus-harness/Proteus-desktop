@@ -13,7 +13,7 @@ use super::SettingsView;
 use super::mcp_editors::McpForm;
 use crate::settings::catalog::{
     self, CONTEXT_PROVIDER_SLOT, CONTEXT_SLOT, HOOK_SLOT, MODEL_SLOT, PageId, TOOL_SLOT,
-    module_info,
+    editable_field, editable_fields, module_info,
 };
 use crate::settings::{FieldKind, FieldPath, TextFormat, field_kind, format_value, parse_text};
 
@@ -103,7 +103,8 @@ impl SettingsView {
             || self
                 .snapshot()
                 .and_then(|snapshot| module_info(snapshot, slot, module))
-                .is_none_or(|info| info.schema.is_none())
+                .and_then(|info| info.schema)
+                .is_none_or(|schema| !editable_fields(&schema.fields))
     }
 
     pub(super) fn prepare_editors(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -111,6 +112,9 @@ impl SettingsView {
             self.prepare_mcp_forms(window, cx);
         }
         for (slot, module) in self.visible_modules() {
+            if !self.has_params(&slot, &module) {
+                continue;
+            }
             if self.is_json(&slot, &module) {
                 self.ensure_json(&slot, &module, window, cx);
                 continue;
@@ -306,6 +310,9 @@ impl SettingsView {
 /// Each starts with the module default, so the input reads like the value
 /// in effect; the placeholder shows it again once the text is cleared.
 fn text_leaves(path: FieldPath, field: &ConfigField, out: &mut Vec<TextLeaf>) {
+    if !editable_field(field) {
+        return;
+    }
     match field_kind(field) {
         FieldKind::Text(format) => {
             let default = field.default.clone().filter(|default| !default.is_null());

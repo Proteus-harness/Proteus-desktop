@@ -5,7 +5,6 @@ use crate::ui::kit::ButtonLabel as _;
 use std::collections::HashSet;
 
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -193,7 +192,7 @@ impl SettingsView {
                     kit::button("settings-back")
                         .icon(IconName::ArrowLeft)
                         .faded_label("Чат")
-                        .ghost()
+                        .quiet(cx)
                         .small()
                         .hint_keys(
                             "К разговору",

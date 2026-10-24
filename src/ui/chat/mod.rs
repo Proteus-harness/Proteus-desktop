@@ -56,8 +56,6 @@ pub(super) type ComposerExtras = Rc<dyn Fn(EntityId, ComposerSlot, &App) -> Opti
 /// Where host content goes around the composer.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum ComposerSlot {
-    /// The project/context section of the activity strip above the input.
-    Above,
     /// The left extension section of the activity strip above the input.
     Start,
     /// The right extension section of the activity strip above the input.

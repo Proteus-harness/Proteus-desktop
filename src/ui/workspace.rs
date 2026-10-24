@@ -13,7 +13,6 @@ use super::chats::OpenChat;
 use super::chrome::WorkspaceRequest;
 use super::extensions::{OpenDocument, SurfaceView};
 use super::panels::{Renaming, SessionList};
-use super::project_chip::ProjectPicker;
 use super::settings::SettingsView;
 use super::tabs::{SplitResize, TabDrop, TabMotion};
 use crate::api::Api;
@@ -95,8 +94,6 @@ pub struct Workspace {
     pub(super) renaming: Option<Renaming>,
     /// Search and keyboard cursor of the session list.
     pub(super) session_list: SessionList,
-    /// Content of the project picker above the composer.
-    pub(super) project_picker: Entity<ProjectPicker>,
     /// Open chat tabs by tab id.
     pub(super) chats: HashMap<String, OpenChat>,
     /// Chats being resumed, and how they open.
@@ -152,10 +149,6 @@ impl Workspace {
         subscriptions.push(list_events);
 
         let workspace_path = options.workspace.clone();
-        let project_picker = {
-            let (workspace, current) = (cx.weak_entity(), workspace_path.clone());
-            cx.new(|cx| ProjectPicker::new(workspace, current, window, cx))
-        };
         let saved: Vec<PathBuf> = super::prefs::current(cx)
             .tabs
             .chats()
@@ -186,7 +179,6 @@ impl Workspace {
             show_archived: false,
             renaming: None,
             session_list,
-            project_picker,
             chats: HashMap::new(),
             opening: HashMap::new(),
             active_chat: None,

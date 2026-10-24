@@ -207,14 +207,13 @@ impl Workspace {
         id
     }
 
-    /// The project and both public extension places share the activity
-    /// strip above the input. Retained badges belong to the active chat.
+    /// Both public extension places share the activity strip above the
+    /// input. Retained badges belong to the active chat.
     fn composer_extras(&self, cx: &Context<Self>) -> ComposerExtras {
         let workspace = cx.weak_entity();
         Rc::new(move |chat, slot, cx| {
             let workspace = workspace.upgrade()?.read(cx);
             let place = match slot {
-                ComposerSlot::Above => return Some(workspace.render_project_chip(chat, cx)),
                 ComposerSlot::Start => BadgePlace::ComposerStart,
                 ComposerSlot::End => BadgePlace::ComposerEnd,
             };

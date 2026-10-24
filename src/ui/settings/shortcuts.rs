@@ -2,7 +2,6 @@
 
 use crate::ui::kit::ButtonLabel as _;
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::*;
 
@@ -31,7 +30,7 @@ impl SettingsView {
                     .child(
                         kit::button(hashed_id("shortcut-cancel", &command.id()))
                             .faded_label("Отмена")
-                            .ghost()
+                            .quiet(cx)
                             .xsmall()
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.recording = None;
@@ -42,7 +41,7 @@ impl SettingsView {
                 control.child(
                     kit::button(hashed_id("shortcut-add", &command.id()))
                         .icon(IconName::Plus)
-                        .ghost()
+                        .quiet(cx)
                         .xsmall()
                         .hint("Добавить сочетание", cx)
                         .on_click(
@@ -54,7 +53,7 @@ impl SettingsView {
                 control = control.child(
                     kit::button(hashed_id("shortcut-reset", &command.id()))
                         .icon(Lucide::RotateCcw)
-                        .ghost()
+                        .quiet(cx)
                         .xsmall()
                         .hint("Как по умолчанию", cx)
                         .on_click(move |_, _, cx| {
@@ -113,7 +112,7 @@ impl SettingsView {
             .child(
                 kit::button(hashed_id("shortcut-remove", &(command.id(), &chord)))
                     .icon(IconName::Close)
-                    .ghost()
+                    .quiet(cx)
                     .xsmall()
                     .hint("Убрать", cx)
                     .on_click(move |_, _, cx| {

@@ -126,7 +126,6 @@ impl Launcher {
             window,
             |this, _, request: &WorkspaceRequest, window, cx| match request {
                 WorkspaceRequest::Open(path) => this.open(path.clone(), window, cx),
-                WorkspaceRequest::Choose => this.choose_folder(window, cx),
             },
         ));
         self.stage = Stage::Ready(view);

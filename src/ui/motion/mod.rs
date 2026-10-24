@@ -4,12 +4,14 @@
 //! - `enter`: fades and rises of freshly shown blocks, staggered list rows;
 //! - `disclosure`: chevrons and blocks that open and close;
 //! - `collapse`: a measured horizontal reveal for strips of tabs;
+//! - `transition`: measured height and fade when a stable host changes page;
 //! - `number`: counters that glide to new values;
 //! - `spinner`: the loading spinner;
 //! - `ticker`: the shared low-rate clock of looping animations.
 //!
 //! Animation state lives with the element id, so an id that changes (another
 //! page, a reopened section) plays the transition again.
+//! Page transitions instead keep the host id stable and compare a page key.
 //!
 //! The motion preference is read on every call: «уменьшенные» keeps fades and
 //! drops movement, «выключены» also sets gpui's reduce-motion flag so every
@@ -24,6 +26,7 @@ mod reveal;
 mod slide;
 mod spinner;
 pub(super) mod ticker;
+mod transition;
 
 pub(super) use collapse::Collapse;
 pub(super) use disclosure::{
@@ -35,6 +38,7 @@ pub(super) use popup::{Popup, popup, restore_focus};
 pub(super) use reveal::PopupOrigin;
 pub(super) use slide::{Slide, glide};
 pub(super) use spinner::Spinner;
+pub(super) use transition::PageTransition;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};

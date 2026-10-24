@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use gpui_kit::assets::IconName;
-use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::text::{TextView, TextViewState};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -14,6 +13,7 @@ use super::view::DeclarativeView;
 use crate::declarative::protocol::{Content, SurfaceKind};
 use crate::ui::extensions::Host;
 use crate::ui::kit;
+use crate::ui::kit::ButtonLabel as _;
 use crate::ui::kit::Hint as _;
 
 /// Enabled contributors in the user's extension order; the first claimant
@@ -118,7 +118,7 @@ impl Render for ContentView {
                 kit::button("content-source")
                     .icon(IconName::Code)
                     .xsmall()
-                    .ghost()
+                    .quiet(cx)
                     .selected(self.show_source)
                     .disabled(!ready)
                     .hint(

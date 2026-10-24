@@ -6,7 +6,7 @@
 //! quiet appearance with a thin border and no focus ring. Header titles
 //! yield space to the field throughout the shared opening/closing animation.
 
-use gpui_kit::component::button::ButtonVariants as _;
+use crate::ui::kit::ButtonLabel as _;
 use gpui_kit::component::input::{Escape, Input, InputEvent, InputState};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -17,7 +17,7 @@ use super::{motion, prefs};
 
 pub(in crate::ui) fn field(input: &Entity<InputState>) -> Input {
     let focus = input.clone();
-    Input::new(input).focus_bordered(false).prefix(
+    kit::input(input).prefix(
         div()
             .child(Icon::new(IconName::Search).small())
             .on_mouse_down(MouseButton::Left, move |_, window, cx| {
@@ -134,7 +134,7 @@ impl RenderOnce for Search {
             let input = self.input;
             row = row.child(
                 kit::button("search-trigger")
-                    .ghost()
+                    .quiet(cx)
                     .small()
                     .icon(IconName::Search)
                     .hint_keys(&self.hint, Some("Ctrl+F"), cx)

@@ -20,6 +20,7 @@ use super::history::describe_changes;
 use super::{Draft, FieldKind, FieldPath, TextFormat, field_kind, format_value, parse_text};
 
 mod connections;
+mod params;
 
 fn integer(minimum: Option<i64>, maximum: Option<i64>) -> TextFormat {
     TextFormat::Integer { minimum, maximum }

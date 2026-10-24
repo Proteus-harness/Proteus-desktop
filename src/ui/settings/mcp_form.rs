@@ -4,8 +4,6 @@
 
 use crate::ui::kit::ButtonLabel as _;
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::button::ButtonVariants as _;
-use gpui_kit::component::input::{Input, Textarea};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -16,7 +14,7 @@ use super::editors::TextInput;
 use super::mcp::mcp_advanced_key;
 use super::widgets::{
     Fit, MenuOption, SHORT_INPUT_WIDTH, changed_dot, described, disclosure, field_row, hashed_id,
-    nested, select_menu,
+    nested, nested_group, select_menu,
 };
 use crate::settings::mcp::{
     McpProblem, McpText, SAFETY_TITLES, mcp_problems, mcp_text, safety_title,
@@ -151,25 +149,23 @@ impl SettingsView {
         });
         let view = cx.weak_entity();
         let toggle_key = key.clone();
-        rows.push(
-            disclosure(
-                hashed_id("mcp-advanced", &ix),
-                self.is_open(&key),
-                format!("Дополнительно · {}", ADVANCED.len() + 1),
-                changed,
-                move |cx| {
-                    let _ = view.update(cx, |this, cx| this.toggle_open(&toggle_key, cx));
-                },
-                cx,
-            )
-            .into_any_element(),
+        let header = disclosure(
+            hashed_id("mcp-advanced", &ix),
+            self.is_open(&key),
+            format!("Дополнительно · {}", ADVANCED.len() + 1),
+            changed,
+            move |cx| {
+                let _ = view.update(cx, |this, cx| this.toggle_open(&toggle_key, cx));
+            },
+            cx,
         );
-        rows.extend(self.reveal(&key, cx, || {
+        let content = self.reveal(&key, cx, || {
             let advanced = std::iter::once(self.mcp_parallel_row(ix, server, saved, cx))
                 .chain(ADVANCED.into_iter().map(&text_row))
                 .collect();
             nested(stacked(advanced, cx)).into_any_element()
-        }));
+        });
+        rows.push(nested_group(header, content, cx).into_any_element());
         rows.push(
             h_flex()
                 .px_4()
@@ -179,7 +175,7 @@ impl SettingsView {
                     kit::button(hashed_id("mcp-remove", &ix))
                         .icon(Lucide::Trash)
                         .faded_label("Удалить сервер")
-                        .ghost()
+                        .quiet(cx)
                         .xsmall()
                         .hint("Убрать сервер из профиля при сохранении", cx)
                         .on_click(
@@ -211,7 +207,7 @@ impl SettingsView {
             Fit::Shrink
         };
         let control = match form.and_then(|form| form.inputs.get(&field)) {
-            Some(TextInput::Line(state)) => Input::new(state)
+            Some(TextInput::Line(state)) => kit::input(state)
                 .small()
                 .map(|input| {
                     if short {
@@ -221,7 +217,9 @@ impl SettingsView {
                     }
                 })
                 .into_any_element(),
-            Some(TextInput::Area(state)) => Self::text_keys(Textarea::new(state).small().w_full()),
+            Some(TextInput::Area(state)) => {
+                Self::text_keys(kit::textarea(state, cx).small().w_full())
+            }
             None => div().into_any_element(),
         };
         let error = form

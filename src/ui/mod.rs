@@ -20,7 +20,7 @@ mod notifications;
 mod panels;
 mod picker;
 mod prefs;
-mod project_chip;
+mod projects;
 mod reorder;
 mod search;
 mod selection;

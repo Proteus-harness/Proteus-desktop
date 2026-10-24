@@ -1,6 +1,6 @@
 //! Native rendering of the widget tree an extension sends.
 
-use gpui_kit::component::input::{Editor, Input, Textarea};
+use gpui_kit::component::input::{Editor, Textarea};
 use gpui_kit::component::menu::PopupMenu;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -64,7 +64,7 @@ impl DeclarativeView {
                     .px_2()
                     .py_1p5()
                     .gap_2()
-                    .disclosure(cx)
+                    .disclosure_surface(cx)
                     .child(crate::ui::motion::chevron(
                         ElementId::Name(key.clone()),
                         opened,
@@ -250,15 +250,18 @@ impl DeclarativeView {
                     .when_some(mono, |field, family| field.font_family(family))
                     .children(self.fields.inputs.get(id).map(|input| {
                         match &input.state {
-                            super::fields::Text::Line(state) => Input::new(state)
+                            super::fields::Text::Line(state) => kit::input(state)
                                 .w_full()
                                 .appearance(!*flush)
                                 .into_any_element(),
-                            super::fields::Text::Area(state) => Textarea::new(state)
-                                .small()
-                                .w_full()
-                                .appearance(!*flush)
-                                .into_any_element(),
+                            super::fields::Text::Area(state) => {
+                                let area = if *flush {
+                                    Textarea::new(state).appearance(false)
+                                } else {
+                                    kit::textarea(state, cx)
+                                };
+                                kit::contain_scroll(area.small().w_full()).into_any_element()
+                            }
                         }
                     }))
                     .into_any_element()
@@ -384,6 +387,7 @@ impl DeclarativeView {
             Node::Stack {
                 direction,
                 gap,
+                transition,
                 children,
             } => {
                 let base = match direction {
@@ -399,9 +403,16 @@ impl DeclarativeView {
                     Gap::Medium => base.gap_3(),
                     Gap::Large => base.gap_5(),
                 };
-                base.min_w_0()
-                    .children(self.children(children, path, cx))
-                    .into_any_element()
+                let body = base.min_w_0().children(self.children(children, path, cx));
+                match transition {
+                    Some(key) => crate::ui::motion::PageTransition::new(
+                        ElementId::Name(format!("view-{}-{path}-page", cx.entity_id()).into()),
+                        key.clone(),
+                        body.into_any_element(),
+                    )
+                    .into_any_element(),
+                    None => body.into_any_element(),
+                }
             }
             Node::Card { title, children } => {
                 let theme = cx.theme();

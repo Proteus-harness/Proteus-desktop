@@ -1,3 +1,5 @@
+// Адаптировано из Zed: crates/settings_ui/src/components/input_field.rs
+// (thin input frames), crates/editor/src/element/mouse.rs (wheel bubbling).
 //! gpui-kit controls as the client builds them. A focused control is ringed
 //! only while the keyboard drives the window, so one focused by a click or
 //! by the client itself stays plain. Hints are the tooltips of controls,
@@ -7,8 +9,9 @@ use std::cell::Cell;
 
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::FocusableExt as _;
-use gpui_kit::component::button::Button;
+use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
 use gpui_kit::component::checkbox::Checkbox;
+use gpui_kit::component::input::{Input, InputState, Textarea, TextareaState};
 use gpui_kit::{App, ElementId, MouseButton, SharedString, StatefulInteractiveElement, Styled};
 
 use super::prefs;
@@ -19,14 +22,27 @@ use crate::shortcuts::{self, Command};
 mod controls;
 pub(crate) use controls::{Clipboard, Switch};
 
-/// A button caption uses the same fading single-line label as tabs and
-/// lists. Keep its full accessible name; the component's built-in `label`
-/// would insert an ellipsis. Icons, sizes and keyboard behavior stay native.
+/// Shared button captions and quiet surfaces. Icons, sizes, focus and
+/// keyboard behavior stay native.
 pub(crate) trait ButtonLabel {
+    /// Transparent at rest; the same hover and committed fill as list rows,
+    /// without the native Ghost variant's extra dark-mode attenuation.
+    fn quiet(self, cx: &App) -> Self;
+
+    /// Keep the full accessible name while the visible line fades instead
+    /// of inserting the component's built-in ellipsis.
     fn faded_label(self, label: impl Into<SharedString>) -> Self;
 }
 
 impl ButtonLabel for Button {
+    fn quiet(self, cx: &App) -> Self {
+        self.custom(
+            ButtonCustomVariant::new(cx)
+                .hover(cx.theme().list_hover)
+                .active(cx.theme().sidebar_accent),
+        )
+    }
+
     fn faded_label(self, label: impl Into<SharedString>) -> Self {
         use gpui_kit::{ParentElement as _, Styled as _, div};
         let label = label.into();
@@ -65,11 +81,37 @@ pub(crate) fn checkbox(id: impl Into<ElementId>) -> Checkbox {
     Checkbox::new(id).focus_ring(KEYBOARD.get())
 }
 
+/// Ordinary single-line fields retain their thin input border on focus.
+pub(crate) fn input(state: &gpui_kit::Entity<InputState>) -> Input {
+    Input::new(state).focus_bordered(false)
+}
+
+/// Textarea has no public focus-ring opt-out, so keep its native appearance
+/// and restore only the thin border after disabling its bordered focus style.
+pub(crate) fn textarea(state: &gpui_kit::Entity<TextareaState>, cx: &App) -> Textarea {
+    Textarea::new(state)
+        .bordered(false)
+        .border_1()
+        .border_color(cx.theme().input)
+}
+
+/// Let the descendant editor consume wheel motion first. At either edge,
+/// contain its unconsumed bubble instead of scrolling the surrounding page.
+/// No default prevention: native scrolling, selection and drag are unchanged.
+pub(crate) fn contain_scroll(content: impl gpui_kit::IntoElement) -> gpui_kit::Div {
+    use gpui_kit::{InteractiveElement as _, ParentElement as _, div};
+    div()
+        .w_full()
+        .min_w_0()
+        .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+        .child(content)
+}
+
 /// A clickable row or card that Tab reaches like a button: Enter or Space
 /// presses it, and it is marked while the keyboard holds focus on it. A
 /// mouse press leaves focus where it was, as with buttons.
 pub(crate) trait Pressable: StatefulInteractiveElement + Styled {
-    /// Quiet disclosure headings brighten slightly on hover; their child
+    /// Quiet tool headings brighten their text without adding a fill; child
     /// status/error colors and the expanded body keep their own appearance.
     fn disclosure(self, cx: &App) -> Self {
         let theme = cx.theme();
@@ -77,7 +119,13 @@ pub(crate) trait Pressable: StatefulInteractiveElement + Styled {
             .cursor_pointer()
             .rounded(theme.radius)
             .text_color(theme.muted_foreground)
-            .hover(|style| style.bg(theme.list_hover).text_color(theme.foreground))
+            .hover(|style| style.text_color(theme.foreground))
+    }
+
+    /// Bounded form disclosures also highlight their shared surface.
+    fn disclosure_surface(self, cx: &App) -> Self {
+        self.disclosure(cx)
+            .hover(|style| style.bg(cx.theme().list_hover))
     }
 
     fn pressable(self, cx: &App) -> Self {

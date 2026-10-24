@@ -58,7 +58,7 @@ impl SettingsView {
         };
         let mut parts = vec![section("Provider", None, None, providers, cx).into_any_element()];
         if let Some(module) = model_module(snapshot, &self.draft) {
-            parts.push(self.params_section(MODEL_SLOT, &module, cx));
+            parts.extend(self.params_section(MODEL_SLOT, &module, cx));
         }
         parts
     }
@@ -183,7 +183,7 @@ impl SettingsView {
             .into_any_element(),
         ];
         if let Some(module) = selected {
-            parts.push(self.params_section(slot, &module, cx));
+            parts.extend(self.params_section(slot, &module, cx));
         }
         parts
     }
@@ -226,7 +226,7 @@ impl SettingsView {
                         header,
                         cx,
                     ))
-                    .child(self.params_disclosure(
+                    .children(self.params_disclosure(
                         CONTEXT_PROVIDER_SLOT,
                         &export.id,
                         &key,
@@ -267,31 +267,36 @@ impl SettingsView {
         key: &str,
         open: bool,
         cx: &Context<Self>,
-    ) -> AnyElement {
+    ) -> Option<AnyElement> {
+        if !self.has_params(slot, module) {
+            return None;
+        }
         let changed =
             self.draft.module_config(slot, module) != self.baseline.module_config(slot, module);
         let view = cx.weak_entity();
         let toggle_key = key.to_string();
-        v_flex()
-            .child(
-                super::widgets::disclosure(
-                    hashed_id("params-open", &key),
-                    open,
-                    "Параметры",
-                    changed,
-                    move |cx| {
-                        let _ = view.update(cx, |this, cx| this.toggle_open(&toggle_key, cx));
-                    },
-                    cx,
+        Some(
+            v_flex()
+                .child(
+                    super::widgets::disclosure(
+                        hashed_id("params-open", &key),
+                        open,
+                        "Параметры",
+                        changed,
+                        move |cx| {
+                            let _ = view.update(cx, |this, cx| this.toggle_open(&toggle_key, cx));
+                        },
+                        cx,
+                    )
+                    .border_t_1()
+                    .border_color(cx.theme().border),
                 )
-                .border_t_1()
-                .border_color(cx.theme().border),
-            )
-            .children(self.reveal(key, cx, || {
-                crate::ui::reorder::controls(self.params_nested(slot, module, cx))
-                    .w_full()
-                    .into_any_element()
-            }))
-            .into_any_element()
+                .children(self.reveal(key, cx, || {
+                    crate::ui::reorder::controls(self.params_nested(slot, module, cx))
+                        .w_full()
+                        .into_any_element()
+                }))
+                .into_any_element(),
+        )
     }
 }

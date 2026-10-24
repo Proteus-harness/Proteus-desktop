@@ -4,7 +4,6 @@
 
 use crate::ui::kit::ButtonLabel as _;
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -24,7 +23,7 @@ impl SettingsView {
         let rows: Vec<AnyElement> = if packages.is_empty() {
             vec![
                 note(
-                    "Пакетов нет. Добавьте папку пакета кнопкой «Добавить пакет…».",
+                    "Пакетов нет. Добавьте папку пакета кнопкой «Добавить пакет».",
                     cx,
                 )
                 .into_any_element(),
@@ -38,8 +37,8 @@ impl SettingsView {
         let enabled = packages.iter().filter(|package| package.enabled).count();
         let add = kit::button("package-add")
             .icon(Lucide::FolderPlus)
-            .faded_label("Добавить пакет…")
-            .ghost()
+            .faded_label("Добавить пакет")
+            .quiet(cx)
             .xsmall()
             .hint("Выбрать папку пакета Agent Plugins", cx)
             .on_click(cx.listener(|this, _, _, cx| this.choose_package(cx)));
@@ -51,7 +50,7 @@ impl SettingsView {
                         .into(),
                 ),
                 Some(h_flex().flex_wrap().gap_2().child(add).child(
-                    kit::button("package-zip").faded_label("Из ZIP…").ghost().xsmall()
+                    kit::button("package-zip").faded_label("Из ZIP").quiet(cx).xsmall()
                         .disabled(self.catalogs.busy || self.saving)
                         .on_click(cx.listener(|this, _, _, cx| this.choose_package_zip(cx)))
                 ).into_any_element()),
@@ -202,7 +201,7 @@ impl SettingsView {
                     .child(
                         kit::button(hashed_id("package-remove", &path))
                             .icon(Lucide::Trash)
-                            .ghost()
+                            .quiet(cx)
                             .xsmall()
                             .hint("Убрать пакет из профиля", cx)
                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -230,7 +229,7 @@ impl SettingsView {
     ) -> AnyElement {
         kit::button(hashed_id(key.0, &key.1))
             .faded_label(label)
-            .ghost()
+            .quiet(cx)
             .xsmall()
             .on_click(
                 cx.listener(move |this, _, window, cx| this.select_page(page.clone(), window, cx)),

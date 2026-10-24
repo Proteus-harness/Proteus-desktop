@@ -3,7 +3,6 @@
 use crate::ui::kit::ButtonLabel as _;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
-use gpui_kit::component::input::Input;
 use gpui_kit::component::*;
 use gpui_kit::*;
 
@@ -94,7 +93,7 @@ fn sources(view: &Entity<SettingsView>, cx: &App) -> AnyElement {
                     .child(
                         kit::button(hashed_id("catalog-source-refresh", source))
                             .icon(Icon::new(Lucide::RefreshCw))
-                            .ghost()
+                            .quiet(cx)
                             .xsmall()
                             .loading(fetching)
                             .loading_icon(IconName::LoaderCircle)
@@ -111,7 +110,7 @@ fn sources(view: &Entity<SettingsView>, cx: &App) -> AnyElement {
                     .child(
                         kit::button(hashed_id("catalog-source-forget", source))
                             .faded_label("Убрать")
-                            .ghost()
+                            .quiet(cx)
                             .xsmall()
                             .on_click(move |_, _, cx| {
                                 forget
@@ -130,11 +129,11 @@ fn sources(view: &Entity<SettingsView>, cx: &App) -> AnyElement {
                 .text_color(theme.muted_foreground)
                 .child("Git-репозитории с proteus-catalog.json в корне или с папками Agent Skills (SKILL.md). Скачивание не запускает сборку или install-скрипты."),
         )
-        .child(Input::new(&this.catalogs.url).small())
+        .child(kit::input(&this.catalogs.url).small())
         .child(
             h_flex()
                 .gap_2()
-                .child(div().flex_1().child(Input::new(&this.catalogs.branch).small()))
+                .child(div().flex_1().child(kit::input(&this.catalogs.branch).small()))
                 .child(
                     kit::button("catalog-add")
                         .faded_label("Добавить")
@@ -214,7 +213,7 @@ fn open_sources(view: &Entity<SettingsView>, cx: &App) -> Option<AnyElement> {
                 .child(
                     kit::button(hashed_id("catalog-open-add", &source))
                         .faded_label("Добавить")
-                        .ghost()
+                        .quiet(cx)
                         .xsmall()
                         .on_click(move |_, _, cx| {
                             view.update(cx, |this, cx| {

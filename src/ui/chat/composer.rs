@@ -12,6 +12,7 @@ use super::Chat;
 use super::draft::SavedDraft;
 use crate::ui::fade::faded;
 use crate::ui::kit;
+use crate::ui::kit::ButtonLabel as _;
 use crate::ui::kit::Hint as _;
 use crate::ui::motion::Spinner;
 use crate::ui::{format, prefs};
@@ -35,12 +36,26 @@ impl Chat {
                 v_flex()
                     .w_full()
                     .max_w(prefs::chat_width(cx))
-                    .rounded(theme.radius_lg)
-                    .border_1()
-                    .border_color(theme.input)
-                    .bg(theme.background.blend(theme.foreground.opacity(0.04)))
-                    .child(dock)
-                    .child(self.render_input_box(cx)),
+                    .child(
+                        div()
+                            .mx_3()
+                            .pb_2()
+                            .mb_neg_2()
+                            .rounded_t(theme.radius_lg)
+                            .border_1()
+                            .border_color(theme.border)
+                            .bg(theme.group_box)
+                            .child(dock),
+                    )
+                    .child(
+                        div()
+                            .relative()
+                            .rounded(theme.radius_lg)
+                            .border_1()
+                            .border_color(theme.input)
+                            .bg(theme.secondary)
+                            .child(self.render_input_box(cx)),
+                    ),
             )
     }
 
@@ -80,7 +95,7 @@ impl Chat {
                 },
                 cx,
             )
-            .ghost()
+            .quiet(cx)
             .small()
             .disabled(self.attachments_loading)
             .on_click(cx.listener(|this, _, window, cx| this.choose_images(window, cx)));
@@ -114,7 +129,7 @@ impl Chat {
                 }),
             )
             .children(self.render_attachments(cx))
-            .child(
+            .child(kit::contain_scroll(
                 Textarea::new(&self.composer)
                     .text_size(prefs::chat_text(cx))
                     .appearance(false)
@@ -123,7 +138,7 @@ impl Chat {
                         chat.update(cx, |this, cx| this.attach_clipboard(item, cx))
                             .unwrap_or(false)
                     }),
-            )
+            ))
             .child(
                 h_flex()
                     .flex_wrap()
@@ -175,7 +190,7 @@ fn render_saved(draft: &SavedDraft, loading: bool, cx: &Context<Chat>) -> impl I
             kit::button(SharedString::from(format!("copy-draft-{}", draft.id)))
                 .icon(IconName::Copy)
                 .hint("Копировать текст черновика", cx)
-                .ghost()
+                .quiet(cx)
                 .xsmall()
                 .disabled(copy.is_empty())
                 .on_click(move |_, _, cx| {
@@ -186,7 +201,7 @@ fn render_saved(draft: &SavedDraft, loading: bool, cx: &Context<Chat>) -> impl I
             kit::button(SharedString::from(format!("restore-draft-{}", draft.id)))
                 .icon(IconName::Undo2)
                 .hint("Вернуть в поле; текущий черновик сохранится отдельно", cx)
-                .ghost()
+                .quiet(cx)
                 .xsmall()
                 .disabled(loading)
                 .on_click(cx.listener(move |this, _, window, cx| {
@@ -224,7 +239,7 @@ fn render_queued(message: &AppQueuedUserMessage, cx: &Context<Chat>) -> impl Int
             kit::button(SharedString::from(format!("unqueue-{message_id}")))
                 .icon(IconName::Close)
                 .hint("Убрать из очереди", cx)
-                .ghost()
+                .quiet(cx)
                 .xsmall()
                 .on_click(cx.listener(move |this, _, _, cx| this.delete_queued(message_id, cx))),
         )

@@ -20,6 +20,8 @@ pub const FEATURES: &[&str] = &[
     "widgets.search.v1",
     "widgets.selection.v1",
     "widgets.picker.v1",
+    "widgets.picker.v2",
+    "widgets.transitions.v1",
     "widgets.sortable.v1",
     "widgets.status.v1",
     "widgets.diff.v1",
@@ -354,7 +356,16 @@ mod tests {
         let wire = String::from_utf8(output.stdout).unwrap();
         let mut count = 0;
         for line in wire.lines() {
-            parse(line).unwrap_or_else(|error| panic!("invalid extension output: {error}: {line}"));
+            let message = parse(line)
+                .unwrap_or_else(|error| panic!("invalid extension output: {error}: {line}"));
+            if let Incoming::View { root, .. } = message {
+                root.visit(&mut |node| {
+                    assert!(
+                        !matches!(node, super::super::widget::Node::Unknown),
+                        "shipped extension emitted an unsupported widget: {line}"
+                    );
+                });
+            }
             count += 1;
         }
         assert!(count >= 30, "not all declared surfaces were exercised");
