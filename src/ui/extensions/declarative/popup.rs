@@ -53,7 +53,16 @@ impl DeclarativeBadge {
         let bounds = panel.map_or(trigger, |panel| panel.anchor(trigger));
         let mut frame = self.popup.frame(bounds, window, cx)?;
         if let Some(panel) = panel {
-            frame = frame.attached(panel.placement, panel.background);
+            frame = frame.attached(panel);
+        }
+        let mut width = prefs::scaled(width).to_pixels(window.rem_size());
+        let mut height = prefs::scaled(height).to_pixels(window.rem_size());
+        if let Some(panel) = panel {
+            if panel.placement.is_horizontal() {
+                height = height.min(panel.bounds.size.height);
+            } else {
+                width = width.min(panel.bounds.size.width);
+            }
         }
         let popup = self.popup.value()?.clone();
         let generation = self.popup.generation();
@@ -63,8 +72,8 @@ impl DeclarativeBadge {
             .relative()
             .id("extension-popup")
             .track_focus(&popup.focus)
-            .w(prefs::scaled(width))
-            .max_h(prefs::scaled(height))
+            .w(width)
+            .max_h(height)
             .text_sm()
             .child(popup.view.clone())
             .when(frame.open, |surface| {

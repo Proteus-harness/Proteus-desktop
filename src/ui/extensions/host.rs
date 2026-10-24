@@ -144,7 +144,7 @@ impl Host {
 
     /// The actual framed panel behind a badge, shared by every process popup.
     pub(in crate::ui) fn badge_panel(&self, place: BadgePlace, cx: &App) -> Option<PopupPanel> {
-        use gpui_kit::base::Placement;
+        use gpui_kit::base::{Align, Placement};
         let theme = cx.theme();
         self.read(cx, |host| {
             let (bounds, placement, background) = match place {
@@ -165,9 +165,14 @@ impl Host {
                 ),
                 BadgePlace::Hidden => return None,
             };
+            let align = match place {
+                BadgePlace::ComposerEnd | BadgePlace::HeaderEnd | BadgePlace::RailEnd => Align::End,
+                _ => Align::Start,
+            };
             (bounds.size.width > px(0.) && bounds.size.height > px(0.)).then_some(PopupPanel {
                 bounds,
                 placement,
+                align,
                 background,
             })
         })

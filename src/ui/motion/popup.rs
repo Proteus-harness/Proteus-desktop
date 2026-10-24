@@ -32,6 +32,7 @@ fn effect(moves: bool, plays: bool, reduced: bool) -> Effect {
 pub(in crate::ui) struct PopupFrame {
     pub open: bool,
     placement: Placement,
+    align: Align,
     gap: Pixels,
     attachment: Option<Hsla>,
     progress: f32,
@@ -42,10 +43,11 @@ pub(in crate::ui) struct PopupFrame {
 
 impl PopupFrame {
     /// Join this popup to a panel edge, covering its one-pixel outline.
-    pub fn attached(mut self, placement: Placement, background: Hsla) -> Self {
-        self.placement = placement;
+    pub fn attached(mut self, panel: PopupPanel) -> Self {
+        self.placement = panel.placement;
+        self.align = panel.align;
         self.gap = px(-1.);
-        self.attachment = Some(background);
+        self.attachment = Some(panel.background);
         self
     }
 }
@@ -55,6 +57,7 @@ impl PopupFrame {
 pub(in crate::ui) struct PopupPanel {
     pub bounds: Bounds<Pixels>,
     pub placement: Placement,
+    pub align: Align,
     pub background: Hsla,
 }
 
@@ -227,6 +230,7 @@ impl<T> Popup<T> {
         Some(PopupFrame {
             open: self.presence.open,
             placement: Placement::Bottom,
+            align: Align::Start,
             gap: px(4.),
             attachment: None,
             progress,
@@ -311,13 +315,17 @@ pub(in crate::ui) fn popup(
         let position = frame.position.clone();
         Positioner::side(frame.anchor)
             .placement(frame.placement)
-            .align(Align::Start)
+            .align(frame.align)
             .offset(frame.gap)
             .on_position(move |resolved| position.set(Some(resolved)))
     };
     deferred(
         positioner
-            .margin(px(8.))
+            .margin(if frame.attachment.is_some() {
+                px(0.)
+            } else {
+                px(8.)
+            })
             .when(frame.open, |positioner| positioner.occlude())
             .child(surface),
     )
@@ -458,6 +466,7 @@ mod tests {
                 PopupPanel {
                     bounds: panel_bounds,
                     placement,
+                    align: Align::Start,
                     background: Hsla::default(),
                 }
                 .anchor(trigger),
@@ -469,6 +478,7 @@ mod tests {
                 PopupPanel {
                     bounds: panel_bounds,
                     placement,
+                    align: Align::Start,
                     background: Hsla::default(),
                 }
                 .anchor(trigger),
