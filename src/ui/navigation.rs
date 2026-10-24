@@ -73,6 +73,8 @@ impl Workspace {
             settings.update(cx, |view, cx| view.request_close(cx));
             return;
         }
+        // A late resume must not replace the destination the user just chose.
+        self.opening.clear();
         match target {
             Destination::Tab(id) => {
                 self.close_settings(cx);

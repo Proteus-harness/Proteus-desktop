@@ -1,6 +1,7 @@
 //! Open chats of the workspace: one [`Chat`] per chat tab, the active chat
 //! that commands and extensions address, and the session list around them.
 
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -89,18 +90,32 @@ impl Workspace {
             return;
         }
         // A double click lands while the first click is still resuming.
-        if let Some(pending) = self.opening.get_mut(&id) {
-            pending.preview &= open.preview;
-            pending.focus |= open.focus;
+        if let Some(pending) = self.opening.get(&id) {
+            let previous = pending.get();
+            pending.set(OpenDocument {
+                preview: previous.preview && open.preview,
+                focus: previous.focus || open.focus,
+            });
             return;
         }
-        self.opening.insert(id.clone(), open);
+        let pending = Rc::new(Cell::new(open));
+        self.opening.insert(id.clone(), pending.clone());
         self.call_in(
             window,
             cx,
             move |api| Ok(api.resume(&dir)),
             move |this, resumed, window, cx| {
-                let open = this.opening.remove(&id).unwrap_or(open);
+                // Ignore cancelled requests, including an older resume of
+                // the same chat that has since been requested again.
+                if !this
+                    .opening
+                    .get(&id)
+                    .is_some_and(|active| Rc::ptr_eq(active, &pending))
+                {
+                    return;
+                }
+                this.opening.remove(&id);
+                let open = pending.get();
                 let opened = match resumed {
                     Ok(opened) => opened,
                     Err(error) => return this.report(format!("{error:#}"), cx),

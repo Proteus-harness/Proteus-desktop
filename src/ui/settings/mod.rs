@@ -310,7 +310,16 @@ impl SettingsView {
         cx: &mut Context<Self>,
     ) {
         self.select_page(page, window, cx);
-        window.focus(&self.nav_focus, cx);
+        // Search replaces the page list, so its navigation focus is then
+        // unmounted. Keep window shortcuts routed through a visible node.
+        window.focus(
+            if self.query.is_empty() {
+                &self.nav_focus
+            } else {
+                &self.focus_handle
+            },
+            cx,
+        );
     }
 
     fn select_page(&mut self, page: PageId, window: &mut Window, cx: &mut Context<Self>) {

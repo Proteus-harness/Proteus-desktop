@@ -489,6 +489,18 @@ impl Element for Arrange {
             });
         }
         cx.default_global::<Scopes>().0.pop();
+    }
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut Vec<LayoutId>,
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        // GPUI registers per-frame mouse listeners only during paint.
         let release = self.state.clone();
         let moved = self.moved.clone();
         let key = self.key.clone();
@@ -546,17 +558,6 @@ impl Element for Arrange {
                 }
             });
         });
-    }
-    fn paint(
-        &mut self,
-        _: Option<&GlobalElementId>,
-        _: Option<&InspectorElementId>,
-        _: Bounds<Pixels>,
-        _: &mut Vec<LayoutId>,
-        _: &mut (),
-        window: &mut Window,
-        cx: &mut App,
-    ) {
         for child in &mut self.children {
             child.paint(window, cx);
         }

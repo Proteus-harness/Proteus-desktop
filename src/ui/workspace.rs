@@ -97,7 +97,7 @@ pub struct Workspace {
     /// Open chat tabs by tab id.
     pub(super) chats: HashMap<String, OpenChat>,
     /// Chats being resumed, and how they open.
-    pub(super) opening: HashMap<String, OpenDocument>,
+    pub(super) opening: HashMap<String, Rc<Cell<OpenDocument>>>,
     /// Tab id of the chat that commands and extensions address.
     pub(super) active_chat: Option<String>,
     /// Error of a workspace call while no chat is open.
