@@ -32,4 +32,4 @@ done
 
 export PROTEUS_BIN="${here}/bin/proteus"
 export PATH="${here}/bin:${PATH}"
-exec "${here}/bin/proteus-native" "$@"
+exec python3 "${here}/share/system_proxy.py" "${here}/bin/proteus-native" "$@"
