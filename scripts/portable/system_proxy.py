@@ -34,7 +34,7 @@ def endpoint(kind):
         user = quote(setting(schema, "authentication-user") or "", safe="")
         password = quote(setting(schema, "authentication-password") or "", safe="")
         authority = f"{user}:{password}@{authority}"
-    return ("socks5h" if kind == "socks" else "http") + "://" + authority
+    return "http://" + authority
 
 
 def environment(inherited):
@@ -45,7 +45,7 @@ def environment(inherited):
         http = endpoint("http")
         same = setting(SCHEMA, "use-same-proxy")
         https = http if same and http else endpoint("https") or http
-        fallback = http if same and http else endpoint("socks")
+        fallback = http if same and http else None
         for name, value in zip(PROXIES, (http, https, fallback)):
             if value:
                 result[name] = result[name.upper()] = value

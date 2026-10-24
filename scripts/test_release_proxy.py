@@ -34,16 +34,15 @@ class PortableProxyTests(unittest.TestCase):
         self.assertEqual(set(env["NO_PROXY"].split(",")),
                          {".example.invalid", "localhost", "127.0.0.1", "::1"})
 
-    def test_separate_https_and_socks_and_http_fallback(self):
+    def test_separate_https_and_http_fallback(self):
         values = {(proxy.SCHEMA, "mode"): "manual", (proxy.SCHEMA, "use-same-proxy"): False}
-        for kind, host, port in [("http", "http.invalid", 8080), ("https", "tls.invalid", 8443),
-                                 ("socks", "socks.invalid", 1080)]:
+        for kind, host, port in [("http", "http.invalid", 8080), ("https", "tls.invalid", 8443)]:
             values[(proxy.SCHEMA + "." + kind, "host")] = host
             values[(proxy.SCHEMA + "." + kind, "port")] = port
         with self.settings(values):
             env = proxy.environment({})
             self.assertEqual(env["HTTPS_PROXY"], "http://tls.invalid:8443")
-            self.assertEqual(env["ALL_PROXY"], "socks5h://socks.invalid:1080")
+            self.assertNotIn("ALL_PROXY", env)
             values[(proxy.SCHEMA + ".https", "port")] = 0
             self.assertEqual(proxy.environment({})["HTTPS_PROXY"], "http://http.invalid:8080")
 
