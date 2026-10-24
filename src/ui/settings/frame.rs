@@ -202,7 +202,7 @@ impl SettingsView {
                 .gap_1p5()
                 .px_4()
                 .py_3()
-                .frame(cx)
+                .surface_frame(cx)
                 .border_color(theme.warning.opacity(0.4))
                 .bg(theme.warning.opacity(0.08))
                 .children(snapshot.warnings.iter().map(|warning| {

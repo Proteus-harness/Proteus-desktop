@@ -13,6 +13,7 @@ use super::draft::SavedDraft;
 use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::kit::ButtonLabel as _;
+use crate::ui::kit::Frame as _;
 use crate::ui::kit::Hint as _;
 use crate::ui::motion::Spinner;
 use crate::ui::{format, prefs};
@@ -49,18 +50,15 @@ impl Chat {
                             .mx_3()
                             .pb_2()
                             .mb_neg_2()
-                            .rounded_t(theme.radius_lg)
-                            .border_1()
-                            .border_color(theme.border)
+                            .surface_frame(cx)
+                            .rounded_b(px(0.))
                             .bg(theme.group_box)
                             .child(dock),
                     )
                     .child(
                         div()
                             .relative()
-                            .rounded(theme.radius_lg)
-                            .border_1()
-                            .border_color(theme.border)
+                            .surface_frame(cx)
                             .bg(theme.secondary)
                             .child(self.render_input_box(cx)),
                     ),

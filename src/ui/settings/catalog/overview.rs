@@ -369,7 +369,7 @@ fn card(id: ElementId, cx: &App) -> Stateful<Div> {
         .px_3()
         .py_2p5()
         .gap_2()
-        .frame(cx)
+        .surface_frame(cx)
         .cursor_pointer()
         .hover(|card| card.bg(theme.list_hover))
         .pressable(cx)

@@ -98,7 +98,10 @@ pub(super) fn card(rows: impl IntoIterator<Item = AnyElement>, cx: &App) -> Div 
 /// One surface for cards and every depth of foldable parameter groups.
 fn group_box(cx: &App) -> Div {
     let theme = cx.theme();
-    v_flex().frame(cx).bg(theme.group_box).overflow_hidden()
+    v_flex()
+        .surface_frame(cx)
+        .bg(theme.group_box)
+        .overflow_hidden()
 }
 
 /// The whole disclosure owns its surface, including its persistent header.
@@ -381,7 +384,7 @@ pub(super) fn radio_card(
         .items_start()
         .px_4()
         .py_3()
-        .frame(cx)
+        .surface_frame(cx)
         .cursor_pointer()
         .pressable(cx)
         .map(|card| {

@@ -400,7 +400,7 @@ fn render_subagent(
     v_flex()
         .px_3()
         .py_2()
-        .frame(cx)
+        .surface_frame(cx)
         .child(
             h_flex()
                 .id(ElementId::NamedInteger("subagent".into(), key))

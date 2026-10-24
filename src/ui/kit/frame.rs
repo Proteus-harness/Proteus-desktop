@@ -15,6 +15,12 @@ pub(crate) trait Frame: Styled + Sized {
             .rounded(cx.theme().radius)
             .shadow_none()
     }
+
+    /// Panels and cards share the composer's corner size. Compact controls
+    /// keep `frame` so a large surface radius cannot turn them into capsules.
+    fn surface_frame(self, cx: &App) -> Self {
+        self.frame(cx).rounded(cx.theme().radius_lg)
+    }
 }
 
 impl<T: Styled> Frame for T {}

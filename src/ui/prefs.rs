@@ -8,9 +8,8 @@ use crate::preferences::{self, MotionPreference, Preferences, ThemePreference};
 
 const BASE_FONT: f32 = 16.;
 const BASE_MONO_FONT: f32 = 13.;
-/// Corners of controls, rows, menus, code and tables; large chat surfaces
-/// (composer and own messages) take twice that as `radius_lg`, small
-/// marks half of it.
+/// Corners of compact controls and rows. Surfaces (composer, popup and
+/// settings cards) take twice that as `radius_lg`, small marks half of it.
 const RADIUS: f32 = 8.;
 
 /// Interface scale: 1.0 at 100%.

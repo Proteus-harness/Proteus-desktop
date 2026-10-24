@@ -421,7 +421,7 @@ impl DeclarativeView {
                     .min_w_0()
                     .gap_2()
                     .p_3()
-                    .frame(cx)
+                    .surface_frame(cx)
                     .bg(theme.secondary)
                     .when_some(title.clone(), |card, title| {
                         card.child(div().text_sm().font_semibold().child(title))

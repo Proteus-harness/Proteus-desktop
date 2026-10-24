@@ -153,7 +153,7 @@ fn sources(view: &Entity<SettingsView>, cx: &App) -> AnyElement {
                 .into_any_element()
         } else {
             v_flex()
-                .frame(cx)
+                .surface_frame(cx)
                 .children(rows.into_iter().enumerate().map(|(ix, row)| {
                     div().when(ix > 0, |cell| cell.row_rule(cx)).child(row)
                 }))
@@ -236,7 +236,7 @@ fn open_sources(view: &Entity<SettingsView>, cx: &App) -> Option<AnyElement> {
                     .child("Открытые каталоги skills"),
             )
             .child(
-                v_flex().frame(cx).children(
+                v_flex().surface_frame(cx).children(
                     rows.into_iter()
                         .enumerate()
                         .map(|(ix, row)| div().when(ix > 0, |cell| cell.row_rule(cx)).child(row)),

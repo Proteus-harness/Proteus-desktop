@@ -96,7 +96,7 @@ pub(crate) fn popup_surface(cx: &App) -> gpui_kit::Div {
     div()
         .bg(cx.theme().popover)
         .text_color(cx.theme().popover_foreground)
-        .frame(cx)
+        .surface_frame(cx)
         .overflow_hidden()
 }
 
