@@ -274,7 +274,6 @@ impl SettingsView {
                 kit::switch(hashed_id("pack-tool", &name))
                     .checked(runtime || self.draft.tools.contains(name))
                     .disabled(runtime || tool.is_none())
-                    .small()
                     .on_click(cx.listener(move |this, checked: &bool, _, cx| {
                         let checked = *checked;
                         this.update_draft(cx, |draft| draft.set_tool(&target, checked));

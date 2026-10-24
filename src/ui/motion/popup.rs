@@ -34,7 +34,7 @@ pub(in crate::ui) struct PopupFrame {
     placement: Placement,
     align: Align,
     gap: Pixels,
-    attachment: Option<Hsla>,
+    attachment: Option<PopupPanel>,
     progress: f32,
     effect: Effect,
     anchor: Bounds<Pixels>,
@@ -42,12 +42,12 @@ pub(in crate::ui) struct PopupFrame {
 }
 
 impl PopupFrame {
-    /// Join this popup to a panel edge, covering its one-pixel outline.
+    /// Join this popup to a panel edge without covering either frame.
     pub fn attached(mut self, panel: PopupPanel) -> Self {
         self.placement = panel.placement;
         self.align = panel.align;
-        self.gap = px(-1.);
-        self.attachment = Some(panel.background);
+        self.gap = px(0.);
+        self.attachment = Some(panel);
         self
     }
 }
@@ -255,8 +255,16 @@ pub(in crate::ui) fn popup(
         .and_then(|position| position.placement)
         .unwrap_or(frame.placement);
     let surface = crate::ui::kit::popup_surface(cx)
-        .when_some(frame.attachment, |surface, background| {
-            let surface = surface.bg(background);
+        .when_some(frame.attachment, |surface, panel| {
+            let surface = surface.bg(panel.background);
+            let limit = fixed.map_or(panel.bounds.size, |position| position.bounds.size);
+            let surface = if panel.placement.is_horizontal() {
+                surface.max_h(limit.height)
+            } else {
+                surface.max_w(limit.width)
+            };
+            // The panel paints the shared edge. With zero overlap it stays
+            // visible, so drawing it again here would make a double rule.
             match resolved_placement {
                 Placement::Top => surface.border_b_0().rounded_bl(px(0.)).rounded_br(px(0.)),
                 Placement::Bottom => surface.border_t_0().rounded_tl(px(0.)).rounded_tr(px(0.)),

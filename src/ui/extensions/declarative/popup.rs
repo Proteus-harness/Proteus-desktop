@@ -58,10 +58,13 @@ impl DeclarativeBadge {
         let mut width = prefs::scaled(width).to_pixels(window.rem_size());
         let mut height = prefs::scaled(height).to_pixels(window.rem_size());
         if let Some(panel) = panel {
+            // These limits belong to the inner body; reserve the two
+            // cross-axis edges of the common outer frame.
+            let border = px(2.);
             if panel.placement.is_horizontal() {
-                height = height.min(panel.bounds.size.height);
+                height = height.min((panel.bounds.size.height - border).max(px(0.)));
             } else {
-                width = width.min(panel.bounds.size.width);
+                width = width.min((panel.bounds.size.width - border).max(px(0.)));
             }
         }
         let popup = self.popup.value()?.clone();
