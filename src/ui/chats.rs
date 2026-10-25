@@ -315,6 +315,11 @@ impl Workspace {
                     cx.emit(HostEvent::RunSettled);
                 }
             }
+            ChatEvent::CatalogUpdated => {
+                if self.active_chat.as_deref() == Some(tab) {
+                    self.refresh_sessions(cx);
+                }
+            }
             ChatEvent::Activity {
                 session_dir,
                 activity,

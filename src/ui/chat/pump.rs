@@ -65,6 +65,10 @@ impl Chat {
     }
 
     fn apply_event(&mut self, event: AppServerEvent, cx: &mut Context<Self>) -> bool {
+        if matches!(event, AppServerEvent::SessionCatalogUpdated) {
+            cx.emit(ChatEvent::CatalogUpdated);
+            return false;
+        }
         if let AppServerEvent::SessionActivityUpdated {
             session_dir,
             activity,
@@ -86,6 +90,7 @@ impl Chat {
             }
             _ => true,
         };
+        let refresh_context = matches!(&event, AppServerEvent::SessionSnapshot { .. });
         let mut shown = true;
         let change = match event {
             AppServerEvent::SessionSnapshot { snapshot } => {
@@ -167,6 +172,9 @@ impl Chat {
         };
         shown |= !matches!(change, Change::None);
         self.apply_change(change, cx);
+        if refresh_context {
+            self.load_context(cx);
+        }
         if !matches!(change, Change::None) {
             cx.emit(ChatEvent::SessionEntriesChanged(change));
         }

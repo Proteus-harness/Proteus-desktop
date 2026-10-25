@@ -7,7 +7,7 @@ license = "Apache-2.0"
 description = "Shared connection, response and session rules for the Proteus client"
 
 [dependencies]
-proteus-contracts = { git = "https://github.com/Proteus-harness/Proteus-core.git", rev = "89ebc7a2d0ec861513ccb73b5ad9b26e048e525a" }
+proteus-contracts = { git = "https://github.com/Proteus-harness/Proteus-core.git", rev = "1fc3ef223d10322815dd9290a50d045bc95402bb" }
 serde = "1"
 url = "2"
 serde_json = "1"

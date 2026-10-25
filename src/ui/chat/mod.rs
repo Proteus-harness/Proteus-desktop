@@ -68,6 +68,8 @@ pub(super) enum ChatEvent {
     SessionEntriesChanged(crate::transcript::Change),
     /// A run of this session finished.
     RunSettled,
+    /// Background read projections changed the saved session list.
+    CatalogUpdated,
     /// Activity of some session; every session stream carries all of them.
     Activity {
         session_dir: PathBuf,

@@ -40,6 +40,7 @@ impl SessionCursor {
             }
             AppServerEvent::PendingRequestsUpdated { .. }
             | AppServerEvent::SessionActivityUpdated { .. }
+            | AppServerEvent::SessionCatalogUpdated
             | AppServerEvent::Error { .. }
             | AppServerEvent::Shutdown => true,
             AppServerEvent::Runtime { envelope } => {
