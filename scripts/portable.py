@@ -22,6 +22,7 @@ EXTENSIONS = None
 from sources import resolve
 from limits import limit
 from portable_dcp import assemble as assemble_dcp
+from portable_modules import assemble as assemble_modules
 from release_metadata import install_notices, version, write_manifest
 BUILD = NATIVE / "build"
 PORTABLE = BUILD / "Proteus"
@@ -66,6 +67,7 @@ def assemble(agent_profile, client_profile):
         True,
     )
     assemble_dcp(MODULES, staging)
+    assemble_modules(ROOT, MODULES, staging)
     for path in tracked_configs():
         install_file(ROOT / path, staging / "share" / path)
     run([sys.executable, str(EXTENSIONS / "package.py"), "--bundle",

@@ -165,7 +165,7 @@ jobs:
           https://github.com/Proteus-harness/Proteus-core/blob/main/docs/guides/rust-module-sdk.md
 
           Нужны графическая Linux-сессия, glibc 2.39+, библиотеки GPUI,
-          Node.js 22+, Python 3, git и ripgrep. Для restricted-профилей также
+          Node.js 22.18+, Python 3, git и ripgrep. Для restricted-профилей также
           нужны bubblewrap и рабочие user namespaces. Node.js и Python устанавливаются отдельно.
 
           Манифест содержит точные commits четырёх репозиториев и платформу сборки.

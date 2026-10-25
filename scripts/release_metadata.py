@@ -51,7 +51,7 @@ def manifest(desktop, core, modules, extensions):
         },
         "sources": sources,
         "runtime_requirements": {
-            "node": ">=22", "python": ">=3", "git": "system",
+            "node": ">=22.18", "python": ">=3", "git": "system",
             "ripgrep": "system", "bubblewrap": "Linux restricted profiles only",
             "desktop": "Linux graphical session and GPUI shared libraries",
         },

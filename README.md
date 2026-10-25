@@ -28,9 +28,14 @@ python3 scripts/portable.py --fast
 
 Для сборки и упаковки расширений нужен Python 3 без дополнительных pip-пакетов. Их автор —
 Proteus Project. Default-профиль включает DCP: для запуска portable нужен
-системный Node.js 22+, а для сборки — также npm. Упаковщик собирает DCP в
+системный Node.js 22.18+, а для сборки — также npm. Упаковщик собирает DCP в
 отдельной staging-папке и включает `bin/proteus-dcp`, исходники, лицензии и
 production-зависимости в `share/modules/dcp`; Node.js устанавливается отдельно.
+В `share/modules/claude-command-hooks` и `share/modules/hook-process` поставляются
+адаптер командных hooks и общий JavaScript SDK. Адаптер подключается явно;
+упаковка не включает выполнение сторонних hooks. `bin/proteus-hook-worker`
+запускает произвольный hook entry через общий контракт, а
+`bin/proteus-claude-hooks-inspect` проверяет стороннюю конфигурацию без её исполнения.
 История приложения и общих правил клиента сохранена из
 Proteus-agent (ныне Proteus-core).
 
@@ -253,6 +258,10 @@ CI runner снимается мешающий этому AppArmor userns sysctl;
 и проверяет CLI/Desktop `--version`, launcher, restricted-профиль с fake model,
 запись файла, hooks, replay, HTTP-аутентификацию, DCP/WASM и упакованные
 расширения. Используются отдельный HOME и синтетические сессии, без ключей модели.
+Для JS hooks smoke отдельно перемещает поставляемые assets в путь с пробелом,
+проверяет launchers, инспекцию без исполнения команд и bundled Node gate.
+Локально эта часть запускается через
+`python3 scripts/test_portable_hooks.py build/Proteus` без пересборки исходников.
 Это headless-проверка; запуск окна и работу с живой моделью проверяют отдельно.
 
 В `build/release/` и GitHub prerelease попадают versioned portable, архив

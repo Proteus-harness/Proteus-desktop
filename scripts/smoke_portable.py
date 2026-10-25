@@ -82,6 +82,9 @@ def probe(archive, extensions):
         subprocess.run(["python3", str(ROOT / "scripts/test_portable_dcp.py"), str(portable)],
                        cwd=workspace, env=env, check=True, timeout=120)
         checks.append("relocated_dcp_worker_sources_licenses_and_wasm")
+        subprocess.run(["python3", str(ROOT / "scripts/test_portable_hooks.py"), str(portable)],
+                       cwd=workspace, env=env, check=True, timeout=120)
+        checks.append("relocated_hook_launchers_inspection_and_adapter_node_gate")
         wire = command(["python3", extensions / "tests/wire.py", "--wire", "--packages",
                         portable / "share/extensions"])
         assert [json.loads(line) for line in wire.splitlines() if line.strip()]
