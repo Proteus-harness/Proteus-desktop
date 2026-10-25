@@ -13,11 +13,29 @@ use super::{Chat, ChatEvent};
 
 impl Chat {
     pub fn load_config(&mut self, cx: &mut Context<Self>) {
+        self.config_generation = self.config_generation.wrapping_add(1);
+        let generation = self.config_generation;
         let dir = self.session.dir.clone();
         self.call(
             cx,
-            move |api| api.config(&dir),
-            |this, config, cx| this.apply_config(config, cx),
+            move |api| api.local_config(&dir),
+            move |this, config, cx| {
+                if this.config_generation != generation {
+                    return;
+                }
+                this.apply_config(config, cx);
+                let generation = this.config_generation;
+                let dir = this.session.dir.clone();
+                this.call(
+                    cx,
+                    move |api| api.config(&dir),
+                    move |this, config, cx| {
+                        if this.config_generation == generation {
+                            this.apply_config(config, cx);
+                        }
+                    },
+                );
+            },
         );
     }
 
@@ -207,6 +225,7 @@ impl Chat {
     }
 
     pub(in crate::ui) fn apply_config(&mut self, config: ConfigSummary, cx: &mut Context<Self>) {
+        self.config_generation = self.config_generation.wrapping_add(1);
         if let Some(error) = &config.model_catalog_error {
             self.show_notice(format!("Не удалось загрузить каталог моделей: {error}"), cx);
         }

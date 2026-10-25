@@ -83,6 +83,8 @@ pub(super) struct Chat {
     api: Api,
     workspace: WeakEntity<crate::ui::workspace::Workspace>,
     pub session: Session,
+    /// Invalidates a delayed catalog when another config snapshot was applied.
+    config_generation: u64,
     scroller: Entity<ChatScroller>,
     composer: Entity<TextareaState>,
     composer_strip_bounds: Rc<Cell<Bounds<Pixels>>>,
@@ -182,6 +184,7 @@ impl Chat {
             api,
             workspace,
             session: Session::new(session_dir),
+            config_generation: 0,
             scroller,
             composer,
             composer_strip_bounds: Rc::default(),

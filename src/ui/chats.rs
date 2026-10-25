@@ -49,13 +49,14 @@ impl Workspace {
     pub(super) fn restore_chats(
         &mut self,
         dirs: Vec<PathBuf>,
+        resumed: Vec<PathBuf>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        for dir in dirs {
+        for dir in resumed {
             self.insert_chat(dir, window, cx);
         }
-        let chats: Vec<String> = self.chats.keys().cloned().collect();
+        let chats: Vec<String> = dirs.iter().map(|dir| tabs::chat(dir)).collect();
         self.update_tabs(cx, |layout| {
             layout.retain(|id| !tabs::is_chat(id) || chats.iter().any(|chat| chat == id))
         });
@@ -89,13 +90,36 @@ impl Workspace {
             self.show_tab(&id, open, window, cx);
             return;
         }
+        self.resume_chat(dir, Some(open), window, cx);
+    }
+
+    /// Resume a saved tab without moving it or changing the user's selection.
+    pub(super) fn ensure_chat(
+        &mut self,
+        dir: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.resume_chat(dir, None, window, cx);
+    }
+
+    fn resume_chat(
+        &mut self,
+        dir: PathBuf,
+        open: Option<OpenDocument>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let id = tabs::chat(&dir);
         // A double click lands while the first click is still resuming.
         if let Some(pending) = self.opening.get(&id) {
-            let previous = pending.get();
-            pending.set(OpenDocument {
-                preview: previous.preview && open.preview,
-                focus: previous.focus || open.focus,
-            });
+            if let Some(open) = open {
+                let previous = pending.get().unwrap_or(open);
+                pending.set(Some(OpenDocument {
+                    preview: previous.preview && open.preview,
+                    focus: previous.focus || open.focus,
+                }));
+            }
             return;
         }
         let pending = Rc::new(Cell::new(open));
@@ -118,10 +142,23 @@ impl Workspace {
                 let open = pending.get();
                 let opened = match resumed {
                     Ok(opened) => opened,
-                    Err(error) => return this.report(format!("{error:#}"), cx),
+                    Err(error) => {
+                        if open.is_none() {
+                            this.update_tabs(cx, |tabs| tabs.close(&id));
+                        }
+                        return this.report(format!("{error:#}"), cx);
+                    }
                 };
                 let id = this.insert_chat(opened.session_dir, window, cx);
-                this.show_tab(&id, open, window, cx);
+                if let Some(open) = open {
+                    this.show_tab(&id, open, window, cx);
+                } else {
+                    let layout = this.tab_layout(cx);
+                    this.sync_chats(&layout, cx);
+                    if this.settings.is_none() && layout.active(layout.focused) == Some(&id) {
+                        this.focus_active_chat(window, cx);
+                    }
+                }
             },
         );
     }
@@ -341,6 +378,8 @@ impl Workspace {
     /// chat; extensions reread the session when it changes.
     pub(super) fn sync_chats(&mut self, layout: &TabLayout, cx: &mut Context<Self>) {
         self.chats.retain(|id, _| layout.contains(id));
+        self.opening
+            .retain(|id, pending| pending.get().is_some() || layout.contains(id));
         let active = layout
             .active_chat(self.active_chat.as_deref())
             .filter(|id| self.chats.contains_key(id));

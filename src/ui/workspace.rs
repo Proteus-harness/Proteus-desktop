@@ -1,12 +1,11 @@
 use std::cell::Cell;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Instant;
 
 use anyhow::Result;
 use gpui_kit::*;
-use proteus_client_common::session_selection::select_startup_session;
 use proteus_contracts::app_protocol::AppSessionSummary;
 
 use super::chats::OpenChat;
@@ -17,9 +16,12 @@ use super::settings::SettingsView;
 use super::tabs::{SplitResize, TabDrop, TabMotion};
 use crate::api::Api;
 use crate::attention::Tracker;
-use crate::connection::{self, BackendGuard};
+use crate::connection::BackendGuard;
 use crate::launch::LaunchOptions;
-use crate::tabs::{self, PaneId};
+use crate::tabs::PaneId;
+
+mod startup;
+use startup::{Boot, boot};
 
 pub(super) enum Status {
     Starting,
@@ -28,50 +30,6 @@ pub(super) enum Status {
 }
 
 impl EventEmitter<WorkspaceRequest> for Workspace {}
-
-struct Boot {
-    api: Api,
-    backend: Option<BackendGuard>,
-    sessions: Vec<AppSessionSummary>,
-    /// Chats of the saved layout whose sessions still exist, resumed.
-    restored: Vec<PathBuf>,
-    /// Session to open when no chat was restored or a new one was asked for.
-    startup: Option<PathBuf>,
-}
-
-fn boot(options: &LaunchOptions, saved: Vec<PathBuf>) -> Result<Boot> {
-    let (api, backend) = connection::connect(options)?;
-    let mut sessions = api.sessions()?;
-    let restored: Vec<PathBuf> = saved
-        .into_iter()
-        .filter(|dir| sessions.iter().any(|summary| &summary.session_dir == dir))
-        .filter(|dir| {
-            api.resume(dir)
-                .is_ok_and(|opened| opened.session_dir == *dir)
-        })
-        .collect();
-    let mut startup = None;
-    if restored.is_empty() {
-        let bootstrap = api.bootstrap()?;
-        startup = Some(
-            match select_startup_session(None, bootstrap.session_dir, &sessions) {
-                Some(dir) => api.resume(Path::new(&dir))?.session_dir,
-                None => {
-                    let opened = api.new_session(None, None)?.session_dir;
-                    sessions = api.sessions()?;
-                    opened
-                }
-            },
-        );
-    }
-    Ok(Boot {
-        api,
-        backend,
-        sessions,
-        restored,
-        startup,
-    })
-}
 
 pub struct Workspace {
     pub(super) workspace_path: PathBuf,
@@ -97,7 +55,7 @@ pub struct Workspace {
     /// Open chat tabs by tab id.
     pub(super) chats: HashMap<String, OpenChat>,
     /// Chats being resumed, and how they open.
-    pub(super) opening: HashMap<String, Rc<Cell<OpenDocument>>>,
+    pub(super) opening: HashMap<String, Rc<Cell<Option<OpenDocument>>>>,
     /// Tab id of the chat that commands and extensions address.
     pub(super) active_chat: Option<String>,
     /// Error of a workspace call while no chat is open.
@@ -152,12 +110,7 @@ impl Workspace {
         subscriptions.push(list_events);
 
         let workspace_path = options.workspace.clone();
-        let saved: Vec<PathBuf> = super::prefs::current(cx)
-            .tabs
-            .chats()
-            .filter_map(tabs::chat_dir)
-            .map(Path::to_path_buf)
-            .collect();
+        let saved = super::prefs::current(cx).tabs.clone();
         let startup = cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_executor()
@@ -238,7 +191,7 @@ impl Workspace {
                 self.sessions = boot.sessions;
                 self.sessions_arrived = Some(Instant::now());
                 self.status = Status::Ready;
-                self.restore_chats(boot.restored, window, cx);
+                self.restore_chats(boot.restored, boot.resumed, window, cx);
                 if let Some(dir) = boot.startup {
                     self.add_chat(dir, None, window, cx);
                 } else {

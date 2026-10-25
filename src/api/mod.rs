@@ -154,6 +154,10 @@ impl Api {
         self.get("/config", Some(session_dir))
     }
 
+    pub fn local_config(&self, session_dir: &Path) -> Result<ConfigSummary> {
+        self.get("/config/local", Some(session_dir))
+    }
+
     pub fn context(&self, session_dir: &Path) -> Result<AppContextMapSnapshot> {
         self.get("/context", Some(session_dir))
     }

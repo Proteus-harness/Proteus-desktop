@@ -235,7 +235,16 @@ impl Workspace {
                             .cached(StyleRefinement::default().size_full()),
                     )
                     .into_any_element(),
-                None => div().into_any_element(),
+                None => {
+                    if let Some(dir) = tabs::chat_dir(tab) {
+                        self.ensure_chat(dir.to_path_buf(), window, cx);
+                    }
+                    super::super::state::loading(
+                        format!("chat-loading-{tab}"),
+                        "Открытие чата…",
+                        cx,
+                    )
+                }
             },
             Some(tab) => match self.ensure_document(tab, window, cx) {
                 Some(document) => motion::rise_in_if(
