@@ -368,6 +368,19 @@ impl Workspace {
                                     .baseline(&summary.session_dir, activity.status);
                             }
                         }
+                        let known: std::collections::HashSet<_> = sessions
+                            .iter()
+                            .map(|session| tabs::chat(&session.session_dir))
+                            .collect();
+                        let open: std::collections::HashSet<_> =
+                            this.chats.keys().cloned().collect();
+                        this.update_tabs(cx, |layout| {
+                            layout.retain(|id| {
+                                !tabs::is_chat(id) || known.contains(id) || open.contains(id)
+                            });
+                        });
+                        this.sessions_arrived
+                            .get_or_insert_with(std::time::Instant::now);
                         this.sessions = sessions;
                     }
                     Err(error) => this.report(format!("{error:#}"), cx),

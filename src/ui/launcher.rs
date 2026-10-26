@@ -23,6 +23,7 @@ pub struct Launcher {
     stage: Stage,
     target: Target,
     focus: FocusHandle,
+    preparation: Option<super::Preparation>,
     _workspace_requests: Option<Subscription>,
 }
 
@@ -36,6 +37,7 @@ impl Launcher {
     pub fn new(
         workspace: Option<PathBuf>,
         target: Target,
+        preparation: Option<super::Preparation>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -44,6 +46,7 @@ impl Launcher {
         let mut launcher = Self {
             stage: Stage::Picking { error: None },
             target,
+            preparation,
             focus,
             _workspace_requests: None,
         };
@@ -120,7 +123,8 @@ impl Launcher {
             workspace,
             target: self.target.clone(),
         };
-        let view = cx.new(|cx| Workspace::new(options, window, cx));
+        let preparation = self.preparation.take();
+        let view = cx.new(|cx| Workspace::new(options, preparation, window, cx));
         self._workspace_requests = Some(cx.subscribe_in(
             &view,
             window,

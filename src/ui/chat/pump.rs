@@ -95,6 +95,7 @@ impl Chat {
         let mut shown = true;
         let change = match event {
             AppServerEvent::SessionSnapshot { snapshot } => {
+                crate::startup_trace::first("chat.snapshot.applied");
                 let snapshot = *snapshot;
                 session.execution = snapshot.execution;
                 session.root_thread = snapshot.root_thread_id;

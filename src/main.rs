@@ -15,6 +15,7 @@ mod recent;
 mod sessions;
 mod settings;
 mod shortcuts;
+mod startup_trace;
 mod tabs;
 mod terminal;
 mod tool_display;
@@ -34,7 +35,7 @@ fn main() {
         println!("{}", version::LABEL);
         return;
     }
-    graphics::prepare_environment();
+    startup_trace::mark("process.start");
     let launch = match Launch::from_args() {
         Ok(options) => options,
         Err(error) => {
@@ -45,12 +46,17 @@ fn main() {
             std::process::exit(2);
         }
     };
+    graphics::prepare_environment();
+    let preparation = ui::Preparation::launch(&launch);
 
     gpui_kit::application()
         .with_assets(gpui_kit::assets::AllAssets)
         .run(move |cx| {
+            startup_trace::mark("application.ready");
             gpui_kit::init(cx);
+            startup_trace::mark("components.ready");
             ui::init(cx);
+            startup_trace::mark("ui.ready");
             cx.on_window_closed(|cx, _| {
                 if cx.windows().is_empty() {
                     cx.quit();
@@ -75,7 +81,8 @@ fn main() {
                 ..base
             };
             gpui_kit::open_window(window_options, cx, |window, cx| {
-                cx.new(|cx| Launcher::new(launch.workspace, launch.target, window, cx))
+                startup_trace::mark("window.create");
+                cx.new(|cx| Launcher::new(launch.workspace, launch.target, preparation, window, cx))
             })
             .expect("open window");
             cx.activate(true);

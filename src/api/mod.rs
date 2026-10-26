@@ -242,6 +242,7 @@ impl Api {
 
     /// Opens the session event stream; blocks until the server answers.
     pub fn events(&self, session_dir: &Path) -> Result<EventStream> {
+        let _trace = crate::startup_trace::span("GET /events");
         let response = self
             .agent
             .get(format!("{}/events", self.origin))
@@ -273,6 +274,7 @@ impl Api {
         session_dir: Option<&Path>,
         query: &[(&str, &str)],
     ) -> Result<T> {
+        let _trace = crate::startup_trace::span(path);
         let mut request = self
             .agent
             .get(format!("{}{path}", self.origin))
@@ -298,6 +300,7 @@ impl Api {
         session_dir: Option<&Path>,
         body: &B,
     ) -> Result<T> {
+        let _trace = crate::startup_trace::span(path);
         let mut request = self
             .agent
             .post(format!("{}{path}", self.origin))

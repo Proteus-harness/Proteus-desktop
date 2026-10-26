@@ -44,6 +44,7 @@ use crate::ui::motion::Spinner;
 pub use launcher::Launcher;
 use workspace::Status;
 use workspace::Workspace;
+pub(crate) use workspace::startup::Preparation;
 
 gpui_kit::actions!(
     proteus_native,

@@ -14,6 +14,39 @@ use crate::tabs::{self, TabLayout};
 #[cfg(test)]
 mod tests;
 
+/// Start server and session reads before creating the graphics platform. The
+/// receiver owns the result; dropping it also drops/stops an unused backend.
+pub(crate) struct Preparation {
+    workspace: PathBuf,
+    result: async_channel::Receiver<Result<Boot>>,
+}
+
+impl Preparation {
+    pub(crate) fn launch(launch: &crate::launch::Launch) -> Option<Self> {
+        let workspace = launch.workspace.clone()?;
+        let options = LaunchOptions {
+            workspace: workspace.clone(),
+            target: launch.target.clone(),
+        };
+        let saved = crate::preferences::startup_tabs();
+        let (send, result) = async_channel::bounded(1);
+        std::thread::Builder::new()
+            .name("proteus-startup".into())
+            .spawn(move || {
+                let _ = send.send_blocking(boot(&options, saved));
+            })
+            .ok()?;
+        Some(Self { workspace, result })
+    }
+
+    pub(super) fn for_workspace(
+        self,
+        workspace: &Path,
+    ) -> Option<async_channel::Receiver<Result<Boot>>> {
+        (self.workspace == workspace).then_some(self.result)
+    }
+}
+
 pub(super) struct Boot {
     pub api: Api,
     pub backend: Option<BackendGuard>,
@@ -24,17 +57,14 @@ pub(super) struct Boot {
 }
 
 pub(super) fn boot(options: &LaunchOptions, saved: TabLayout) -> Result<Boot> {
+    let _trace = crate::startup_trace::span("workspace.boot");
     let (api, backend) = connection::connect(options)?;
+    crate::startup_trace::mark("backend.ready");
     restore(api, backend, saved)
 }
 
 fn restore(api: Api, backend: Option<BackendGuard>, saved: TabLayout) -> Result<Boot> {
-    let mut sessions = api.sessions()?;
-    let mut saved = saved;
-    saved.retain(|id| {
-        tabs::chat_dir(id)
-            .is_none_or(|dir| sessions.iter().any(|summary| summary.session_dir == dir))
-    });
+    let mut sessions = Vec::new();
     // Include the command target when the focused tab is a document.
     let active = saved.active_chat(None);
     let resumed: Vec<PathBuf> = saved
@@ -56,6 +86,11 @@ fn restore(api: Api, backend: Option<BackendGuard>, saved: TabLayout) -> Result<
         .collect();
     let startup = if resumed.is_empty() {
         let bootstrap = api.bootstrap()?;
+        // A fresh preference file has no restore target. Only that case needs
+        // catalog discovery; existing tabs never wait for unrelated journals.
+        if bootstrap.session_dir.is_none() {
+            sessions = api.sessions()?;
+        }
         Some(
             match select_startup_session(None, bootstrap.session_dir, &sessions) {
                 Some(dir) => api.resume(Path::new(&dir))?.session_dir,

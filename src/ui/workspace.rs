@@ -20,7 +20,7 @@ use crate::connection::BackendGuard;
 use crate::launch::LaunchOptions;
 use crate::tabs::PaneId;
 
-mod startup;
+pub(super) mod startup;
 use startup::{Boot, boot};
 
 pub(super) enum Status {
@@ -97,7 +97,12 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    pub fn new(options: LaunchOptions, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        options: LaunchOptions,
+        preparation: Option<startup::Preparation>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let mut subscriptions = vec![cx.on_app_quit(|this, _| {
             let backend = this.backend.take();
             async move {
@@ -111,11 +116,19 @@ impl Workspace {
 
         let workspace_path = options.workspace.clone();
         let saved = super::prefs::current(cx).tabs.clone();
+        let prepared =
+            preparation.and_then(|preparation| preparation.for_workspace(&workspace_path));
         let startup = cx.spawn_in(window, async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move { boot(&options, saved) })
-                .await;
+            let result = if let Some(prepared) = prepared {
+                prepared
+                    .recv()
+                    .await
+                    .unwrap_or_else(|_| Err(anyhow::anyhow!("startup preparation stopped")))
+            } else {
+                cx.background_executor()
+                    .spawn(async move { boot(&options, saved) })
+                    .await
+            };
             this.update_in(cx, |this, window, cx| {
                 this.finish_startup(result, window, cx)
             })
@@ -171,6 +184,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        crate::startup_trace::mark("workspace.boot.applied");
         match result {
             Ok(boot) => {
                 self.api = Some(boot.api);
@@ -189,7 +203,7 @@ impl Workspace {
                 }
                 self.backend = boot.backend;
                 self.sessions = boot.sessions;
-                self.sessions_arrived = Some(Instant::now());
+                self.sessions_arrived = (!self.sessions.is_empty()).then(Instant::now);
                 self.status = Status::Ready;
                 self.restore_chats(boot.restored, boot.resumed, window, cx);
                 if let Some(dir) = boot.startup {
@@ -197,6 +211,7 @@ impl Workspace {
                 } else {
                     self.focus_active_chat(window, cx);
                 }
+                self.refresh_sessions(cx);
             }
             Err(error) => self.status = Status::Failed(format!("{error:#}").into()),
         }

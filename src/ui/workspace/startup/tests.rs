@@ -37,13 +37,17 @@ fn startup_resumes_split_chats_without_resuming_hidden_tabs_or_reordering_them()
     assert_eq!(boot.resumed, paths(&["/sessions/left", "/sessions/right"]));
     assert_eq!(
         boot.restored,
-        paths(&["/sessions/hidden", "/sessions/left", "/sessions/right"])
+        paths(&[
+            "/sessions/hidden",
+            "/sessions/deleted",
+            "/sessions/left",
+            "/sessions/right"
+        ])
     );
     assert!(boot.startup.is_none());
     assert_eq!(
         server.calls(),
         [
-            ("/sessions".into(), Value::Null),
             ("/resume".into(), json!("/sessions/left")),
             ("/resume".into(), json!("/sessions/right")),
         ]
@@ -73,9 +77,21 @@ fn focused_document_resumes_only_the_hidden_command_target() {
     assert!(boot.startup.is_none());
     assert_eq!(
         server.calls(),
+        [("/resume".into(), json!("/sessions/target")),]
+    );
+}
+
+#[test]
+fn initial_launch_uses_suggested_session_without_reading_the_catalog() {
+    let server = Server::start(&["/sessions/suggested", "/sessions/unrelated"]);
+    let boot = restore(server.api(), None, TabLayout::default()).unwrap();
+    assert_eq!(boot.startup, Some(PathBuf::from("/sessions/suggested")));
+    assert!(boot.sessions.is_empty());
+    assert_eq!(
+        server.calls(),
         [
-            ("/sessions".into(), Value::Null),
-            ("/resume".into(), json!("/sessions/target")),
+            ("/bootstrap".into(), Value::Null),
+            ("/resume".into(), json!("/sessions/suggested")),
         ]
     );
 }
@@ -187,6 +203,9 @@ fn respond(stream: TcpStream, catalog: &[AppSessionSummary], calls: &Mutex<Vec<(
     let dir = body.get("session_dir").cloned().unwrap_or(Value::Null);
     calls.lock().unwrap().push((path.clone(), dir.clone()));
     let response = match path.as_str() {
+        "/bootstrap" => {
+            json!({"session_dir":catalog.first().map(|session| &session.session_dir),"cwd":"/workspace"})
+        }
         "/sessions" => serde_json::to_value(catalog).unwrap(),
         "/resume" => json!({
             "type": "response", "id": body["id"], "ok": true, "error": null,

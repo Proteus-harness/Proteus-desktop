@@ -378,6 +378,19 @@ fn path() -> Option<PathBuf> {
     Some(config_dir()?.join("preferences.json"))
 }
 
+/// Read-only early restore hint. Normal preference loading still reports and
+/// handles invalid files on the UI thread.
+pub fn startup_tabs() -> crate::tabs::TabLayout {
+    path()
+        .and_then(|path| {
+            fs::read_to_string(&path)
+                .ok()
+                .and_then(|text| parse(&text, &path).ok())
+        })
+        .map(|preferences| preferences.tabs)
+        .unwrap_or_default()
+}
+
 /// Saved preferences; a missing file means defaults. A file that cannot be
 /// used is moved aside, so the next save does not overwrite it.
 pub fn load() -> Result<Preferences> {
