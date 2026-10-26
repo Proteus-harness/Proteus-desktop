@@ -149,7 +149,7 @@ impl TerminalView {
         }
     }
 
-    fn scroll(&mut self, event: &ScrollWheelEvent, line: Pixels) {
+    fn scroll(&mut self, event: &ScrollEvent, line: Pixels) {
         let State::Running(terminal) = &self.state else {
             return;
         };
@@ -263,7 +263,7 @@ impl Render for TerminalView {
                 MouseButton::Left,
                 cx.listener(|this, _, window, cx| this.focus.focus(window, cx)),
             )
-            .on_scroll_wheel(cx.listener(move |this, event, _, cx| {
+            .on_scroll(cx.listener(move |this, event, _, cx| {
                 this.scroll(event, cell.height);
                 cx.notify();
             }))

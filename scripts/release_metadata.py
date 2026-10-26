@@ -78,7 +78,7 @@ def install_notices(portable, desktop, core, modules, extensions):
             destination = target / "Proteus-modules" / relative / name
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
-    for vendored in ("vendor/gpui-pre-wgpu", "vendor/gpui-component"):
+    for vendored in ("vendor/gpui-fast-wgpu", "vendor/gpui-component"):
         for name in ("LICENSE.upstream", "README.proteus.md"):
             destination = target / "Proteus-desktop" / vendored / name
             destination.parent.mkdir(parents=True, exist_ok=True)

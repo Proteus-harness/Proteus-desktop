@@ -2,10 +2,10 @@
 
 #[test]
 fn shared_corner_geometry_validates_for_every_shader_transport() {
-    let shared = include_str!("../vendor/gpui-pre-wgpu/src/shaders.wgsl");
-    let storage = include_str!("../vendor/gpui-pre-wgpu/src/shaders_storage.wgsl");
-    let webgl = include_str!("../vendor/gpui-pre-wgpu/src/shaders_webgl.wgsl");
-    let subpixel = include_str!("../vendor/gpui-pre-wgpu/src/shaders_subpixel.wgsl");
+    let shared = include_str!("../vendor/gpui-fast-wgpu/src/shaders.wgsl");
+    let storage = include_str!("../vendor/gpui-fast-wgpu/src/shaders_storage.wgsl");
+    let webgl = include_str!("../vendor/gpui-fast-wgpu/src/shaders_webgl.wgsl");
+    let subpixel = include_str!("../vendor/gpui-fast-wgpu/src/shaders_subpixel.wgsl");
     for (name, source) in [
         ("storage", format!("{shared}\n{storage}")),
         ("webgl", format!("{shared}\n{webgl}")),

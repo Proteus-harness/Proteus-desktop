@@ -1,22 +1,18 @@
 //! The live session stream: connection state and server events folded into
 //! the chat.
 
-use std::path::PathBuf;
-
 use gpui_kit::*;
 use proteus_contracts::app_protocol::AppServerEvent;
 use proteus_contracts::domain::Event as RuntimeEvent;
 
 use super::context_usage::ContextUsage;
 use super::{Chat, ChatEvent};
-use crate::api::Api;
-use crate::connection::{self, PumpItem};
+use crate::connection::PumpItem;
 use crate::transcript::{Change, Role};
 
 /// Streams the session into the chat until the chat is dropped; dropping
 /// the task closes the channel, which stops the stream thread.
-pub(super) fn start(api: Api, session_dir: PathBuf, cx: &mut Context<Chat>) -> Task<()> {
-    let events = connection::spawn_pump(api, session_dir);
+pub(super) fn start(events: async_channel::Receiver<PumpItem>, cx: &mut Context<Chat>) -> Task<()> {
     cx.spawn(async move |this, cx| {
         while let Ok(first) = events.recv().await {
             let mut batch = vec![first];
@@ -43,7 +39,7 @@ pub(super) fn start(api: Api, session_dir: PathBuf, cx: &mut Context<Chat>) -> T
 
 impl Chat {
     /// Folds one stream item in; true when the chat looks different.
-    fn apply(&mut self, item: PumpItem, cx: &mut Context<Self>) -> bool {
+    pub(super) fn apply(&mut self, item: PumpItem, cx: &mut Context<Self>) -> bool {
         let session = &mut self.session;
         match item {
             PumpItem::Connected => {

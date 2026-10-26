@@ -291,7 +291,7 @@ pub(in crate::ui) fn popup(
                         cx.stop_propagation();
                     })
                     .capture_any_mouse_up(|_, _, cx| cx.stop_propagation())
-                    .on_scroll_wheel(|_, _, cx| cx.stop_propagation()),
+                    .on_scroll(|_, _, cx| cx.stop_propagation()),
             )
         });
     let surface = match frame.effect {

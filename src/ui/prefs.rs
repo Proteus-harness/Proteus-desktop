@@ -45,8 +45,8 @@ pub struct ClientPreferences {
 
 impl Global for ClientPreferences {}
 
-pub fn init(cx: &mut App) {
-    let (value, problem) = match preferences::load() {
+pub fn init(cx: &mut App, loaded: anyhow::Result<Preferences>) {
+    let (value, problem) = match loaded {
         Ok(value) => (value, None),
         Err(error) => (Preferences::default(), Some(format!("{error:#}"))),
     };

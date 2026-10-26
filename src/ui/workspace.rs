@@ -54,6 +54,8 @@ pub struct Workspace {
     pub(super) session_list: SessionList,
     /// Open chat tabs by tab id.
     pub(super) chats: HashMap<String, OpenChat>,
+    pub(super) startup_streams:
+        HashMap<PathBuf, async_channel::Receiver<crate::connection::PumpItem>>,
     /// Chats being resumed, and how they open.
     pub(super) opening: HashMap<String, Rc<Cell<Option<OpenDocument>>>>,
     /// Tab id of the chat that commands and extensions address.
@@ -92,7 +94,7 @@ pub struct Workspace {
     /// Size of the tab area at the last paint.
     pub(super) tab_area: Rc<Cell<Option<Size<Pixels>>>>,
     pub(super) focus_handle: FocusHandle,
-    _startup: Task<()>,
+    _startup: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -118,22 +120,34 @@ impl Workspace {
         let saved = super::prefs::current(cx).tabs.clone();
         let prepared =
             preparation.and_then(|preparation| preparation.for_workspace(&workspace_path));
-        let startup = cx.spawn_in(window, async move |this, cx| {
-            let result = if let Some(prepared) = prepared {
-                prepared
-                    .recv()
-                    .await
-                    .unwrap_or_else(|_| Err(anyhow::anyhow!("startup preparation stopped")))
-            } else {
-                cx.background_executor()
-                    .spawn(async move { boot(&options, saved) })
-                    .await
-            };
-            this.update_in(cx, |this, window, cx| {
-                this.finish_startup(result, window, cx)
-            })
-            .ok();
-        });
+        let ready = prepared
+            .as_ref()
+            .and_then(|prepared| prepared.try_recv().ok());
+        let startup = if let Some(ready) = ready {
+            // Deferred entity update runs before its first paint, rather than
+            // awaiting a task after drawing an empty workspace first.
+            cx.defer_in(window, move |this, window, cx| {
+                this.finish_startup(ready, window, cx)
+            });
+            None
+        } else {
+            Some(cx.spawn_in(window, async move |this, cx| {
+                let result = if let Some(prepared) = prepared {
+                    prepared
+                        .recv()
+                        .await
+                        .unwrap_or_else(|_| Err(anyhow::anyhow!("startup preparation stopped")))
+                } else {
+                    cx.background_executor()
+                        .spawn(async move { boot(&options, saved) })
+                        .await
+                };
+                this.update_in(cx, |this, window, cx| {
+                    this.finish_startup(result, window, cx)
+                })
+                .ok();
+            }))
+        };
 
         Self {
             workspace_path,
@@ -149,6 +163,7 @@ impl Workspace {
             renaming: None,
             session_list,
             chats: HashMap::new(),
+            startup_streams: HashMap::new(),
             opening: HashMap::new(),
             active_chat: None,
             notice: None,
@@ -202,6 +217,7 @@ impl Workspace {
                     .detach();
                 }
                 self.backend = boot.backend;
+                self.startup_streams = boot.streams;
                 self.sessions = boot.sessions;
                 self.sessions_arrived = (!self.sessions.is_empty()).then(Instant::now);
                 self.status = Status::Ready;

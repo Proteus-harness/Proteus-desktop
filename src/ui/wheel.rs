@@ -55,12 +55,18 @@ pub(super) fn layer() -> impl IntoElement {
                     super::tip::moved(event.position, window, cx);
                 }
             });
-            window.on_mouse_event(|event: &ScrollWheelEvent, phase, window, cx| {
+            window.on_mouse_event(|event: &ScrollEvent, phase, window, cx| {
                 if phase != DispatchPhase::Capture {
                     return;
                 }
                 super::tip::dismiss(window, cx);
                 if REPLAYING.get() {
+                    return;
+                }
+                // GPUI owns touch pans and their momentum; this layer only
+                // smooths wheel notches and pointer/trackpad gestures.
+                if event.source == ScrollSource::Touch {
+                    fling::stop();
                     return;
                 }
                 let fast = event.modifiers.control;
@@ -87,7 +93,7 @@ pub(super) fn layer() -> impl IntoElement {
                         ScrollDelta::Lines(lines) => ScrollDelta::Lines(lines * speed),
                         ScrollDelta::Pixels(pixels) => ScrollDelta::Pixels(pixels * speed),
                     };
-                    let replayed = ScrollWheelEvent {
+                    let replayed = ScrollEvent {
                         delta,
                         modifiers,
                         ..event.clone()
@@ -118,9 +124,9 @@ fn coasts() -> bool {
 }
 
 /// Dispatches a scroll step of this layer past its own handler.
-fn replay(event: ScrollWheelEvent, window: &mut Window, cx: &mut App) {
+fn replay(event: ScrollEvent, window: &mut Window, cx: &mut App) {
     REPLAYING.set(true);
-    window.dispatch_event(PlatformInput::ScrollWheel(event), cx);
+    window.dispatch_event(PlatformInput::Scroll(event), cx);
     REPLAYING.set(false);
 }
 
@@ -145,11 +151,12 @@ fn step(window: &mut Window, cx: &mut App) {
         (delta, glide.modifiers, glide.running)
     });
     replay(
-        ScrollWheelEvent {
+        ScrollEvent {
             position: window.mouse_position(),
             delta: ScrollDelta::Pixels(delta),
             modifiers,
             touch_phase: TouchPhase::Moved,
+            source: ScrollSource::Pointer,
         },
         window,
         cx,

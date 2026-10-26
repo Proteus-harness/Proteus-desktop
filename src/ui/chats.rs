@@ -244,7 +244,8 @@ impl Workspace {
         };
         let extras = self.composer_extras(cx);
         let workspace = cx.weak_entity();
-        let view = cx.new(|cx| Chat::new(api, workspace, dir, extras, window, cx));
+        let stream = self.startup_streams.remove(&dir);
+        let view = cx.new(|cx| Chat::new(api, workspace, dir, stream, extras, window, cx));
         let tab = id.clone();
         let events = cx.subscribe(&view, move |this, chat, event: &ChatEvent, cx| {
             this.on_chat_event(&tab, &chat, event, cx)

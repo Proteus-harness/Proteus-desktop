@@ -156,7 +156,7 @@ impl SettingsView {
         if !(modifiers.control || modifiers.alt || modifiers.platform || function_key) {
             return true;
         }
-        let Ok(chord) = normalize(&keystroke.unparse()) else {
+        let Ok(chord) = normalize(&keystroke.unparse(cx.platform_info().os)) else {
             return true;
         };
         self.recording = None;

@@ -130,7 +130,7 @@ pub(crate) fn contain_scroll(content: impl gpui_kit::IntoElement) -> gpui_kit::D
     div()
         .w_full()
         .min_w_0()
-        .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+        .on_scroll(|_, _, cx| cx.stop_propagation())
         .child(content)
 }
 

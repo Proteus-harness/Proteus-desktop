@@ -122,11 +122,12 @@ fn tick(window: &mut Window, cx: &mut App) {
     if let Some(delta) = step {
         let (position, modifiers) = FLING.with_borrow(|fling| (fling.position, fling.modifiers));
         super::replay(
-            ScrollWheelEvent {
+            ScrollEvent {
                 position,
                 delta: ScrollDelta::Pixels(delta),
                 modifiers,
                 touch_phase: TouchPhase::Moved,
+                source: ScrollSource::Pointer,
             },
             window,
             cx,

@@ -129,6 +129,7 @@ impl Chat {
         api: Api,
         workspace: WeakEntity<crate::ui::workspace::Workspace>,
         session_dir: PathBuf,
+        prepared_stream: Option<async_channel::Receiver<crate::connection::PumpItem>>,
         extras: ComposerExtras,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -183,7 +184,10 @@ impl Chat {
                 }
             }),
         ];
-        let pump = pump::start(api.clone(), session_dir.clone(), cx);
+        let events = prepared_stream
+            .unwrap_or_else(|| crate::connection::spawn_pump(api.clone(), session_dir.clone()));
+        let initial = crate::connection::take_initial_events(&events);
+        let pump = pump::start(events, cx);
         let mut chat = Self {
             api,
             workspace,
@@ -213,6 +217,9 @@ impl Chat {
             _pump: pump,
             _subscriptions: subscriptions,
         };
+        for event in initial {
+            chat.apply(event, cx);
+        }
         chat.load_config(cx);
         chat
     }

@@ -78,12 +78,12 @@ gpui_kit::actions!(
 
 pub(crate) const SETTINGS_CONTEXT: &str = "ProteusSettings";
 
-pub fn init(cx: &mut App) {
+pub fn init(cx: &mut App, preferences: anyhow::Result<crate::preferences::Preferences>) {
     theme::init(cx);
     drag::init(cx);
     tip::init(cx);
     // Command shortcuts are bound by `prefs::init` from the preferences.
-    prefs::init(cx);
+    prefs::init(cx, preferences);
     cx.bind_keys([
         KeyBinding::new("alt-down", NextSettingsPage, Some(SETTINGS_CONTEXT)),
         KeyBinding::new("alt-up", PreviousSettingsPage, Some(SETTINGS_CONTEXT)),

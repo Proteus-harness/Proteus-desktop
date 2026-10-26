@@ -1,5 +1,6 @@
 //! Only chats on screen belong to the workspace's startup path. Other saved
 //! tabs keep their place and resume through the normal open-chat path on use.
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
@@ -22,13 +23,12 @@ pub(crate) struct Preparation {
 }
 
 impl Preparation {
-    pub(crate) fn launch(launch: &crate::launch::Launch) -> Option<Self> {
+    pub(crate) fn launch(launch: &crate::launch::Launch, saved: TabLayout) -> Option<Self> {
         let workspace = launch.workspace.clone()?;
         let options = LaunchOptions {
             workspace: workspace.clone(),
             target: launch.target.clone(),
         };
-        let saved = crate::preferences::startup_tabs();
         let (send, result) = async_channel::bounded(1);
         std::thread::Builder::new()
             .name("proteus-startup".into())
@@ -54,13 +54,23 @@ pub(super) struct Boot {
     pub restored: Vec<PathBuf>,
     pub resumed: Vec<PathBuf>,
     pub startup: Option<PathBuf>,
+    pub streams: HashMap<PathBuf, async_channel::Receiver<connection::PumpItem>>,
 }
 
 pub(super) fn boot(options: &LaunchOptions, saved: TabLayout) -> Result<Boot> {
     let _trace = crate::startup_trace::span("workspace.boot");
     let (api, backend) = connection::connect(options)?;
     crate::startup_trace::mark("backend.ready");
-    restore(api, backend, saved)
+    let mut boot = restore(api, backend, saved)?;
+    // Subscribe while graphics is still being created. A ready snapshot can
+    // then populate the first chat frame, without a second HTTP subscription.
+    for dir in boot.resumed.iter().chain(boot.startup.iter()) {
+        boot.streams.insert(
+            dir.clone(),
+            connection::spawn_pump(boot.api.clone(), dir.clone()),
+        );
+    }
+    Ok(boot)
 }
 
 fn restore(api: Api, backend: Option<BackendGuard>, saved: TabLayout) -> Result<Boot> {
@@ -111,5 +121,6 @@ fn restore(api: Api, backend: Option<BackendGuard>, saved: TabLayout) -> Result<
         restored,
         resumed,
         startup,
+        streams: HashMap::new(),
     })
 }

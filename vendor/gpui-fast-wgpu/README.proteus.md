@@ -1,9 +1,10 @@
 # Общие непрерывные углы Proteus
 
-Здесь сохранён `gpui-pre-wgpu` 0.3.8, Apache-2.0, из crates.io.
-Исходный пакет основан на `zed-industries/zed`, commit
-`279fe070bb389b79652e52065b2f001edcc0b11b`, crate `gpui_wgpu`.
-Исходный manifest оставлен в `Cargo.toml.orig`, текст лицензии —
+Здесь сохранён `gpui-fast-wgpu` 0.1.12, Apache-2.0, из crates.io.
+Архив `gpui-fast-wgpu-0.1.12.crate`, SHA-256:
+`ebf72d3c1fee16dde347707ef306940d39656f80e35d3aaace01075996f12199`.
+Источник: https://github.com/longbridge/gpui-fast, release 0.1.12.
+Исходный manifest сохранён в `Cargo.toml.orig`, текст лицензии —
 в `LICENSE.upstream`. `LICENSE-APACHE` ссылается на общую лицензию репозитория.
 
 Корневой `[patch.crates-io]` делает сборку воспроизводимой без правок

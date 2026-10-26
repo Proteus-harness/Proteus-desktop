@@ -5,35 +5,35 @@ use gpui_kit::*;
 use super::*;
 use crate::shortcuts::{Command, Shortcuts};
 
-fn binding(command: Command, chord: &str) -> KeyBinding {
+fn action(command: Command) -> Box<dyn Action> {
     match command {
-        Command::NewSession => KeyBinding::new(chord, NewSession, None),
-        Command::NewTerminal => KeyBinding::new(chord, NewTerminal, None),
-        Command::ToggleSettings => KeyBinding::new(chord, ToggleSettings, None),
-        Command::ToggleSessions => KeyBinding::new(chord, ToggleSessions, None),
-        Command::ToggleFiles => KeyBinding::new(chord, ToggleFiles, None),
-        Command::NextTab => KeyBinding::new(chord, NextTab, None),
-        Command::PreviousTab => KeyBinding::new(chord, PreviousTab, None),
-        Command::NavigateBack => KeyBinding::new(chord, NavigateBack, None),
-        Command::NavigateForward => KeyBinding::new(chord, NavigateForward, None),
-        Command::CloseTab => KeyBinding::new(chord, CloseTab, None),
-        Command::ReopenClosedTab => KeyBinding::new(chord, ReopenClosedTab, None),
-        Command::SplitRight => KeyBinding::new(chord, SplitRight, None),
-        Command::SplitDown => KeyBinding::new(chord, SplitDown, None),
-        Command::FocusPaneLeft => KeyBinding::new(chord, FocusPaneLeft, None),
-        Command::FocusPaneRight => KeyBinding::new(chord, FocusPaneRight, None),
-        Command::FocusPaneUp => KeyBinding::new(chord, FocusPaneUp, None),
-        Command::FocusPaneDown => KeyBinding::new(chord, FocusPaneDown, None),
-        Command::ZoomIn => KeyBinding::new(chord, ZoomIn, None),
-        Command::ZoomOut => KeyBinding::new(chord, ZoomOut, None),
-        Command::ZoomReset => KeyBinding::new(chord, ZoomReset, None),
+        Command::NewSession => Box::new(NewSession),
+        Command::NewTerminal => Box::new(NewTerminal),
+        Command::ToggleSettings => Box::new(ToggleSettings),
+        Command::ToggleSessions => Box::new(ToggleSessions),
+        Command::ToggleFiles => Box::new(ToggleFiles),
+        Command::NextTab => Box::new(NextTab),
+        Command::PreviousTab => Box::new(PreviousTab),
+        Command::NavigateBack => Box::new(NavigateBack),
+        Command::NavigateForward => Box::new(NavigateForward),
+        Command::CloseTab => Box::new(CloseTab),
+        Command::ReopenClosedTab => Box::new(ReopenClosedTab),
+        Command::SplitRight => Box::new(SplitRight),
+        Command::SplitDown => Box::new(SplitDown),
+        Command::FocusPaneLeft => Box::new(FocusPaneLeft),
+        Command::FocusPaneRight => Box::new(FocusPaneRight),
+        Command::FocusPaneUp => Box::new(FocusPaneUp),
+        Command::FocusPaneDown => Box::new(FocusPaneDown),
+        Command::ZoomIn => Box::new(ZoomIn),
+        Command::ZoomOut => Box::new(ZoomOut),
+        Command::ZoomReset => Box::new(ZoomReset),
     }
 }
 
-fn command_of(action: &dyn Action) -> Option<Command> {
+fn command_of(bound: &dyn Action) -> Option<Command> {
     Command::ALL
         .into_iter()
-        .find(|command| binding(*command, "f1").action().name() == action.name())
+        .find(|command| action(*command).name() == bound.name())
 }
 
 /// Replaces the commands' bindings, keeping every other binding in order.
@@ -45,12 +45,14 @@ pub(super) fn bind(shortcuts: &Shortcuts, cx: &mut App) {
         .filter(|binding| command_of(binding.action()).is_none())
         .cloned()
         .collect();
+    let cx = &*cx;
     let commands = Command::ALL.into_iter().flat_map(|command| {
         shortcuts
             .chords(command)
             .into_iter()
-            .filter(|chord| Keystroke::parse(chord).is_ok())
-            .map(move |chord| binding(command, &chord))
+            .filter_map(move |chord| {
+                KeyBinding::load(&chord, action(command), None, false, None, cx).ok()
+            })
     });
     let mut keymap = keymap.borrow_mut();
     keymap.clear();

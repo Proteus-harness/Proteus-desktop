@@ -316,7 +316,9 @@ impl Render for DeclarativeView {
                     // outer popup action is allowed to dismiss it.
                     return;
                 }
-                let chord = crate::shortcuts::normalize(&event.keystroke.unparse()).ok();
+                let chord =
+                    crate::shortcuts::normalize(&event.keystroke.unparse(cx.platform_info().os))
+                        .ok();
                 if chord.as_deref() == Some("ctrl-f")
                     && let Some(focus) = this
                         .root

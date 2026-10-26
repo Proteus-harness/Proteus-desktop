@@ -47,7 +47,12 @@ fn main() {
         }
     };
     graphics::prepare_environment();
-    let preparation = ui::Preparation::launch(&launch);
+    let preferences = preferences::load();
+    let saved_tabs = preferences
+        .as_ref()
+        .map(|preferences| preferences.tabs.clone())
+        .unwrap_or_default();
+    let preparation = ui::Preparation::launch(&launch, saved_tabs);
 
     gpui_kit::application()
         .with_assets(gpui_kit::assets::AllAssets)
@@ -55,7 +60,7 @@ fn main() {
             startup_trace::mark("application.ready");
             gpui_kit::init(cx);
             startup_trace::mark("components.ready");
-            ui::init(cx);
+            ui::init(cx, preferences);
             startup_trace::mark("ui.ready");
             cx.on_window_closed(|cx, _| {
                 if cx.windows().is_empty() {

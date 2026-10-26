@@ -106,6 +106,47 @@ pub enum PumpItem {
     Disconnected(String),
 }
 
+/// Fold a ready baseline before first paint, without blocking that paint on a
+/// busy stream. Any remaining events stay in FIFO order for the live pump.
+pub fn take_initial_events(events: &async_channel::Receiver<PumpItem>) -> Vec<PumpItem> {
+    (0..256).map_while(|_| events.try_recv().ok()).collect()
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::*;
+
+    #[test]
+    fn initial_snapshot_batch_is_bounded_and_never_consumes_or_reorders_overflow() {
+        let (send, receive) = async_channel::unbounded();
+        for number in 0..300 {
+            assert!(
+                send.try_send(PumpItem::Event(Box::new(
+                    AppServerEvent::UserMessageSubmitted {
+                        text: number.to_string(),
+                        images: Vec::new(),
+                    },
+                )))
+                .is_ok()
+            );
+        }
+        let first = take_initial_events(&receive);
+        assert_eq!(first.len(), 256);
+        let second = take_initial_events(&receive);
+        assert_eq!(second.len(), 44);
+        for (number, item) in first.into_iter().chain(second).enumerate() {
+            let PumpItem::Event(event) = item else {
+                panic!("expected event")
+            };
+            let AppServerEvent::UserMessageSubmitted { text, .. } = *event else {
+                panic!("expected message")
+            };
+            assert_eq!(text, number.to_string());
+        }
+        assert!(take_initial_events(&receive).is_empty());
+    }
+}
+
 /// Streams session events on a background thread, reconnecting until the
 /// receiver is dropped or the server shuts down. A dropped receiver is
 /// noticed on the next event or heartbeat, which ends the thread and closes
