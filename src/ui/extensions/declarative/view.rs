@@ -1,7 +1,10 @@
 //! A surface of an installed extension: panel, document or icon.
 
 use crate::ui::kit::{ButtonLabel as _, Frame as _};
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
+
+mod preparation;
+use preparation::Preparation;
 
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::*;
@@ -26,7 +29,8 @@ pub(super) struct DeclarativeView {
     runtime: Entity<Runtime>,
     view: String,
     surface: SurfaceKind,
-    root: Option<Node>,
+    root: Option<Rc<Node>>,
+    preparation: Preparation,
     failure: Option<String>,
     pub(super) images: super::images::Images,
     pub(super) root_revision: u64,
@@ -80,6 +84,7 @@ impl DeclarativeView {
             view,
             surface,
             root: None,
+            preparation: Preparation::default(),
             failure: None,
             images: super::images::Images::default(),
             root_revision: 0,
@@ -125,11 +130,11 @@ impl DeclarativeView {
                 transition: Some(new),
                 ..
             },
-        ) = (&self.root, &root)
+        ) = (self.root.as_deref(), &root)
         {
             self.focus_page |= old != new;
         }
-        self.root = Some(root);
+        self.root = Some(Rc::new(root));
         cx.notify();
         true
     }
@@ -149,14 +154,14 @@ impl DeclarativeView {
         if let Some(root) = &self.root {
             root.visit(&mut |node| unknown |= matches!(node, Node::Unknown));
         }
-        !unknown && self.root.as_ref().is_some_and(|root| {
+        !unknown && self.root.as_deref().is_some_and(|root| {
             !matches!(root, Node::Stack {children, ..} | Node::Fill {children} if children.is_empty())
         }) && self.error(cx).is_none()
     }
 
     /// Last tree and keys, to seed a reopened popup until the process answers.
     pub(super) fn snapshot(&self) -> Option<(Node, HashMap<String, String>)> {
-        Some((self.root.clone()?, self.keys.clone()))
+        Some((self.root.as_deref()?.clone(), self.keys.clone()))
     }
 
     pub(super) fn present(&mut self, presentation: Option<Presentation>, cx: &mut Context<Self>) {
@@ -197,6 +202,7 @@ impl DeclarativeView {
 
     pub(super) fn reset(&mut self, cx: &mut Context<Self>) {
         self.root = None;
+        self.preparation = Preparation::default();
         self.failure = None;
         self.images = super::images::Images::default();
         self.root_revision = self.root_revision.wrapping_add(1);
@@ -266,14 +272,17 @@ impl Render for DeclarativeView {
         }
         if let Some(root) = self.root.clone() {
             let scale = window.scale_factor() * crate::ui::prefs::scale(cx);
-            if self.images.rasterize(&root, scale, cx) {
+            let changed = self.preparation.for_frame(self.root_revision, scale);
+            if changed.images && self.images.rasterize(&root, scale, cx) {
                 // Propagate a raster error to a content shell before its
                 // next layout; ordinary surfaces use the same error banner.
                 cx.notify();
             }
-            self.prune_fields(&root);
-            self.prepare_steps(&root, cx);
-            self.prepare_fields(&root, window, cx);
+            if changed.fields {
+                self.prune_fields(&root);
+                self.prepare_steps(&root, cx);
+                self.prepare_fields(&root, window, cx);
+            }
         }
         if self.focus.is_focused(window) {
             // Follow visible tree order, not a HashMap of controls that also
@@ -300,7 +309,7 @@ impl Render for DeclarativeView {
         };
         let title = self.runtime.read(cx).title();
         let waiting = self.root.is_none() && error.is_none() && self.surface != SurfaceKind::Badge;
-        let fill = matches!(self.root, Some(Node::Fill { .. }));
+        let fill = matches!(self.root.as_deref(), Some(Node::Fill { .. }));
         let view = v_flex()
             .id(ElementId::Name(format!("declarative-{}", self.view).into()))
             .track_focus(&self.focus)
