@@ -40,18 +40,41 @@ impl Chat {
     }
 
     pub(super) fn load_context(&mut self, cx: &mut Context<Self>) {
+        if let Some(generation) = self.context_requests.request() {
+            self.fetch_context(generation, cx);
+        }
+    }
+
+    fn fetch_context(&mut self, generation: u64, cx: &mut Context<Self>) {
         let dir = self.session.dir.clone();
-        self.call(
-            cx,
-            move |api| api.context(&dir),
-            |this, context, cx| {
-                this.session.context = context
-                    .latest_usage
-                    .as_ref()
-                    .and_then(ContextUsage::from_snapshot);
-                cx.emit(ChatEvent::SessionStateChanged);
-            },
-        );
+        let api = self.api.clone();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { api.context(&dir) })
+                .await;
+            this.update(cx, |this, cx| {
+                let completed = this.context_requests.finish(generation);
+                if completed.apply {
+                    match result {
+                        Ok(context) => {
+                            this.session.context = context
+                                .latest_usage
+                                .as_ref()
+                                .and_then(ContextUsage::from_snapshot);
+                            cx.emit(ChatEvent::SessionStateChanged);
+                        }
+                        Err(error) => this.show_notice(format!("{error:#}"), cx),
+                    }
+                    cx.notify();
+                }
+                if let Some(generation) = completed.next {
+                    this.fetch_context(generation, cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Sends the composer text and images; the server queues them while a

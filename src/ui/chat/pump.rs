@@ -47,6 +47,7 @@ impl Chat {
         let session = &mut self.session;
         match item {
             PumpItem::Connected => {
+                self.context_requests.invalidate();
                 session.cursor.begin_connection();
                 session.pending_cursor.begin_connection();
                 session.connected = true;
@@ -114,6 +115,7 @@ impl Chat {
                         .root_thread
                         .is_none_or(|root| root == envelope.thread_id)
                 {
+                    self.context_requests.invalidate();
                     session.context = ContextUsage::from_event(usage);
                 } else {
                     shown = false;

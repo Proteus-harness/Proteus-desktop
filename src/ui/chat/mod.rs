@@ -8,6 +8,7 @@ mod activity_dock;
 mod attachment_io;
 mod attachments;
 mod composer;
+mod context_requests;
 pub(super) mod context_usage;
 mod draft;
 mod fences;
@@ -87,6 +88,7 @@ pub(super) struct Chat {
     pub session: Session,
     /// Invalidates a delayed catalog when another config snapshot was applied.
     config_generation: u64,
+    context_requests: context_requests::ContextRequests,
     scroller: Entity<ChatScroller>,
     composer: Entity<TextareaState>,
     composer_strip_bounds: Rc<Cell<Bounds<Pixels>>>,
@@ -187,6 +189,7 @@ impl Chat {
             workspace,
             session: Session::new(session_dir),
             config_generation: 0,
+            context_requests: context_requests::ContextRequests::default(),
             scroller,
             composer,
             composer_strip_bounds: Rc::default(),
@@ -211,7 +214,6 @@ impl Chat {
             _subscriptions: subscriptions,
         };
         chat.load_config(cx);
-        chat.load_context(cx);
         chat
     }
 
