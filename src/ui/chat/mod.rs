@@ -12,6 +12,7 @@ mod context_requests;
 pub(super) mod context_usage;
 mod draft;
 mod fences;
+mod history;
 mod images;
 mod notice;
 mod plan_panel;
@@ -89,6 +90,7 @@ pub(super) struct Chat {
     /// Invalidates a delayed catalog when another config snapshot was applied.
     config_generation: u64,
     context_requests: context_requests::ContextRequests,
+    history: history::History,
     scroller: Entity<ChatScroller>,
     composer: Entity<TextareaState>,
     composer_strip_bounds: Rc<Cell<Bounds<Pixels>>>,
@@ -144,6 +146,9 @@ impl Chat {
                 .submit_on_enter(enter_sends)
         });
         let subscriptions = vec![
+            cx.subscribe(&scroller, |this, _, _: &scroller::HistoryEdge, cx| {
+                this.load_older(cx)
+            }),
             cx.subscribe_in(
                 &composer,
                 window,
@@ -194,6 +199,7 @@ impl Chat {
             session: Session::new(session_dir),
             config_generation: 0,
             context_requests: context_requests::ContextRequests::default(),
+            history: history::History::default(),
             scroller,
             composer,
             composer_strip_bounds: Rc::default(),

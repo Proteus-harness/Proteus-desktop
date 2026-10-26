@@ -121,6 +121,45 @@ impl Transcript {
         }
     }
 
+    /// Replace the server-owned suffix while retaining a verified older prefix.
+    pub fn reset_suffix(&mut self, keep: usize, messages: Vec<AppTranscriptMessage>) -> Change {
+        let keep = keep.min(self.entries.len());
+        let mut prefix: Vec<_> = self.entries.drain(..keep).collect();
+        let change = self.reset(messages);
+        prefix.append(&mut self.entries);
+        self.entries = prefix;
+        match change {
+            Change::Spliced {
+                start,
+                removed,
+                inserted,
+            } => Change::Spliced {
+                start: keep + start,
+                removed,
+                inserted,
+            },
+            change => change,
+        }
+    }
+
+    pub fn prepend(&mut self, messages: Vec<AppTranscriptMessage>) -> Change {
+        let inserted = messages.len();
+        if inserted == 0 {
+            return Change::None;
+        }
+        let mut prefix: Vec<_> = messages
+            .into_iter()
+            .map(|message| self.entry_from(message))
+            .collect();
+        prefix.append(&mut self.entries);
+        self.entries = prefix;
+        Change::Spliced {
+            start: 0,
+            removed: 0,
+            inserted,
+        }
+    }
+
     pub fn push_user(
         &mut self,
         message_id: Option<MessageId>,

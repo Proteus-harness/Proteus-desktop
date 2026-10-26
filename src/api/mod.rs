@@ -60,6 +60,21 @@ impl Api {
         self.get("/sessions", None)
     }
 
+    pub fn history_page(
+        &self,
+        session_dir: &Path,
+        cursor: &proteus_contracts::app_protocol::AppTranscriptCursor,
+    ) -> Result<proteus_contracts::app_protocol::AppTranscriptPage> {
+        self.get_with(
+            "/history/page",
+            Some(session_dir),
+            &[
+                ("before", &cursor.before.to_string()),
+                ("revision", &cursor.revision),
+            ],
+        )
+    }
+
     pub fn resume(&self, session_dir: &Path) -> Result<SessionOpened> {
         let body = ResumeSessionRequest {
             id: Some(request_id("resume")),

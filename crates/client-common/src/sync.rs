@@ -65,6 +65,7 @@ mod tests {
         let session_id = new_session_id();
         let snapshot = |stream: &str, seq| AppServerEvent::SessionSnapshot {
             snapshot: Box::new(AppSessionSnapshot {
+                history: None,
                 session_id,
                 stream_id: stream.into(),
                 seq,

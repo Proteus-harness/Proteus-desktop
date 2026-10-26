@@ -95,7 +95,11 @@ impl Chat {
                 let snapshot = *snapshot;
                 session.execution = snapshot.execution;
                 session.root_thread = snapshot.root_thread_id;
-                session.transcript.reset(snapshot.transcript)
+                self.history.apply(
+                    &mut session.transcript,
+                    snapshot.transcript,
+                    snapshot.history,
+                )
             }
             AppServerEvent::ExecutionUpdated { execution } => {
                 let settled = session.running() && execution.active.is_none();
@@ -183,7 +187,7 @@ impl Chat {
         shown
     }
 
-    fn apply_change(&mut self, change: Change, cx: &mut Context<Self>) {
+    pub(super) fn apply_change(&mut self, change: Change, cx: &mut Context<Self>) {
         if matches!(change, Change::Spliced { .. }) {
             let entries = self.session.transcript.entries();
             self.replies

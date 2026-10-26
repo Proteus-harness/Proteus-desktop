@@ -49,7 +49,11 @@ pub(super) struct ChatScroller {
     size: Option<gpui_kit::Size<Pixels>>,
     hold: Option<Hold>,
     tail: TailFloor,
+    history_edge: bool,
 }
+
+pub(super) struct HistoryEdge;
+impl EventEmitter<HistoryEdge> for ChatScroller {}
 
 /// Rows whose height animates after the user toggled them.
 struct Hold {
@@ -80,6 +84,7 @@ impl ChatScroller {
             size: None,
             hold: None,
             tail: TailFloor::default(),
+            history_edge: false,
         }
     }
 
@@ -341,7 +346,15 @@ impl ChatList {
 
 impl RenderOnce for ChatList {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        if self.state.update(cx, |state, _| state.step(Instant::now())) {
+        if self.state.update(cx, |state, cx| {
+            let running = state.step(Instant::now());
+            let at_edge = !state.following && state.list.logical_scroll_top().item_ix < 8;
+            if at_edge && !state.history_edge {
+                cx.emit(HistoryEdge);
+            }
+            state.history_edge = at_edge;
+            running
+        }) {
             window.request_animation_frame();
         }
         let (list_state, scrolled_up, tail_row, tail_height) = {
