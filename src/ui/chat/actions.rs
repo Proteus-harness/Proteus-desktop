@@ -101,8 +101,7 @@ impl Chat {
             state.focus(window, cx);
         });
         self.clear_notice(cx);
-        self.scroller
-            .update(cx, |scroller, cx| scroller.scroll_to_end(cx));
+        self.show_latest(cx);
         cx.emit(ChatEvent::Sent);
         let api = self.api.clone();
         cx.spawn_in(window, async move |this, cx| {

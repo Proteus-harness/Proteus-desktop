@@ -49,11 +49,14 @@ pub(super) struct ChatScroller {
     size: Option<gpui_kit::Size<Pixels>>,
     hold: Option<Hold>,
     tail: TailFloor,
-    history_edge: bool,
+    history_edges: (bool, bool),
+    archived: bool,
 }
 
-pub(super) struct HistoryEdge;
+pub(super) struct HistoryEdge(pub super::history::Direction);
 impl EventEmitter<HistoryEdge> for ChatScroller {}
+pub(super) struct LatestRequested;
+impl EventEmitter<LatestRequested> for ChatScroller {}
 
 /// Rows whose height animates after the user toggled them.
 struct Hold {
@@ -84,7 +87,8 @@ impl ChatScroller {
             size: None,
             hold: None,
             tail: TailFloor::default(),
-            history_edge: false,
+            history_edges: (false, false),
+            archived: false,
         }
     }
 
@@ -111,11 +115,42 @@ impl ChatScroller {
             self.clear_tail();
         }
         self.list.splice(range, count);
+        self.history_edges = (false, false);
+        self.last_offset = None;
         if whole && self.following {
             self.list.scroll_to_end();
             self.last_offset = None;
         }
         self.changed(cx);
+    }
+
+    pub(super) fn set_archived(&mut self, archived: bool, cx: &mut Context<Self>) {
+        if archived != self.archived {
+            self.archived = archived;
+            if archived {
+                self.following = false;
+            } else {
+                self.list.remeasure();
+            }
+            self.last_offset = None;
+            cx.notify();
+        }
+    }
+
+    pub(super) fn visible_rows(&self) -> Range<usize> {
+        let start = self.list.logical_scroll_top().item_ix.min(self.row_count());
+        let bottom = self.list.viewport_bounds().bottom();
+        let mut end = start;
+        while end < self.row_count() {
+            let Some(bounds) = self.list.bounds_for_item(end) else {
+                break;
+            };
+            if bounds.top() >= bottom {
+                break;
+            }
+            end += 1;
+        }
+        start..end.max(start.saturating_add(1)).min(self.row_count())
     }
 
     pub(super) fn append(&mut self, count: usize, cx: &mut Context<Self>) {
@@ -192,17 +227,18 @@ impl ChatScroller {
     fn scrolled_up(&self) -> bool {
         // Collapsing a row retains blank room to keep the viewport steady.
         // Only actual content below the viewport warrants a jump button.
-        !self.following
-            && self.row_count().checked_sub(1).is_some_and(|last| {
-                self.list.bounds_for_item(last).map_or_else(
-                    || self.gap() > self.tail.height() + SETTLED,
-                    |bounds| {
-                        // Item bounds omit the list's top padding. Prefer
-                        // actual row geometry to the frozen scrollbar range.
-                        bounds.bottom() + EDGE > self.list.viewport_bounds().bottom() + SETTLED
-                    },
-                )
-            })
+        self.archived
+            || !self.following
+                && self.row_count().checked_sub(1).is_some_and(|last| {
+                    self.list.bounds_for_item(last).map_or_else(
+                        || self.gap() > self.tail.height() + SETTLED,
+                        |bounds| {
+                            // Item bounds omit the list's top padding. Prefer
+                            // actual row geometry to the frozen scrollbar range.
+                            bounds.bottom() + EDGE > self.list.viewport_bounds().bottom() + SETTLED
+                        },
+                    )
+                })
     }
 
     /// Advance following by one frame; returns whether another frame is needed.
@@ -231,6 +267,7 @@ impl ChatScroller {
             && gap <= SETTLED
             && self.tail.height() <= SETTLED
             && self.autoscroll
+            && !self.archived
             && !self.list.is_scrollbar_dragging()
         {
             self.following = true;
@@ -348,11 +385,17 @@ impl RenderOnce for ChatList {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         if self.state.update(cx, |state, cx| {
             let running = state.step(Instant::now());
-            let at_edge = !state.following && state.list.logical_scroll_top().item_ix < 8;
-            if at_edge && !state.history_edge {
-                cx.emit(HistoryEdge);
+            let visible = state.visible_rows();
+            let edges = (
+                !state.following && visible.start < 8,
+                state.archived && visible.end.saturating_add(8) >= state.row_count(),
+            );
+            if edges.0 && !state.history_edges.0 {
+                cx.emit(HistoryEdge(super::history::Direction::Older));
+            } else if edges.1 && !state.history_edges.1 {
+                cx.emit(HistoryEdge(super::history::Direction::Newer));
             }
-            state.history_edge = at_edge;
+            state.history_edges = edges;
             running
         }) {
             window.request_animation_frame();
@@ -420,7 +463,7 @@ impl RenderOnce for ChatList {
                                 .border_color(cx.theme().border)
                                 .bg(cx.theme().background)
                                 .on_click(move |_, _, cx| {
-                                    state.update(cx, |state, cx| state.scroll_to_end(cx));
+                                    state.update(cx, |_, cx| cx.emit(LatestRequested));
                                 }),
                             (self.id, "jump-enter"),
                         )),

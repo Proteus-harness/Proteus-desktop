@@ -65,8 +65,7 @@ impl Chat {
     }
 
     pub(super) fn row_of(&self, key: u64) -> Option<usize> {
-        self.session
-            .transcript
+        self.display_transcript()
             .entries()
             .iter()
             .position(|entry| entry.key == key)
@@ -78,7 +77,7 @@ impl Chat {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let entries = self.session.transcript.entries();
+        let entries = self.history.displayed(&self.session.transcript).entries();
         let Some(entry) = entries.get(ix) else {
             return div().into_any_element();
         };
@@ -194,7 +193,7 @@ impl Chat {
     /// Every call of a run as one block, spaced as their rows are at rest,
     /// so the block ends exactly where the rows will.
     fn render_run(&self, run: Range<usize>, cx: &mut Context<Self>) -> AnyElement {
-        let entries = self.session.transcript.entries();
+        let entries = self.history.displayed(&self.session.transcript).entries();
         let gap = px((TOOL_SPACING.bottom + TOOL_SPACING.top) * 4.);
         let mut block = v_flex();
         for (n, entry) in entries[run].iter().enumerate() {
@@ -217,7 +216,7 @@ impl Chat {
     }
 
     pub(super) fn prepare_tool_diffs(&mut self, cx: &mut Context<Self>) {
-        for entry in self.session.transcript.entries() {
+        for entry in self.history.displayed(&self.session.transcript).entries() {
             if !self.expanded.contains(&entry.key) {
                 continue;
             }

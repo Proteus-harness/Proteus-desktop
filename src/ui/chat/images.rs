@@ -28,6 +28,14 @@ pub(super) struct SentImages {
 }
 
 impl SentImages {
+    pub(super) fn retain(&mut self, entries: &[crate::transcript::Entry]) {
+        let ids: std::collections::HashSet<_> = entries
+            .iter()
+            .flat_map(|row| row.images.iter().map(|image| image.id.as_str()))
+            .collect();
+        self.by_id.retain(|id, _| ids.contains(id.as_str()));
+    }
+
     /// Images of a row that were never requested.
     pub fn missing(&self, images: &[ImageRef]) -> Vec<String> {
         images
@@ -61,7 +69,10 @@ impl Chat {
                     Err(error) => Stored::Failed(format!("{error:#}").into()),
                 };
                 this.update(cx, |this, cx| {
-                    this.sent_images.by_id.insert(id, stored);
+                    // A page may have been evicted while the image was loading.
+                    if let Some(slot) = this.sent_images.by_id.get_mut(&id) {
+                        *slot = stored;
+                    }
                     cx.notify();
                 })
                 .ok();

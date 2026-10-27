@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use proteus_contracts::app_protocol::{
     AppTranscriptMessage, AppTranscriptSubagent, AppTranscriptTool,
@@ -50,11 +51,11 @@ pub enum Change {
     Updated(usize),
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Transcript {
     entries: Vec<Entry>,
     turn_thread: Option<ThreadId>,
-    next_key: u64,
+    next_key: Arc<AtomicU64>,
 }
 
 impl Transcript {
@@ -121,27 +122,6 @@ impl Transcript {
         }
     }
 
-    /// Replace the server-owned suffix while retaining a verified older prefix.
-    pub fn reset_suffix(&mut self, keep: usize, messages: Vec<AppTranscriptMessage>) -> Change {
-        let keep = keep.min(self.entries.len());
-        let mut prefix: Vec<_> = self.entries.drain(..keep).collect();
-        let change = self.reset(messages);
-        prefix.append(&mut self.entries);
-        self.entries = prefix;
-        match change {
-            Change::Spliced {
-                start,
-                removed,
-                inserted,
-            } => Change::Spliced {
-                start: keep + start,
-                removed,
-                inserted,
-            },
-            change => change,
-        }
-    }
-
     pub fn prepend(&mut self, messages: Vec<AppTranscriptMessage>) -> Change {
         let inserted = messages.len();
         if inserted == 0 {
@@ -157,6 +137,51 @@ impl Transcript {
             start: 0,
             removed: 0,
             inserted,
+        }
+    }
+
+    /// Insert a page, sharing identities with the live tail where they overlap.
+    pub fn append_page(&mut self, messages: Vec<AppTranscriptMessage>, known: &Self) -> Change {
+        let start = self.entries.len();
+        for message in messages {
+            let mut entry = self.entry_from(message);
+            if let Some(old) = known
+                .entries
+                .iter()
+                .find(|old| identity_of(old).is_some() && identity_of(old) == identity_of(&entry))
+            {
+                entry.key = old.key;
+                entry.time = old.time;
+                if entry.text == old.text {
+                    entry.text = old.text.clone();
+                }
+            }
+            self.entries.push(entry);
+        }
+        Change::Spliced {
+            start,
+            removed: 0,
+            inserted: self.entries.len() - start,
+        }
+    }
+
+    pub fn remove(&mut self, range: std::ops::Range<usize>) -> Change {
+        let change = Change::Spliced {
+            start: range.start,
+            removed: range.len(),
+            inserted: 0,
+        };
+        self.entries.drain(range);
+        change
+    }
+
+    pub fn append_known(&mut self, entries: &[Entry]) -> Change {
+        let start = self.entries.len();
+        self.entries.extend_from_slice(entries);
+        Change::Spliced {
+            start,
+            removed: 0,
+            inserted: entries.len(),
         }
     }
 
@@ -400,8 +425,7 @@ impl Transcript {
     }
 
     fn allocate_key(&mut self) -> u64 {
-        self.next_key += 1;
-        self.next_key
+        self.next_key.fetch_add(1, Ordering::Relaxed) + 1
     }
 
     fn entry_from(&mut self, message: AppTranscriptMessage) -> Entry {
@@ -506,7 +530,10 @@ fn same_tool(a: &AppTranscriptTool, b: &AppTranscriptTool) -> bool {
         && a.effective_args.is_some() == b.effective_args.is_some()
 }
 
+mod cache;
 mod chains;
+
+pub use cache::window_changes;
 
 pub use chains::{affected_rows, tool_chain};
 

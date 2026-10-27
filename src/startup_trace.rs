@@ -25,6 +25,17 @@ pub fn first(stage: &'static str) {
     }
 }
 
+pub fn history_window(start: usize, rows: usize, bytes: usize, live_rows: usize) {
+    if TRACE.is_some() {
+        eprintln!(
+            "PROTEUS_HISTORY {}",
+            serde_json::json!({
+                "start": start, "rows": rows, "payload_bytes": bytes, "live_rows": live_rows,
+            })
+        );
+    }
+}
+
 pub fn span(stage: &str) -> Span<'_> {
     Span {
         stage,

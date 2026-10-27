@@ -237,8 +237,7 @@ impl Chat {
     /// time, so large tool results are not cloned for a toolbar every frame.
     fn copy_tool_block(&self, key: u64, part: usize, cx: &mut Context<Self>) {
         let Some(tool) = self
-            .session
-            .transcript
+            .display_transcript()
             .entries()
             .iter()
             .find(|entry| entry.key == key)

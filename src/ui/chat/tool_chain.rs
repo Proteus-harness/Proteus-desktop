@@ -26,7 +26,7 @@ impl Chat {
             self.open_chains.insert(head);
         }
         motion::toggled(chain_reveal_key(cx.entity_id(), head), open, cx);
-        let entries = self.session.transcript.entries();
+        let entries = self.display_transcript().entries();
         if let Some(row) = entries.iter().position(|entry| entry.key == head) {
             let rows = affected_rows(entries, row);
             self.scroller
@@ -38,13 +38,13 @@ impl Chat {
     /// Folded run around `ix`, when compact chains are on.
     pub(super) fn chain_at(&self, ix: usize, compact: bool) -> Option<Range<usize>> {
         compact
-            .then(|| tool_chain(self.session.transcript.entries(), ix))
+            .then(|| tool_chain(self.display_transcript().entries(), ix))
             .flatten()
     }
 
     /// Remeasures rows a change of row `ix` may fold or unfold.
     pub(super) fn remeasure_chain(&mut self, ix: usize, cx: &mut Context<Self>) {
-        let rows = affected_rows(self.session.transcript.entries(), ix);
+        let rows = affected_rows(self.display_transcript().entries(), ix);
         if rows.len() > 1 {
             self.scroller
                 .update(cx, |scroller, cx| scroller.remeasure_items(rows, cx));

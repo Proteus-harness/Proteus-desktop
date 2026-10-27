@@ -89,17 +89,20 @@ impl Chat {
         };
         let refresh_context = matches!(&event, AppServerEvent::SessionSnapshot { .. });
         let mut shown = true;
+        let mut display_changes = None;
         let change = match event {
             AppServerEvent::SessionSnapshot { snapshot } => {
                 crate::startup_trace::first("chat.snapshot.applied");
                 let snapshot = *snapshot;
                 session.execution = snapshot.execution;
                 session.root_thread = snapshot.root_thread_id;
-                self.history.apply(
+                let (change, display) = self.history.apply(
                     &mut session.transcript,
                     snapshot.transcript,
                     snapshot.history,
-                )
+                );
+                display_changes = Some(display);
+                change
             }
             AppServerEvent::ExecutionUpdated { execution } => {
                 let settled = session.running() && execution.active.is_none();
@@ -174,7 +177,11 @@ impl Chat {
             _ => Change::None,
         };
         shown |= !matches!(change, Change::None);
-        self.apply_change(change, cx);
+        if let Some(changes) = display_changes {
+            self.apply_history_changes(changes, cx);
+        } else if !self.history.archived() {
+            self.apply_change(change, cx);
+        }
         if refresh_context {
             self.load_context(cx);
         }
@@ -189,9 +196,14 @@ impl Chat {
 
     pub(super) fn apply_change(&mut self, change: Change, cx: &mut Context<Self>) {
         if matches!(change, Change::Spliced { .. }) {
-            let entries = self.session.transcript.entries();
-            self.replies
-                .retain(&entries.iter().map(|entry| entry.key).collect());
+            let entries = self.history.displayed(&self.session.transcript).entries();
+            let keys = entries.iter().map(|entry| entry.key).collect();
+            self.replies.retain(&keys);
+            self.tool_diffs.retain(|key, _| keys.contains(key));
+            self.expanded.retain(|key| keys.contains(key));
+            self.full_blocks.retain(|(key, _)| keys.contains(key));
+            self.open_chains.retain(|key| keys.contains(key));
+            self.sent_images.retain(entries);
             let replies = entries
                 .iter()
                 .filter(|entry| entry.role == Role::Assistant)
@@ -199,7 +211,11 @@ impl Chat {
             self.replies.prepare(replies, cx);
         }
         if matches!(change, Change::Pushed)
-            && let Some(entry) = self.session.transcript.entries().last()
+            && let Some(entry) = self
+                .history
+                .displayed(&self.session.transcript)
+                .entries()
+                .last()
         {
             self.fresh_rows.mark(entry.key);
         }
@@ -220,7 +236,12 @@ impl Chat {
             }
         });
         let changed = match change {
-            Change::Pushed => self.session.transcript.entries().len().checked_sub(1),
+            Change::Pushed => self
+                .history
+                .displayed(&self.session.transcript)
+                .entries()
+                .len()
+                .checked_sub(1),
             Change::Updated(row) => Some(row),
             Change::None | Change::Spliced { .. } => None,
         };

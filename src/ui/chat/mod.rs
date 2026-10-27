@@ -146,8 +146,11 @@ impl Chat {
                 .submit_on_enter(enter_sends)
         });
         let subscriptions = vec![
-            cx.subscribe(&scroller, |this, _, _: &scroller::HistoryEdge, cx| {
-                this.load_older(cx)
+            cx.subscribe(&scroller, |this, _, event: &scroller::HistoryEdge, cx| {
+                this.load_history(event.0, cx)
+            }),
+            cx.subscribe(&scroller, |this, _, _: &scroller::LatestRequested, cx| {
+                this.show_latest(cx)
             }),
             cx.subscribe_in(
                 &composer,
