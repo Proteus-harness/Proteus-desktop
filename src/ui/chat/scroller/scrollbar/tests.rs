@@ -110,6 +110,13 @@ fn drag_addresses_the_whole_history_and_holds_position_until_the_page_arrives() 
     );
     assert!(bar.scroll_to(target));
     assert_eq!(bar.list.logical_scroll_top().item_ix, 25);
+    // The fractional row is not measured yet. A newer remote position must
+    // supersede that local positioning as well as the previous HTTP request.
+    bar.set_offset(point(px(0.), px(-10000.)));
+    let newer = bar.take_target().unwrap();
+    assert!(!bar.scroll_to(newer));
+    assert!(bar.state.get().local.is_none());
+    assert_eq!(bar.offset().y, px(-10000.));
 }
 
 #[test]

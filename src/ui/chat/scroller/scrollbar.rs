@@ -84,6 +84,7 @@ impl HistoryScrollbar {
         let mut state = self.state.get();
         if target.row < range.start || target.row >= range.start + range.rows {
             state.waiting = true;
+            state.local = None;
             self.state.set(state);
             return false;
         }
