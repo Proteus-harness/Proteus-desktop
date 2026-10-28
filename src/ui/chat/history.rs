@@ -2,6 +2,7 @@
 use std::ops::Range;
 
 use super::Chat;
+use super::scroller::{HistoryRange, ScrollTarget};
 use crate::transcript::{Change, Transcript, window_changes};
 use gpui_kit::*;
 use proteus_contracts::app_protocol::{
@@ -24,6 +25,7 @@ pub(super) struct History {
     archive: Option<HistoryWindow>,
     epoch: u64,
     loading: bool,
+    seek: Option<ScrollTarget>,
 }
 
 struct HistoryWindow {
@@ -78,6 +80,18 @@ impl History {
         self.archive.is_some()
     }
 
+    fn range(&self, live: &Transcript) -> Option<HistoryRange> {
+        let cursor = self.cursor.as_ref()?;
+        Some(HistoryRange {
+            start: self
+                .archive
+                .as_ref()
+                .map_or(cursor.before, |window| window.start),
+            rows: self.displayed(live).entries().len(),
+            total: cursor.before + live.entries().len(),
+        })
+    }
+
     pub(super) fn apply(
         &mut self,
         live: &mut Transcript,
@@ -112,12 +126,14 @@ impl History {
         self.cursor = next;
         self.epoch += 1;
         self.loading = false;
+        self.seek = None;
         (change, display)
     }
 
     fn latest(&mut self, live: &Transcript) -> Vec<Change> {
         self.epoch += 1;
         self.loading = false;
+        self.seek = None;
         self.archive.take().map_or_else(Vec::new, |window| {
             window_changes(window.transcript.entries(), live.entries())
         })
@@ -204,6 +220,47 @@ impl History {
         }
         changes
     }
+
+    fn seek_cursor(&self) -> Option<AppTranscriptCursor> {
+        let target = self.seek?;
+        let mut cursor = self.cursor.clone()?;
+        cursor.before = target.row.saturating_add(PAGE_ROWS / 2).min(cursor.before);
+        Some(cursor)
+    }
+
+    fn cancel_seek(&mut self) -> bool {
+        if self.seek.take().is_none() {
+            return false;
+        }
+        self.epoch += 1;
+        self.loading = false;
+        true
+    }
+
+    fn accept_seek(
+        &mut self,
+        live: &Transcript,
+        requested: &AppTranscriptCursor,
+        page: AppTranscriptPage,
+    ) -> Option<(Vec<Change>, ScrollTarget)> {
+        let target = self.seek?;
+        if self.cursor.as_ref()?.revision != requested.revision
+            || page.revision != requested.revision
+            || page.start + page.messages.len() != requested.before
+            || !(page.start..requested.before).contains(&target.row)
+        {
+            return None;
+        }
+        let mut transcript = Transcript::default();
+        transcript.reset(page.messages);
+        let changes = window_changes(self.displayed(live).entries(), transcript.entries());
+        self.archive = Some(HistoryWindow {
+            start: page.start,
+            transcript,
+        });
+        self.seek = None;
+        Some((changes, target))
+    }
 }
 
 impl Chat {
@@ -225,6 +282,7 @@ impl Chat {
         self.scroller.update(cx, |state, cx| {
             state.set_archived(self.history.archived(), cx);
         });
+        self.sync_history_range(cx);
         let rows = self.display_transcript().entries();
         let start = self.history.archive.as_ref().map_or_else(
             || {
@@ -244,8 +302,100 @@ impl Chat {
         cx.notify();
     }
 
-    pub(super) fn load_history(&mut self, direction: Direction, cx: &mut Context<Self>) {
+    pub(super) fn sync_history_range(&mut self, cx: &mut Context<Self>) {
+        let range = self.history.range(&self.session.transcript);
+        self.scroller.update(cx, |state, cx| {
+            state.set_history_range(range, self.history.seek.is_some(), cx);
+        });
+    }
+
+    pub(super) fn seek_history(&mut self, target: ScrollTarget, cx: &mut Context<Self>) {
+        let Some(range) = self.history.range(&self.session.transcript) else {
+            return;
+        };
+        if target.row >= range.total {
+            self.show_latest(cx);
+        } else if (range.start..range.start + range.rows).contains(&target.row) {
+            self.cancel_history_seek(cx);
+        } else if target.row >= self.history.cursor.as_ref().unwrap().before {
+            let changes = self.history.latest(&self.session.transcript);
+            self.apply_history_changes(changes, cx);
+            self.scroller
+                .update(cx, |state, cx| state.scroll_to_history(target, cx));
+        } else {
+            self.history.seek = Some(target);
+            self.load_history_seek(cx);
+        }
+    }
+
+    pub(super) fn cancel_history_seek(&mut self, cx: &mut Context<Self>) {
+        if self.history.cancel_seek() {
+            self.sync_history_range(cx);
+            self.scroller
+                .update(cx, |state, cx| state.history_ready(cx));
+        }
+    }
+
+    fn load_history_seek(&mut self, cx: &mut Context<Self>) {
         if self.history.loading {
+            return;
+        }
+        let Some(cursor) = self.history.seek_cursor() else {
+            return;
+        };
+        self.history.loading = true;
+        let epoch = self.history.epoch;
+        let api = self.api.clone();
+        let dir = self.session.dir.clone();
+        cx.spawn(async move |this, cx| {
+            let requested = cursor.clone();
+            let page = cx
+                .background_executor()
+                .spawn(async move { api.history_page(&dir, &requested) })
+                .await;
+            this.update(cx, |this, cx| {
+                if this.history.epoch != epoch {
+                    return;
+                }
+                this.history.loading = false;
+                match page {
+                    Ok(page) => {
+                        // A drag can outrun this request. Reuse its page only
+                        // when it contains the newest requested position.
+                        if this.history.seek.is_some_and(|target| {
+                            !(page.start..page.start + page.messages.len()).contains(&target.row)
+                        }) {
+                            this.load_history_seek(cx);
+                            return;
+                        }
+                        if let Some((changes, target)) =
+                            this.history
+                                .accept_seek(&this.session.transcript, &cursor, page)
+                        {
+                            this.apply_history_changes(changes, cx);
+                            this.scroller
+                                .update(cx, |state, cx| state.scroll_to_history(target, cx));
+                        } else {
+                            this.history.seek = None;
+                            this.sync_history_range(cx);
+                            this.show_notice("История изменилась; ожидаю новый снимок сессии", cx);
+                        }
+                    }
+                    Err(error) => {
+                        this.history.seek = None;
+                        this.sync_history_range(cx);
+                        this.show_notice(format!("Не удалось загрузить историю: {error:#}"), cx);
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    pub(super) fn load_history(&mut self, direction: Direction, cx: &mut Context<Self>) {
+        if self.history.loading || self.history.seek.is_some() {
             return;
         }
         let Some(cursor) = self.history.request(direction, &self.session.transcript) else {
@@ -271,6 +421,10 @@ impl Chat {
                     return;
                 }
                 this.history.loading = false;
+                if this.history.seek.is_some() {
+                    this.load_history_seek(cx);
+                    return;
+                }
                 match page {
                     Ok(page) => {
                         let visible = this.scroller.read(cx).visible_rows();

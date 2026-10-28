@@ -25,6 +25,10 @@ use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::motion;
 
+mod scrollbar;
+use scrollbar::HistoryScrollbar;
+pub(super) use scrollbar::{HistoryRange, ScrollTarget};
+
 const OVERDRAW: Pixels = px(400.);
 /// Time constant of the glide: the remaining distance shrinks by ~63% per τ.
 const GLIDE_SECONDS: f32 = 0.08;
@@ -37,6 +41,7 @@ const HOLD_TAIL: Duration = Duration::from_millis(50);
 
 pub(super) struct ChatScroller {
     list: ListState,
+    scrollbar: HistoryScrollbar,
     following: bool,
     autoscroll: bool,
     /// Offset seen on the previous frame, to tell the user's scrolling apart.
@@ -57,6 +62,10 @@ pub(super) struct HistoryEdge(pub super::history::Direction);
 impl EventEmitter<HistoryEdge> for ChatScroller {}
 pub(super) struct LatestRequested;
 impl EventEmitter<LatestRequested> for ChatScroller {}
+pub(super) struct HistorySeek(pub ScrollTarget);
+impl EventEmitter<HistorySeek> for ChatScroller {}
+pub(super) struct HistorySeekCanceled;
+impl EventEmitter<HistorySeekCanceled> for ChatScroller {}
 
 /// Rows whose height animates after the user toggled them.
 struct Hold {
@@ -70,15 +79,24 @@ impl ChatScroller {
         // padding cannot do this: gpui skips row prepaint if the padding
         // itself fills the viewport.
         let list = ListState::new(1, ListAlignment::Top, OVERDRAW);
+        let scrollbar = HistoryScrollbar::new(list.clone());
+        let wheel = scrollbar.clone();
         let weak = cx.weak_entity();
         list.set_scroll_handler(move |_, _, cx| {
+            let canceled = wheel.cancel_target();
             let weak = weak.clone();
             cx.defer(move |cx| {
-                let _ = weak.update(cx, |_, cx| cx.notify());
+                let _ = weak.update(cx, |_, cx| {
+                    if canceled {
+                        cx.emit(HistorySeekCanceled);
+                    }
+                    cx.notify();
+                });
             });
         });
         Self {
             list,
+            scrollbar,
             following: true,
             autoscroll,
             last_offset: None,
@@ -151,6 +169,33 @@ impl ChatScroller {
             end += 1;
         }
         start..end.max(start.saturating_add(1)).min(self.row_count())
+    }
+
+    pub(super) fn set_history_range(
+        &mut self,
+        range: Option<HistoryRange>,
+        seeking: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if self.scrollbar.set_range(range, seeking) {
+            cx.notify();
+        }
+    }
+
+    pub(super) fn scroll_to_history(&mut self, target: ScrollTarget, cx: &mut Context<Self>) {
+        self.following = false;
+        self.hold = None;
+        self.clear_tail();
+        self.last_offset = None;
+        self.scrollbar.scroll_to(target);
+        // Resident positions also supersede any older page request.
+        cx.emit(HistorySeek(target));
+        self.changed(cx);
+    }
+
+    pub(super) fn history_ready(&mut self, cx: &mut Context<Self>) {
+        self.history_edges = (false, false);
+        cx.notify();
     }
 
     pub(super) fn append(&mut self, count: usize, cx: &mut Context<Self>) {
@@ -243,6 +288,7 @@ impl ChatScroller {
 
     /// Advance following by one frame; returns whether another frame is needed.
     fn step(&mut self, now: Instant) -> bool {
+        let positioning = self.scrollbar.settle();
         let offset = -self.list.scroll_px_offset_for_scrollbar().y;
         let gap = self.gap();
         let dt = self
@@ -273,7 +319,7 @@ impl ChatScroller {
             self.following = true;
         }
 
-        let mut running = dirty || tail_changed;
+        let mut running = dirty || tail_changed || positioning;
         if self.following && gap > SETTLED {
             let viewport = self.list.viewport_bounds().size.height;
             if !motion::plays() || gap > viewport * JUMP_VIEWPORTS {
@@ -384,6 +430,9 @@ impl ChatList {
 impl RenderOnce for ChatList {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         if self.state.update(cx, |state, cx| {
+            if let Some(target) = state.scrollbar.take_target() {
+                state.scroll_to_history(target, cx);
+            }
             let running = state.step(Instant::now());
             let visible = state.visible_rows();
             let edges = (
@@ -400,10 +449,11 @@ impl RenderOnce for ChatList {
         }) {
             window.request_animation_frame();
         }
-        let (list_state, scrolled_up, tail_row, tail_height) = {
+        let (list_state, scrollbar, scrolled_up, tail_row, tail_height) = {
             let state = self.state.read(cx);
             (
                 state.list.clone(),
+                state.scrollbar.clone(),
                 state.scrolled_up(),
                 state.row_count(),
                 state.tail.height(),
@@ -442,7 +492,7 @@ impl RenderOnce for ChatList {
                         resized.update(cx, |state, _| state.keep_end(bounds.size))
                     })
                     .child(rows)
-                    .vertical_scrollbar(&list_state),
+                    .vertical_scrollbar(&scrollbar),
             )
             .child(ScrollableMask::new(Axis::Vertical, &list_state).id(self.id.clone()))
             .when(scrolled_up, |this| {

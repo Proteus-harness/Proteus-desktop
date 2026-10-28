@@ -223,3 +223,112 @@ fn snapshot_keeps_archived_prefix_when_live_progress_is_replaced() {
     assert_eq!(history.displayed(&live).entries()[0].key, key);
     assert_eq!(history.archive.as_ref().unwrap().end(), 1000);
 }
+
+#[test]
+fn scrollbar_range_counts_unloaded_rows_and_live_progress() {
+    let (mut history, mut live) = fixture();
+    let initial = history.range(&live).unwrap();
+    assert_eq!(
+        (initial.start, initial.rows, initial.total),
+        (950, 50, 1000)
+    );
+    let requested = history.request(Direction::Older, &live).unwrap();
+    history
+        .accept_page(&live, Direction::Older, &requested, page(900, 950), 0..2)
+        .unwrap();
+    let loaded = history.range(&live).unwrap();
+    assert_eq!((loaded.start, loaded.rows, loaded.total), (900, 100, 1000));
+    live.push_user(None, "new while browsing", vec![]);
+    assert_eq!(history.range(&live).unwrap().total, 1001);
+    assert_eq!(history.displayed(&live).entries().len(), 100);
+}
+
+#[test]
+fn scrollbar_seek_loads_only_one_page_around_the_requested_message() {
+    let (mut history, live) = fixture();
+    history.seek = Some(super::ScrollTarget {
+        row: 500,
+        fraction: 0.25,
+    });
+    let requested = history.seek_cursor().unwrap();
+    assert_eq!(requested.before, 525);
+    let (_, target) = history
+        .accept_seek(&live, &requested, page(475, 525))
+        .unwrap();
+    assert_eq!(target.row, 500);
+    assert_eq!(target.fraction, 0.25);
+    let range = history.range(&live).unwrap();
+    assert_eq!((range.start, range.rows, range.total), (475, 50, 1000));
+    assert_eq!(&*history.displayed(&live).entries()[25].text, "row 500");
+    assert_eq!(live.entries().len(), 50);
+    assert!(history.seek.is_none());
+}
+
+#[test]
+fn in_flight_seek_can_satisfy_a_newer_pointer_position_only_inside_its_page() {
+    let (mut history, live) = fixture();
+    history.seek = Some(super::ScrollTarget {
+        row: 500,
+        fraction: 0.,
+    });
+    let requested = history.seek_cursor().unwrap();
+    history.seek = Some(super::ScrollTarget {
+        row: 100,
+        fraction: 0.,
+    });
+    assert!(
+        history
+            .accept_seek(&live, &requested, page(475, 525))
+            .is_none()
+    );
+    assert!(!history.archived());
+    assert_eq!(history.seek.unwrap().row, 100);
+    history.seek = Some(super::ScrollTarget {
+        row: 510,
+        fraction: 0.5,
+    });
+    let (_, target) = history
+        .accept_seek(&live, &requested, page(475, 525))
+        .unwrap();
+    assert_eq!(target.row, 510);
+    assert_eq!(target.fraction, 0.5);
+}
+
+#[test]
+fn snapshot_invalidates_an_in_flight_scrollbar_seek() {
+    let (mut history, mut live) = fixture();
+    history.seek = Some(super::ScrollTarget {
+        row: 500,
+        fraction: 0.,
+    });
+    let requested = history.seek_cursor().unwrap();
+    history.apply(&mut live, rows(951, 1001), Some(cursor("second", 951)));
+    assert!(
+        history
+            .accept_seek(&live, &requested, page(475, 525))
+            .is_none()
+    );
+    assert!(!history.archived());
+    assert!(history.seek.is_none());
+}
+
+#[test]
+fn returning_to_resident_data_invalidates_an_older_in_flight_seek() {
+    let (mut history, live) = fixture();
+    history.seek = Some(super::ScrollTarget {
+        row: 500,
+        fraction: 0.,
+    });
+    history.loading = true;
+    let epoch = history.epoch;
+    let requested = history.seek_cursor().unwrap();
+    assert!(history.cancel_seek());
+    assert_ne!(history.epoch, epoch);
+    assert!(!history.loading);
+    assert!(
+        history
+            .accept_seek(&live, &requested, page(475, 525))
+            .is_none()
+    );
+    assert!(!history.archived());
+}

@@ -152,6 +152,13 @@ impl Chat {
             cx.subscribe(&scroller, |this, _, _: &scroller::LatestRequested, cx| {
                 this.show_latest(cx)
             }),
+            cx.subscribe(&scroller, |this, _, event: &scroller::HistorySeek, cx| {
+                this.seek_history(event.0, cx)
+            }),
+            cx.subscribe(
+                &scroller,
+                |this, _, _: &scroller::HistorySeekCanceled, cx| this.cancel_history_seek(cx),
+            ),
             cx.subscribe_in(
                 &composer,
                 window,

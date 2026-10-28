@@ -182,6 +182,7 @@ impl Chat {
         } else if !self.history.archived() {
             self.apply_change(change, cx);
         }
+        self.sync_history_range(cx);
         if refresh_context {
             self.load_context(cx);
         }
