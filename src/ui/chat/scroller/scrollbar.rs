@@ -1,9 +1,16 @@
 //! A scrollbar over a whole paged history, independent of its resident window.
 //! Uses the same handle boundary as Zed's crates/ui/src/components/scrollbar.rs;
 //! the standard Kit scrollbar still owns painting, hit testing and dragging.
-use std::{cell::Cell, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
 
 use gpui_kit::{component::scroll::ScrollbarHandle, *};
+
+#[path = "scrollbar/geometry.rs"]
+mod geometry;
+use geometry::Geometry;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct HistoryRange {
@@ -24,7 +31,7 @@ struct State {
     range: Option<HistoryRange>,
     unit: Option<Pixels>,
     pending: Option<ScrollTarget>,
-    displayed: Option<ScrollTarget>,
+    displayed: Option<(ScrollTarget, Pixels)>,
     local: Option<ScrollTarget>,
     waiting: bool,
     drag_height: Option<Pixels>,
@@ -34,13 +41,17 @@ struct State {
 pub(crate) struct HistoryScrollbar {
     list: ListState,
     state: Rc<Cell<State>>,
+    geometry: Rc<RefCell<Geometry>>,
+    padding: Pixels,
 }
 
 impl HistoryScrollbar {
-    pub fn new(list: ListState) -> Self {
+    pub fn new(list: ListState, padding: Pixels) -> Self {
         Self {
             list,
             state: Rc::default(),
+            geometry: Rc::default(),
+            padding,
         }
     }
 
@@ -50,6 +61,7 @@ impl HistoryScrollbar {
         state.range = range;
         if range.is_none() {
             state = State::default();
+            *self.geometry.borrow_mut() = Geometry::default();
         } else if state.waiting && !seeking {
             state.waiting = false;
             state.displayed = None;
@@ -76,6 +88,10 @@ impl HistoryScrollbar {
         pending
     }
 
+    pub fn invalidate(&self, rows: std::ops::Range<usize>) {
+        self.geometry.borrow_mut().invalidate(rows);
+    }
+
     /// Scroll resident data immediately; an unloaded target goes to the owner.
     pub fn scroll_to(&self, target: ScrollTarget) -> bool {
         let Some(range) = self.state.get().range else {
@@ -90,13 +106,24 @@ impl HistoryScrollbar {
         }
         state.waiting = false;
         state.local = Some(target);
-        state.displayed = Some(target);
         self.state.set(state);
+        self.refresh_geometry(range);
+        // Resident drag positions already have real pixel geometry. Do not
+        // publish a frame at row offset zero before applying its fraction.
+        if target.fraction == 0.
+            || self.geometry.borrow().measured_height(target.row).is_some()
+            || self
+                .list
+                .bounds_for_item(target.row - range.start)
+                .is_some()
+        {
+            self.settle();
+            return true;
+        }
         self.list.scroll_to(ListOffset {
             item_ix: target.row - range.start,
             offset_in_item: px(0.),
         });
-        self.settle();
         true
     }
 
@@ -118,8 +145,17 @@ impl HistoryScrollbar {
         };
         let height = if target.fraction == 0. {
             px(0.)
-        } else if let Some(bounds) = self.list.bounds_for_item(index) {
-            bounds.size.height
+        } else if let Some(height) =
+            self.geometry
+                .borrow()
+                .measured_height(target.row)
+                .or_else(|| {
+                    self.list
+                        .bounds_for_item(index)
+                        .map(|bounds| bounds.size.height)
+                })
+        {
+            height
         } else {
             return true;
         };
@@ -127,7 +163,16 @@ impl HistoryScrollbar {
             item_ix: index,
             offset_in_item: height * target.fraction,
         });
+        self.refresh_geometry(range);
+        if let Some((requested, position)) = state.displayed
+            && requested == target
+        {
+            self.geometry
+                .borrow_mut()
+                .pin(self.list.logical_scroll_top(), position);
+        }
         state.local = None;
+        state.unit = self.state.get().unit;
         if state.drag_height.is_none() {
             state.displayed = None;
         }
@@ -180,6 +225,16 @@ impl HistoryScrollbar {
     fn max_offset(&self) -> Pixels {
         (self.height() - self.list.viewport_bounds().size.height).max(px(0.))
     }
+
+    fn refresh_geometry(&self, range: HistoryRange) {
+        self.geometry.borrow_mut().refresh(
+            &self.list,
+            range,
+            self.unit(),
+            self.max_offset(),
+            self.padding,
+        );
+    }
 }
 
 impl ScrollbarHandle for HistoryScrollbar {
@@ -200,35 +255,24 @@ impl ScrollbarHandle for HistoryScrollbar {
             return self.list.offset();
         };
         let max = self.max_offset();
-        if let Some(target) = state.displayed {
-            let offset = if target.row >= range.total {
-                max
-            } else {
-                self.unit() * (target.row as f32 + target.fraction)
-            };
+        self.refresh_geometry(range);
+        if let Some((_, offset)) = state.displayed {
             return point(px(0.), -offset.min(max));
         }
         let top = self.list.logical_scroll_top();
         let viewport = self.list.viewport_bounds();
         if range.start + range.rows == range.total
             && viewport.size.height > px(0.)
-            && range
-                .rows
-                .checked_sub(1)
-                .and_then(|last| self.list.bounds_for_item(last))
-                .is_some_and(|bounds| bounds.bottom() <= viewport.bottom())
+            && self
+                .list
+                .bounds_for_item(range.rows)
+                .is_some_and(|bounds| bounds.bottom() + self.padding <= viewport.bottom())
         {
+            self.geometry.borrow_mut().pin(top, max);
             return point(px(0.), -max);
         }
-        let fraction = self
-            .list
-            .bounds_for_item(top.item_ix)
-            .filter(|bounds| bounds.size.height > px(0.))
-            .map_or(0., |bounds| {
-                f32::from(top.offset_in_item / bounds.size.height).clamp(0., 1.)
-            });
-        let offset = self.unit() * ((range.start + top.item_ix) as f32 + fraction);
-        point(px(0.), -offset.clamp(px(0.), max))
+        let offset = self.geometry.borrow_mut().position(top);
+        point(px(0.), -offset)
     }
 
     fn set_offset(&self, offset: Point<Pixels>) {
@@ -237,12 +281,20 @@ impl ScrollbarHandle for HistoryScrollbar {
         };
         let max = self.max_offset();
         let offset = (-offset.y).clamp(px(0.), max);
+        self.refresh_geometry(range);
         let ordinal = f32::from(offset / self.unit());
         let target = if offset >= max {
             ScrollTarget {
                 row: range.total,
                 fraction: 0.,
             }
+        } else if offset <= px(0.) {
+            ScrollTarget {
+                row: 0,
+                fraction: 0.,
+            }
+        } else if let Some(target) = self.geometry.borrow().target(offset) {
+            target
         } else {
             ScrollTarget {
                 row: ordinal.floor() as usize,
@@ -251,7 +303,7 @@ impl ScrollbarHandle for HistoryScrollbar {
         };
         let mut state = self.state.get();
         state.pending = Some(target);
-        state.displayed = Some(target);
+        state.displayed = Some((target, offset));
         self.state.set(state);
     }
 

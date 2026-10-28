@@ -5,7 +5,7 @@ use gpui_kit::{
 
 fn fixture() -> HistoryScrollbar {
     let list = ListState::new(51, ListAlignment::Top, px(400.));
-    let bar = HistoryScrollbar::new(list);
+    let bar = HistoryScrollbar::new(list, px(0.));
     bar.set_range(
         Some(HistoryRange {
             start: 950,

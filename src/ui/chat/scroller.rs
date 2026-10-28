@@ -79,7 +79,7 @@ impl ChatScroller {
         // padding cannot do this: gpui skips row prepaint if the padding
         // itself fills the viewport.
         let list = ListState::new(1, ListAlignment::Top, OVERDRAW);
-        let scrollbar = HistoryScrollbar::new(list.clone());
+        let scrollbar = HistoryScrollbar::new(list.clone(), EDGE * 2.);
         let wheel = scrollbar.clone();
         let weak = cx.weak_entity();
         list.set_scroll_handler(move |_, _, cx| {
@@ -131,6 +131,7 @@ impl ChatScroller {
         if whole {
             self.hold = None;
             self.clear_tail();
+            self.scrollbar.invalidate(0..total);
         }
         self.list.splice(range, count);
         self.history_edges = (false, false);
@@ -149,6 +150,7 @@ impl ChatScroller {
                 self.following = false;
             } else {
                 self.list.remeasure();
+                self.scrollbar.invalidate(0..self.row_count());
             }
             self.last_offset = None;
             cx.notify();
@@ -205,6 +207,7 @@ impl ChatScroller {
 
     pub(super) fn remeasure(&mut self, cx: &mut Context<Self>) {
         self.list.remeasure();
+        self.scrollbar.invalidate(0..self.row_count());
         self.changed(cx);
     }
 
@@ -212,6 +215,7 @@ impl ChatScroller {
         if range.start > range.end || range.end > self.row_count() {
             return;
         }
+        self.scrollbar.invalidate(range.clone());
         self.list.remeasure_items(range);
         self.changed(cx);
     }
@@ -248,7 +252,11 @@ impl ChatScroller {
     /// glide brings them back. A following list stays at its end. Called
     /// before the list lays out at `size`.
     fn keep_end(&mut self, size: gpui_kit::Size<Pixels>) {
-        let resized = self.size.replace(size).is_some_and(|last| last != size);
+        let last = self.size.replace(size);
+        let resized = last.is_some_and(|last| last != size);
+        if last.is_some_and(|last| last.width != size.width) {
+            self.scrollbar.invalidate(0..self.row_count());
+        }
         if resized && self.following {
             self.list.scroll_to_end();
             // Rows above are unmeasured now, so the offset reads lower
@@ -353,6 +361,7 @@ impl ChatScroller {
 
     fn remeasure_tail(&self) {
         let tail = self.row_count();
+        self.scrollbar.invalidate(tail..tail + 1);
         self.list.remeasure_items(tail..tail + 1);
     }
 
@@ -392,6 +401,7 @@ impl ChatScroller {
             let rows = hold.rows.clone();
             self.hold = None;
             if rows.end <= self.row_count() {
+                self.scrollbar.invalidate(rows.clone());
                 self.list.remeasure_items(rows);
             }
             self.dirty = true;

@@ -158,6 +158,8 @@ cargo build --release
 Перетаскивание к далёкому месту загружает одну страницу вокруг выбранного
 сообщения, нижний край возвращает к живому хвосту. Пока идёт запрос, более новая
 позиция указателя заменяет прежнюю.
+В загруженном окне положение переводится через реальные высоты строк, поэтому
+скорость колеса и перетаскивания не зависит от высоты отдельного сообщения.
 Первый session snapshot запускает загрузку контекстного индикатора. Повторные
 обновления объединяются в один активный запрос и один ожидающий; старые HTTP
 ответы не заменяют более свежую telemetry из потока событий.
@@ -371,12 +373,19 @@ CI runner снимается мешающий этому AppArmor userns sysctl;
 проверяет подгрузку, вытеснение страниц и переходы по всему диапазону:
 
 ```bash
-cargo run --locked --profile fast --example history_scrollbar -- \
+cargo run --locked --release --example history_scrollbar -- \
   --verify build/verification/history-scrollbar-native.json
 ```
 
 Он использует стандартный scrollbar GPUI и тот же адаптер диапазона, что чат.
 Проверки состояния истории и устаревших ответов входят в `scripts/test.py`.
+Проверка равномерного движения на чередующихся строках высотой 36–960 px ждёт
+реальные кадры, проверяет колесо, drag, отпускание и края полной истории:
+
+```bash
+cargo run --locked --release --example history_scrollbar -- \
+  --mixed-heights --probe build/verification/history-scrollbar-motion.json
+```
 
 В `build/release/` и GitHub prerelease попадают versioned portable, архив
 точных tracked-исходников четырёх репозиториев, `release-sources.json`,
