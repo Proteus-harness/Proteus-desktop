@@ -70,9 +70,11 @@ Proteus Project. DCP отложен в `Proteus-modules/research/dcp` и иск�
 
 Для правки одного расширения используйте в его репозитории
 `python3 package.py --package <id>` и установите ZIP через менеджер расширений.
-Core и Desktop для этого пересобирать не нужно. Backend пока поставляется
-общим `proteus-reference-module`; выборочная упаковка расширений сама по себе
-не разделяет его реализации на независимые процессы.
+Core и Desktop для этого пересобирать не нужно. Backend также разделён на 18 самостоятельных процессных пакетов. В репозитории
+Modules команда `python3 package.py --package <id> --install /path/to/Proteus`
+обновляет один пакет в готовом portable без сборки Core, Desktop и остальных.
+Перезапустите backend после обновления. Общее изменение SDK/runtime может
+требовать пересборки потребителей. Aggregate fixture в поставку не включается.
 
 Эти изменения сборки адаптированы из `Qweasd123tg/proteus-modules-dot`,
 ревизия `ea7409b30edec9a84a842a36d6ec56d0fbdd3059`, каталог `build-speed`.
@@ -268,11 +270,12 @@ Model/режим и остальные значки расширений, акт
 python3 scripts/portable.py           # release с архивом
 python3 scripts/portable.py --fast    # локальная пересборка
 python3 scripts/portable.py --debug   # быстрее всего собрать
+python3 scripts/portable.py --fast --reuse-hosts # собрать пакеты, сохранить Core/Desktop
 ```
 
 `--fast` собирает клиент профилем `fast`: оптимизация как в release, но без
 LTO и инкрементально, поэтому правка клиента пересобирается за секунды, а не
-минуты; архив не пишется. Агент и модуль при этом берутся из release.
+минуты; архив не пишется. Агент и backend-пакеты при этом берутся из release.
 
 `scripts/portable.py` и `scripts/test.py` не занимают всю машину: они
 перезапускаются в systemd scope примерно с 40% процессоров и памяти, с низким
@@ -282,7 +285,7 @@ LTO и инкрементально, поэтому правка клиента 
 `--debug` собирает код клиента без оптимизаций: интерфейс может
 подтормаживать, для оценки плавности он не подходит.
 
-Скрипт собирает `proteus`, `proteus-reference-module` и клиент, затем
+Скрипт собирает `proteus`, независимые backend-пакеты и клиент, затем
 складывает `build/Proteus/` и архив
 `build/Proteus-<version>-linux-<arch>.tar.gz`:
 

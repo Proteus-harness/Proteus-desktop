@@ -222,7 +222,7 @@ class PortableWiringTests(unittest.TestCase):
         }
 
     def invoke_main(self, flags):
-        outputs = [Path("/cache/core"), Path("/cache/module"), Path("/cache/native")]
+        outputs = [Path("/cache/core"), Path("/cache/native")]
         with patch.object(self.portable, "resolve", side_effect=self.sources.__getitem__), \
              patch.object(self.portable, "build_binary", side_effect=outputs) as build, \
              patch.object(self.portable, "assemble") as assemble, \
@@ -237,25 +237,22 @@ class PortableWiringTests(unittest.TestCase):
             with self.subTest(flags=flags):
                 build, assemble, archive, outputs = self.invoke_main(flags)
                 self.assertEqual([call.args[3] for call in build.call_args_list],
-                                 [["--release"], ["--release"], ["--release"]])
+                                 [["--release"], ["--release"]])
                 self.assertEqual([call.args[1:3] for call in build.call_args_list], [
                     ("proteus-core", "proteus"),
-                    ("proteus-reference-module", "proteus-reference-module"),
                     ("proteus-native", "proteus-native"),
                 ])
                 self.assertEqual(build.call_args_list[0].args[4],
                                  self.portable.ROOT / "crates/proteus-core/Cargo.toml")
                 self.assertEqual(build.call_args_list[1].args[4],
-                                 self.portable.MODULES / "components/process-module/Cargo.toml")
-                self.assertEqual(build.call_args_list[2].args[4],
                                  self.portable.NATIVE / "Cargo.toml")
-                assemble.assert_called_once_with(*outputs)
+                assemble.assert_called_once_with(*outputs, "release", reuse_binaries=False)
                 self.assertEqual(archive.call_count, 0 if flags else 1)
 
     def test_fast_and_debug_existing_semantics_unchanged(self):
         for flag, expected in [
-            ("--fast", [["--release"], ["--release"], ["--profile", "fast"]]),
-            ("--debug", [[], [], []]),
+            ("--fast", [["--release"], ["--profile", "fast"]]),
+            ("--debug", [[], []]),
         ]:
             with self.subTest(flag=flag):
                 build, _, archive, _ = self.invoke_main([flag])
@@ -274,7 +271,7 @@ class PortableWiringTests(unittest.TestCase):
         archive.assert_not_called()
 
     def test_reuse_skips_all_builds_and_limits_and_keeps_fast_profile(self):
-        outputs = [Path("/cache/core"), Path("/cache/module"), Path("/cache/native")]
+        outputs = [Path("/cache/core"), Path("/cache/native")]
         with patch.object(self.portable, "resolve", side_effect=self.sources.__getitem__), \
              patch.object(self.portable, "build_binary") as build, \
              patch.object(self.portable, "existing_binary", side_effect=outputs) as existing, \
@@ -288,27 +285,31 @@ class PortableWiringTests(unittest.TestCase):
         limit.assert_not_called()
         archive.assert_not_called()
         self.assertEqual([call.args[1:] for call in existing.call_args_list], [
-            ("release", "proteus"), ("release", "proteus-reference-module"),
+            ("release", "proteus"),
             ("fast", "proteus-native"),
         ])
-        assemble.assert_called_once_with(*outputs, reuse_binaries=True)
+        assemble.assert_called_once_with(*outputs, "release", reuse_binaries=True)
 
     def test_assemble_uses_exact_binaries_and_extensions_source_cwd(self):
-        agent, module, client = [Path("/external cache") / name for name in ("core", "module", "client")]
+        agent, client = [Path("/external cache") / name for name in ("core", "client")]
         with patch.object(self.portable, "install_file") as install, \
              patch.object(self.portable, "tracked_configs", return_value=[]), \
              patch.object(self.portable, "run") as run, \
              patch.object(self.portable.shutil, "rmtree"), \
              patch.object(Path, "rename"):
-            self.portable.assemble(agent, module, client)
+            self.portable.assemble(agent, client)
         staging = self.portable.BUILD / "Proteus.next"
         self.assertEqual(install.call_args_list[0].args, (client, staging / "bin/proteus-native", True))
         self.assertEqual(install.call_args_list[1].args, (agent, staging / "bin/proteus", True))
-        self.assertEqual(install.call_args_list[2].args, (module, staging / "bin/proteus-reference-module", True))
-        run.assert_called_once_with([
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(run.call_args_list[0].args, ([
+            sys.executable, str(self.portable.MODULES / "package.py"), "--profile", "release",
+            "--bundle", str(staging),
+        ], self.portable.MODULES))
+        self.assertEqual(run.call_args_list[1].args, ([
             sys.executable, str(self.portable.EXTENSIONS / "package.py"),
             "--bundle", str(staging / "share/extensions"),
-        ], self.portable.EXTENSIONS)
+        ], self.portable.EXTENSIONS))
         # package.py builds at its own source ROOT and interprets the inherited
         # relative CARGO_TARGET_DIR at its process cwd. These now coincide.
         relative = Path("relative cache")

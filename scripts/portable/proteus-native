@@ -3,7 +3,7 @@
 #
 # Installs the bundled profiles into the agent config folder (named profiles
 # are copied only when missing, their fragments and prompts are refreshed),
-# then starts the client with the bundled agent server and reference module.
+# then starts the client with the bundled agent server and independent modules.
 set -eu
 
 here=$(dirname "$(readlink -f "$0")")

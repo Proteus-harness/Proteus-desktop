@@ -104,7 +104,8 @@ roles = []
 implementation = "fake"
 ''')
         with config.open("a") as output:
-            for component in ("reference-model", "reference-capabilities"):
+            for component in ("reference-model", "skill-pack", "memory-pack", "file-tools",
+                              "git-tools", "shell-tool", "plan-tool", "rust-lsp", "policy-pack", "codex-patch"):
                 output.write(f"\n[components.{component}]\nenv_allowlist = []\n")
                 output.write(f"[components.{component}.env]\n")
                 for key in ("HOME", "PROTEUS_HOME", "XDG_DATA_HOME"):
