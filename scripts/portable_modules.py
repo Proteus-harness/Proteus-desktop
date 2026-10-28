@@ -12,7 +12,7 @@ def require_node():
         ["node", "-p", "process.versions.node"], text=True,
     ).strip()
     if tuple(map(int, version.split(".")[:2])) < (22, 18):
-        raise SystemExit("Portable modules require Node.js 22.18+ (and DCP requires npm) on PATH")
+        raise SystemExit("Portable hook modules require Node.js 22.18+ on PATH")
 
 
 def copy_tracked(repository, source, target):

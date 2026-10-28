@@ -7,6 +7,8 @@ of the folder is written next to it.
 """
 
 import argparse
+import hashlib
+import json
 import os
 import shutil
 import stat
@@ -21,7 +23,6 @@ MODULES = None
 EXTENSIONS = None
 from sources import resolve
 from limits import limit
-from portable_dcp import assemble as assemble_dcp
 from portable_modules import assemble as assemble_modules
 from release_metadata import install_notices, version, write_manifest
 BUILD = NATIVE / "build"
@@ -53,7 +54,7 @@ def install_file(source, target, executable=False):
         target.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
-def assemble(agent_profile, client_profile):
+def assemble(agent_profile, client_profile, reuse_binaries=False):
     staging = BUILD / "Proteus.next"
     shutil.rmtree(staging, ignore_errors=True)
     agent = ROOT / "target" / agent_profile
@@ -66,14 +67,22 @@ def assemble(agent_profile, client_profile):
         staging / "bin/proteus-reference-module",
         True,
     )
-    assemble_dcp(MODULES, staging)
     assemble_modules(ROOT, MODULES, staging)
     for path in tracked_configs():
         install_file(ROOT / path, staging / "share" / path)
+    extension_flags = ["--no-build"] if reuse_binaries else []
     run([sys.executable, str(EXTENSIONS / "package.py"), "--bundle",
-         str(staging / "share/extensions")], ROOT)
+         str(staging / "share/extensions"), *extension_flags], ROOT)
     install_notices(staging, NATIVE, ROOT, MODULES, EXTENSIONS)
-    write_manifest(staging, NATIVE, ROOT, MODULES, EXTENSIONS)
+    record = write_manifest(staging, NATIVE, ROOT, MODULES, EXTENSIONS)
+    if reuse_binaries:
+        record["build_mode"] = "reuse-binaries"
+        record["binary_sha256"] = {}
+        for binary in (staging / "bin").iterdir():
+            if binary.name in ("proteus", "proteus-native", "proteus-reference-module"):
+                with binary.open("rb") as stream:
+                    record["binary_sha256"][binary.name] = hashlib.file_digest(stream, "sha256").hexdigest()
+        (staging / "share/release-sources.json").write_text(json.dumps(record, indent=2) + "\n")
     install_file(ICON, staging / "share/icons/proteus-native.png")
     install_file(NATIVE / "assets/proteus-logo.svg", staging / "share/icons/proteus-native.svg")
     install_file(ASSETS / "proteus-native", staging / "proteus-native", True)
@@ -108,21 +117,24 @@ def main():
     parser.add_argument(
         "--no-archive", action="store_true", help="skip the tar.gz archive"
     )
+    parser.add_argument(
+        "--reuse-binaries", action="store_true",
+        help="assemble profiles, modules and extensions using existing binaries; skip Cargo builds",
+    )
     args = parser.parse_args()
-    limit()
+    if not args.reuse_binaries:
+        limit()
     global ROOT, MODULES, EXTENSIONS
     ROOT, MODULES, EXTENSIONS = resolve("harness"), resolve("modules"), resolve("extensions")
     profile = "debug" if args.debug else "release"
     flags = [] if args.debug else ["--release"]
-    run(
-        ["cargo", "build", "--locked", *flags, "-p", "proteus-core"],
-        ROOT,
-    )
-    run(["cargo", "build", "--locked", *flags, "-p", "proteus-reference-module"], MODULES)
     client_profile = "fast" if args.fast else profile
     client_flags = ["--profile", "fast"] if args.fast else flags
-    run(["cargo", "build", "--locked", *client_flags, "-p", "proteus-native"], NATIVE)
-    assemble(profile, client_profile)
+    if not args.reuse_binaries:
+        run(["cargo", "build", "--locked", *flags, "-p", "proteus-core"], ROOT)
+        run(["cargo", "build", "--locked", *flags, "-p", "proteus-reference-module"], MODULES)
+        run(["cargo", "build", "--locked", *client_flags, "-p", "proteus-native"], NATIVE)
+    assemble(profile, client_profile, reuse_binaries=args.reuse_binaries)
     print(f"Portable: {PORTABLE}")
     if not (args.no_archive or args.fast):
         print(f"Archive:  {archive()}")

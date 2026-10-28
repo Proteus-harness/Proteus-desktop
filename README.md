@@ -33,6 +33,7 @@ PROTEUS_EXTENSIONS_SOURCE, использует соседние checkout `../Pr
 python3 scripts/test.py
 python3 scripts/run.py /path/to/project --config PROFILE
 python3 scripts/portable.py --fast
+python3 scripts/portable.py --fast --reuse-binaries # обновить поставку без компиляции
 ./build/Proteus/proteus-native /path/to/project
 ```
 
@@ -49,10 +50,9 @@ cargo test --locked -p proteus-tabs --lib
 38 тестов tabs; полный runner сохраняет их охват через `--workspace`.
 
 Для сборки и упаковки расширений нужен Python 3 без дополнительных pip-пакетов. Их автор —
-Proteus Project. Default-профиль включает DCP: для запуска portable нужен
-системный Node.js 22.18+, а для сборки — также npm. Упаковщик собирает DCP в
-отдельной staging-папке и включает `bin/proteus-dcp`, исходники, лицензии и
-production-зависимости в `share/modules/dcp`; Node.js устанавливается отдельно.
+Proteus Project. DCP отложен в `Proteus-modules/research/dcp` и исключён из
+штатных профилей, сборки и поставки. Для поставляемых JS hook adapters нужен
+системный Node.js 22.18+; npm для упаковки portable не требуется.
 В `share/modules/claude-command-hooks` и `share/modules/hook-process` поставляются
 адаптер командных hooks и общий JavaScript SDK. Адаптер подключается явно;
 упаковка не включает выполнение сторонних hooks. `bin/proteus-hook-worker`
@@ -287,8 +287,7 @@ LTO и инкрементально, поэтому правка клиента 
   Поставляемые Rust-бинарники запускаются без Python и исходного checkout; SDK
   используется при разработке пакетов.
 - `share/licenses/` — лицензии четырёх репозиториев и Apache LICENSE/NOTICE
-  заимствованного кода; лицензия AGPL и соответствующие исходники отдельного
-  DCP-процесса находятся в `share/modules/dcp`;
+  заимствованного кода;
 - `share/release-sources.json` — версия, фактические commits всех четырёх
   исходных checkout, их dirty-состояние, платформа и версии инструментов сборки.
 
@@ -307,8 +306,8 @@ LTO и инкрементально, поэтому правка клиента 
   module также должны совпадать. Неправильный тег останавливает сборку.
 
 Workflow использует `ubuntu-24.04`, Rust 1.95.0, Node.js 22.23.4 и Python
-3.12.15. Сторонние Actions закреплены полными commit SHA. Кэшируются Cargo
-и npm dependencies. `scripts/release.py prepare` загружает именно commits из
+3.12.15. Сторонние Actions закреплены полными commit SHA. Кэшируются зависимости
+Cargo. `scripts/release.py prepare` загружает именно commits из
 `repositories.json`, игнорируя соседние checkout и внешние source overrides;
 проверки отклоняют изменённые исходники и несовпадение SHA. Матрица запускает
 существующие test runners, в том числе реальные process/sandbox fixtures.
@@ -321,7 +320,7 @@ CI runner снимается мешающий этому AppArmor userns sysctl;
 
 После сборки `scripts/release.py smoke` распаковывает архив в другой каталог
 и проверяет CLI/Desktop `--version`, launcher, restricted-профиль с fake model,
-запись файла, hooks, replay, HTTP-аутентификацию, DCP/WASM и упакованные
+запись файла, hooks, replay, HTTP-аутентификацию и упакованные
 расширения. Используются отдельный HOME и синтетические сессии, без ключей модели.
 Для JS hooks smoke отдельно перемещает поставляемые assets в путь с пробелом,
 проверяет launchers, инспекцию без исполнения команд и bundled Node gate.

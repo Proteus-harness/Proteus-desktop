@@ -68,8 +68,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            ~/.npm
-          key: deps-${{ runner.os }}-${{ runner.arch }}-rust1.95-node22-${{ hashFiles('**/Cargo.lock', '**/package-lock.json', 'repositories.json') }}
+          key: deps-${{ runner.os }}-${{ runner.arch }}-rust1.95-node22-${{ hashFiles('**/Cargo.lock', 'repositories.json') }}
           restore-keys: deps-${{ runner.os }}-${{ runner.arch }}-rust1.95-node22-
       - name: Validate clean source pins and release version
         run: python3 scripts/release.py check --tag "$PROTEUS_RELEASE_TAG"
@@ -115,8 +114,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            ~/.npm
-          key: deps-${{ runner.os }}-${{ runner.arch }}-rust1.95-node22-${{ hashFiles('**/Cargo.lock', '**/package-lock.json', 'repositories.json') }}
+          key: deps-${{ runner.os }}-${{ runner.arch }}-rust1.95-node22-${{ hashFiles('**/Cargo.lock', 'repositories.json') }}
           restore-keys: deps-${{ runner.os }}-${{ runner.arch }}-rust1.95-node22-
       - name: Validate clean source pins and release version
         run: python3 scripts/release.py check --tag "$PROTEUS_RELEASE_TAG"
@@ -160,7 +158,7 @@ jobs:
           Experimental alpha-поставка Proteus для Linux x86_64.
           Распакуйте архив и запустите `Proteus/proteus-native`.
 
-          Включены Desktop, Core, reference-модуль, DCP, профили и расширения клиента.
+          Включены Desktop, Core, reference-модуль, профили и расширения клиента.
           Rust SDK и самостоятельный tool starter находятся в Proteus-core:
           https://github.com/Proteus-harness/Proteus-core/blob/main/docs/guides/rust-module-sdk.md
 
@@ -170,7 +168,7 @@ jobs:
 
           Манифест содержит точные commits четырёх репозиториев и платформу сборки.
           SHA256SUMS покрывает архивы, provenance и результаты синтетических проверок.
-          Включены MIT/Apache notices и исходники/лицензии отдельного DCP (AGPL).
+          Включены лицензии репозиториев и MIT/Apache notices заимствованного кода.
           SDK, config, API, wire и история остаются experimental.
           Headless-проверки не подтверждают работу нативного окна или качество живой модели.
           NOTES

@@ -92,9 +92,6 @@ def install_notices(portable, desktop, core, modules, extensions):
         "The Codex-derived code includes Apache-2.0 LICENSE and NOTICE files below.\n"
         "Patched Apache-2.0 vendored crates keep upstream licenses and source\n"
         "provenance below Proteus-desktop/vendor/.\n"
-        "The separate DCP worker is AGPL-3.0-or-later. Its corresponding tracked sources,\n"
-        "build instructions, package lock, upstream sources and dependency licenses are\n"
-        "included in ../modules/dcp (including dist/LICENSE.upstream).\n"
         "The release sources archive also contains the four exact Proteus source snapshots.\n",
     )
 

@@ -168,7 +168,7 @@ class MetadataTests(unittest.TestCase):
                 (portable / "share/licenses/Proteus-desktop/vendor/gpui-component/LICENSE.upstream").read_text(),
                 "synthetic gpui-component LICENSE.upstream",
             )
-            self.assertIn("AGPL-3.0-or-later", (portable / "share/licenses/README.txt").read_text())
+            self.assertIn("Apache-2.0", (portable / "share/licenses/README.txt").read_text())
 
 
 if __name__ == "__main__":

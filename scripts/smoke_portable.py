@@ -79,9 +79,9 @@ def probe(archive, extensions):
             for notice in ("LICENSE", "NOTICE"):
                 assert (portable / "share/licenses/Proteus-modules" / relative / notice).is_file()
         checks.append("root_and_vendored_notices")
-        subprocess.run(["python3", str(ROOT / "scripts/test_portable_dcp.py"), str(portable)],
-                       cwd=workspace, env=env, check=True, timeout=120)
-        checks.append("relocated_dcp_worker_sources_licenses_and_wasm")
+        assert not (portable / "bin/proteus-dcp").exists()
+        assert not (portable / "share/modules/dcp").exists()
+        checks.append("experimental_dcp_excluded")
         subprocess.run(["python3", str(ROOT / "scripts/test_portable_hooks.py"), str(portable)],
                        cwd=workspace, env=env, check=True, timeout=120)
         checks.append("relocated_hook_launchers_inspection_and_adapter_node_gate")
@@ -104,14 +104,11 @@ roles = []
 implementation = "fake"
 ''')
         with config.open("a") as output:
-            for component in ("reference-model", "reference-capabilities", "dcp"):
+            for component in ("reference-model", "reference-capabilities"):
                 output.write(f"\n[components.{component}]\nenv_allowlist = []\n")
                 output.write(f"[components.{component}.env]\n")
                 for key in ("HOME", "PROTEUS_HOME", "XDG_DATA_HOME"):
                     output.write(key + " = " + json.dumps(env[key]) + "\n")
-            for slot, name in (("hook", "hook.dcp"), ("tool", "dcp.tools")):
-                output.write(f"\n[module_config.{slot}.{json.dumps(name)}]\nstate_dir = "
-                             + json.dumps(str(work / "dcp-state")) + "\n")
         cli = [portable / "bin/proteus", "--config", config, "--cwd", workspace]
         assert "config loaded" in command(cli + ["doctor"])
         assert "готов к запуску" in command(cli + ["inspect", "plan"])
@@ -123,7 +120,7 @@ implementation = "fake"
         journal = journals[0]
         records = [json.loads(line) for line in journal.read_text().splitlines()]
         assert "SYNTHETIC_RELEASE_INSTRUCTIONS" in json.dumps(records)
-        for hook in ("codex_compact", "hook.dcp"):
+        for hook in ("codex_compact",):
             assert any(hook in json.dumps(record) for record in records if "hook_invoked" in json.dumps(record))
         checks.append("restricted_workflow_context_policy_hooks_and_file_turn")
         before = hashlib.sha256(journal.read_bytes()).hexdigest()
