@@ -15,7 +15,7 @@ use std::ops::Range;
 use std::time::{Duration, Instant};
 
 use gpui_kit::component::button::ButtonVariants as _;
-use gpui_kit::component::scroll::{ScrollableElement as _, ScrollableMask};
+use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -43,6 +43,8 @@ pub(super) struct ChatScroller {
     list: ListState,
     scrollbar: HistoryScrollbar,
     following: bool,
+    /// Upward wheel input pauses following even when a folded page fits.
+    wheel_up: bool,
     autoscroll: bool,
     /// Offset seen on the previous frame, to tell the user's scrolling apart.
     last_offset: Option<Pixels>,
@@ -74,30 +76,17 @@ struct Hold {
 }
 
 impl ChatScroller {
-    pub(super) fn new(autoscroll: bool, cx: &mut Context<Self>) -> Self {
+    pub(super) fn new(autoscroll: bool) -> Self {
         // A permanent empty final row owns retained room. Large bottom
         // padding cannot do this: gpui skips row prepaint if the padding
         // itself fills the viewport.
         let list = ListState::new(1, ListAlignment::Top, OVERDRAW);
         let scrollbar = HistoryScrollbar::new(list.clone(), EDGE * 2.);
-        let wheel = scrollbar.clone();
-        let weak = cx.weak_entity();
-        list.set_scroll_handler(move |_, _, cx| {
-            let canceled = wheel.cancel_target();
-            let weak = weak.clone();
-            cx.defer(move |cx| {
-                let _ = weak.update(cx, |_, cx| {
-                    if canceled {
-                        cx.emit(HistorySeekCanceled);
-                    }
-                    cx.notify();
-                });
-            });
-        });
         Self {
             list,
             scrollbar,
             following: true,
+            wheel_up: false,
             autoscroll,
             last_offset: None,
             last_frame: None,
@@ -115,8 +104,24 @@ impl ChatScroller {
             return;
         }
         self.autoscroll = autoscroll;
+        self.wheel_up = false;
         self.following = autoscroll && self.tail.height() <= SETTLED && self.gap() <= SETTLED;
         cx.notify();
+    }
+
+    /// The native list handles pixels first, after nested scrollers. Its
+    /// parent then records intent even if there was no local room to move.
+    fn user_scroll(&mut self, delta: Point<Pixels>) -> Option<bool> {
+        if delta.y == px(0.) || delta.x.abs() > delta.y.abs() {
+            return None;
+        }
+        self.wheel_up = delta.y > px(0.);
+        if self.wheel_up {
+            self.following = false;
+            // Retry an older page even if a previous edge request failed.
+            self.history_edges = (false, false);
+        }
+        Some(self.scrollbar.cancel_target())
     }
 
     pub(super) fn splice(&mut self, range: Range<usize>, count: usize, cx: &mut Context<Self>) {
@@ -242,6 +247,7 @@ impl ChatScroller {
         self.hold = None;
         self.clear_tail();
         self.following = true;
+        self.wheel_up = false;
         self.dirty = true;
         cx.notify();
     }
@@ -318,6 +324,7 @@ impl ChatScroller {
         }
         let tail_changed = self.settle_tail();
         if !self.following
+            && !self.wheel_up
             && gap <= SETTLED
             && self.tail.height() <= SETTLED
             && self.autoscroll
@@ -484,6 +491,7 @@ impl RenderOnce for ChatList {
         .min_h_0()
         .py(EDGE);
         let state = self.state.clone();
+        let wheel = self.state.clone();
         let resized = self.state.clone();
         div()
             .id(self.id.clone())
@@ -491,6 +499,16 @@ impl RenderOnce for ChatList {
             .size_full()
             .min_h_0()
             .overflow_hidden()
+            .on_scroll(move |event, _, cx| {
+                wheel.update(cx, |state, cx| {
+                    if let Some(canceled) = state.user_scroll(event.delta.pixel_delta(px(1.))) {
+                        if canceled {
+                            cx.emit(HistorySeekCanceled);
+                        }
+                        cx.notify();
+                    }
+                });
+            })
             .child(
                 div()
                     .id((self.id.clone(), "viewport"))
@@ -504,7 +522,6 @@ impl RenderOnce for ChatList {
                     .child(rows)
                     .vertical_scrollbar(&scrollbar),
             )
-            .child(ScrollableMask::new(Axis::Vertical, &list_state).id(self.id.clone()))
             .when(scrolled_up, |this| {
                 this.child(
                     h_flex()
@@ -531,3 +548,7 @@ impl RenderOnce for ChatList {
             })
     }
 }
+
+#[cfg(test)]
+#[path = "scroller/tests.rs"]
+mod tests;

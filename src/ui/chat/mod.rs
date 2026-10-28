@@ -137,7 +137,7 @@ impl Chat {
         cx: &mut Context<Self>,
     ) -> Self {
         let autoscroll = prefs::current(cx).view.autoscroll;
-        let scroller = cx.new(|cx| ChatScroller::new(autoscroll, cx));
+        let scroller = cx.new(|_| ChatScroller::new(autoscroll));
         let enter_sends = prefs::current(cx).send == SendMode::Enter;
         let composer = cx.new(|cx| {
             TextareaState::new(window, cx)
