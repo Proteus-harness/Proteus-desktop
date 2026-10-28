@@ -41,9 +41,15 @@ python3 scripts/portable.py --fast --reuse-binaries # обновить пост�
 Для отдельной проверки моделей без сборки GPUI:
 
 ```bash
-cargo test --locked -p proteus-diff --lib
-cargo test --locked -p proteus-tabs --lib
+python3 scripts/test.py -p proteus-diff --lib
+python3 scripts/test.py -p proteus-tabs --lib
+python3 -m unittest discover -s scripts -p 'test_release*.py'
 ```
+
+Явный выбор только `proteus-diff`/`proteus-tabs` не загружает и не собирает
+расширения. Без селектора, при смешанном выборе или неизвестных опциях
+runner сохраняет полный gate с подготовкой расширений. Проверки Python
+охватывают выбор scope и упаковку; они также входят в desktop release gate.
 
 Обычный `cargo test` включает приложение и оба крейта через `default-members`.
 Явный `cargo test -p proteus-native` не включает перенесённые 8 тестов diff и
@@ -53,6 +59,23 @@ cargo test --locked -p proteus-tabs --lib
 Proteus Project. DCP отложен в `Proteus-modules/research/dcp` и исключён из
 штатных профилей, сборки и поставки. Для поставляемых JS hook adapters нужен
 системный Node.js 22.18+; npm для упаковки portable не требуется.
+
+Обычная сборка portable выбирает три исполняемых файла по результатам Cargo,
+вместо предположения о пути `target/<profile>`; настройки Cargo и кэши
+наследуются. `--reuse-binaries` остаётся явной упаковкой готовых файлов без
+проверки их свежести и без Cargo: каталог `target` или `CARGO_TARGET_DIR`,
+профили release для Core/модулей и fast для клиента при `--fast`.
+Произвольный target triple или путь из Cargo config используйте с обычной
+сборкой. Упаковка расширений запускается из их собственного checkout.
+
+Для правки одного расширения используйте в его репозитории
+`python3 package.py --package <id>` и установите ZIP через менеджер расширений.
+Core и Desktop для этого пересобирать не нужно. Backend пока поставляется
+общим `proteus-reference-module`; выборочная упаковка расширений сама по себе
+не разделяет его реализации на независимые процессы.
+
+Эти изменения сборки адаптированы из `Qweasd123tg/proteus-modules-dot`,
+ревизия `ea7409b30edec9a84a842a36d6ec56d0fbdd3059`, каталог `build-speed`.
 В `share/modules/claude-command-hooks` и `share/modules/hook-process` поставляются
 адаптер командных hooks и общий JavaScript SDK. Адаптер подключается явно;
 упаковка не включает выполнение сторонних hooks. `bin/proteus-hook-worker`

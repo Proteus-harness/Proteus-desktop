@@ -23,6 +23,7 @@ MODULES = None
 EXTENSIONS = None
 from sources import resolve
 from limits import limit
+from cargo_binary import build_binary, existing_binary
 from portable_modules import assemble as assemble_modules
 from release_metadata import install_notices, version, write_manifest
 BUILD = NATIVE / "build"
@@ -54,16 +55,13 @@ def install_file(source, target, executable=False):
         target.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
-def assemble(agent_profile, client_profile, reuse_binaries=False):
+def assemble(agent, module, client, reuse_binaries=False):
     staging = BUILD / "Proteus.next"
     shutil.rmtree(staging, ignore_errors=True)
-    agent = ROOT / "target" / agent_profile
-    module = MODULES / "target" / agent_profile
-    client = NATIVE / "target" / client_profile
-    install_file(client / "proteus-native", staging / "bin/proteus-native", True)
-    install_file(agent / "proteus", staging / "bin/proteus", True)
+    install_file(client, staging / "bin/proteus-native", True)
+    install_file(agent, staging / "bin/proteus", True)
     install_file(
-        module / "proteus-reference-module",
+        module,
         staging / "bin/proteus-reference-module",
         True,
     )
@@ -72,7 +70,7 @@ def assemble(agent_profile, client_profile, reuse_binaries=False):
         install_file(ROOT / path, staging / "share" / path)
     extension_flags = ["--no-build"] if reuse_binaries else []
     run([sys.executable, str(EXTENSIONS / "package.py"), "--bundle",
-         str(staging / "share/extensions"), *extension_flags], ROOT)
+         str(staging / "share/extensions"), *extension_flags], EXTENSIONS)
     install_notices(staging, NATIVE, ROOT, MODULES, EXTENSIONS)
     record = write_manifest(staging, NATIVE, ROOT, MODULES, EXTENSIONS)
     if reuse_binaries:
@@ -130,11 +128,19 @@ def main():
     flags = [] if args.debug else ["--release"]
     client_profile = "fast" if args.fast else profile
     client_flags = ["--profile", "fast"] if args.fast else flags
-    if not args.reuse_binaries:
-        run(["cargo", "build", "--locked", *flags, "-p", "proteus-core"], ROOT)
-        run(["cargo", "build", "--locked", *flags, "-p", "proteus-reference-module"], MODULES)
-        run(["cargo", "build", "--locked", *client_flags, "-p", "proteus-native"], NATIVE)
-    assemble(profile, client_profile, reuse_binaries=args.reuse_binaries)
+    if args.reuse_binaries:
+        agent = existing_binary(ROOT, profile, "proteus")
+        module = existing_binary(MODULES, profile, "proteus-reference-module")
+        client = existing_binary(NATIVE, client_profile, "proteus-native")
+        assemble(agent, module, client, reuse_binaries=True)
+    else:
+        agent = build_binary(ROOT, "proteus-core", "proteus", flags,
+                             ROOT / "crates/proteus-core/Cargo.toml")
+        module = build_binary(MODULES, "proteus-reference-module", "proteus-reference-module", flags,
+                              MODULES / "components/process-module/Cargo.toml")
+        client = build_binary(NATIVE, "proteus-native", "proteus-native", client_flags,
+                              NATIVE / "Cargo.toml")
+        assemble(agent, module, client)
     print(f"Portable: {PORTABLE}")
     if not (args.no_archive or args.fast):
         print(f"Archive:  {archive()}")
