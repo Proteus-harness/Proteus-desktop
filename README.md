@@ -18,8 +18,10 @@
 круги и капсулы сохраняют исходную форму. Происхождение и порядок обновления
 описаны в `vendor/gpui-fast-wgpu/README.proteus.md`.
 
-Источники разделены на четыре репозитория. Этот содержит приложение и
-`crates/client-common`; DTO берутся из закреплённого Git commit Proteus-core.
+Источники разделены на четыре репозитория. Этот содержит приложение,
+`crates/client-common`, разбор diff в `crates/diff` и модель вкладок и областей
+в `crates/tabs`. Последние два крейта не зависят от GPUI; их рендереры остаются
+в приложении. DTO берутся из закреплённого Git commit Proteus-core.
 `repositories.json` задаёт revisions Core, модулей и расширений для поставки.
 `scripts/sources.py` читает PROTEUS_HARNESS_SOURCE / PROTEUS_MODULES_SOURCE /
 PROTEUS_EXTENSIONS_SOURCE, использует соседние checkout `../Proteus-core`,
@@ -33,6 +35,18 @@ python3 scripts/run.py /path/to/project --config PROFILE
 python3 scripts/portable.py --fast
 ./build/Proteus/proteus-native /path/to/project
 ```
+
+`python3 scripts/test.py` проверяет весь workspace и заранее готовит расширения.
+Для отдельной проверки моделей без сборки GPUI:
+
+```bash
+cargo test --locked -p proteus-diff --lib
+cargo test --locked -p proteus-tabs --lib
+```
+
+Обычный `cargo test` включает приложение и оба крейта через `default-members`.
+Явный `cargo test -p proteus-native` не включает перенесённые 8 тестов diff и
+38 тестов tabs; полный runner сохраняет их охват через `--workspace`.
 
 Для сборки и упаковки расширений нужен Python 3 без дополнительных pip-пакетов. Их автор —
 Proteus Project. Default-профиль включает DCP: для запуска portable нужен
@@ -654,7 +668,7 @@ Ctrl+Shift+↑/↓ меняет порядок с клавиатуры. Пере
 новая вкладка открывается именно в этой области).
 Правый клик по «+» — действия с областью: «Закрыть область» (её
 вкладки переходят в предыдущую область, у первой — в следующую) и
-«Закрепить размер» (`tabs/lock.rs`): закреплённая
+«Закрепить размер» (`crates/tabs/src/lock.rs`): закреплённая
 область хранит текущий размер в пикселях вдоль своего разделения и не
 меняет его при изменении окна и закрытии соседей, разделителем её
 по-прежнему можно подвинуть. Меню закреплённой области предлагает только
@@ -733,7 +747,8 @@ Esc очищает поиск, при пустом — возвращает кл
 Как в [Zed](https://github.com/zed-industries/zed), лицензия задана у каждого
 крейта: поле `license` в Cargo.toml и ссылка на `LICENSE-GPL` или
 `LICENSE-APACHE` в корне. Приложение — GPL-3.0-or-later, потому что содержит
-код, заимствованный из Zed; `crates/client-common` — Apache-2.0.
+код, заимствованный из Zed; `crates/diff` и `crates/tabs` также используют
+GPL-3.0-or-later, `crates/client-common` — Apache-2.0.
 Proteus-core и Proteus-modules остаются под MIT — это отдельные программы,
 клиент общается с ними по HTTP. `python3 scripts/check_licenses.py` проверяет
 разметку.

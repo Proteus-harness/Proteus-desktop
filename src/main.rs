@@ -4,7 +4,6 @@ mod backend;
 mod catalog;
 mod connection;
 mod declarative;
-mod diff;
 mod graphics;
 mod launch;
 mod navigation;
@@ -16,7 +15,6 @@ mod sessions;
 mod settings;
 mod shortcuts;
 mod startup_trace;
-mod tabs;
 mod terminal;
 mod tool_display;
 mod transcript;
@@ -24,6 +22,8 @@ mod ui;
 mod version;
 
 use gpui_kit::*;
+use proteus_diff as diff;
+use proteus_tabs as tabs;
 
 use launch::Launch;
 use ui::Launcher;

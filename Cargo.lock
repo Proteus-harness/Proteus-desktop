@@ -5330,6 +5330,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "proteus-diff"
+version = "0.1.0-alpha.3"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "proteus-native"
 version = "0.1.0-alpha.3"
 dependencies = [
@@ -5343,6 +5350,8 @@ dependencies = [
  "naga",
  "proteus-client-common",
  "proteus-contracts",
+ "proteus-diff",
+ "proteus-tabs",
  "roxmltree 0.21.1",
  "serde",
  "serde_json",
@@ -5351,6 +5360,14 @@ dependencies = [
  "url",
  "uuid",
  "zip",
+]
+
+[[package]]
+name = "proteus-tabs"
+version = "0.1.0-alpha.3"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
