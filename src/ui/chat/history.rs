@@ -212,6 +212,11 @@ impl History {
         };
         let offset = window.end().saturating_sub(cursor.before);
         if offset >= live.entries().len() {
+            // A folded live tail can fit below older, still-visible rows.
+            // Dropping that prefix would remove the reading anchor.
+            if window.start.saturating_add(visible.start) < cursor.before {
+                return Vec::new();
+            }
             return self.latest(live);
         }
         let mut changes = vec![window.transcript.append_known(&live.entries()[offset..])];

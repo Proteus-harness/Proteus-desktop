@@ -106,6 +106,52 @@ fn pages_move_both_ways_without_retaining_the_entire_visited_history() {
 }
 
 #[test]
+fn overlapping_live_tail_keeps_older_visible_rows_until_the_anchor_reaches_live() {
+    let (mut history, live) = fixture();
+    let requested = history.request(Direction::Older, &live).unwrap();
+    history
+        .accept_page(&live, Direction::Older, &requested, page(900, 950), 0..2)
+        .unwrap();
+    assert!(history.request(Direction::Newer, &live).is_none());
+    let list = gpui_kit::ListState::new(100, gpui_kit::ListAlignment::Top, gpui_kit::px(400.));
+    // The live rows already overlap, but row 949 is still on screen above a
+    // short folded tail. A near-bottom prefetch must not evict that row.
+    list.scroll_to(gpui_kit::ListOffset {
+        item_ix: 49,
+        offset_in_item: gpui_kit::px(19.),
+    });
+    let anchor = history.displayed(&live).entries()[49].key;
+    assert!(history.merge_tail(&live, 49..100).is_empty());
+    assert!(history.archived());
+    assert_eq!(history.displayed(&live).entries()[49].key, anchor);
+    assert_eq!(history.displayed(&live).entries().len(), 100);
+
+    // Once the first visible row belongs to live, only the off-screen prefix
+    // is removed. The native logical offset must keep its key and pixels.
+    list.scroll_to(gpui_kit::ListOffset {
+        item_ix: 50,
+        offset_in_item: gpui_kit::px(7.),
+    });
+    let anchor = history.displayed(&live).entries()[50].key;
+    for change in history.merge_tail(&live, 50..100) {
+        if let Change::Spliced {
+            start,
+            removed,
+            inserted,
+        } = change
+        {
+            list.splice(start..start + removed, inserted);
+        }
+    }
+    assert!(!history.archived());
+    let offset = list.logical_scroll_top();
+    assert_eq!(offset.item_ix, 0);
+    assert_eq!(offset.offset_in_item, gpui_kit::px(7.));
+    assert_eq!(live.entries()[offset.item_ix].key, anchor);
+    assert_eq!(list.item_count(), live.entries().len());
+}
+
+#[test]
 fn byte_budget_counts_tool_payloads_and_preserves_visible_rows() {
     let (mut history, live) = fixture();
     let requested = history.request(Direction::Older, &live).unwrap();

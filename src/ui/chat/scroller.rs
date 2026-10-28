@@ -191,6 +191,7 @@ impl ChatScroller {
 
     pub(super) fn scroll_to_history(&mut self, target: ScrollTarget, cx: &mut Context<Self>) {
         self.following = false;
+        self.wheel_up = false;
         self.hold = None;
         self.clear_tail();
         self.last_offset = None;
@@ -454,7 +455,9 @@ impl RenderOnce for ChatList {
             let visible = state.visible_rows();
             let edges = (
                 !state.following && visible.start < 8,
-                state.archived && visible.end.saturating_add(8) >= state.row_count(),
+                state.archived
+                    && !state.wheel_up
+                    && visible.end.saturating_add(8) >= state.row_count(),
             );
             if edges.0 && !state.history_edges.0 {
                 cx.emit(HistoryEdge(super::history::Direction::Older));
