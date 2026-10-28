@@ -60,18 +60,25 @@ Proteus Project. DCP отложен в `Proteus-modules/research/dcp` и иск�
 штатных профилей, сборки и поставки. Для поставляемых JS hook adapters нужен
 системный Node.js 22.18+; npm для упаковки portable не требуется.
 
-Обычная сборка portable выбирает три исполняемых файла по результатам Cargo,
-вместо предположения о пути `target/<profile>`; настройки Cargo и кэши
-наследуются. `--reuse-binaries` остаётся явной упаковкой готовых файлов без
-проверки их свежести и без Cargo: каталог `target` или `CARGO_TARGET_DIR`,
-профили release для Core/модулей и fast для клиента при `--fast`.
-Произвольный target triple или путь из Cargo config используйте с обычной
-сборкой. Упаковка расширений запускается из их собственного checkout.
+Обычная сборка portable получает Core, Desktop и 18 самостоятельных
+backend-модулей из соответствующих Cargo artifacts; настройки Cargo и кэши
+наследуются. Упаковка модулей и расширений запускается из их собственных checkout.
+
+`--reuse-binaries` упаковывает готовые файлы без Cargo и проверки их свежести.
+Core и Desktop берутся из `<target>/<profile>/<binary>`, где `<target>` —
+`CARGO_TARGET_DIR` либо `target`; относительный путь считается от корня каждого
+checkout. По умолчанию оба профиля — `release`; при `--fast` клиент берётся из
+`fast`, Core — из `release`; при `--debug` оба берутся из `debug`.
+Пути backend-модулей читаются из `Proteus-modules/dist/.artifacts/release.json`
+(при `--debug` — `dev.json`), сохранённого успешной сборкой `package.py`.
+Расширения берутся из `<target>/release` относительно checkout расширений.
+Для произвольного target triple или пути из Cargo config используйте обычную
+сборку. `--reuse-hosts` сохраняет только Core/Desktop, а пакеты пересобирает.
 
 Для правки одного расширения используйте в его репозитории
 `python3 package.py --package <id>` и установите ZIP через менеджер расширений.
-Core и Desktop для этого пересобирать не нужно. Backend также разделён на 18 самостоятельных процессных пакетов. В репозитории
-Modules команда `python3 package.py --package <id> --install /path/to/Proteus`
+Core и Desktop для этого пересобирать не нужно. В репозитории Modules команда
+`python3 package.py --package <id> --install /path/to/Proteus`
 обновляет один пакет в готовом portable без сборки Core, Desktop и остальных.
 Перезапустите backend после обновления. Общее изменение SDK/runtime может
 требовать пересборки потребителей. Aggregate fixture в поставку не включается.
