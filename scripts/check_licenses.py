@@ -4,6 +4,7 @@
 Each crate below the repository root declares `license` in Cargo.toml and keeps
 a symlink LICENSE-GPL or LICENSE-APACHE to the root file of the same name. An
 Apache-2.0 crate must not carry code adapted from GPL crates of Zed.
+Vendored crates with a literal MIT license keep their upstream LICENSE text.
 """
 import re
 import sys
@@ -15,6 +16,31 @@ LICENSES = {"GPL-3.0-or-later": "LICENSE-GPL", "Apache-2.0": "LICENSE-APACHE"}
 ZED_APACHE = re.compile(r"crates/(gpui\w*|collections|refineable|sum_tree|util|util_macros|scheduler"
                         r"|http_client|path|watch|zlog|ztracing\w*|extension_api)/")
 ADAPTED = re.compile(r"Адаптировано из Zed:(.*)")
+MIT_CLAUSES = (
+    'Permission is hereby granted, free of charge, to any person obtaining a copy '
+    'of this software and associated documentation files (the "Software"), to deal '
+    'in the Software without restriction, including without limitation the rights '
+    'to use, copy, modify, merge, publish, distribute, sublicense, and/or sell '
+    'copies of the Software, and to permit persons to whom the Software is '
+    'furnished to do so, subject to the following conditions:',
+    'The above copyright notice and this permission notice shall be included in all '
+    'copies or substantial portions of the Software.',
+    'THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR '
+    'IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, '
+    'FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.',
+)
+
+
+def check_vendor_mit(crate):
+    notice = crate / "LICENSE"
+    if not notice.is_file() or notice.is_symlink():
+        return f"{notice}: vendored MIT crates must keep the upstream license text itself"
+    text = notice.read_text()
+    normalized = " ".join(text.split()).casefold()
+    if (not re.search(r"(?im)^\s*copyright\s+(?:\(c\)\s*)?\S[^\r\n]*", text)
+            or not all(clause.casefold() in normalized for clause in MIT_CLAUSES)):
+        return f"{notice}: must contain the upstream MIT copyright and license notice"
+    return None
 
 
 def license_of(manifest, workspace):
@@ -43,6 +69,12 @@ def check(root):
         value, error = license_of(manifest, workspace)
         if error:
             errors.append(error)
+            continue
+        if (value == "MIT" and "vendor" in crate.relative_to(root).parts
+                and tomllib.loads(manifest.read_text())["package"].get("license") == "MIT"):
+            error = check_vendor_mit(crate)
+            if error:
+                errors.append(error)
             continue
         if value not in LICENSES:
             errors.append(f"{manifest}: license must be one of {', '.join(LICENSES)}, not {value!r}")
