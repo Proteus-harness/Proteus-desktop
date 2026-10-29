@@ -29,7 +29,10 @@ impl Render for Chat {
             .child(motion::fade_in_if(
                 div()
                     .relative()
-                    .flex_1()
+                    // The selection menu owns the parent's flex slot. Its
+                    // block trigger must explicitly fill that slot, or the
+                    // percentage-height ChatList collapses to zero height.
+                    .size_full()
                     .min_h_0()
                     .child(ChatList::new("thread", self.scroller.clone(), renderer))
                     .child(fade(cx.theme().background))

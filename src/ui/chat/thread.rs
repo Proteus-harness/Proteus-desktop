@@ -169,6 +169,17 @@ impl Chat {
             self.fetch_images(missing, cx);
         }
         h_flex()
+            .on_prepaint(|bounds, window, _| {
+                let visible = window.content_mask().bounds;
+                if bounds.size.width > px(0.)
+                    && bounds.size.height > px(0.)
+                    && visible.size.height > px(0.)
+                    && bounds.top() < visible.bottom()
+                    && bounds.bottom() > visible.top()
+                {
+                    crate::startup_trace::first("chat.transcript.layout");
+                }
+            })
             .w_full()
             .justify_center()
             .px_6()

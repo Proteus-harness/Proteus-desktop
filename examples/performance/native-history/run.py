@@ -195,7 +195,7 @@ def run_case(args, case, workspace, config, restart, expected):
                 while True:
                     assert process.poll() is None, log.read_text(errors='replace')[-4000:]
                     stages, history = traces(log)
-                    if ready_at is None and 'chat.transcript.render' in stages:
+                    if ready_at is None and f'chat.transcript.{args.readiness}' in stages:
                         ready_at = time.monotonic()
                         recorder.mark('settle', external_readiness_observed_s=ready_at-started)
                     if ready_at is not None and time.monotonic()-ready_at >= args.settle:
@@ -266,6 +266,8 @@ def main():
     parser.add_argument('--settle', type=float, default=5)
     parser.add_argument('--idle', type=float, default=5)
     parser.add_argument('--interval', type=float, default=.2)
+    parser.add_argument('--readiness', choices=('layout', 'render'), default='layout',
+                        help='require a positive visible row layout; render supports older baseline binaries')
     parser.add_argument('--timeout', type=float, default=180)
     parser.add_argument('--max-pss-mib', type=int, default=4096)
     parser.add_argument('--bgui-session', required=True)

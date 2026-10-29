@@ -86,3 +86,9 @@ SwapPss. Ошибка readiness, неполный `/proc`, превышение 
 
 Классификация процессов включает Rust-бинарники внутри каталога расширений
 и их Node worker. Целевая проверка: `python3 examples/performance/native-history/test_runner.py`.
+
+По умолчанию readiness требует `chat.transcript.layout`: ненулевая строка
+пересекает видимую область ленты. Это ловит схлопнувшуюся обёртку, которую
+ранний вызов render не замечает. Для старого baseline без этого marker укажите
+`--readiness render` и проверьте сохранённый screenshot. Layout также не является
+подтверждением presented GPU frame.
