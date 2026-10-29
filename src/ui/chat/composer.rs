@@ -37,7 +37,9 @@ impl Chat {
             .justify_center()
             .px_6()
             .pb_4()
-            .pt_2()
+            // This gap is outside the scroll viewport: it never becomes
+            // extra scrollable room below the last message.
+            .pt_6()
             .child(
                 v_flex()
                     .on_children_prepainted(kit::record_first_child(
@@ -137,6 +139,7 @@ impl Chat {
             .children(self.render_attachments(cx))
             .child(kit::contain_scroll(
                 Textarea::new(&self.composer)
+                    .font_family(prefs::chat_font(cx))
                     .text_size(prefs::chat_text(cx))
                     .appearance(false)
                     .bordered(false)

@@ -32,6 +32,14 @@ pub fn chat_text(cx: &App) -> Rems {
     scaled(f32::from(current(cx).view.chat_text))
 }
 
+/// Conversation prose and composer family; code retains the theme's mono.
+pub fn chat_font(cx: &App) -> SharedString {
+    cx.global::<ClientPreferences>()
+        .chat_font
+        .clone()
+        .unwrap_or_else(|| Theme::global(cx).font_family.clone())
+}
+
 /// Widest conversation column.
 pub fn chat_width(cx: &App) -> Rems {
     scaled(f32::from(current(cx).view.chat_width))
@@ -41,6 +49,7 @@ pub struct ClientPreferences {
     pub value: Preferences,
     /// Why the stored file was not used; shown on the client settings pages.
     pub problem: Option<String>,
+    chat_font: Option<SharedString>,
 }
 
 impl Global for ClientPreferences {}
@@ -51,7 +60,12 @@ pub fn init(cx: &mut App, loaded: anyhow::Result<Preferences>) {
         Err(error) => (Preferences::default(), Some(format!("{error:#}"))),
     };
     apply(&value, None, cx);
-    cx.set_global(ClientPreferences { value, problem });
+    let chat_font = super::theme::resolve(value.fonts.chat.as_deref(), cx);
+    cx.set_global(ClientPreferences {
+        value,
+        problem,
+        chat_font,
+    });
 }
 
 pub fn current(cx: &App) -> &Preferences {
@@ -67,19 +81,27 @@ pub fn update(cx: &mut App, change: impl FnOnce(&mut Preferences)) {
         return;
     }
     apply(&value, Some(&previous), cx);
+    let chat_font = if value.fonts.chat != previous.fonts.chat {
+        super::theme::resolve(value.fonts.chat.as_deref(), cx)
+    } else {
+        cx.global::<ClientPreferences>().chat_font.clone()
+    };
     let problem = preferences::save(&value)
         .err()
         .map(|error| format!("Не сохранено: {error:#}"));
     let global = cx.global_mut::<ClientPreferences>();
     global.value = value;
     global.problem = problem;
+    global.chat_font = chat_font;
 }
 
 fn apply(value: &Preferences, previous: Option<&Preferences>, cx: &mut App) {
-    if previous
-        .is_none_or(|previous| previous.theme != value.theme || previous.themes != value.themes)
-    {
-        super::theme::select(&value.themes, cx);
+    if previous.is_none_or(|previous| {
+        previous.theme != value.theme
+            || previous.themes != value.themes
+            || previous.fonts.interface != value.fonts.interface
+    }) {
+        super::theme::select(&value.themes, value.fonts.interface.as_deref(), cx);
         match value.theme {
             ThemePreference::System => Theme::sync_system_appearance(None, cx),
             ThemePreference::Dark => Theme::change(ThemeMode::Dark, None, cx),

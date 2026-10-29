@@ -132,10 +132,7 @@ pub(super) fn embedded_code(
     let height = cx.theme().mono_font_size * (1.5 * (rows + 1) as f32);
     let body = state
         .map(|state| {
-            gpui_kit::component::input::Editor::new(state)
-                .readonly(true)
-                .appearance(false)
-                .bordered(false)
+            code_block::readonly_editor(state, cx)
                 .h(height)
                 .into_any_element()
         })

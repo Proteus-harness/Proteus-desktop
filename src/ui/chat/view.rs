@@ -3,7 +3,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::Chat;
-use super::scroller::ChatList;
+use super::scroller::{ChatList, FooterState};
 use crate::ui::kit::SelectionCopyMenu as _;
 use crate::ui::{motion, prefs};
 
@@ -19,6 +19,20 @@ impl Render for Chat {
         motion::drive(window, cx);
         self.prepare_tool_diffs(cx);
         let renderer = cx.processor(|this, ix: usize, window, cx| this.render_row(ix, window, cx));
+        let live = !self.history.archived();
+        let thinking = live && self.session.thinking();
+        let footer_state = FooterState {
+            thinking,
+            receipt: live
+                .then(|| self.session.feedback.latest_receipt())
+                .flatten()
+                .map(|(send, previous)| (send.id.clone(), send.status(), previous)),
+        };
+        let footer = cx.processor(|this, thinking: bool, _, cx| {
+            this.render_feedback(thinking, cx)
+                .unwrap_or_else(|| div().into_any_element())
+        });
+        let running = self.session.running();
         v_flex()
             .id("chat")
             .size_full()
@@ -34,8 +48,11 @@ impl Render for Chat {
                     // percentage-height ChatList collapses to zero height.
                     .size_full()
                     .min_h_0()
-                    .child(ChatList::new("thread", self.scroller.clone(), renderer))
-                    .child(fade(cx.theme().background))
+                    .child(
+                        ChatList::new("thread", self.scroller.clone(), renderer)
+                            .footer(footer_state, move |window, cx| footer(thinking, window, cx))
+                            .running(running),
+                    )
                     .children(self.render_notice(cx))
                     .selection_copy_menu()
                     .flex_1()
@@ -60,7 +77,6 @@ impl Render for Chat {
                     cx.stop_propagation();
                 }
             }))
-            .children(self.render_feedback(cx))
             .child(self.render_composer(window, cx))
     }
 }
@@ -68,9 +84,11 @@ impl Render for Chat {
 impl Chat {
     /// A local send receipt is visible in the first frame after Enter. The
     /// canonical thread stays server-owned and replaces it on its own echo.
-    fn render_feedback(&self, cx: &App) -> Option<AnyElement> {
+    fn render_feedback(&self, thinking: bool, cx: &App) -> Option<AnyElement> {
+        if self.history.archived() {
+            return None;
+        }
         let receipt = self.session.feedback.latest_receipt();
-        let thinking = self.session.thinking();
         if receipt.is_none() && !thinking {
             return None;
         }
@@ -86,6 +104,7 @@ impl Chat {
                         .max_w(prefs::chat_width(cx))
                         .max_h(prefs::scaled(176.))
                         .overflow_hidden()
+                        .font_family(prefs::chat_font(cx))
                         .gap_2()
                         .children(receipt.map(|(send, previous)| {
                             let preview = send.preview();
@@ -136,37 +155,16 @@ impl Chat {
                                 ))
                         }))
                         .when(thinking, |footer| {
-                            footer
-                                .child(div().py_1().text_sm().child(self.thinking_caption.clone()))
+                            footer.child(
+                                div()
+                                    .pt_4()
+                                    .pb_1()
+                                    .text_size(prefs::chat_text(cx))
+                                    .child(self.thinking_caption.clone()),
+                            )
                         }),
                 )
                 .into_any_element(),
         )
     }
-}
-
-/// The thread fades out above the composer instead of ending at a hard
-/// edge. Two layers ease the fade: a long faint one and a short one that
-/// only closes the last pixels.
-fn fade(background: Hsla) -> impl IntoElement {
-    let layer = |height: f32, from: f32| {
-        div()
-            .absolute()
-            .bottom_0()
-            .left_0()
-            .right_0()
-            .h(px(height))
-            .bg(linear_gradient(
-                180.,
-                linear_color_stop(background.opacity(0.), 0.),
-                linear_color_stop(background.opacity(from), 1.),
-            ))
-    };
-    div()
-        .absolute()
-        .bottom_0()
-        .left_0()
-        .right_0()
-        .child(layer(64., 0.6))
-        .child(layer(20., 1.))
 }

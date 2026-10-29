@@ -97,6 +97,18 @@ const SEND: RowText = text(
     ),
 );
 const TEXT_SIZE: RowText = text("Размер текста", Some("Сообщения диалога и поле ввода."));
+const INTERFACE_FONT: RowText = text(
+    "Шрифт интерфейса",
+    Some(
+        "Установленный шрифт для панелей, меню и настроек. Очистите выбор, чтобы использовать шрифт темы.",
+    ),
+);
+const CHAT_FONT: RowText = text(
+    "Шрифт чата",
+    Some(
+        "Сообщения и поле ввода. Очистите выбор, чтобы наследовать шрифт интерфейса. Код сохраняет моноширинный шрифт.",
+    ),
+);
 const CHAT_WIDTH: RowText = text(
     "Ширина диалога",
     Some("Наибольшая ширина ленты и поля ввода."),
@@ -114,17 +126,19 @@ const NOTIFICATIONS_ROW: RowText = text(
     Some("Когда окно в фоне: агент закончил, ждёт подтверждения или ответа."),
 );
 
-pub(super) const APPEARANCE_ROWS: [&RowText; 7] = [
+pub(super) const APPEARANCE_ROWS: [&RowText; 8] = [
     &THEME,
     &DARK_PALETTE,
     &LIGHT_PALETTE,
+    &INTERFACE_FONT,
     &SCALE,
     &SURFACE_RADIUS,
     &MOTION,
     &HINTS_ROW,
 ];
-pub(super) const CHAT_ROWS: [&RowText; 6] = [
+pub(super) const CHAT_ROWS: [&RowText; 7] = [
     &SEND,
+    &CHAT_FONT,
     &TEXT_SIZE,
     &CHAT_WIDTH,
     &COMPACT_TOOLS,
@@ -188,6 +202,8 @@ impl SettingsView {
                 cx,
             )
             .into_any_element(),
+            self.text_row(&INTERFACE_FONT, self.fonts.interface(), cx)
+                .into_any_element(),
             self.text_row(
                 &SURFACE_RADIUS,
                 slider(&self.sizes.surface_radius, "px", cx),
@@ -235,6 +251,8 @@ impl SettingsView {
             )
             .into_any_element()];
         let sizes = [
+            self.text_row(&CHAT_FONT, self.fonts.chat(), cx)
+                .into_any_element(),
             self.text_row(&TEXT_SIZE, slider(&self.sizes.chat_text, "px", cx), cx)
                 .into_any_element(),
             self.text_row(&CHAT_WIDTH, slider(&self.sizes.chat_width, "px", cx), cx)

@@ -100,7 +100,7 @@ impl Chat {
         let full = [0, 1].map(|part| self.full_blocks.contains(&(entry.key, part)));
         let fresh = self.fresh_rows.is_fresh(entry.key);
         let key = entry.key;
-        let spacing = match (&entry.role, &entry.tool) {
+        let mut spacing = match (&entry.role, &entry.tool) {
             (Role::User, _) => Spacing {
                 top: 4.,
                 bottom: 0.,
@@ -115,6 +115,11 @@ impl Chat {
                 bottom: 2.,
             },
         };
+        // The user's stable action row already occupies one line. One more
+        // line of padding separates the reply (or its first tool) from it.
+        if ix > 0 && entries[ix - 1].role == Role::User && entry.role != Role::User {
+            spacing.top = 6.;
+        }
         let body = match (&entry.role, &entry.tool, &entry.subagent) {
             (Role::User, _, _) => render_user(entry, &self.sent_images, cx),
             (Role::Assistant, _, _) => {
@@ -183,8 +188,8 @@ impl Chat {
             .w_full()
             .justify_center()
             .px_6()
-            .pt(px(spacing.top * 4.))
-            .pb(px(spacing.bottom * 4.))
+            .pt(prefs::scaled(spacing.top * 4.))
+            .pb(prefs::scaled(spacing.bottom * 4.))
             .when(ix == 0, |row| row.pt_6())
             .child(fade_in_if(
                 div().w_full().max_w(prefs::chat_width(cx)).child(body),
@@ -304,6 +309,7 @@ fn render_user(entry: &Entry, images: &SentImages, cx: &App) -> AnyElement {
                     .text_color(theme.secondary_foreground)
                     .child(
                         div()
+                            .font_family(prefs::chat_font(cx))
                             .text_size(prefs::chat_text(cx))
                             .child(SelectableText::new(row_id("user", entry.key), text.clone())),
                     ),
@@ -329,6 +335,7 @@ fn render_assistant(entry: &Entry, reply: Vec<super::replies::Part>, cx: &App) -
     v_flex()
         .group(ROW_GROUP)
         .w_full()
+        .font_family(prefs::chat_font(cx))
         .text_size(prefs::chat_text(cx))
         .children(reply.into_iter().map(|part| {
             match part {

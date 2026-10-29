@@ -28,6 +28,7 @@ mod slide;
 mod spinner;
 pub(super) mod ticker;
 mod transition;
+mod wave_dots;
 
 pub(super) use collapse::Collapse;
 pub(super) use disclosure::{
@@ -41,6 +42,7 @@ pub(super) use shimmer::Shimmer;
 pub(super) use slide::{Slide, glide};
 pub(super) use spinner::Spinner;
 pub(super) use transition::PageTransition;
+pub(super) use wave_dots::WaveDots;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};

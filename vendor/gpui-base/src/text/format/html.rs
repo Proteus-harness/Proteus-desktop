@@ -251,6 +251,27 @@ fn attr_width_height(
     (width, height)
 }
 
+/// Only a leading checkbox marks a task. In loose GFM lists it lives inside
+/// the item's first paragraph; nested list tasks belong to their own item.
+fn task_checked(node: &Rc<Node>) -> Option<bool> {
+    for child in node.children.borrow().iter() {
+        match &child.data {
+            NodeData::Text { contents } if contents.borrow().trim().is_empty() => continue,
+            NodeData::Comment { .. } => continue,
+            NodeData::Element { name, attrs, .. } if name.local == local_name!("input") => {
+                return attr_value(attrs, local_name!("type"))
+                    .filter(|kind| kind.eq_ignore_ascii_case("checkbox"))
+                    .map(|_| attr_value(attrs, local_name!("checked")).is_some());
+            }
+            NodeData::Element { name, .. } if name.local == local_name!("p") => {
+                return task_checked(child);
+            }
+            _ => return None,
+        }
+    }
+    None
+}
+
 fn parse_table_row(table: &mut Table, node: &Rc<Node>) {
     let mut row = TableRow::default();
     let mut count = 0;
@@ -261,10 +282,6 @@ fn parse_table_row(table: &mut Table, node: &Rc<Node>) {
                 ref attrs,
                 ..
             } if name.local == local_name!("td") || name.local == local_name!("th") => {
-                if child.children.borrow().is_empty() {
-                    continue;
-                }
-
                 count += 1;
                 parse_table_cell(&mut row, child, attrs);
             }
@@ -609,7 +626,7 @@ fn parse_node(
                 Some(BlockNode::ListItem {
                     children,
                     spread: false,
-                    checked: None,
+                    checked: task_checked(node),
                     span: None,
                 })
             }
@@ -769,6 +786,49 @@ mod tests {
     };
 
     use super::trim_text;
+
+    #[test]
+    fn html_tasks_keep_checked_state_without_unicode_markers() {
+        let source = r#"<ul>
+            <li><input type="checkbox" checked disabled> Придумать идею</li>
+            <li><p><input type="checkbox" disabled> Не отвлечься</p><p>Ещё строка</p></li>
+            <li>Обычная строка<ul><li><input type="checkbox" checked> Вложенная</li></ul></li>
+            <li>Сначала текст <input type="checkbox" checked> потом поле</li>
+        </ul>"#;
+        let document = super::parse(source, &mut NodeContext::default()).unwrap();
+        let BlockNode::List { children, .. } = &document.blocks[0] else {
+            panic!("expected task list: {:?}", document.blocks);
+        };
+        let states = children
+            .iter()
+            .map(|item| match item {
+                BlockNode::ListItem { checked, .. } => *checked,
+                _ => panic!("expected list item"),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(states, [Some(true), Some(false), None, None]);
+        let BlockNode::ListItem { children, .. } = &children[0] else {
+            unreachable!();
+        };
+        let BlockNode::Paragraph(text) = &children[0] else {
+            panic!("expected task text");
+        };
+        assert_eq!(text.text().trim(), "Придумать идею");
+    }
+
+    #[test]
+    fn html_tables_preserve_empty_cells_and_column_positions() {
+        let source = "<table><tr><th></th><th>Состояние</th></tr><tr><td>Система</td><td></td></tr><tr><td></td><td>Работает</td></tr></table>";
+        let document = super::parse(source, &mut NodeContext::default()).unwrap();
+        let BlockNode::Table(table) = &document.blocks[0] else {
+            panic!("expected table: {:?}", document.blocks);
+        };
+        let rows = table
+            .rows()
+            .map(|row| row.map(|cell| cell.text().to_string()).collect::<Vec<_>>())
+            .collect::<Vec<_>>();
+        assert_eq!(rows, [["", "Состояние"], ["Система", ""], ["", "Работает"]]);
+    }
 
     #[test]
     fn test_cleanup_html() {

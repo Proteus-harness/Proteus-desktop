@@ -535,11 +535,20 @@ impl RenderOnce for Input {
         sync_focused_input_registry(&state, window, cx);
 
         state.ensure_highlighter_factory(crate::highlighter::input_highlighter_factory(), cx);
+        // An embedded editor can share its enclosing code surface. The
+        // gutter still paints an opaque mask over horizontally scrolled text,
+        // so it must use the same explicit background as the editor body.
+        let background = self
+            .style
+            .background
+            .as_ref()
+            .and_then(gpui::Fill::color)
+            .and_then(|background| background.as_solid());
         state.set_editor_style(
             gpui_base::input::InputEditorStyle {
                 foreground: cx.theme().foreground,
                 muted_foreground: cx.theme().muted_foreground,
-                background: cx.theme().editor_background(),
+                background: background.unwrap_or_else(|| cx.theme().editor_background()),
                 border: cx.theme().border,
                 selection: cx.theme().selection,
                 caret: cx.theme().caret,
@@ -551,8 +560,19 @@ impl RenderOnce for Input {
                 },
                 highlight_styles: cx.theme().highlight_theme.clone(),
                 editor_invisible: cx.theme().highlight_theme.style.editor_invisible,
-                editor_active_line: cx.theme().highlight_theme.style.editor_active_line,
-                editor_gutter_background: cx.theme().highlight_theme.style.editor_gutter_background,
+                // A borderless read-only code preview has no editing row.
+                // Keep line highlights for normal editors, without a dark
+                // strip through the first line of every chat code fence.
+                editor_active_line: if self.readonly && !self.appearance {
+                    None
+                } else {
+                    cx.theme().highlight_theme.style.editor_active_line
+                },
+                editor_gutter_background: background.or(cx
+                    .theme()
+                    .highlight_theme
+                    .style
+                    .editor_gutter_background),
                 fold_icon_renderer: Some(Rc::new(|ix, is_folded| {
                     Button::new(("fold-icon", ix))
                         .ghost()

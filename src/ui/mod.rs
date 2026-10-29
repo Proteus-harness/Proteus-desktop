@@ -96,6 +96,11 @@ pub fn init(cx: &mut App, preferences: anyhow::Result<crate::preferences::Prefer
 
 impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Settings and the chat share this transient drag. Clear it here,
+        // even when the ordinary sidebar is not mounted after cancellation.
+        if !cx.has_active_drag() {
+            self.sidebar_drag = None;
+        }
         motion::drive(window, cx);
         self.record_navigation(cx);
         let theme = cx.theme();

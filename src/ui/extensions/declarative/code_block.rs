@@ -8,6 +8,20 @@ use crate::ui::kit::{self, Frame as _, Hint as _};
 use gpui_kit::component::{ActiveTheme as _, Sizable as _, h_flex, v_flex};
 use gpui_kit::*;
 
+/// Shared code presentation for embedded and standalone readonly widgets.
+/// Reuses the retained editor while keeping its body and opaque gutter on the
+/// same surface as the fence shell.
+pub(super) fn readonly_editor(
+    state: &Entity<gpui_kit::component::input::EditorState>,
+    cx: &App,
+) -> gpui_kit::component::input::Editor {
+    gpui_kit::component::input::Editor::new(state)
+        .readonly(true)
+        .appearance(false)
+        .bordered(false)
+        .bg(cx.theme().muted)
+}
+
 pub(super) fn shell(
     copy_id: impl Into<ElementId>,
     language: &str,

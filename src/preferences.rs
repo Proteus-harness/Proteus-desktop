@@ -86,6 +86,7 @@ pub enum Notifications {
 pub struct Preferences {
     pub theme: ThemePreference,
     pub themes: ThemeNames,
+    pub fonts: FontPreferences,
     pub motion: MotionPreference,
     pub hints: Hints,
     pub send: SendMode,
@@ -98,6 +99,30 @@ pub struct Preferences {
     pub sessions: SessionMarks,
     pub recent: RecentWorkspaces,
     pub shortcuts: Shortcuts,
+}
+
+/// Optional installed families; `None` inherits the theme/interface family.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct FontPreferences {
+    pub interface: Option<String>,
+    pub chat: Option<String>,
+}
+
+impl FontPreferences {
+    fn validate(&self) -> Result<()> {
+        for (field, family) in [("interface", &self.interface), ("chat", &self.chat)] {
+            if let Some(family) = family
+                && (family.is_empty()
+                    || family.len() > 256
+                    || family.trim() != family
+                    || family.chars().any(char::is_control))
+            {
+                return Err(anyhow!("invalid {field} font family"));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Interface scale steps in percent, for the menu and Ctrl+=/Ctrl+-.
@@ -406,6 +431,10 @@ fn parse(text: &str, path: &Path) -> Result<Preferences> {
         .validate()
         .with_context(|| format!("invalid view sizes in {}", path.display()))?;
     preferences
+        .fonts
+        .validate()
+        .with_context(|| format!("invalid fonts in {}", path.display()))?;
+    preferences
         .sidebar
         .validate()
         .with_context(|| format!("invalid side panel in {}", path.display()))?;
@@ -442,6 +471,70 @@ mod tests {
     use super::{BadgePlace, ExtensionPreferences, Preferences, SURFACE_RADIUS, ViewPreferences};
 
     const KNOWN: [&str; 3] = ["context", "plan", "files"];
+
+    #[test]
+    fn old_preferences_inherit_fonts_and_independent_choices_roundtrip() {
+        let legacy = super::parse(
+            r#"{"view":{"chat_text":18}}"#,
+            std::path::Path::new("fixture.json"),
+        )
+        .unwrap();
+        assert_eq!(legacy.fonts, super::FontPreferences::default());
+        assert_eq!(legacy.view.chat_text, 18);
+
+        let mut value = Preferences::default();
+        value.fonts.interface = Some("Noto Sans".into());
+        value.fonts.chat = Some("Шрифт беседы".into());
+        let serialized = serde_json::to_string(&value).unwrap();
+        let reopened = super::parse(&serialized, std::path::Path::new("fixture.json")).unwrap();
+        assert_eq!(reopened.fonts, value.fonts);
+        value.fonts.interface = None;
+        let reopened = super::parse(
+            &serde_json::to_string(&value).unwrap(),
+            std::path::Path::new("fixture.json"),
+        )
+        .unwrap();
+        assert_eq!(reopened.fonts.interface, None);
+        assert_eq!(reopened.fonts.chat.as_deref(), Some("Шрифт беседы"));
+        value.fonts.chat = None;
+        let reopened = super::parse(
+            &serde_json::to_string(&value).unwrap(),
+            std::path::Path::new("fixture.json"),
+        )
+        .unwrap();
+        assert_eq!(reopened.fonts, super::FontPreferences::default());
+    }
+
+    #[test]
+    fn malformed_font_names_are_rejected_but_unavailable_family_remains_portable() {
+        for name in [
+            "",
+            " Noto Sans",
+            "Noto Sans ",
+            "Noto\nSans",
+            "Noto\0Sans",
+            &"x".repeat(257),
+        ] {
+            for key in ["interface", "chat"] {
+                let source = serde_json::json!({"fonts":{key:name}}).to_string();
+                assert!(
+                    super::parse(&source, std::path::Path::new("fixture.json")).is_err(),
+                    "{source}"
+                );
+            }
+        }
+        // Device-specific availability belongs to native font resolution,
+        // not file validity: moving a profile must not quarantine it.
+        let saved = super::parse(
+            r#"{"fonts":{"chat":"Uninstalled synthetic family"}}"#,
+            std::path::Path::new("fixture.json"),
+        )
+        .unwrap();
+        assert_eq!(
+            saved.fonts.chat.as_deref(),
+            Some("Uninstalled synthetic family")
+        );
+    }
 
     #[test]
     fn switches_and_pins_toggle() {

@@ -16,12 +16,14 @@ const PREVIEW_CHARS: usize = 600;
 const RECENT_CALLS: usize = 2;
 
 pub(super) fn row(
-    trigger: impl InteractiveElement + ParentElement + IntoElement,
+    trigger: impl InteractiveElement + ParentElement + IntoElement + Styled,
     chat: WeakEntity<Chat>,
     key: u64,
     call_id: String,
 ) -> impl IntoElement {
-    trigger.tip_element(move |_, cx| {
+    // A tool label may also be the only child of a vertical container (the
+    // subagent tool list). Do not let that container stretch its anchor.
+    trigger.self_start().max_w_full().tip_element(move |_, cx| {
         chat.read_with(cx, |chat, cx| {
             let tool = chat
                 .display_transcript()

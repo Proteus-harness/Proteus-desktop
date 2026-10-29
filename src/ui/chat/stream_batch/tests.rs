@@ -384,6 +384,7 @@ fn original_observer_changes_and_public_metadata_projection_are_preserved() {
             let (mut session, history) = ready();
             if collision {
                 session.transcript.reset(vec![AppTranscriptMessage {
+                    timestamp_ms: None,
                     message_id: Some(id(100)),
                     phase: None,
                     role: "user".into(),

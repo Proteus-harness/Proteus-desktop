@@ -130,6 +130,7 @@ pub(super) struct Chat {
     _composer_events: Subscription,
     /// Sizes the row heights were measured with.
     view: ViewPreferences,
+    chat_font: SharedString,
     _pump: Task<()>,
     _subscriptions: Vec<Subscription>,
 }
@@ -175,8 +176,10 @@ impl Chat {
                     .update(cx, |state, cx| state.set_submit_on_enter(enter_sends, cx));
                 // Row heights are cached; sizes change with them.
                 let view = prefs::current(cx).view;
-                if this.view != view {
+                let chat_font = prefs::chat_font(cx);
+                if this.view != view || this.chat_font != chat_font {
                     this.view = view;
+                    this.chat_font = chat_font;
                     this.scroller.update(cx, |scroller, cx| {
                         scroller.set_autoscroll(view.autoscroll, cx);
                         scroller.remeasure(cx);
@@ -219,6 +222,7 @@ impl Chat {
             window_handle: window.window_handle(),
             _composer_events: composer_events,
             view: prefs::current(cx).view,
+            chat_font: prefs::chat_font(cx),
             _pump: pump,
             _subscriptions: subscriptions,
         };

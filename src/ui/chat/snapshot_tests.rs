@@ -115,6 +115,7 @@ fn cursor(before: usize) -> AppTranscriptCursor {
 fn rows(start: usize, end: usize) -> Vec<AppTranscriptMessage> {
     (start..end)
         .map(|row| AppTranscriptMessage {
+            timestamp_ms: None,
             message_id: Some(id(1000 + row as u128)),
             phase: None,
             role: "user".into(),

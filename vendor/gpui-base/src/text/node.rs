@@ -3312,7 +3312,7 @@ fn table_cell_padding_x(style: &TextViewStyle, rem_size: Pixels) -> f32 {
     let padding = &style.table_cell().padding;
     let side = |length: Option<DefiniteLength>| match length {
         Some(DefiniteLength::Absolute(length)) => f32::from(length.to_pixels(rem_size)),
-        _ => CELL_PAD_PX / 2.,
+        _ => f32::from(rems(0.75).to_pixels(rem_size)),
     };
     side(padding.left) + side(padding.right)
 }
@@ -3653,6 +3653,7 @@ impl BlockNode {
         style: &TextViewStyle,
         line_height: Pixels,
         indent: Pixels,
+        checkbox_radius: Pixels,
     ) -> Div {
         h_flex()
             .w_full()
@@ -3705,8 +3706,8 @@ impl BlockNode {
                                 .size(rems(0.9375))
                                 .items_center()
                                 .justify_center()
-                                .rounded(px(4.))
-                                .border(px(1.5))
+                                .rounded(checkbox_radius)
+                                .border_1()
                                 .border_color(
                                     style
                                         .list_style()
@@ -3812,6 +3813,7 @@ impl BlockNode {
                                         &node_cx.style,
                                         window.line_height(),
                                         indent,
+                                        cx.theme().tokens.radius.sm,
                                     ));
                                 }
                                 BlockNode::List { .. } => {
@@ -3855,6 +3857,7 @@ impl BlockNode {
                                             &node_cx.style,
                                             window.line_height(),
                                             indent,
+                                            cx.theme().tokens.radius.sm,
                                         ));
                                     } else {
                                         // Indent continuation blocks to align with a
@@ -3890,8 +3893,7 @@ impl BlockNode {
     /// so they line up and fit their content on proportional fonts and mixed
     /// scripts alike. The layout adapts to the frame:
     ///
-    /// - Wider than the content: every column fits its content and the spare
-    ///   width is shared in proportion to it.
+    /// - Wider than the content: the frame stops at its intrinsic width.
     /// - Narrower: the narrow columns keep their full content width and only
     ///   the widest ones shrink and wrap, all down to one common width (see
     ///   [`Self::render_table_rows`]). Shrinking every column by the same
@@ -3976,6 +3978,11 @@ impl BlockNode {
             .collect();
 
         let rows = Self::render_table_rows(table, &columns, node_cx, window, cx);
+        let content_width = columns
+            .iter()
+            .map(|column| column.max + column.divider)
+            .sum::<f32>()
+            + TABLE_BORDER_PX;
         let frame = StyleRefinement::default()
             .text_size(text_size)
             .bg(style
@@ -4030,7 +4037,8 @@ impl BlockNode {
 
         div()
             .pb(block_gap(options, style))
-            .w_full()
+            .w(px(content_width))
+            .max_w_full()
             .child(body)
             // Custom actions row (e.g. copy / download) rendered below the
             // table. The hook's element spans full width; alignment is up to

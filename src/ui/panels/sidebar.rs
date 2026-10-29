@@ -22,6 +22,26 @@ impl Render for SidebarDrag {
 }
 
 impl Workspace {
+    /// Chat panels and Settings occupy the same slot beside the rail and
+    /// share both its transient drag and its persisted logical width.
+    pub(in crate::ui) fn sidebar_width(&self, cx: &App) -> Rems {
+        let dragged = cx.has_active_drag().then_some(self.sidebar_drag).flatten();
+        prefs::scaled(dragged.unwrap_or(prefs::current(cx).sidebar.width))
+    }
+
+    pub(in crate::ui) fn move_sidebar_resize(&mut self, offset: Pixels, cx: &mut Context<Self>) {
+        let width = offset.as_f32() / prefs::scale(cx);
+        self.sidebar_drag = Some(width.clamp(*SIDEBAR_WIDTH.start(), *SIDEBAR_WIDTH.end()));
+        cx.notify();
+    }
+
+    pub(in crate::ui) fn reset_sidebar_resize(&mut self, cx: &mut Context<Self>) {
+        self.sidebar_drag = None;
+        prefs::update(cx, |prefs| {
+            prefs.sidebar.width = SidebarPreferences::default().width
+        });
+    }
+
     pub(in crate::ui) fn render_sidebar(
         &mut self,
         window: &mut Window,
@@ -38,11 +58,7 @@ impl Workspace {
             None if open > 0. => super::info(self.sidebar_last?, cx)?,
             None => return None,
         };
-        // A drag released outside the window drops the width it reached.
-        if !cx.has_active_drag() {
-            self.sidebar_drag = None;
-        }
-        let width = prefs::scaled((self.sidebar_drag).unwrap_or(prefs::current(cx).sidebar.width));
+        let width = self.sidebar_width(cx);
         let content = motion::fade_in_if(
             div()
                 .size_full()
@@ -58,9 +74,7 @@ impl Workspace {
             })
             .on_click(cx.listener(|this, event: &ClickEvent, _, cx| {
                 if event.click_count() == 2 {
-                    this.sidebar_drag = None;
-                    let width = SidebarPreferences::default().width;
-                    prefs::update(cx, |prefs| prefs.sidebar.width = width);
+                    this.reset_sidebar_resize(cx);
                 }
             }));
         // The background stays outside the fade, so a switched panel does
@@ -74,10 +88,7 @@ impl Workspace {
             .on_drag_move::<SidebarDrag>(cx.listener(
                 |this, event: &DragMoveEvent<SidebarDrag>, _, cx| {
                     let offset = event.event.position.x - event.bounds.left();
-                    let width = offset.as_f32() / prefs::scale(cx);
-                    this.sidebar_drag =
-                        Some(width.clamp(*SIDEBAR_WIDTH.start(), *SIDEBAR_WIDTH.end()));
-                    cx.notify();
+                    this.move_sidebar_resize(offset, cx);
                 },
             ))
             .child(

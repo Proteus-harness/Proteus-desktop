@@ -380,6 +380,7 @@ impl DeclarativeView {
                         let mut editor = EditorState::new(window, cx)
                             .language(language.clone())
                             .line_number(!*wrap)
+                            .folding(!*embedded)
                             .soft_wrap(*wrap && !*embedded)
                             .scroll_beyond_last_line(if *embedded { Some(0) } else { None });
                         editor.set_readonly(true, cx);

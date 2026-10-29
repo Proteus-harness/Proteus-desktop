@@ -19,3 +19,8 @@ target/release/examples/native_scroll_fixture \
 JSON, source toggle, выключение/включение провайдера и scroll в самом низу.
 `native_scroll_fixture ... 12 --tool-details` проверяет tool tooltip, цепочку
 повторных имён и длинный embedded diff. Не пишите journal вручную.
+
+`chat-review.md` сохраняет пример владельца: display LaTeX через `$$`,
+кириллица и emoji, Mermaid с обратным ребром, компактная таблица и task-list.
+Дополнительно проверьте одинаковый фон кода и номеров строк, отсутствие folding
+в чате, inline code, дату после повторного открытия, отступы и настройки шрифтов.

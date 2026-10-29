@@ -1,7 +1,7 @@
 //! Native rendering of the widget tree an extension sends.
 
 use crate::ui::kit::Frame as _;
-use gpui_kit::component::input::{Editor, Textarea};
+use gpui_kit::component::input::Textarea;
 use gpui_kit::component::menu::PopupMenu;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -305,13 +305,12 @@ impl DeclarativeView {
                 .when(height.is_none(), |node| node.flex_1())
                 .when_some(*height, |node, height| node.h(prefs::scaled(height)))
                 .min_h_0()
-                .children(self.fields.codes.get(id).map(|editor| {
-                    Editor::new(editor)
-                        .readonly(true)
-                        .bordered(false)
-                        .appearance(false)
-                        .h_full()
-                }))
+                .children(
+                    self.fields
+                        .codes
+                        .get(id)
+                        .map(|editor| super::code_block::readonly_editor(editor, cx).h_full()),
+                )
                 .into_any_element(),
             Node::Diff { id, height, .. } => div()
                 .when(height.is_none(), |node| node.flex_1())

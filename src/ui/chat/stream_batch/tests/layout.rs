@@ -59,6 +59,7 @@ fn text_plans_preserve_appends_fresh_keys_dirty_chains_and_no_snapshot_reconcili
             let rows = match case {
                 0 => Vec::new(),
                 1 => vec![AppTranscriptMessage {
+                    timestamp_ms: None,
                     message_id: Some(id(100)),
                     phase: None,
                     role: "assistant".into(),
@@ -70,6 +71,7 @@ fn text_plans_preserve_appends_fresh_keys_dirty_chains_and_no_snapshot_reconcili
                 }],
                 _ => (0..3)
                     .map(|row| AppTranscriptMessage {
+                        timestamp_ms: None,
                         message_id: Some(id(if row == 1 { 100 } else { 200 + row })),
                         phase: None,
                         role: "system".into(),

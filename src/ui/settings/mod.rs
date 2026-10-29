@@ -9,6 +9,7 @@ mod editors;
 mod extension;
 mod extensions;
 mod fields;
+mod fonts;
 mod frame;
 mod group;
 mod hooks;
@@ -102,6 +103,7 @@ pub struct SettingsView {
     tool_search: Entity<InputState>,
     tool_query: String,
     sizes: sizes::SizeSliders,
+    fonts: fonts::Fonts,
     catalogs: catalog::State,
     workspace: WeakEntity<crate::ui::workspace::Workspace>,
     extension_view: Option<(String, crate::ui::extensions::SurfaceView)>,
@@ -133,6 +135,8 @@ impl SettingsView {
             cx.new(|cx| InputState::new(window, cx).placeholder("Поиск по имени или описанию"));
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Поиск настроек"));
         let (sizes, mut subscriptions) = sizes::SizeSliders::new(window, cx);
+        let (fonts, font_changes) = fonts::Fonts::new(window, cx);
+        subscriptions.extend(font_changes);
         let (catalogs, catalog_changes) = catalog::State::new(window, cx);
         subscriptions.push(catalog_changes);
         subscriptions.extend([
@@ -189,6 +193,7 @@ impl SettingsView {
             tool_search,
             tool_query: String::new(),
             sizes,
+            fonts,
             catalogs,
             workspace,
             extension_view: None,

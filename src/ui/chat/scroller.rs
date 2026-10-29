@@ -14,23 +14,25 @@
 use std::ops::Range;
 use std::time::{Duration, Instant};
 
-use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::ui::floor::TailFloor;
-use crate::ui::kit;
-use crate::ui::kit::Hint as _;
 use crate::ui::motion;
 
+#[path = "scroller/footer.rs"]
+mod footer;
+#[path = "scroller/jump.rs"]
+mod jump;
 #[path = "scroller/middle.rs"]
 mod middle;
 #[path = "scroller/scrollbar.rs"]
 mod scrollbar;
 #[path = "scroller/wheel.rs"]
 mod wheel;
+pub(super) use footer::FooterState;
 use middle::MiddleScroll;
 use scrollbar::HistoryScrollbar;
 pub(super) use scrollbar::{HistoryRange, ScrollTarget};
@@ -67,6 +69,9 @@ pub(super) struct ChatScroller {
     middle: MiddleScroll,
     history_edges: (bool, bool),
     archived: bool,
+    footer: FooterState,
+    footer_height: Pixels,
+    jump: Option<Entity<jump::JumpButton>>,
 }
 
 pub(super) struct HistoryEdge(pub super::history::Direction);
@@ -107,6 +112,9 @@ impl ChatScroller {
             middle: MiddleScroll::default(),
             history_edges: (false, false),
             archived: false,
+            footer: FooterState::default(),
+            footer_height: px(0.),
+            jump: None,
         }
     }
 
@@ -322,16 +330,27 @@ impl ChatScroller {
         // Only actual content below the viewport warrants a jump button.
         self.archived
             || !self.following
-                && self.row_count().checked_sub(1).is_some_and(|last| {
-                    self.list.bounds_for_item(last).map_or_else(
+                && if self.footer.visible() {
+                    self.list.bounds_for_item(self.row_count()).map_or_else(
                         || self.gap() > self.tail.height() + SETTLED,
                         |bounds| {
-                            // Item bounds omit the list's top padding. Prefer
-                            // actual row geometry to the frozen scrollbar range.
-                            bounds.bottom() + EDGE > self.list.viewport_bounds().bottom() + SETTLED
+                            bounds.top() + self.footer_height + EDGE
+                                > self.list.viewport_bounds().bottom() + SETTLED
                         },
                     )
-                })
+                } else {
+                    self.row_count().checked_sub(1).is_some_and(|last| {
+                        self.list.bounds_for_item(last).map_or_else(
+                            || self.gap() > self.tail.height() + SETTLED,
+                            |bounds| {
+                                // Item bounds omit the list's top padding. Prefer
+                                // actual row geometry to the frozen scrollbar range.
+                                bounds.bottom() + EDGE
+                                    > self.list.viewport_bounds().bottom() + SETTLED
+                            },
+                        )
+                    })
+                }
     }
 
     /// Advance following by one frame; returns whether another frame is needed.
@@ -456,6 +475,7 @@ impl ChatScroller {
 }
 
 type RenderRow = Box<dyn FnMut(usize, &mut Window, &mut App) -> AnyElement>;
+type RenderFooter = Box<dyn FnMut(&mut Window, &mut App) -> AnyElement>;
 
 /// The list element; rows come from the caller's renderer.
 #[derive(IntoElement)]
@@ -463,6 +483,8 @@ pub(super) struct ChatList {
     id: ElementId,
     state: Entity<ChatScroller>,
     render_row: RenderRow,
+    footer: Option<(FooterState, RenderFooter)>,
+    running: bool,
 }
 
 impl ChatList {
@@ -475,13 +497,36 @@ impl ChatList {
             id: id.into(),
             state,
             render_row: Box::new(render_row),
+            footer: None,
+            running: false,
         }
+    }
+
+    pub(super) fn footer(
+        mut self,
+        state: FooterState,
+        render: impl FnMut(&mut Window, &mut App) -> AnyElement + 'static,
+    ) -> Self {
+        self.footer = Some((state, Box::new(render)));
+        self
+    }
+
+    pub(super) fn running(mut self, running: bool) -> Self {
+        self.running = running;
+        self
     }
 }
 
 impl RenderOnce for ChatList {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let (footer_state, mut render_footer) = match self.footer {
+            Some((state, render)) => (state, Some(render)),
+            None => (FooterState::default(), None),
+        };
         let (running, middle_active) = self.state.update(cx, |state, cx| {
+            if state.update_footer(footer_state) {
+                cx.notify();
+            }
             if let Some(target) = state.scrollbar.take_target() {
                 state.scroll_to_history(target, cx);
             }
@@ -522,9 +567,26 @@ impl RenderOnce for ChatList {
             )
         };
         let mut render_row = self.render_row;
+        let measured_footer = self.state.clone();
         let rows = list(list_state.clone(), move |ix, window, cx| {
             if ix == tail_row {
-                return div().w_full().h(tail_height).into_any_element();
+                let measured = measured_footer.clone();
+                return div()
+                    .w_full()
+                    .min_h(tail_height)
+                    .child(
+                        div()
+                            .w_full()
+                            .on_prepaint(move |bounds, _, cx| {
+                                measured.update(cx, |state, cx| {
+                                    if state.measure_footer(bounds.size.height) {
+                                        cx.notify();
+                                    }
+                                });
+                            })
+                            .children(render_footer.as_mut().map(|render| render(window, cx))),
+                    )
+                    .into_any_element();
             }
             div()
                 .w_full()
@@ -535,12 +597,22 @@ impl RenderOnce for ChatList {
         .size_full()
         .min_h_0()
         .py(EDGE);
-        let state = self.state.clone();
         let wheel = self.state.clone();
         let resized = self.state.clone();
         let press = self.state.clone();
         let laid_out = list_state.clone();
         let viewport_origin = list_state.viewport_bounds().origin;
+        let jump = scrolled_up.then(|| {
+            self.state.update(cx, |state, cx| {
+                let weak = cx.entity().downgrade();
+                let button = state
+                    .jump
+                    .get_or_insert_with(|| cx.new(|_| jump::JumpButton::new(weak)))
+                    .clone();
+                button.update(cx, |button, cx| button.set_running(self.running, cx));
+                button
+            })
+        });
         div()
             .id(self.id.clone())
             .relative()
@@ -594,6 +666,9 @@ impl RenderOnce for ChatList {
                 this.child(middle::indicator(origin, viewport_origin, window, cx))
             })
             .when(scrolled_up, |this| {
+                this.child(footer::edge_fade(cx.theme().background))
+            })
+            .when_some(jump, |this, jump| {
                 this.child(
                     h_flex()
                         .absolute()
@@ -601,20 +676,7 @@ impl RenderOnce for ChatList {
                         .right_0()
                         .bottom_3()
                         .justify_center()
-                        .child(motion::rise_in(
-                            kit::button((self.id.clone(), "jump"))
-                                .secondary()
-                                .icon(IconName::ArrowDown)
-                                .hint("К последним сообщениям", cx)
-                                .rounded(cx.theme().radius_full())
-                                .border_1()
-                                .border_color(cx.theme().border)
-                                .bg(cx.theme().background)
-                                .on_click(move |_, _, cx| {
-                                    state.update(cx, |_, cx| cx.emit(LatestRequested));
-                                }),
-                            (self.id, "jump-enter"),
-                        )),
+                        .child(motion::rise_in(div().child(jump), (self.id, "jump-enter"))),
                 )
             })
     }

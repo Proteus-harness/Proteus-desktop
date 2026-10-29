@@ -3138,11 +3138,14 @@ mod tests {
             text_view: Entity<TextViewState>,
             width: Pixels,
             style: TextViewStyle,
+            rem_size: Pixels,
         }
 
         impl Render for TableRoot {
-            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            fn render(&mut self, window: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                window.set_rem_size(self.rem_size);
                 div()
+                    .text_size(self.rem_size)
                     .w(self.width)
                     .child(TextView::new(&self.text_view).style(self.style.clone()))
             }
@@ -3154,7 +3157,7 @@ mod tests {
             "word ".repeat(30)
         );
         // Heights of the first column's cells, top to bottom.
-        let first_column = |width: f32, style: TextViewStyle| {
+        let column_heights = |width: f32, style: TextViewStyle, rem_size: f32, source: &str| {
             let mut app = TestApp::with_text_system(Arc::new(WideMonoTextSystem));
             app.update(crate::init);
             let cell = style.table_cell().clone().bg(gpui::rgb(CELL_BACKGROUND));
@@ -3163,6 +3166,7 @@ mod tests {
                 text_view: cx.new(|cx| TextViewState::markdown(&source, cx)),
                 width: px(width),
                 style,
+                rem_size: px(rem_size),
             });
             window.draw();
             app.run_until_parked();
@@ -3187,6 +3191,7 @@ mod tests {
                     .collect::<Vec<_>>()
             })
         };
+        let first_column = |width, style| column_heights(width, style, 16., &source);
         let scroll = || {
             let mut table = StyleRefinement::default();
             table.overflow.x = Some(gpui::Overflow::Scroll);
@@ -3199,6 +3204,19 @@ mod tests {
             assert_eq!(fits.len(), 3, "{layout}: three rows");
             assert_eq!(fits[0], fits[2], "{layout}: the header fits on one line");
             assert_eq!(narrow[..2], fits[..2], "{layout}: the short column wraps");
+        }
+
+        // Default px_3 padding is 0.75rem per side. At 125/150% it must
+        // leave the same measured content width; a hard-coded 24px total
+        // wraps the final word even in a very wide table.
+        let scaled_source = "| Система | Состояние |\n| --- | --- |\n| Неожиданные баги | 🟢 Работает |\n| 🟡 Заканчивается | x |\n| x | x |";
+        for rem_size in [16., 20., 24.] {
+            for (layout, style) in [("wrap", TextViewStyle::default()), ("scroll", scroll())] {
+                let heights = column_heights(4000., style, rem_size, scaled_source);
+                assert_eq!(heights.len(), 4, "{layout} {rem_size}: four rows");
+                assert!(heights.iter().all(|height| *height == heights[3]),
+                    "{layout} {rem_size}: Cyrillic/emoji cells fit one line: {heights:?}");
+            }
         }
 
         let single_line = first_column(4000., TextViewStyle::default())[0];

@@ -108,3 +108,43 @@ process group, закрывают сервер и сохраняют trace. По
 ```sh
 python3 examples/performance/native-stream/test_fixture.py
 ```
+
+## Ожидание ответа, прокрутка и кнопка вниз
+
+`status_demo.py` использует тот же HTTP/SSE transport и готовый Native, но
+держит активный ход без дельт ответа. В отдельном профиле — 20 синтетических
+сообщений и последний вопрос. Расширения пустые; Core и модели не запускаются.
+Запускайте внутри собственной background-gui session, как основной runner:
+
+```sh
+python3 /absolute/background-gui/scripts/bgui.py run SESSION --cwd /absolute/Proteus-desktop -- \
+  python3 /absolute/Proteus-desktop/examples/performance/native-stream/status_demo.py \
+  --native /absolute/ready/Proteus/proteus-native \
+  --output /absolute/Proteus-desktop/build/verification/native-status-current \
+  --timeout 600
+```
+
+После `READY` проверьте окно: «Думаю» находится после последнего вопроса и
+прокручивается вместе с сообщениями. Прокрутите вверх: кнопка возврата вниз
+показывает три движущиеся точки, при наведении — стрелку. Клик возвращает к
+последнему вопросу и «Думаю». При выключенной/уменьшенной анимации точки статичны.
+
+```sh
+touch OUTPUT/control/finish
+# Дождаться STAGE finished: «Думаю» исчезает, execution становится success.
+touch OUTPUT/control/stop
+```
+
+`finish` оставляет окно открытым для сравнения, `stop` закрывает только этот
+Native и transport. SIGINT/SIGTERM и timeout также выполняют очистку.
+Допустимый timeout — 10–600 секунд. Output должен быть новым каталогом;
+`state.json` фиксирует PID и SHA256 реального ELF, `trace.json` — доставленные
+события. Bearer token в state/stdout не записывается. READY подтверждает
+доставку событий, а вид и геометрию подтверждают только screenshots окна.
+
+Постоянная проверка wire-сценария без GUI/сборки:
+
+```sh
+python3 examples/performance/native-stream/status_demo.py --check-fixture \
+  --output build/verification/native-status-smoke-new
+```

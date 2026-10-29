@@ -12,6 +12,19 @@ mod prefs {
 }
 
 mod motion {
+    // This probe exercises the production scroller, while unrelated motion
+    // chrome remains static (as with rise_in below).
+    #[derive(gpui_kit::IntoElement)]
+    pub struct WaveDots;
+    impl gpui_kit::RenderOnce for WaveDots {
+        fn render(
+            self,
+            _: &mut gpui_kit::Window,
+            _: &mut gpui_kit::App,
+        ) -> impl gpui_kit::IntoElement {
+            gpui_kit::component::Icon::new(gpui_kit::component::IconName::Ellipsis)
+        }
+    }
     pub const SLOW: std::time::Duration = std::time::Duration::from_millis(260);
     pub fn plays() -> bool {
         false

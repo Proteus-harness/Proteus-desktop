@@ -1,7 +1,6 @@
-//! The time of a message beside its row actions: short in the row, the full
-//! date and time in the tooltip.
+//! Local date and time beside message actions; seconds in the tooltip.
 
-use chrono::{DateTime, Datelike as _, Local, TimeZone as _};
+use chrono::{DateTime, Local, TimeZone as _};
 use gpui_kit::component::*;
 use gpui_kit::*;
 
@@ -16,21 +15,14 @@ pub(super) fn message_time(key: u64, time: Option<i64>, cx: &App) -> Option<AnyE
         .px_1()
         .text_xs()
         .text_color(cx.theme().muted_foreground)
-        .child(short(time, Local::now()))
+        .child(short(time))
         .tip_text(full(time));
     Some(element.into_any_element())
 }
 
-/// "14:32" today, "21.10 14:32" on another day of this year, with the year
-/// further back.
-fn short(time: DateTime<Local>, now: DateTime<Local>) -> String {
-    if time.date_naive() == now.date_naive() {
-        time.format("%H:%M").to_string()
-    } else if time.year() == now.year() {
-        time.format("%d.%m %H:%M").to_string()
-    } else {
-        time.format("%d.%m.%Y %H:%M").to_string()
-    }
+/// Always retain the date, including today's messages and the current year.
+fn short(time: DateTime<Local>) -> String {
+    time.format("%d.%m.%Y %H:%M").to_string()
 }
 
 /// "22.10.2026 14:32:05".
@@ -52,11 +44,9 @@ mod tests {
     }
 
     #[test]
-    fn short_time_grows_with_distance() {
-        let now = at(2026, 10, 22, 18, 0);
-        assert_eq!(short(at(2026, 10, 22, 14, 32), now), "14:32");
-        assert_eq!(short(at(2026, 10, 21, 9, 5), now), "21.10 09:05");
-        assert_eq!(short(at(2025, 12, 31, 23, 59), now), "31.12.2025 23:59");
+    fn message_time_always_has_date_and_time() {
+        assert_eq!(short(at(2026, 10, 22, 14, 32)), "22.10.2026 14:32");
+        assert_eq!(short(at(2025, 12, 31, 23, 59)), "31.12.2025 23:59");
     }
 
     #[test]

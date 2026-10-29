@@ -2,6 +2,7 @@
 //! `<config>/dev.proteus.native/themes/*.json` (the gpui-kit theme format),
 //! read once at start. The preferences name one theme per appearance.
 
+mod fonts;
 mod interaction;
 
 use std::rc::Rc;
@@ -43,6 +44,7 @@ pub(super) fn init(cx: &mut App) {
         }
     }
     cx.set_global(ThemeProblems(problems));
+    fonts::init(cx);
     interaction::install(cx);
 }
 
@@ -72,9 +74,11 @@ pub(super) fn names(dark: bool, cx: &App) -> Vec<SharedString> {
 
 /// Installs the named themes for both appearances; a missing name falls
 /// back to the bundled theme. The caller then applies the current mode.
-pub(super) fn select(names: &ThemeNames, cx: &mut App) {
+pub(super) fn select(names: &ThemeNames, interface_font: Option<&str>, cx: &mut App) {
     let dark = pick(&names.dark, ThemeMode::Dark, DEFAULT_DARK_THEME, cx);
     let light = pick(&names.light, ThemeMode::Light, DEFAULT_LIGHT_THEME, cx);
+    let dark = dark.map(|config| fonts::configure(config, interface_font, cx));
+    let light = light.map(|config| fonts::configure(config, interface_font, cx));
     let theme = Theme::global_mut(cx);
     if let Some(dark) = dark {
         theme.dark_theme = dark;
@@ -83,6 +87,8 @@ pub(super) fn select(names: &ThemeNames, cx: &mut App) {
         theme.light_theme = light;
     }
 }
+
+pub(super) use fonts::{installed, resolve};
 
 fn pick(name: &str, mode: ThemeMode, fallback: &str, cx: &App) -> Option<Rc<ThemeConfig>> {
     let themes = ThemeRegistry::global(cx).themes();

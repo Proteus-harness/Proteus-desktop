@@ -32,9 +32,8 @@ pub struct Entry {
     pub tool: Option<AppTranscriptTool>,
     pub subagent: Option<AppTranscriptSubagent>,
     pub streaming: bool,
-    /// When the row appeared, in Unix milliseconds: the server time of the
-    /// event that created it. Snapshots carry no times, so rows known only
-    /// from history have none.
+    /// Creation time in Unix milliseconds. Canonical history timestamps take
+    /// precedence over provisional live/local event times.
     pub time: Option<i64>,
 }
 
@@ -102,12 +101,12 @@ impl Transcript {
             };
             if let Some((key, text, time)) = reused {
                 entry.key = key;
-                entry.time = time;
+                entry.time = entry.time.or(time);
                 if text == entry.text {
                     entry.text = text;
                 }
             } else {
-                entry.time = local_time_of(&old, &entry);
+                entry.time = entry.time.or_else(|| local_time_of(&old, &entry));
             }
             entries.push(entry);
         }
@@ -161,7 +160,7 @@ impl Transcript {
                 .find(|old| identity_of(old).is_some() && identity_of(old) == identity_of(&entry))
             {
                 entry.key = old.key;
-                entry.time = old.time;
+                entry.time = entry.time.or(old.time);
                 if entry.text == old.text {
                     entry.text = old.text.clone();
                 }
@@ -471,7 +470,7 @@ impl Transcript {
             tool: message.tool,
             subagent: message.subagent,
             streaming: message.streaming,
-            time: None,
+            time: message.timestamp_ms,
         }
     }
 }
@@ -535,6 +534,7 @@ fn finish_tool(tool: &mut AppTranscriptTool, result: &ToolResult) {
 fn same_row(before: &Entry, after: &Entry) -> bool {
     before.key == after.key
         && Arc::ptr_eq(&before.text, &after.text)
+        && before.time == after.time
         && before.streaming == after.streaming
         && before.images == after.images
         && match (&before.tool, &after.tool) {

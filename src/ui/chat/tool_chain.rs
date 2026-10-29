@@ -90,6 +90,7 @@ pub(super) fn render_chain_header(
                     super::tool_hint::group(
                         div()
                             .id(SharedString::from(format!("tool-chain-name-{head}-{name}")))
+                            .flex_initial()
                             .min_w_0()
                             .text_color(muted)
                             .child(faded(label)),

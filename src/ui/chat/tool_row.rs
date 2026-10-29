@@ -61,6 +61,10 @@ pub(super) fn is_running(status: &str) -> bool {
 /// One-line headline: status, canonical tool name and patch stats. Parameters
 /// belong to the hover preview and expanded details, not permanent row width.
 pub(super) fn tool_line(tool: &AppTranscriptTool, cx: &App) -> Div {
+    line_with_name(tool, div().min_w_0().child(faded(tool.name.clone())), cx)
+}
+
+fn line_with_name(tool: &AppTranscriptTool, name: impl IntoElement, cx: &App) -> Div {
     let stats = (tool.name == tool_display::APPLY_PATCH)
         .then(|| tool_display::patch_text(tool_args(tool)))
         .flatten()
@@ -70,7 +74,7 @@ pub(super) fn tool_line(tool: &AppTranscriptTool, cx: &App) -> Div {
         .text_sm()
         .min_w_0()
         .child(status_icon(&tool.status, cx))
-        .child(div().min_w_0().child(faded(tool.name.clone())))
+        .child(name)
         .children(
             stats
                 .filter(|stats| *stats != (0, 0))
@@ -109,20 +113,23 @@ pub(super) fn render_tool(
                 .into_any_element()
         },
     );
-    let header = tool_line(tool, cx)
+    // The parameters belong to the compact name. Anchoring the tooltip to
+    // the stretched disclosure row positions it far away in a wide chat.
+    let name = super::tool_hint::row(
+        div()
+            .id(row_id("tool-name", key))
+            .min_w_0()
+            .child(faded(tool.name.clone())),
+        cx.entity().downgrade(),
+        key,
+        tool.call_id.clone(),
+    );
+    let header = line_with_name(tool, name, cx)
         .id(row_id("tool", key))
         .disclosure(cx)
         .child(chevron(row_id("tool-chevron", key), expanded, muted))
         .on_click(cx.listener(move |this, _, _, cx| this.toggle_expanded(key, cx)));
-    v_flex()
-        .child(super::tool_hint::row(
-            header,
-            cx.entity().downgrade(),
-            key,
-            tool.call_id.clone(),
-        ))
-        .children(details)
-        .into_any_element()
+    v_flex().child(header).children(details).into_any_element()
 }
 
 /// Long blocks of one row are shown cut, with a fade, until the user asks

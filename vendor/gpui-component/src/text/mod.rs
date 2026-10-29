@@ -37,6 +37,7 @@ mod window_selection;
 pub(crate) fn base_text_view_style(theme: &crate::Theme) -> gpui_base::TextViewStyle {
     let radius = theme.semantic_tokens().radius.md;
     let mut table = gpui::StyleRefinement::default();
+    table.overflow.x = Some(gpui::Overflow::Scroll);
     table.corner_radii.top_left = Some(radius.into());
     table.corner_radii.top_right = Some(radius.into());
     table.corner_radii.bottom_left = Some(radius.into());
@@ -45,6 +46,7 @@ pub(crate) fn base_text_view_style(theme: &crate::Theme) -> gpui_base::TextViewS
     code_block.corner_radii = table.corner_radii.clone();
     let table_head = gpui::StyleRefinement::default()
         .bg(theme.table_head)
+        .font_weight(gpui::FontWeight::SEMIBOLD)
         .text_color(theme.table_head_foreground);
 
     gpui_base::TextViewStyle::default()

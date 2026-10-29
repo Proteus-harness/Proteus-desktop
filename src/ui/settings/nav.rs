@@ -17,15 +17,16 @@ use crate::settings::catalog::{
     CLIENT_PAGES, CONNECTION_PAGES, PageId, agent_pages, area_page, page_title,
 };
 use crate::shortcuts::Command;
+use crate::tabs::Axis;
 use crate::ui::extensions;
 use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::kit::Pressable as _;
+use crate::ui::panels::SidebarDrag;
 use crate::ui::prefs;
 use crate::ui::tip::Tip as _;
-
-const NAV_WIDTH: f32 = 232.;
+use crate::ui::{divider, drag};
 
 fn page_icon(page: &PageId) -> Icon {
     match page {
@@ -110,6 +111,24 @@ impl SettingsView {
         window: &Window,
         cx: &Context<Self>,
     ) -> impl IntoElement + use<> {
+        let width = self
+            .workspace
+            .read_with(cx, |workspace, cx| workspace.sidebar_width(cx))
+            .unwrap_or_else(|_| prefs::scaled(prefs::current(cx).sidebar.width));
+        let name = SharedString::from("settings-sidebar-edge");
+        let grip = divider::grip(name.clone(), Axis::Row, cx)
+            .on_drag(SidebarDrag, move |drag, _, _, cx| {
+                drag::start(name.clone(), cx);
+                cx.new(|_| drag.clone())
+            })
+            .on_click(cx.listener(|this, event: &ClickEvent, _, cx| {
+                if event.click_count() == 2 {
+                    let _ = this
+                        .workspace
+                        .update(cx, |workspace, cx| workspace.reset_sidebar_resize(cx));
+                    cx.notify();
+                }
+            }));
         let theme = cx.theme();
         // The list holds focus as a whole; its selected page shows it.
         let marked = self.nav_focus.is_focused(window) && window.last_input_was_keyboard();
@@ -181,12 +200,10 @@ impl SettingsView {
                 .map(|path| (path, snapshot.writable))
         });
         v_flex()
-            .w(prefs::scaled(NAV_WIDTH))
+            .w_full()
             .h_full()
             .flex_none()
             .bg(theme.sidebar)
-            .border_r_1()
-            .border_color(theme.sidebar_border)
             .child(
                 h_flex().h(prefs::scaled(44.)).px_2().items_center().child(
                     kit::button("settings-back")
@@ -265,6 +282,23 @@ impl SettingsView {
                     })
                     .tip_text(path)
             }))
+            .map(|nav| {
+                h_flex()
+                    .w(width)
+                    .h_full()
+                    .flex_none()
+                    .on_drag_move::<SidebarDrag>(cx.listener(
+                        |this, event: &DragMoveEvent<SidebarDrag>, _, cx| {
+                            let offset = event.event.position.x - event.bounds.left();
+                            let _ = this.workspace.update(cx, |workspace, cx| {
+                                workspace.move_sidebar_resize(offset, cx);
+                            });
+                            cx.notify();
+                        },
+                    ))
+                    .child(nav.flex_1().min_w_0().overflow_hidden())
+                    .child(divider::resizable(Axis::Row, grip, cx))
+            })
     }
 
     /// Search hits in place of the page list; Enter in the field opens the

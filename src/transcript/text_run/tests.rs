@@ -10,6 +10,7 @@ fn id(value: u128) -> Uuid {
 
 fn message(message_id: u128, text: &str) -> AppTranscriptMessage {
     AppTranscriptMessage {
+        timestamp_ms: None,
         message_id: Some(id(message_id)),
         phase: None,
         role: "assistant".into(),

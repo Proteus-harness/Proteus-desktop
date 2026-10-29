@@ -8,6 +8,7 @@ use proteus_contracts::app_protocol::{
 fn rows(start: usize, end: usize) -> Vec<AppTranscriptMessage> {
     (start..end)
         .map(|i| AppTranscriptMessage {
+            timestamp_ms: None,
             message_id: Some(uuid::Uuid::from_u128(i as u128 + 1)),
             phase: None,
             role: "user".into(),
