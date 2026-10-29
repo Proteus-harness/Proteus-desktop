@@ -12,6 +12,13 @@ mod prefs {
 }
 
 mod motion {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static PLAYS: AtomicBool = AtomicBool::new(false);
+
+    pub(super) fn set_plays(plays: bool) {
+        PLAYS.store(plays, Ordering::Relaxed);
+    }
+
     // This probe exercises the production scroller, while unrelated motion
     // chrome remains static (as with rise_in below).
     pub fn wave_dots(
@@ -22,7 +29,7 @@ mod motion {
     }
     pub const SLOW: std::time::Duration = std::time::Duration::from_millis(260);
     pub fn plays() -> bool {
-        false
+        PLAYS.load(Ordering::Relaxed)
     }
     pub fn rise_in<E>(element: E, _: impl Into<gpui_kit::ElementId>) -> E {
         element

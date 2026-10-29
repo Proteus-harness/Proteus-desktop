@@ -97,6 +97,103 @@ async fn stopped(
     Ok(())
 }
 
+fn end_bottom(sample: &serde_json::Value, thinking: bool) -> anyhow::Result<f64> {
+    sample[if thinking {
+        "footer_bottom"
+    } else {
+        "last_row_bottom"
+    }]
+    .as_f64()
+    .ok_or_else(|| anyhow::anyhow!("final row/caption has no native prepaint geometry"))
+}
+
+async fn smooth_end(
+    name: &str,
+    thinking: bool,
+    this: &WeakEntity<Fixture>,
+    window: AnyWindowHandle,
+    cx: &mut AsyncApp,
+    samples: &mut Vec<serde_json::Value>,
+) -> anyhow::Result<()> {
+    this.update(cx, |this, cx| this.reset_tail(ROWS, thinking, false, cx))?;
+    pause(cx, 400).await;
+    // A whole initial splice uses the list's natural end anchor. This is an
+    // independent geometry oracle, not another copy of ChatScroller::gap.
+    let initial = sample(this, cx)?;
+    let expected = end_bottom(&initial, thinking)?;
+    let viewport = this.read_with(cx, |this, _| this.geometry.viewport.get())?;
+    let origin = point(
+        viewport.left() + px(350.),
+        viewport.top() + viewport.size.height / 2.,
+    );
+    send(
+        window,
+        cx,
+        ScrollEvent {
+            position: origin,
+            delta: ScrollDelta::Pixels(point(px(0.), px(180.))),
+            ..Default::default()
+        },
+    )?;
+    pause(cx, 300).await;
+    let above = sample(this, cx)?;
+    anyhow::ensure!(
+        (offset(&above) - offset(&initial) + 180.).abs() < 2.,
+        "{name}: setup did not scroll up 180 physical pixels"
+    );
+    this.update(cx, |this, cx| {
+        this.scroller
+            .update(cx, |scroller, cx| scroller.scroll_to_end(cx))
+    })?;
+    // The real motion tick must reach the original anchor. Merely fitting
+    // the caption inside the viewport would miss the 16px under-scroll.
+    pause(cx, 1800).await;
+    let after = sample(this, cx)?;
+    let error = end_bottom(&after, thinking)? - expected;
+    samples.push(
+        serde_json::json!({"stage":name, "initial":initial, "scrolled_up":above,
+        "after":after, "end_anchor_error_px":error}),
+    );
+    anyhow::ensure!(
+        error.abs() <= 0.5,
+        "{name}: smooth return missed natural native end anchor by {error}px"
+    );
+    stopped(name, this, cx, samples).await
+}
+
+async fn tail_cases(
+    this: &WeakEntity<Fixture>,
+    window: AnyWindowHandle,
+    cx: &mut AsyncApp,
+    samples: &mut Vec<serde_json::Value>,
+) -> anyhow::Result<()> {
+    crate::ui::motion::set_plays(true);
+    let result = async {
+        smooth_end("smooth-end-row", false, this, window, cx, samples).await?;
+        smooth_end("smooth-end-thinking", true, this, window, cx, samples).await?;
+        for (name, count) in [("short-end-idle", 2), ("empty-end-idle", 0)] {
+            this.update(cx, |this, cx| this.reset_tail(count, false, true, cx))?;
+            pause(cx, 400).await;
+            let initial = sample(this, cx)?;
+            this.update(cx, |this, cx| {
+                this.scroller
+                    .update(cx, |scroller, cx| scroller.scroll_to_end(cx))
+            })?;
+            stopped(name, this, cx, samples).await?;
+            let after = sample(this, cx)?;
+            samples.push(serde_json::json!({"stage":name, "initial":initial, "after":after}));
+            anyhow::ensure!(
+                initial["last_row_bottom"] == after["last_row_bottom"],
+                "{name}: a fitting list acquired phantom scroll room"
+            );
+        }
+        anyhow::Ok(())
+    }
+    .await;
+    crate::ui::motion::set_plays(false);
+    result
+}
+
 async fn verify(
     this: &WeakEntity<Fixture>,
     window: AnyWindowHandle,
@@ -282,7 +379,7 @@ async fn verify(
         (offset(&after) - offset(&before) + 180.).abs() < 2.,
         "wheel was captured after Escape"
     );
-    Ok(())
+    tail_cases(this, window, cx, samples).await
 }
 
 pub(super) fn start(report: PathBuf, window: AnyWindowHandle, cx: &mut Context<Fixture>) {

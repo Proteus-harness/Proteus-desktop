@@ -320,6 +320,12 @@ impl ChatScroller {
 
     /// Pixels to the scrollable end, including retained blank room.
     fn gap(&self) -> Pixels {
+        if let Some(tail) = self.list.bounds_for_item(self.row_count()) {
+            // Scrollbar maximums omit list padding; using them near the end
+            // stops a glide 2 * EDGE early. Item bounds omit top padding too,
+            // so account for both edges to match the native end anchor.
+            return (tail.bottom() + EDGE * 2. - self.list.viewport_bounds().bottom()).max(px(0.));
+        }
         let max = self.list.max_offset_for_scrollbar().y;
         let offset = -self.list.scroll_px_offset_for_scrollbar().y;
         (max - offset).max(px(0.))
