@@ -61,8 +61,8 @@ pub(in crate::ui) fn format(media_type: &str, cx: &App) -> Option<&'static str> 
         })
 }
 
-fn populate_context(content: &mut Content, cx: &App) {
-    let mut context = content.context.as_object().cloned().unwrap_or_default();
+fn populate_context(value: &mut serde_json::Value, cx: &App) {
+    let mut context = value.as_object().cloned().unwrap_or_default();
     let languages = languages(cx);
     let mut contributors = serde_json::Map::new();
     for (language, id) in &languages {
@@ -80,7 +80,26 @@ fn populate_context(content: &mut Content, cx: &App) {
         ),
     );
     context.insert("contributors".into(), contributors.into());
-    content.context = context.into();
+    *value = context.into();
+}
+
+/// Keep one immutable latest payload shared by the shell and runtime. Compare
+/// borrowed text before allocating; the wire copy belongs after queue admission.
+fn updated_content(
+    current: &Content,
+    language: &str,
+    source: &str,
+    context: serde_json::Value,
+) -> Option<Arc<Content>> {
+    if current.language == language && current.source == source && current.context == context {
+        return None;
+    }
+    Some(Arc::new(Content {
+        language: language.into(),
+        source: source.into(),
+        context,
+        source_revision: Some(current.source_revision.unwrap_or_default().wrapping_add(1)),
+    }))
 }
 
 pub(in crate::ui) struct WillResize;
@@ -89,7 +108,7 @@ impl EventEmitter<WillResize> for ContentView {}
 
 pub(in crate::ui) struct ContentView {
     rendered: Entity<DeclarativeView>,
-    content: Content,
+    content: Arc<Content>,
     extension: &'static str,
     show_source: bool,
     body: bool,
@@ -106,7 +125,8 @@ impl ContentView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        populate_context(&mut content, cx);
+        populate_context(&mut content.context, cx);
+        let content = Arc::new(content);
         let extension = host.extension();
         let runtime = super::runtime(&host, window, cx).expect("registered content extension");
         let rendered = cx.new(|cx| {
@@ -173,22 +193,11 @@ impl ContentView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let mut content = Content {
-            language: language.into(),
-            source: source.into(),
-            context: self.content.context.clone(),
-            source_revision: self.content.source_revision,
-        };
-        populate_context(&mut content, cx);
-        if content == self.content {
+        let mut context = self.content.context.clone();
+        populate_context(&mut context, cx);
+        let Some(content) = updated_content(&self.content, language, source, context) else {
             return;
-        }
-        content.source_revision = Some(
-            self.content
-                .source_revision
-                .unwrap_or_default()
-                .wrapping_add(1),
-        );
+        };
         self.content = content.clone();
         self.rendered
             .update(cx, |view, cx| view.set_content(content, window, cx));
@@ -206,6 +215,9 @@ impl ContentView {
         cx.notify();
     }
 }
+
+#[cfg(test)]
+mod tests;
 
 impl Render for ContentView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {

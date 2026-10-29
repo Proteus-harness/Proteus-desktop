@@ -62,8 +62,9 @@ pub(super) fn is_running(status: &str) -> bool {
 /// belong to the hover preview and expanded details, not permanent row width.
 pub(super) fn tool_line(tool: &AppTranscriptTool, cx: &App) -> Div {
     let stats = (tool.name == tool_display::APPLY_PATCH)
-        .then(|| tool_display::headline(&tool.name, tool_args(tool)).stats)
-        .flatten();
+        .then(|| tool_display::patch_text(tool_args(tool)))
+        .flatten()
+        .and_then(tool_display::patch_line_stats);
     h_flex()
         .gap_2()
         .text_sm()

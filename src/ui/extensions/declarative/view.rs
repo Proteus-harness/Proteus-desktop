@@ -1,7 +1,7 @@
 //! A surface of an installed extension: panel, document or icon.
 
 use crate::ui::kit::{ButtonLabel as _, Frame as _};
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap, rc::Rc, sync::Arc};
 
 mod preparation;
 use preparation::Preparation;
@@ -65,7 +65,7 @@ impl DeclarativeView {
         host: crate::ui::extensions::Host,
         surface: SurfaceKind,
         argument: Option<String>,
-        content: Option<Content>,
+        content: Option<Arc<Content>>,
         window: &Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -122,7 +122,7 @@ impl DeclarativeView {
 
     pub(super) fn set_content(
         &mut self,
-        content: Content,
+        content: Arc<Content>,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {

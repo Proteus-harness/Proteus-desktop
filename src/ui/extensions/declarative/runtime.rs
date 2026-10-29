@@ -9,6 +9,7 @@ use scopes::Scope;
 
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use gpui_kit::*;
 
@@ -42,7 +43,7 @@ struct Attached {
     view: WeakEntity<DeclarativeView>,
     surface: SurfaceKind,
     argument: Option<String>,
-    content: Option<Content>,
+    content: Option<Arc<Content>>,
     context: String,
     host: Host,
     window: AnyWindowHandle,
@@ -99,7 +100,7 @@ impl Runtime {
         view: String,
         surface: SurfaceKind,
         argument: Option<String>,
-        content: Option<Content>,
+        content: Option<Arc<Content>>,
         entity: WeakEntity<DeclarativeView>,
         host: Host,
         window: AnyWindowHandle,
@@ -240,28 +241,31 @@ impl Runtime {
         let Some(attached) = self.views.get_mut(view) else {
             return;
         };
-        if attached.surface == SurfaceKind::Content
-            && !attached.queue.begin(
-                attached
-                    .content
-                    .as_ref()
-                    .and_then(|content| content.source_revision),
-            )
-        {
-            return;
-        }
-        let message = Outgoing::Render {
-            context: attached.context.clone(),
-            view: view.into(),
-            surface: attached.surface,
-            argument: attached.argument.clone(),
-            content: attached.content.clone().map(|mut content| {
+        let latest = attached.content.as_deref();
+        let materialize = || {
+            latest.cloned().map(|mut content| {
                 if !content.context.is_object() {
                     content.context = serde_json::json!({});
                 }
                 content.context["theme"] = theme["theme"].clone();
                 content
-            }),
+            })
+        };
+        let content = if attached.surface == SurfaceKind::Content {
+            let revision = latest.and_then(|content| content.source_revision);
+            let Some(content) = attached.queue.begin_with(revision, materialize) else {
+                return;
+            };
+            content
+        } else {
+            materialize()
+        };
+        let message = Outgoing::Render {
+            context: attached.context.clone(),
+            view: view.into(),
+            surface: attached.surface,
+            argument: attached.argument.clone(),
+            content,
             session_dir: self
                 .scopes
                 .get(&attached.context)
@@ -270,7 +274,7 @@ impl Runtime {
         self.send(&message);
     }
 
-    pub(super) fn set_content(&mut self, view: &str, content: Content, cx: &App) {
+    pub(super) fn set_content(&mut self, view: &str, content: Arc<Content>, cx: &App) {
         if let Some(attached) = self.views.get_mut(view) {
             attached.content = Some(content);
         }

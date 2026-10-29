@@ -40,39 +40,83 @@ pub struct PatchFile {
     pub body: String,
 }
 
+enum PatchLine<'a> {
+    File(PatchOperation, &'a str),
+    Move(&'a str),
+    Body(&'a str),
+}
+
+/// Both display paths accept the same permissive envelope, borrowing its lines.
+fn patch_lines(patch: &str) -> impl Iterator<Item = PatchLine<'_>> {
+    patch.lines().filter_map(|line| {
+        if line == "*** Begin Patch" || line == "*** End Patch" {
+            None
+        } else if let Some((operation, path)) = file_header(line) {
+            Some(PatchLine::File(operation, path))
+        } else if let Some(target) = line.strip_prefix("*** Move to: ") {
+            Some(PatchLine::Move(target))
+        } else {
+            Some(PatchLine::Body(line))
+        }
+    })
+}
+
+/// Stats for a compact row, without copying paths, formatting moves or building
+/// diff bodies. `None` means no file header, as in `headline`'s fallback.
+pub fn patch_line_stats(patch: &str) -> Option<(usize, usize)> {
+    let mut stats = None;
+    for line in patch_lines(patch) {
+        match line {
+            PatchLine::File(..) => {
+                stats.get_or_insert((0, 0));
+            }
+            PatchLine::Body(line) => {
+                if let Some((added, removed)) = &mut stats {
+                    match DiffLine::of(line) {
+                        DiffLine::Added => *added += 1,
+                        DiffLine::Removed => *removed += 1,
+                        DiffLine::Hunk | DiffLine::Context => {}
+                    }
+                }
+            }
+            PatchLine::Move(_) => {}
+        }
+    }
+    stats
+}
+
 pub fn patch_files(patch: &str) -> Vec<PatchFile> {
     let mut files: Vec<PatchFile> = Vec::new();
-    for line in patch.lines() {
-        if line == "*** Begin Patch" || line == "*** End Patch" {
-            continue;
-        }
-        if let Some((operation, path)) = file_header(line) {
-            files.push(PatchFile {
+    for line in patch_lines(patch) {
+        match line {
+            PatchLine::File(operation, path) => files.push(PatchFile {
                 path: path.to_owned(),
                 operation,
                 additions: 0,
                 deletions: 0,
                 body: String::new(),
-            });
-            continue;
+            }),
+            PatchLine::Move(target) => {
+                if let Some(file) = files.last_mut() {
+                    file.operation = PatchOperation::Move;
+                    file.path = format!("{} → {target}", file.path);
+                }
+            }
+            PatchLine::Body(line) => {
+                let Some(file) = files.last_mut() else {
+                    continue;
+                };
+                match DiffLine::of(line) {
+                    DiffLine::Added => file.additions += 1,
+                    DiffLine::Removed => file.deletions += 1,
+                    DiffLine::Hunk | DiffLine::Context => {}
+                }
+                if !file.body.is_empty() {
+                    file.body.push('\n');
+                }
+                file.body.push_str(line);
+            }
         }
-        let Some(file) = files.last_mut() else {
-            continue;
-        };
-        if let Some(target) = line.strip_prefix("*** Move to: ") {
-            file.operation = PatchOperation::Move;
-            file.path = format!("{} → {target}", file.path);
-            continue;
-        }
-        match DiffLine::of(line) {
-            DiffLine::Added => file.additions += 1,
-            DiffLine::Removed => file.deletions += 1,
-            DiffLine::Hunk | DiffLine::Context => {}
-        }
-        if !file.body.is_empty() {
-            file.body.push('\n');
-        }
-        file.body.push_str(line);
     }
     files
 }

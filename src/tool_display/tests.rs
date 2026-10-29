@@ -71,6 +71,128 @@ fn patches_list_files_with_line_stats() {
 }
 
 #[test]
+fn compact_patch_stats_preserve_permissive_envelopes() {
+    let cases = [
+        ("", None),
+        (" \r\n", None),
+        ("+orphan\n-orphan\n*** Move to: ignored", None),
+        ("*** Begin Patch\n*** End Patch", None),
+        ("*** Add File:\n+missing header space", None),
+        (" *** Add File: indented\n+not a file", None),
+        ("*** Add File: ", Some((0, 0))),
+        ("*** Delete File: gone\n-removed", Some((0, 1))),
+        (
+            "*** Update File: x\n+one\n*** End Patch\n-two\n*** Begin Patch\n+three",
+            Some((2, 1)),
+        ),
+        (
+            "*** Add File: x\n+++ header\n--- header\n@@ +hunk -hunk\n context",
+            Some((1, 1)),
+        ),
+        (
+            "*** Update File: файл.rs\r\n*** Move to: +новый.rs\r\n+🦀\r\n-старый\r\n",
+            Some((1, 1)),
+        ),
+        (
+            "*** Add File: a\n*** Move to: b\n*** Move to: c\n+one\n*** Delete File: a\n-two",
+            Some((1, 1)),
+        ),
+    ];
+    for (patch, expected) in cases {
+        assert_eq!(patch_line_stats(patch), expected, "{patch:?}");
+        let files = patch_files(patch);
+        assert_eq!(
+            (!files.is_empty()).then(|| patch_stats(&files)),
+            expected,
+            "{patch:?}"
+        );
+    }
+}
+
+#[test]
+fn compact_patch_stats_match_full_parser_across_line_orderings() {
+    let lines = [
+        "*** Begin Patch",
+        "*** End Patch",
+        "*** Add File: ",
+        "*** Update File: файл.rs",
+        "*** Delete File: gone",
+        "*** Move to: next",
+        "*** Move to: ",
+        "*** Add File:",
+        "+added",
+        "-removed",
+        "@@ -1 +1 @@",
+        " context",
+        "",
+    ];
+    for first in lines {
+        for second in lines {
+            for third in lines {
+                let patch = format!("{first}\n{second}\n{third}");
+                let files = patch_files(&patch);
+                let expected = (!files.is_empty()).then(|| patch_stats(&files));
+                assert_eq!(patch_line_stats(&patch), expected, "{patch:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn compact_patch_stats_keep_headline_argument_precedence() {
+    let patch = "*** Add File: a\n+one";
+    for args in [
+        json!({"patch": patch}),
+        json!({"input": patch}),
+        json!({"patch": "*** Delete File: b\n-two", "input": patch}),
+        json!({"patch": null, "input": patch}),
+        json!({"patch": 7, "input": patch}),
+        json!({"patch": " \n", "input": patch}),
+        json!({"patch": "+orphan"}),
+        json!({}),
+        json!(null),
+    ] {
+        assert_eq!(
+            patch_text(&args).and_then(patch_line_stats),
+            headline(APPLY_PATCH, &args).stats,
+            "{args}"
+        );
+    }
+}
+
+#[test]
+fn shared_patch_scan_preserves_bodies_and_repeated_moves() {
+    let patch = concat!(
+        "*** Move to: ignored\n*** Update File: \n\n",
+        "*** Move to: новый.rs\n*** Move to: final.rs\n",
+        "@@\n+🦀\n*** End Patch\n-old\n\n context\n",
+        "*** End Patch \n*** Delete File: gone"
+    );
+    let files = patch_files(patch);
+    assert_eq!(files.len(), 2);
+    assert_eq!(files[0].path, " → новый.rs → final.rs");
+    assert_eq!(files[0].operation, PatchOperation::Move);
+    assert_eq!(files[0].body, "@@\n+🦀\n-old\n\n context\n*** End Patch ");
+    assert_eq!(files[1].operation, PatchOperation::Delete);
+    assert_eq!(files[1].body, "");
+    let summary = headline(APPLY_PATCH, &json!({"patch": patch}));
+    assert_eq!(
+        summary.subject.as_deref(),
+        Some(" → новый.rs → final.rs +1")
+    );
+    assert_eq!(summary.stats, Some((1, 1)));
+}
+
+#[test]
+fn compact_patch_stats_count_long_lines_and_fresh_inputs() {
+    let body = "🦀".repeat(65_536);
+    let patch = format!("*** Add File: wide\n+{body}\n-{body}");
+    assert_eq!(patch_line_stats(&patch), Some((1, 1)));
+    assert_eq!(patch_line_stats("*** Add File: wide\n+new"), Some((1, 0)));
+    assert_eq!(patch_line_stats("*** Delete File: wide"), Some((0, 0)));
+}
+
+#[test]
 fn plans_summarize_progress() {
     let args = json!({"plan": [
         {"step": "Read", "status": "completed"},

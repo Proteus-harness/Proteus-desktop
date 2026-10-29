@@ -22,6 +22,26 @@ Rust toolchain задан rust-toolchain.toml.
 legacy aliases или dual-read. Текущий сценарий — доверенные собственные
 процессы; sandbox/hardening не добавляйте без поручения владельца.
 
+## Стоимость Обновлений
+
+- Для свёрнутой строки считайте только видимые summary/stats; подробный diff,
+  labels и форматирование готовьте там, где они нужны. Общий разбор должен
+  сохранять те же границы файлов, counts и обработку некорректного ввода.
+- Не копируйте неизменённый source ради сравнения. Проверяйте также context
+  и contributors: одинаковый текст не означает неизменившийся renderer.
+  Между retained UI и runtime разделяйте immutable snapshot; полный owned
+  payload для wire создавайте после допуска очередью, не для вытесненных edits.
+- Coalescing разрешён только для заменяемого latest content. Сохраняйте
+  in-flight revision, ACK и content_error, action sequence, session/rehost,
+  restart и invalidation без смены source. Отмена или устаревший ответ сами
+  по себе не освобождают чужой in-flight запрос; journal/terminal events
+  нельзя терять как промежуточные перерисовки.
+
+Проверяйте эти границы существующими focused тестами. Удаление повторной
+allocation видно в исходниках; улучшение latency/RSS/CPU — только в замере
+с одинаковыми revisions, входами и cold/warm режимом. Не обещайте ускорение
+всего приложения по одной устранённой копии.
+
 ## Источники И Проверка
 
 repositories.json закрепляет Core, модули и стандартные расширения для
