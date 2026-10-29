@@ -11,7 +11,11 @@ import subprocess
 import sys
 import time
 from urllib.parse import quote
-from urllib.request import Request, urlopen
+from urllib.request import ProxyHandler, Request, build_opener
+
+
+# Snapshot validation addresses this process's authenticated loopback backend.
+DIRECT = build_opener(ProxyHandler({}))
 
 
 def sha(path):
@@ -109,7 +113,7 @@ def validate_snapshot(sample, session, expected):
     port, = listeners
     request = Request(f'http://127.0.0.1:{port}/events?session_dir='+quote(str(session), safe=''),
                       headers={'Authorization':'Bearer '+token})
-    with urlopen(request, timeout=30) as response:
+    with DIRECT.open(request, timeout=30) as response:
         for line in response:
             if not line.startswith(b'data: '):
                 continue
