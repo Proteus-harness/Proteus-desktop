@@ -70,6 +70,27 @@ impl HistoryWindow {
 }
 
 impl History {
+    pub(super) fn request_pending(&self) -> bool {
+        self.loading || self.seek.is_some()
+    }
+
+    fn begin_request(&mut self) -> Option<u64> {
+        if self.loading {
+            return None;
+        }
+        self.epoch += 1;
+        self.loading = true;
+        Some(self.epoch)
+    }
+
+    fn finish_request(&mut self, request: u64) -> bool {
+        if !self.loading || self.epoch != request {
+            return false;
+        }
+        self.loading = false;
+        true
+    }
+
     pub(super) fn displayed<'a>(&'a self, live: &'a Transcript) -> &'a Transcript {
         self.archive
             .as_ref()
@@ -348,8 +369,9 @@ impl Chat {
         let Some(cursor) = self.history.seek_cursor() else {
             return;
         };
-        self.history.loading = true;
-        let epoch = self.history.epoch;
+        let Some(request) = self.history.begin_request() else {
+            return;
+        };
         let api = self.api.clone();
         let dir = self.session.dir.clone();
         cx.spawn(async move |this, cx| {
@@ -359,10 +381,9 @@ impl Chat {
                 .spawn(async move { api.history_page(&dir, &requested) })
                 .await;
             this.update(cx, |this, cx| {
-                if this.history.epoch != epoch {
+                if !this.history.finish_request(request) {
                     return;
                 }
-                this.history.loading = false;
                 match page {
                     Ok(page) => {
                         // A drag can outrun this request. Reuse its page only
@@ -411,8 +432,9 @@ impl Chat {
             }
             return;
         };
-        self.history.loading = true;
-        let epoch = self.history.epoch;
+        let Some(request) = self.history.begin_request() else {
+            return;
+        };
         let api = self.api.clone();
         let dir = self.session.dir.clone();
         cx.spawn(async move |this, cx| {
@@ -422,10 +444,9 @@ impl Chat {
                 .spawn(async move { api.history_page(&dir, &requested) })
                 .await;
             this.update(cx, |this, cx| {
-                if this.history.epoch != epoch {
+                if !this.history.finish_request(request) {
                     return;
                 }
-                this.history.loading = false;
                 if this.history.seek.is_some() {
                     this.load_history_seek(cx);
                     return;

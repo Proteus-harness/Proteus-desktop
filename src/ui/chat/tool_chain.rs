@@ -40,15 +40,6 @@ impl Chat {
             .then(|| tool_chain(self.display_transcript().entries(), ix))
             .flatten()
     }
-
-    /// Remeasures rows a change of row `ix` may fold or unfold.
-    pub(super) fn remeasure_chain(&mut self, ix: usize, cx: &mut Context<Self>) {
-        let rows = affected_rows(self.display_transcript().entries(), ix);
-        if rows.len() > 1 {
-            self.scroller
-                .update(cx, |scroller, cx| scroller.remeasure_items(rows, cx));
-        }
-    }
 }
 
 /// Motion key of the run starting at row `head`; row keys repeat across chats.

@@ -6,6 +6,8 @@ use proteus_contracts::app_protocol::AppServerEvent;
 use proteus_contracts::domain::Event as RuntimeEvent;
 
 use super::context_usage::ContextUsage;
+use super::row_layout::{reconciles_rows, row_layout};
+use super::stream_batch::{BatchItem, batches};
 use super::{Chat, ChatEvent};
 use crate::connection::PumpItem;
 use crate::transcript::Change;
@@ -20,10 +22,7 @@ pub(super) fn start(events: async_channel::Receiver<PumpItem>, cx: &mut Context<
                 batch.push(item);
             }
             let applied = this.update(cx, |this, cx| {
-                let mut shown = false;
-                for item in batch {
-                    shown |= this.apply(item, cx);
-                }
+                let shown = this.apply_batch(batch, cx);
                 // Copies of other sessions' activity and runtime events
                 // without a trace in the chat leave it as drawn.
                 if shown {
@@ -38,6 +37,32 @@ pub(super) fn start(events: async_channel::Receiver<PumpItem>, cx: &mut Context<
 }
 
 impl Chat {
+    /// Partition only the already-ready batch; no timer delays incoming text.
+    pub(super) fn apply_batch(&mut self, batch: Vec<PumpItem>, cx: &mut Context<Self>) -> bool {
+        let mut shown = false;
+        for item in batches(batch) {
+            match item {
+                BatchItem::Barrier(item) => shown |= self.apply(item, cx),
+                BatchItem::Text(run) => {
+                    let outcome = self.session.apply_text_run(run);
+                    if !self.history.archived() {
+                        for change in outcome.layout_changes() {
+                            self.apply_change(change, cx);
+                        }
+                    }
+                    if outcome.shown() {
+                        self.sync_history_range(cx);
+                    }
+                    for change in outcome.event_changes() {
+                        cx.emit(ChatEvent::SessionEntriesChanged(change));
+                    }
+                    shown |= outcome.shown();
+                }
+            }
+        }
+        shown
+    }
+
     /// Folds one stream item in; true when the chat looks different.
     pub(super) fn apply(&mut self, item: PumpItem, cx: &mut Context<Self>) -> bool {
         let session = &mut self.session;
@@ -94,28 +119,12 @@ impl Chat {
         let change = match event {
             AppServerEvent::SessionSnapshot { snapshot } => {
                 crate::startup_trace::first("chat.snapshot.applied");
-                let snapshot = *snapshot;
-                let tools_running = snapshot.transcript.iter().any(|entry| {
-                    entry
-                        .tool
-                        .as_ref()
-                        .is_some_and(|tool| tool.status == "running")
-                });
-                let message_ids: Vec<_> = snapshot
-                    .transcript
-                    .iter()
-                    .filter_map(|entry| entry.message_id)
-                    .collect();
-                session
-                    .feedback
-                    .snapshot(&snapshot.execution, tools_running, &message_ids);
-                session.execution = snapshot.execution;
-                session.root_thread = snapshot.root_thread_id;
-                let (change, display) = self.history.apply(
-                    &mut session.transcript,
-                    snapshot.transcript,
-                    snapshot.history,
-                );
+                let cancelled = self.history.request_pending();
+                let (change, display) = session.apply_snapshot(*snapshot, &mut self.history);
+                if cancelled {
+                    self.scroller
+                        .update(cx, |state, cx| state.history_ready(cx));
+                }
                 display_changes = Some(display);
                 change
             }
@@ -220,7 +229,7 @@ impl Chat {
     }
 
     pub(super) fn apply_change(&mut self, change: Change, cx: &mut Context<Self>) {
-        if matches!(change, Change::Spliced { .. }) {
+        if reconciles_rows(change) {
             let entries = self.history.displayed(&self.session.transcript).entries();
             let keys = entries.iter().map(|entry| entry.key).collect();
             self.replies.retain(&keys);
@@ -230,43 +239,30 @@ impl Chat {
             self.open_chains.retain(|key| keys.contains(key));
             self.sent_images.retain(entries);
         }
-        if matches!(change, Change::Pushed)
-            && let Some(entry) = self
-                .history
-                .displayed(&self.session.transcript)
-                .entries()
-                .last()
+        let layout = row_layout(self.display_transcript().entries(), change);
+        if let Some(layout) = layout {
+            if let Some(key) = layout.fresh_key {
+                self.fresh_rows.mark(key);
+            }
+            self.scroller
+                .update(cx, |scroller, cx| match layout.primary {
+                    Change::Pushed => scroller.append(1, cx),
+                    Change::Updated(row) => scroller.remeasure_items(row..row + 1, cx),
+                    _ => unreachable!("row layout contains a push or update"),
+                });
+            if let Some(rows) = layout.chain {
+                self.scroller
+                    .update(cx, |scroller, cx| scroller.remeasure_items(rows, cx));
+            }
+        } else if let Change::Spliced {
+            start,
+            removed,
+            inserted,
+        } = change
         {
-            self.fresh_rows.mark(entry.key);
-        }
-        self.scroller.update(cx, |scroller, cx| match change {
-            Change::None => {}
-            Change::Pushed => {
-                scroller.append(1, cx);
-            }
-            Change::Updated(row) => {
-                scroller.remeasure_items(row..row + 1, cx);
-            }
-            Change::Spliced {
-                start,
-                removed,
-                inserted,
-            } => {
-                scroller.splice(start..start + removed, inserted, cx);
-            }
-        });
-        let changed = match change {
-            Change::Pushed => self
-                .history
-                .displayed(&self.session.transcript)
-                .entries()
-                .len()
-                .checked_sub(1),
-            Change::Updated(row) => Some(row),
-            Change::None | Change::Spliced { .. } => None,
-        };
-        if let Some(row) = changed {
-            self.remeasure_chain(row, cx);
+            self.scroller.update(cx, |scroller, cx| {
+                scroller.splice(start..start + removed, inserted, cx)
+            });
         }
     }
 }

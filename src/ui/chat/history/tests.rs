@@ -43,6 +43,51 @@ fn fixture() -> (History, Transcript) {
 }
 
 #[test]
+fn unchanged_snapshot_cancels_request_and_same_edge_can_retry_without_duplicate_completion() {
+    let (mut history, mut live) = fixture();
+    let keys: Vec<_> = live.entries().iter().map(|entry| entry.key).collect();
+    let old = history.begin_request().unwrap();
+    assert!(history.request_pending());
+    assert!(history.begin_request().is_none());
+    let (change, display) = history.apply(&mut live, rows(950, 1000), Some(cursor("first", 950)));
+    assert_eq!(change, Change::None);
+    assert_eq!(display, vec![Change::None]);
+    assert!(!history.request_pending());
+    assert_eq!(
+        live.entries()
+            .iter()
+            .map(|entry| entry.key)
+            .collect::<Vec<_>>(),
+        keys
+    );
+    let next = history.begin_request().unwrap();
+    assert_ne!(old, next);
+    assert!(!history.finish_request(old));
+    assert!(
+        history.request_pending(),
+        "stale completion must not unlock the replacement"
+    );
+    assert!(history.finish_request(next));
+    assert!(!history.finish_request(next));
+    // A network error finishes the request too, so the next explicit gesture can retry.
+    assert!(history.begin_request().is_some());
+}
+
+#[test]
+fn return_to_tail_invalidates_an_in_flight_page_without_poisoning_next_request() {
+    let (mut history, live) = fixture();
+    let requested = history.request(Direction::Older, &live).unwrap();
+    history
+        .accept_page(&live, Direction::Older, &requested, page(900, 950), 0..2)
+        .unwrap();
+    let old = history.begin_request().unwrap();
+    history.latest(&live);
+    let next = history.begin_request().unwrap();
+    assert!(!history.finish_request(old));
+    assert!(history.finish_request(next));
+}
+
+#[test]
 fn pages_move_both_ways_without_retaining_the_entire_visited_history() {
     let (mut history, live) = fixture();
     // Visit the whole fixture upward; all fetched data remains recoverable on disk.

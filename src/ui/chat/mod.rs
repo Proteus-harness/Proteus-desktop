@@ -20,9 +20,13 @@ mod pump;
 mod question_card;
 mod replies;
 mod requests;
+mod row_layout;
 mod scroller;
 mod session;
+#[cfg(test)]
+mod snapshot_tests;
 mod stamp;
+mod stream_batch;
 mod thread;
 mod tool_chain;
 mod tool_hint;
@@ -218,9 +222,7 @@ impl Chat {
             _pump: pump,
             _subscriptions: subscriptions,
         };
-        for event in initial {
-            chat.apply(event, cx);
-        }
+        chat.apply_batch(initial, cx);
         chat.load_config(cx);
         chat
     }

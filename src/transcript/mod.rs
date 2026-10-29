@@ -56,9 +56,16 @@ pub struct Transcript {
     entries: Vec<Entry>,
     turn_thread: Option<ThreadId>,
     next_key: Arc<AtomicU64>,
+    #[cfg(test)]
+    text_work: text_run::TextWork,
 }
 
 impl Transcript {
+    /// A snapshot replaces routing too: its TurnStarted need not be replayed.
+    pub fn set_root_thread(&mut self, root: Option<ThreadId>) {
+        self.turn_thread = root;
+    }
+
     pub fn entries(&self) -> &[Entry] {
         &self.entries
     }
@@ -353,6 +360,10 @@ impl Transcript {
         offset: Option<usize>,
     ) -> Change {
         let completed = offset.is_none();
+        #[cfg(test)]
+        if !completed {
+            self.text_work.delta_lookups += 1;
+        }
         if let Some(index) = self
             .entries
             .iter()
@@ -360,7 +371,15 @@ impl Transcript {
         {
             let entry = &mut self.entries[index];
             entry.text = match offset {
-                Some(offset) => splice_delta(&entry.text, offset, text),
+                Some(offset) => {
+                    let keep = delta_keep(&entry.text, offset);
+                    #[cfg(test)]
+                    {
+                        self.text_work.prior_row_prefix_bytes += keep;
+                        self.text_work.delta_row_replacements += 1;
+                    }
+                    splice_delta(&entry.text, keep, text)
+                }
                 None if *entry.text == *text => entry.text.clone(),
                 None => text.into(),
             };
@@ -369,6 +388,10 @@ impl Transcript {
         }
         if text.is_empty() {
             return Change::None;
+        }
+        #[cfg(test)]
+        if !completed {
+            self.text_work.delta_row_replacements += 1;
         }
         self.stop_streaming();
         let key = self.allocate_key();
@@ -482,12 +505,15 @@ fn local_time_of(old: &[Entry], entry: &Entry) -> Option<i64> {
         .and_then(|before| before.time)
 }
 
-fn splice_delta(current: &Arc<str>, offset: usize, delta: &str) -> Arc<str> {
-    let keep = if offset <= current.len() && current.is_char_boundary(offset) {
+fn delta_keep(current: &str, offset: usize) -> usize {
+    if offset <= current.len() && current.is_char_boundary(offset) {
         offset
     } else {
         current.len()
-    };
+    }
+}
+
+fn splice_delta(current: &Arc<str>, keep: usize, delta: &str) -> Arc<str> {
     let mut text = String::with_capacity(keep + delta.len());
     text.push_str(&current[..keep]);
     text.push_str(delta);
@@ -532,6 +558,9 @@ fn same_tool(a: &AppTranscriptTool, b: &AppTranscriptTool) -> bool {
 
 mod cache;
 mod chains;
+mod text_run;
+
+pub(crate) use text_run::{TextRun, TextRunOutcome};
 
 pub use cache::window_changes;
 
