@@ -129,7 +129,7 @@ def main():
     environment['CARGO_BUILD_JOBS'] = str(args.jobs)
     record = {
         'runner_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-        'profile': 'ordinary release, thin LTO, codegen-units=1; no archive',
+        'profile': 'ordinary release per selected workspace Cargo configuration; no archive',
         'components': args.components, 'portable_flags': args.portable_flags,
         'cache': 'existing Cargo/OS caches preserved; later runs have no intentional source changes',
         'jobs': args.jobs, 'interval_seconds': args.interval,
