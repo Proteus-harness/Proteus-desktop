@@ -12,6 +12,7 @@ class ProcessGroups(unittest.TestCase):
                            root / 'files/bin/files', Path('/usr/bin/node'),
                            Path('/usr/bin/python3')):
             self.assertEqual(process_group({'exe': str(executable)}, root), 'extensions')
+        self.assertEqual(process_group({'exe': '/usr/bin/node-22', 'name': 'node'}, root), 'extensions')
         self.assertEqual(process_group({'exe': '/portable/share/extensions-old/bin/files'}, root), 'other')
         self.assertEqual(process_group({'exe': '/portable/bin/proteus'}, root), 'backend')
         self.assertEqual(process_group({'exe': '/portable/bin/proteus-reference-module'}, root), 'modules')

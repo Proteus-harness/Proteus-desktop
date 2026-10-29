@@ -86,7 +86,7 @@ def process_group(row, extensions):
         return 'backend'
     if executable == 'proteus-reference-module':
         return 'modules'
-    if path.is_relative_to(extensions) or executable.startswith('python') or executable == 'node':
+    if path.is_relative_to(extensions) or executable.startswith('python') or executable == 'node' or row.get('name') == 'node':
         return 'extensions'
     return 'other'
 
