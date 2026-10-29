@@ -37,6 +37,7 @@ pub(super) struct DeclarativeView {
     keys: HashMap<String, String>,
     action_sequence: u64,
     resize_on_reply: bool,
+    source_revision: Option<u64>,
     focus_page: bool,
     pub(super) presentation: Option<Presentation>,
     /// Selected tab of every `tabs` node, by tree path.
@@ -50,27 +51,37 @@ pub(super) struct DeclarativeView {
 impl DeclarativeView {
     pub(super) fn new(
         runtime: Entity<Runtime>,
+        host: crate::ui::extensions::Host,
         surface: SurfaceKind,
         argument: Option<String>,
+        window: &Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        Self::with_content(runtime, surface, argument, None, cx)
+        Self::with_content(runtime, host, surface, argument, None, window, cx)
     }
 
     pub(super) fn with_content(
         runtime: Entity<Runtime>,
+        host: crate::ui::extensions::Host,
         surface: SurfaceKind,
         argument: Option<String>,
         content: Option<Content>,
+        window: &Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let view = crate::declarative::protocol::view_id(surface, argument.as_deref());
+        let source_revision = content.as_ref().and_then(|content| content.source_revision);
+        let view = format!(
+            "{}@{}",
+            crate::declarative::protocol::view_id(surface, argument.as_deref()),
+            cx.entity_id()
+        );
+        let window = window.window_handle();
         let me = cx.weak_entity();
         let (id, attach_runtime) = (view.clone(), runtime.clone());
         // Attach after construction: the runtime may answer synchronously.
         cx.defer(move |cx| {
             attach_runtime.update(cx, |runtime, cx| {
-                runtime.attach(id, surface, argument, content, me, cx)
+                runtime.attach(id, surface, argument, content, me, host, window, cx)
             });
         });
         let detach = (runtime.clone(), view.clone());
@@ -91,6 +102,7 @@ impl DeclarativeView {
             keys: HashMap::new(),
             action_sequence: 0,
             resize_on_reply: false,
+            source_revision,
             focus_page: false,
             presentation: None,
             tabs: HashMap::new(),
@@ -102,6 +114,73 @@ impl DeclarativeView {
 
     pub(super) fn focus(&self) -> FocusHandle {
         self.focus.clone()
+    }
+
+    pub(super) fn host(&self, cx: &App) -> Option<crate::ui::extensions::Host> {
+        self.runtime.read(cx).host_for(&self.view).cloned()
+    }
+
+    pub(super) fn set_content(
+        &mut self,
+        content: Content,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.source_revision = content.source_revision;
+        self.failure = None;
+        let id = self.view.clone();
+        self.runtime
+            .update(cx, |runtime, cx| runtime.set_content(&id, content, cx));
+        cx.notify();
+    }
+
+    pub(super) fn show_with_revision(
+        &mut self,
+        root: Node,
+        sequence: u64,
+        keys: HashMap<String, String>,
+        source_revision: Option<u64>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if source_revision != self.source_revision {
+            return false;
+        }
+        self.show(root, sequence, keys, cx)
+    }
+
+    pub(super) fn fail_with_revision(
+        &mut self,
+        error: String,
+        sequence: u64,
+        source_revision: Option<u64>,
+        cx: &mut Context<Self>,
+    ) {
+        if source_revision == self.source_revision {
+            self.fail(error, sequence, cx);
+        }
+    }
+
+    pub(super) fn rehost(
+        &mut self,
+        workspace: WeakEntity<crate::ui::workspace::Workspace>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        for content in self
+            .fields
+            .contents
+            .values()
+            .filter_map(|content| content.view.as_ref())
+        {
+            content.update(cx, |content, cx| {
+                content.rehost(workspace.clone(), window, cx)
+            });
+        }
+        let id = self.view.clone();
+        self.runtime.update(cx, |runtime, cx| {
+            runtime.rehost(&id, workspace, window.window_handle(), cx)
+        });
+        cx.notify();
     }
 
     pub(super) fn show(
@@ -197,7 +276,7 @@ impl DeclarativeView {
     }
 
     pub(super) fn popup_closed(&self, cx: &App) -> u64 {
-        self.runtime.read(cx).popup_closed
+        self.runtime.read(cx).popup_closed(&self.view)
     }
 
     pub(super) fn reset(&mut self, cx: &mut Context<Self>) {

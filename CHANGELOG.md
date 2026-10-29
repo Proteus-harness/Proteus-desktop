@@ -4,7 +4,7 @@
 
 - DCP перенесён в отложенные эксперименты и исключён из штатных профилей,
   portable и общего test gate. Упаковка portable больше не устанавливает npm dependencies.
-- `scripts/portable.py --fast --reuse-binaries` обновляет поставку из готовых
+- `scripts/portable.py --reuse-binaries` обновляет поставку из готовых
   бинарников без компиляции Rust.
 
 ## 0.1.0-alpha.3

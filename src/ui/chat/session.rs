@@ -23,6 +23,7 @@ pub(in crate::ui) struct Session {
     pub config: Option<ConfigSummary>,
     pub context: Option<ContextUsage>,
     pub(super) root_thread: Option<ThreadId>,
+    pub(super) feedback: super::feedback::Feedback,
 }
 
 /// What a chat tab says about the run and the connection.
@@ -47,11 +48,26 @@ impl Session {
             config: None,
             context: None,
             root_thread: None,
+            feedback: super::feedback::Feedback::default(),
         }
     }
 
     pub fn running(&self) -> bool {
         self.execution.active.is_some()
+    }
+
+    pub(super) fn thinking(&self) -> bool {
+        let waiting = !self.connected
+            || self.pending.as_ref().is_some_and(|pending| {
+                !pending.approvals.is_empty() || !pending.user_inputs.is_empty()
+            });
+        let tools_running = self.transcript.entries().iter().any(|entry| {
+            entry
+                .tool
+                .as_ref()
+                .is_some_and(|tool| tool.status == "running")
+        });
+        !tools_running && self.feedback.thinking(&self.execution, waiting)
     }
 
     pub fn state(&self) -> ChatState {

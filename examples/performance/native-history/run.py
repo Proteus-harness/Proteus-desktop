@@ -75,6 +75,18 @@ def traces(path):
     return result, windows
 
 
+def process_group(row, extensions):
+    path = Path(row.get('exe', ''))
+    executable = path.name
+    if executable == 'proteus':
+        return 'backend'
+    if executable == 'proteus-reference-module':
+        return 'modules'
+    if path.is_relative_to(extensions) or executable.startswith('python') or executable == 'node':
+        return 'extensions'
+    return 'other'
+
+
 def validate_snapshot(sample, session, expected):
     """Inspect the already-running backend after idle; never warm it before timing."""
     backend, = [row for row in sample['processes'] if row['group'] == 'backend']
@@ -157,14 +169,7 @@ def run_case(args, case, workspace, config, restart, expected):
                        XDG_DATA_HOME=str(case / 'xdg-data'), XDG_CACHE_HOME=str(case / 'xdg-cache'))
 
     def classify(row):
-        executable = Path(row.get('exe', '')).name
-        if executable == 'proteus':
-            return 'backend'
-        if executable == 'proteus-reference-module':
-            return 'modules'
-        if executable.startswith('python') or executable == 'node':
-            return 'extensions'
-        return 'other'
+        return process_group(row, args.extensions)
 
     samples = []
     started = time.monotonic()

@@ -69,22 +69,7 @@ fn main() {
             })
             .detach();
 
-            // The top bar draws the window controls and moves the window itself.
-            let base = gpui_kit::component::TitleBar::window_options();
-            let window_options = WindowOptions {
-                app_id: Some(APP_ID.to_owned()),
-                titlebar: base.titlebar.map(|titlebar| TitlebarOptions {
-                    title: Some("Proteus".into()),
-                    ..titlebar
-                }),
-                window_decorations: Some(window_decorations()),
-                window_bounds: Some(WindowBounds::centered(size(px(1180.), px(820.)), cx)),
-                // Scrolling does not focus the window on every compositor, and
-                // the default ~30 fps cap for inactive windows makes glides
-                // and animations under the pointer stutter.
-                inactive_frame_interval: None,
-                ..base
-            };
+            let window_options = window_options(cx);
             gpui_kit::open_window(window_options, cx, |window, cx| {
                 startup_trace::mark("window.create");
                 cx.new(|cx| Launcher::new(launch.workspace, launch.target, preparation, window, cx))
@@ -92,6 +77,26 @@ fn main() {
             .expect("open window");
             cx.activate(true);
         });
+}
+
+/// Shared decoration, sizing and frame policy for every application window.
+fn window_options(cx: &App) -> WindowOptions {
+    // The top bar draws the window controls and moves the window itself.
+    let base = gpui_kit::component::TitleBar::window_options();
+    WindowOptions {
+        app_id: Some(APP_ID.to_owned()),
+        titlebar: base.titlebar.map(|titlebar| TitlebarOptions {
+            title: Some("Proteus".into()),
+            ..titlebar
+        }),
+        window_decorations: Some(window_decorations()),
+        window_bounds: Some(WindowBounds::centered(size(px(1180.), px(820.)), cx)),
+        // Scrolling does not focus the window on every compositor, and
+        // the default ~30 fps cap for inactive windows makes glides
+        // and animations under the pointer stutter.
+        inactive_frame_interval: None,
+        ..base
+    }
 }
 
 /// niri draws no window frame and sends no tiled state to a client-decorated

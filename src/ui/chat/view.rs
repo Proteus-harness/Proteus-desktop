@@ -1,9 +1,11 @@
 use gpui_kit::component::*;
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::Chat;
 use super::scroller::ChatList;
-use crate::ui::motion;
+use crate::ui::kit::SelectionCopyMenu as _;
+use crate::ui::{motion, prefs};
 
 impl Render for Chat {
     /// The conversation: thread, pending requests and composer.
@@ -31,7 +33,10 @@ impl Render for Chat {
                     .min_h_0()
                     .child(ChatList::new("thread", self.scroller.clone(), renderer))
                     .child(fade(cx.theme().background))
-                    .children(self.render_notice(cx)),
+                    .children(self.render_notice(cx))
+                    .selection_copy_menu()
+                    .flex_1()
+                    .min_h_0(),
                 "thread-enter",
                 true,
             ))
@@ -52,7 +57,88 @@ impl Render for Chat {
                     cx.stop_propagation();
                 }
             }))
+            .children(self.render_feedback(cx))
             .child(self.render_composer(window, cx))
+    }
+}
+
+impl Chat {
+    /// A local send receipt is visible in the first frame after Enter. The
+    /// canonical thread stays server-owned and replaces it on its own echo.
+    fn render_feedback(&self, cx: &App) -> Option<AnyElement> {
+        let receipt = self.session.feedback.latest_receipt();
+        let thinking = self.session.thinking();
+        if receipt.is_none() && !thinking {
+            return None;
+        }
+        let theme = cx.theme();
+        Some(
+            h_flex()
+                .w_full()
+                .justify_center()
+                .px_6()
+                .child(
+                    v_flex()
+                        .w_full()
+                        .max_w(prefs::chat_width(cx))
+                        .max_h(prefs::scaled(176.))
+                        .overflow_hidden()
+                        .gap_2()
+                        .children(receipt.map(|(send, previous)| {
+                            let preview = send.preview();
+                            let clipped = preview.len() < send.text.len();
+                            v_flex()
+                                .id(SharedString::from(format!("sending-{}", send.id)))
+                                .w_full()
+                                .items_end()
+                                .gap_0p5()
+                                .child(
+                                    v_flex()
+                                        .max_w(relative(0.85))
+                                        .px_3()
+                                        .py_2()
+                                        .gap_1()
+                                        .rounded(theme.radius_lg)
+                                        .bg(theme.secondary)
+                                        .text_color(theme.secondary_foreground)
+                                        .when(!preview.is_empty(), |bubble| {
+                                            bubble.child(
+                                                div()
+                                                    .relative()
+                                                    .max_h(prefs::scaled(96.))
+                                                    .overflow_hidden()
+                                                    .text_size(prefs::chat_text(cx))
+                                                    .child(preview)
+                                                    .when(clipped, |block| {
+                                                        block.child(crate::ui::fade::bottom(
+                                                            theme.secondary,
+                                                            prefs::scaled(20.),
+                                                        ))
+                                                    }),
+                                            )
+                                        })
+                                        .when(!send.images.is_empty(), |bubble| {
+                                            bubble.child(div().text_sm().child(format!(
+                                                "Изображений: {}",
+                                                send.images.len()
+                                            )))
+                                        }),
+                                )
+                                .child(div().text_xs().text_color(theme.muted_foreground).child(
+                                    if previous == 0 {
+                                        send.status().to_owned()
+                                    } else {
+                                        format!("{} · ещё сообщений: {previous}", send.status())
+                                    },
+                                ))
+                        }))
+                        .when(thinking, |footer| {
+                            footer
+                                .child(div().py_1().text_sm().child(self.thinking_caption.clone()))
+                        }),
+                )
+                .into_any_element(),
+        )
     }
 }
 

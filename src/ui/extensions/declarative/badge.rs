@@ -32,7 +32,9 @@ pub(super) struct DeclarativeBadge {
 
 pub(super) fn build(host: Host, window: &mut Window, cx: &mut App) -> AnyView {
     let runtime = runtime(&host, window, cx).expect("catalog lists installed extensions only");
-    let view = cx.new(|cx| DeclarativeView::new(runtime, SurfaceKind::Badge, None, cx));
+    let view = cx.new(|cx| {
+        DeclarativeView::new(runtime, host.clone(), SurfaceKind::Badge, None, window, cx)
+    });
     cx.new(|cx| DeclarativeBadge {
         _view: cx.observe(&view, |_, _, cx| cx.notify()),
         host,

@@ -33,6 +33,36 @@ enum Stage {
 }
 
 impl Launcher {
+    /// A tab window reuses its workspace's server and existing view entities.
+    pub(super) fn from_workspace(
+        view: Entity<Workspace>,
+        target: Target,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let subscription = cx.subscribe_in(
+            &view,
+            window,
+            |this, _, request: &WorkspaceRequest, window, cx| match request {
+                WorkspaceRequest::Open(path) => this.open(path.clone(), window, cx),
+            },
+        );
+        Self {
+            stage: Stage::Ready(view),
+            target,
+            focus: cx.focus_handle(),
+            preparation: None,
+            _workspace_requests: Some(subscription),
+        }
+    }
+
+    pub(super) fn workspace(&self) -> &Entity<Workspace> {
+        match &self.stage {
+            Stage::Ready(view) => view,
+            Stage::Picking { .. } => unreachable!("tab windows start with a workspace"),
+        }
+    }
+
     /// Starts the workspace right away when `options` name one.
     pub fn new(
         workspace: Option<PathBuf>,

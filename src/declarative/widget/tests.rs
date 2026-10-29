@@ -462,3 +462,22 @@ fn compact_search_is_an_explicit_single_line_input() {
     multiline["lines"] = json!(2);
     assert!(parse(multiline).is_err());
 }
+
+#[test]
+fn native_rich_text_and_nested_content_have_closed_typed_fields() {
+    assert!(matches!(
+        parse(json!({"type":"rich_text", "id":"p", "html":"<p>Привет</p>"})).unwrap(),
+        Node::RichText { .. }
+    ));
+    assert!(matches!(
+        parse(json!({"type":"content", "id":"c", "language":"figure", "source":"x"})).unwrap(),
+        Node::Content { .. }
+    ));
+    assert!(parse(json!({"type":"rich_text", "id":"p", "html":"x", "markdown":true})).is_err());
+    assert!(parse(json!({"type":"content", "id":"c", "language":"figure"})).is_err());
+    assert!(matches!(
+        parse(json!({"type":"code", "id":"c", "text":"x", "language":"rust", "embedded":true}))
+            .unwrap(),
+        Node::Code { embedded: true, .. }
+    ));
+}

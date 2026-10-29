@@ -76,6 +76,8 @@ def badge():
 views = {}
 sequences = {}
 view_sessions = {}
+view_contexts = {}
+contexts = {}
 
 
 def render(view):
@@ -94,21 +96,34 @@ for line in sys.stdin:
     kind = message["type"]
     if kind == "hello":
         server = message["server"]
+    elif kind == "context":
+        contexts[message["context"]] = message.get("session_dir")
+    elif kind == "close_context":
+        contexts.pop(message["context"], None)
+    elif kind == "rehost":
+        view_contexts[message["view"]] = message["context"]
+        view_sessions[message["view"]] = contexts.get(message["context"])
     elif kind == "render":
+        view_contexts[message["view"]] = message["context"]
         view_sessions[message["view"]] = message.get("session_dir")
         views[message["view"]] = (message["surface"], message.get("argument"))
         render(message["view"])
     elif kind == "close":
-        views.pop(message["view"], None)
+        for mapping in (views, sequences, view_contexts, view_sessions):
+            mapping.pop(message["view"], None)
     elif kind == "action":
         sequences[message["view"]] = message["sequence"]
         if message["action"] == "click":
             clicks += 1
         elif message["action"] == "open":
-            send({"type": "open_document", "argument": f"клик-{clicks}"})
+            send({"type": "open_document", "context": view_contexts[message["view"]],
+                  "view": message["view"], "argument": f"клик-{clicks}"})
         for view in list(views):
             render(view)
     elif kind == "event":
-        view_sessions = {view: message.get("session_dir") for view in views}
+        context = message["context"]
+        contexts[context] = message.get("session_dir")
         for view in list(views):
-            render(view)
+            if view_contexts[view] == context:
+                view_sessions[view] = message.get("session_dir")
+                render(view)

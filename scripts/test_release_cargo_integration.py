@@ -19,23 +19,23 @@ class CargoArtifactIntegrationTests(unittest.TestCase):
             manifest = checkout / "Cargo.toml"
             manifest.write_text(
                 '[package]\nname = "proteus-artifact-fixture"\nversion = "0.1.0"\n'
-                'edition = "2024"\n[profile.fast]\ninherits = "dev"\n'
+                'edition = "2024"\n[profile.artifact_check]\ninherits = "dev"\n'
             )
             (checkout / "Cargo.lock").write_text(
                 'version = 4\n[[package]]\nname = "proteus-artifact-fixture"\nversion = "0.1.0"\n'
             )
             (checkout / "src/main.rs").write_text('fn main() { println!("fresh artifact"); }\n')
-            stale = checkout / "target/fast/proteus-artifact-fixture"
+            stale = checkout / "target/artifact_check/proteus-artifact-fixture"
             stale.parent.mkdir(parents=True)
             stale.write_bytes(b"stale output, not executable")
             with patch.dict(os.environ, {"CARGO_TARGET_DIR": "../cache with spaces"}), \
                  contextlib.redirect_stdout(io.StringIO()):
                 binary = build_binary(
                     checkout, "proteus-artifact-fixture", "proteus-artifact-fixture",
-                    ["--offline", "--profile", "fast"], manifest,
+                    ["--offline", "--profile", "artifact_check"], manifest,
                 )
             self.assertTrue(binary.resolve().is_relative_to(Path(directory) / "cache with spaces"))
-            self.assertEqual(binary.parent.name, "fast")
+            self.assertEqual(binary.parent.name, "artifact_check")
             self.assertEqual(binary.name, "proteus-artifact-fixture")
             result = subprocess.run([str(binary)], check=True, capture_output=True, text=True)
             self.assertEqual(result.stdout, "fresh artifact\n")

@@ -13,7 +13,7 @@ use serde_json::Value;
 use super::presentation::Face;
 use super::widget::Node;
 
-pub const PROTOCOL: u32 = 3;
+pub const PROTOCOL: u32 = 4;
 pub const FEATURES: &[&str] = &[
     "session.settings.v1",
     "widgets.controls.v1",
@@ -32,23 +32,29 @@ pub const FEATURES: &[&str] = &[
     "documents.title.v1",
     "surfaces.content.v1",
     "widgets.svg.v1",
+    "widgets.rich_text.v1",
+    "widgets.content.v1",
+    "widgets.code_embedded.v1",
 ];
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Outgoing {
     CommandResult {
+        context: String,
         id: String,
         session_dir: PathBuf,
         config: Option<Box<proteus_contracts::app_protocol::config::ConfigSummary>>,
         error: Option<String>,
     },
     SessionSnapshot {
+        context: String,
         session_dir: Option<PathBuf>,
         state: Option<Box<super::session::State>>,
         entries: Vec<super::session::Entry>,
     },
     SessionUpdate {
+        context: String,
         session_dir: PathBuf,
         update: super::session::Update,
     },
@@ -61,6 +67,7 @@ pub enum Outgoing {
     },
     /// A surface was shown; the process should send its view.
     Render {
+        context: String,
         view: String,
         surface: SurfaceKind,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -71,7 +78,23 @@ pub enum Outgoing {
         session_dir: Option<PathBuf>,
     },
     /// The surface is gone; its view is no longer needed.
-    Close { view: String },
+    Close {
+        view: String,
+    },
+    /// One retained surface moved to another window; its identity and process
+    /// state are unchanged. Context is announced before this message.
+    Rehost {
+        view: String,
+        context: String,
+    },
+    Context {
+        context: String,
+        workspace: PathBuf,
+        session_dir: Option<PathBuf>,
+    },
+    CloseContext {
+        context: String,
+    },
     /// The user pressed a button or a list row.
     Action {
         sequence: u64,
@@ -82,6 +105,7 @@ pub enum Outgoing {
     },
     /// Something changed in the client, e.g. another chat became active.
     Event {
+        context: String,
         event: HostEventKind,
         #[serde(skip_serializing_if = "Option::is_none")]
         document: Option<String>,
@@ -101,6 +125,9 @@ pub struct Server {
 pub struct Content {
     pub language: String,
     pub source: String,
+    pub context: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_revision: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
@@ -132,16 +159,22 @@ pub enum Incoming {
         error: String,
         #[serde(default)]
         sequence: u64,
+        #[serde(default)]
+        source_revision: Option<u64>,
     },
     Focus {
         view: String,
         control: Option<String>,
     },
-    ClosePopup,
+    ClosePopup {
+        context: String,
+    },
     Clipboard {
         text: String,
     },
     SetSession {
+        context: String,
+        view: Option<String>,
         id: String,
         session_dir: PathBuf,
         setting: SessionSetting,
@@ -159,6 +192,8 @@ pub enum Incoming {
     /// The whole tree of one view.
     View {
         #[serde(default)]
+        source_revision: Option<u64>,
+        #[serde(default)]
         title: Option<String>,
         #[serde(default)]
         keys: std::collections::HashMap<String, String>,
@@ -170,6 +205,8 @@ pub enum Incoming {
     },
     /// Opens a document of this extension as a tab.
     OpenDocument {
+        context: String,
+        view: Option<String>,
         argument: String,
         #[serde(default)]
         preview: bool,
@@ -189,6 +226,7 @@ pub fn parse(line: &str) -> anyhow::Result<Incoming> {
         view,
         session_dir,
         sequence,
+        source_revision,
         root,
         ..
     } = &message
@@ -202,6 +240,7 @@ pub fn parse(line: &str) -> anyhow::Result<Incoming> {
                 view: view.clone(),
                 session_dir: session_dir.clone(),
                 sequence: *sequence,
+                source_revision: *source_revision,
                 error: format!("{error:#}"),
             });
         }
@@ -233,6 +272,7 @@ mod tests {
     #[test]
     fn writes_messages_as_tagged_json() {
         let render = Outgoing::Render {
+            context: "fixture".into(),
             view: view_id(SurfaceKind::Document, Some("a")),
             surface: SurfaceKind::Document,
             content: None,
@@ -241,26 +281,29 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_value(render).unwrap(),
-            json!({"type": "render", "view": "document:a", "surface": "document", "argument": "a"})
+            json!({"type": "render", "context":"fixture", "view": "document:a", "surface": "document", "argument": "a"})
         );
     }
 
     #[test]
     fn content_source_has_a_typed_payload_and_errors_target_its_stable_view() {
         let message = Outgoing::Render {
+            context: "fixture".into(),
             view: view_id(SurfaceKind::Content, Some("entry-1-block-2")),
             surface: SurfaceKind::Content,
             argument: Some("entry-1-block-2".into()),
             content: Some(Content {
                 language: "future-figure".into(),
                 source: "original source\n".into(),
+                context: serde_json::json!({}),
+                source_revision: None,
             }),
             session_dir: Some("/fixture/chat-one".into()),
         };
         let value = serde_json::to_value(message).unwrap();
         assert_eq!(
             value["content"],
-            json!({"language":"future-figure","source":"original source\n"})
+            json!({"language":"future-figure","source":"original source\n","context":{}})
         );
         assert_eq!(value["view"], "content:entry-1-block-2");
         let error = parse(r#"{"type":"content_error","view":"content:entry-1-block-2","session_dir":"/fixture/chat-one","error":"unsupported source","sequence":4}"#).unwrap();
@@ -277,11 +320,11 @@ mod tests {
         // Value types belong to the advertised setting, not the native router.
         assert!(matches!(
             parse(
-                r#"{"type":"set_session","id":"a","session_dir":"/s","setting":{"id":"org.example/flag","value":true}}"#
+                r#"{"type":"set_session","context":"fixture","id":"a","session_dir":"/s","setting":{"id":"org.example/flag","value":true}}"#
             ),
             Ok(Incoming::SetSession { .. })
         ));
-        assert!(parse(r#"{"type":"set_session","id":"a","session_dir":"/s","setting":{"type":"mode","value":"auto"}}"#).is_err());
+        assert!(parse(r#"{"type":"set_session","context":"fixture","id":"a","session_dir":"/s","setting":{"type":"mode","value":"auto"}}"#).is_err());
     }
 
     #[test]
@@ -301,7 +344,7 @@ mod tests {
             });
             let failure = parse(&envelope.to_string()).unwrap();
             assert!(matches!(failure, Incoming::ContentError {
-                view, session_dir: Some(session), sequence: 7, error,
+                view, session_dir: Some(session), sequence: 7, error, ..
             } if view == "content:broken-block"
                 && session == std::path::Path::new("/fixture/chat-one")
                 && !error.is_empty()));
@@ -344,7 +387,7 @@ mod tests {
         );
         let (packages, errors) = crate::declarative::manifest::discover(&root.join("packages"));
         assert!(errors.is_empty(), "{errors:?}");
-        assert_eq!(packages.len(), 11);
+        assert_eq!(packages.len(), 13);
         let output = std::process::Command::new("python3")
             .arg(root.join("tests/wire.py"))
             .arg("--wire")

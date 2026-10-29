@@ -22,9 +22,11 @@ use crate::shortcuts::{self, Command};
 
 mod controls;
 mod frame;
+mod selection;
 mod surface;
 pub(crate) use controls::{Clipboard, Switch};
 pub(crate) use frame::{Frame, RowRule, record_first_child};
+pub(crate) use selection::SelectionCopyMenu;
 pub(crate) use surface::{surface, surface_highlight};
 
 /// Shared button captions and quiet surfaces. Icons, sizes, focus and

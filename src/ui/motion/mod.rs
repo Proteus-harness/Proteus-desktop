@@ -23,6 +23,7 @@ mod enter;
 mod number;
 mod popup;
 mod reveal;
+mod shimmer;
 mod slide;
 mod spinner;
 pub(super) mod ticker;
@@ -36,6 +37,7 @@ pub(super) use enter::{fade_in_if, late_in, rise_in, rise_in_if, stagger_in, swi
 pub(super) use number::Number;
 pub(super) use popup::{Popup, PopupPanel, popup, restore_focus};
 pub(super) use reveal::PopupOrigin;
+pub(super) use shimmer::Shimmer;
 pub(super) use slide::{Slide, glide};
 pub(super) use spinner::Spinner;
 pub(super) use transition::PageTransition;

@@ -1,7 +1,7 @@
-use super::{ChatScroller, HistoryRange};
+use super::{ChatScroller, HistoryRange, Hold};
 use gpui_kit::component::scroll::ScrollbarHandle as _;
 use gpui_kit::{ListOffset, point, px};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 fn folded_tail(autoscroll: bool) -> ChatScroller {
     let state = ChatScroller::new(autoscroll);
@@ -76,4 +76,20 @@ fn wheel_down_respects_disabled_automatic_following() {
     state.user_scroll(point(px(0.), px(-3.)));
     state.step(Instant::now());
     assert!(!state.following);
+}
+
+#[test]
+fn wheel_down_releases_disclosure_room_at_the_natural_content_end() {
+    let mut state = folded_tail(true);
+    state.tail.hold(px(600.));
+    state.hold = Some(Hold {
+        rows: 0..1,
+        until: Instant::now() + Duration::from_secs(1),
+    });
+    state.user_scroll(point(px(0.), px(30.)));
+    assert!(state.hold.is_none());
+    assert_eq!(state.tail.height(), px(600.));
+    assert!(!state.following);
+    state.user_scroll(point(px(0.), px(-30.)));
+    assert_eq!(state.tail.height(), px(0.));
 }

@@ -274,7 +274,7 @@ impl DeclarativeView {
             } => div()
                 .w_full()
                 .min_w_0()
-                .children(self.images.get(source, *width, *height).map(|image| {
+                .children(self.images.get(source, *width, *height, cx).map(|image| {
                     img(image)
                         .w(prefs::scaled(*width))
                         .h(prefs::scaled(*height))
@@ -282,6 +282,25 @@ impl DeclarativeView {
                         .object_fit(ObjectFit::Contain)
                 }))
                 .into_any_element(),
+            Node::RichText { id, .. } => self
+                .fields
+                .rich_text
+                .get(id)
+                .map(|text| text.element())
+                .unwrap_or_else(|| div().into_any_element()),
+            Node::Content { id, .. } => self
+                .fields
+                .contents
+                .get(id)
+                .map(|content| content.element())
+                .unwrap_or_else(|| div().into_any_element()),
+            Node::Code {
+                id,
+                text,
+                language,
+                embedded: true,
+                ..
+            } => super::rich_text::embedded_code(id, text, language, self.fields.codes.get(id), cx),
             Node::Code { id, height, .. } => div()
                 .when(height.is_none(), |node| node.flex_1())
                 .when_some(*height, |node, height| node.h(prefs::scaled(height)))
@@ -587,6 +606,8 @@ impl DeclarativeView {
                 | Node::Button { .. }
                 | Node::Select { .. }
                 | Node::Picker { .. }
+                | Node::RichText { .. }
+                | Node::Content { .. }
                 | Node::Code { .. }
                 | Node::Terminal { .. }
                 | Node::Tree { .. }

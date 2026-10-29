@@ -57,6 +57,8 @@ pub(super) struct TextInput {
 
 #[derive(Default)]
 pub(super) struct Fields {
+    pub rich_text: HashMap<String, super::rich_text::RichText>,
+    pub contents: HashMap<String, super::rich_text::Content>,
     pub disclosures: HashMap<String, bool>,
     pub inputs: HashMap<String, TextInput>,
     pub codes: HashMap<String, Entity<EditorState>>,
@@ -73,6 +75,12 @@ impl DeclarativeView {
     pub(super) fn prune_fields(&mut self, root: &Node) {
         let mut ids = std::collections::HashSet::new();
         root.visit(&mut |node| match node {
+            Node::RichText { id, .. } => {
+                ids.insert((11, id.clone()));
+            }
+            Node::Content { id, .. } => {
+                ids.insert((12, id.clone()));
+            }
             Node::Input { id, .. } => {
                 ids.insert((0, id.clone()));
             }
@@ -108,6 +116,12 @@ impl DeclarativeView {
             }
             _ => {}
         });
+        self.fields
+            .rich_text
+            .retain(|id, _| ids.contains(&(11, id.clone())));
+        self.fields
+            .contents
+            .retain(|id, _| ids.contains(&(12, id.clone())));
         self.fields
             .inputs
             .retain(|id, _| ids.contains(&(0, id.clone())));
@@ -148,6 +162,12 @@ impl DeclarativeView {
         cx: &mut Context<Self>,
     ) {
         match node {
+            Node::RichText { id, html } => self.prepare_rich_text(id, html, cx),
+            Node::Content {
+                id,
+                language,
+                source,
+            } => self.prepare_content(id, language, source, window, cx),
             Node::Sortable { items, .. } => {
                 for item in items {
                     for child in &item.children {
@@ -352,6 +372,7 @@ impl DeclarativeView {
                 text,
                 language,
                 wrap,
+                embedded,
                 ..
             } => {
                 let editor = self.fields.codes.entry(id.clone()).or_insert_with(|| {
@@ -359,13 +380,22 @@ impl DeclarativeView {
                         let mut editor = EditorState::new(window, cx)
                             .language(language.clone())
                             .line_number(!*wrap)
-                            .soft_wrap(*wrap);
+                            .soft_wrap(*wrap && !*embedded)
+                            .scroll_beyond_last_line(if *embedded { Some(0) } else { None });
                         editor.set_readonly(true, cx);
                         editor
                     })
                 });
                 editor.update(cx, |editor, cx| {
                     editor.set_highlighter(language.clone(), cx);
+                    editor.set_scroll_beyond_last_line(
+                        if *embedded { Some(0) } else { None },
+                        window,
+                        cx,
+                    );
+                    if *embedded {
+                        editor.set_scroll_bounce(false, cx);
+                    }
                     if editor.value().as_ref() != text {
                         editor.set_value(text.clone(), window, cx);
                     }

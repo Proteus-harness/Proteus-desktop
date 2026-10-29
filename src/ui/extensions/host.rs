@@ -24,6 +24,9 @@ pub(in crate::ui) struct Host {
     extension: &'static str,
     /// A retained content view belongs to its original chat, even in a background tab.
     bound: Option<(WeakEntity<Chat>, PathBuf)>,
+    /// A document-only detached window keeps its originating session until
+    /// the destination explicitly chooses a chat. This is weak, never a pump.
+    inherited: Option<(WeakEntity<Chat>, PathBuf)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,6 +82,7 @@ impl Host {
                 (Some(state), entries)
             });
         crate::declarative::protocol::Outgoing::SessionSnapshot {
+            context: self.scope(),
             session_dir: self.session_dir(cx),
             state,
             entries,
@@ -108,11 +112,34 @@ impl Host {
             .as_ref()
             .map_or_else(|| self.workspace.entity_id(), |(chat, _)| chat.entity_id())
     }
+    /// Window-scoped protocol context. Bound content has a separate runtime
+    /// per chat, while retaining the chat's own session across tab changes.
+    pub(in crate::ui) fn scope(&self) -> String {
+        self.workspace.entity_id().to_string()
+    }
+
+    pub(in crate::ui) fn rehost(&self, workspace: WeakEntity<Workspace>) -> Self {
+        Self {
+            workspace,
+            ..self.clone()
+        }
+    }
+
+    pub(in crate::ui) fn inherit(&mut self, source: Option<(WeakEntity<Chat>, PathBuf)>) {
+        if self.bound.is_none() {
+            self.inherited = source;
+        }
+    }
+
+    pub(in crate::ui) fn session_source(&self, cx: &App) -> Option<(WeakEntity<Chat>, PathBuf)> {
+        Some((self.chat(cx)?.downgrade(), self.session_dir(cx)?))
+    }
     pub(in crate::ui) fn new(workspace: WeakEntity<Workspace>, extension: &'static str) -> Self {
         Self {
             workspace,
             extension,
             bound: None,
+            inherited: None,
         }
     }
 
@@ -126,6 +153,13 @@ impl Host {
         self.extension
     }
 
+    pub(in crate::ui) fn with_extension(&self, extension: &'static str) -> Self {
+        Self {
+            extension,
+            ..self.clone()
+        }
+    }
+
     /// Folder the agent works in.
     pub(in crate::ui) fn workspace_path(&self, cx: &App) -> Option<PathBuf> {
         self.read(cx, |host| host.workspace.workspace_path.clone())
@@ -134,10 +168,14 @@ impl Host {
     pub(in crate::ui) fn read<R>(&self, cx: &App, read: impl FnOnce(&HostView) -> R) -> Option<R> {
         let workspace = self.workspace.upgrade()?.read(cx);
         let bound_chat = self.bound.as_ref().and_then(|(chat, _)| chat.upgrade());
+        let inherited_chat = self.inherited.as_ref().and_then(|(chat, _)| chat.upgrade());
         let chat = if self.bound.is_some() {
             bound_chat.as_ref().map(|chat| chat.read(cx))
         } else {
-            workspace.active_chat_view().map(|chat| chat.read(cx))
+            workspace
+                .active_chat_view()
+                .or(inherited_chat.as_ref())
+                .map(|chat| chat.read(cx))
         };
         Some(read(&HostView { workspace, chat }))
     }
@@ -185,7 +223,11 @@ impl Host {
             return chat.upgrade();
         }
         let workspace = self.workspace.upgrade()?;
-        workspace.read(cx).active_chat_view().cloned()
+        workspace
+            .read(cx)
+            .active_chat_view()
+            .cloned()
+            .or_else(|| self.inherited.as_ref()?.0.upgrade())
     }
 
     pub(in crate::ui) fn api(&self, cx: &App) -> Option<Api> {
@@ -198,6 +240,7 @@ impl Host {
         }
         self.read(cx, |host| host.session().map(|session| session.dir.clone()))
             .flatten()
+            .or_else(|| self.inherited.as_ref().map(|(_, session)| session.clone()))
     }
 
     pub(in crate::ui) fn active_document(&self, cx: &App) -> Option<String> {

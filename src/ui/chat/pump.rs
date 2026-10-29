@@ -8,7 +8,7 @@ use proteus_contracts::domain::Event as RuntimeEvent;
 use super::context_usage::ContextUsage;
 use super::{Chat, ChatEvent};
 use crate::connection::PumpItem;
-use crate::transcript::{Change, Role};
+use crate::transcript::Change;
 
 /// Streams the session into the chat until the chat is dropped; dropping
 /// the task closes the channel, which stops the stream thread.
@@ -52,6 +52,7 @@ impl Chat {
                 true
             }
             PumpItem::Disconnected(error) => {
+                session.feedback.clear_activity();
                 session.connected = false;
                 session.link_error = Some(error.into());
                 cx.emit(ChatEvent::SessionStateChanged);
@@ -94,6 +95,20 @@ impl Chat {
             AppServerEvent::SessionSnapshot { snapshot } => {
                 crate::startup_trace::first("chat.snapshot.applied");
                 let snapshot = *snapshot;
+                let tools_running = snapshot.transcript.iter().any(|entry| {
+                    entry
+                        .tool
+                        .as_ref()
+                        .is_some_and(|tool| tool.status == "running")
+                });
+                let message_ids: Vec<_> = snapshot
+                    .transcript
+                    .iter()
+                    .filter_map(|entry| entry.message_id)
+                    .collect();
+                session
+                    .feedback
+                    .snapshot(&snapshot.execution, tools_running, &message_ids);
                 session.execution = snapshot.execution;
                 session.root_thread = snapshot.root_thread_id;
                 let (change, display) = self.history.apply(
@@ -106,6 +121,7 @@ impl Chat {
             }
             AppServerEvent::ExecutionUpdated { execution } => {
                 let settled = session.running() && execution.active.is_none();
+                session.feedback.execution(&execution);
                 session.execution = execution;
                 if settled {
                     self.load_context(cx);
@@ -114,6 +130,10 @@ impl Chat {
                 Change::None
             }
             AppServerEvent::Runtime { envelope } => {
+                let feedback_changed = session
+                    .root_thread
+                    .is_none_or(|root| root == envelope.thread_id)
+                    && session.feedback.runtime(&envelope.event);
                 if let RuntimeEvent::TokenUsageUpdated { usage, .. } = &envelope.event
                     && session
                         .root_thread
@@ -122,7 +142,7 @@ impl Chat {
                     self.context_requests.invalidate();
                     session.context = ContextUsage::from_event(usage);
                 } else {
-                    shown = false;
+                    shown = feedback_changed;
                 }
                 let change = session
                     .transcript
@@ -131,6 +151,7 @@ impl Chat {
                 change
             }
             AppServerEvent::UserMessageSubmitted { text, images } => {
+                session.feedback.submitted(&text, &images);
                 let change = session.transcript.push_user(None, &text, images);
                 let now = chrono::Utc::now().timestamp_millis();
                 session.transcript.stamp(change, now);
@@ -150,6 +171,7 @@ impl Chat {
                             self.fresh_requests.mark(key);
                         }
                     }
+                    session.feedback.queued(&snapshot.queued_user_messages);
                     session.pending = Some(*snapshot);
                 }
                 if let Some(pending) = &session.pending {
@@ -163,6 +185,7 @@ impl Chat {
                 Change::None
             }
             AppServerEvent::Error { message } => {
+                session.feedback.fail_activity();
                 self.show_notice(message, cx);
                 Change::None
             }
@@ -171,6 +194,7 @@ impl Chat {
                 Change::None
             }
             AppServerEvent::Shutdown => {
+                session.feedback.clear_activity();
                 cx.emit(ChatEvent::ServerStopped);
                 Change::None
             }
@@ -205,11 +229,6 @@ impl Chat {
             self.full_blocks.retain(|(key, _)| keys.contains(key));
             self.open_chains.retain(|key| keys.contains(key));
             self.sent_images.retain(entries);
-            let replies = entries
-                .iter()
-                .filter(|entry| entry.role == Role::Assistant)
-                .map(|entry| (entry.key, &entry.text));
-            self.replies.prepare(replies, cx);
         }
         if matches!(change, Change::Pushed)
             && let Some(entry) = self

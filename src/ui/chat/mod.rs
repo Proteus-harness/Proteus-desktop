@@ -11,7 +11,7 @@ mod composer;
 mod context_requests;
 pub(super) mod context_usage;
 mod draft;
-mod fences;
+mod feedback;
 mod history;
 mod images;
 mod notice;
@@ -25,6 +25,7 @@ mod session;
 mod stamp;
 mod thread;
 mod tool_chain;
+mod tool_hint;
 pub(super) mod tool_row;
 mod user_input;
 mod view;
@@ -93,6 +94,8 @@ pub(super) struct Chat {
     history: history::History,
     scroller: Entity<ChatScroller>,
     composer: Entity<TextareaState>,
+    /// A separate view owns animation ticks so they never repaint the thread.
+    thinking_caption: Entity<super::motion::Shimmer>,
     composer_strip_bounds: Rc<Cell<Bounds<Pixels>>>,
     attachments: Attachments,
     attachments_loading: bool,
@@ -118,6 +121,9 @@ pub(super) struct Chat {
     activity_dock: activity_dock::DockState,
     notice: Notice,
     extras: ComposerExtras,
+    /// Current owner; asynchronous replies follow a transferred tab.
+    window_handle: AnyWindowHandle,
+    _composer_events: Subscription,
     /// Sizes the row heights were measured with.
     view: ViewPreferences,
     _pump: Task<()>,
@@ -159,31 +165,6 @@ impl Chat {
                 &scroller,
                 |this, _, _: &scroller::HistorySeekCanceled, cx| this.cancel_history_seek(cx),
             ),
-            cx.subscribe_in(
-                &composer,
-                window,
-                |this, _, event: &InputEvent, window, cx| {
-                    if matches!(event, InputEvent::Change) {
-                        cx.notify();
-                        return;
-                    }
-                    let InputEvent::PressEnter { secondary, shift } = *event else {
-                        return;
-                    };
-                    let sends = match prefs::current(cx).send {
-                        SendMode::Enter => !shift,
-                        SendMode::CtrlEnter => secondary,
-                    };
-                    if !sends {
-                        return;
-                    }
-                    let empty = this.composer.read(cx).value().trim().is_empty()
-                        && this.attachments.is_empty();
-                    if !(empty && this.confirm_pending(window, cx)) {
-                        this.send(window, cx);
-                    }
-                },
-            ),
             cx.observe_global::<ClientPreferences>(|this, cx| {
                 let enter_sends = prefs::current(cx).send == SendMode::Enter;
                 this.composer
@@ -203,6 +184,7 @@ impl Chat {
             .unwrap_or_else(|| crate::connection::spawn_pump(api.clone(), session_dir.clone()));
         let initial = crate::connection::take_initial_events(&events);
         let pump = pump::start(events, cx);
+        let composer_events = Self::subscribe_composer(&composer, window, cx);
         let mut chat = Self {
             api,
             workspace,
@@ -212,6 +194,7 @@ impl Chat {
             history: history::History::default(),
             scroller,
             composer,
+            thinking_caption: cx.new(|_| super::motion::Shimmer::new("Думаю")),
             composer_strip_bounds: Rc::default(),
             attachments: Attachments::default(),
             attachments_loading: false,
@@ -229,6 +212,8 @@ impl Chat {
             activity_dock: activity_dock::DockState::default(),
             notice: Notice::default(),
             extras,
+            window_handle: window.window_handle(),
+            _composer_events: composer_events,
             view: prefs::current(cx).view,
             _pump: pump,
             _subscriptions: subscriptions,
@@ -240,9 +225,63 @@ impl Chat {
         chat
     }
 
+    /// Retain the session stream, transcript, input and native content while
+    /// moving their window ownership. No second chat or backend is created.
+    pub(in crate::ui) fn rehost(
+        &mut self,
+        workspace: WeakEntity<crate::ui::workspace::Workspace>,
+        extras: ComposerExtras,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.window_handle = window.window_handle();
+        self.workspace = workspace.clone();
+        self.extras = extras;
+        self.composer
+            .update(cx, |composer, cx| composer.rehost(window, cx));
+        self._composer_events = Self::subscribe_composer(&self.composer, window, cx);
+        self.replies.rehost(workspace, window, cx);
+        self.scroller
+            .update(cx, |scroller, cx| scroller.remeasure(cx));
+        cx.notify();
+    }
+
+    fn subscribe_composer(
+        composer: &Entity<TextareaState>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> Subscription {
+        cx.subscribe_in(
+            &composer,
+            window,
+            |this, _, event: &InputEvent, window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    cx.notify();
+                    return;
+                }
+                let InputEvent::PressEnter { secondary, shift } = *event else {
+                    return;
+                };
+                let sends = match prefs::current(cx).send {
+                    SendMode::Enter => !shift,
+                    SendMode::CtrlEnter => secondary,
+                };
+                if !sends {
+                    return;
+                }
+                let empty =
+                    this.composer.read(cx).value().trim().is_empty() && this.attachments.is_empty();
+                if !(empty && this.confirm_pending(window, cx)) {
+                    this.send(window, cx);
+                }
+            },
+        )
+    }
+
     /// Nothing was said or typed here yet, so the chat can go unnoticed.
     pub fn is_blank(&self, cx: &App) -> bool {
         self.session.transcript.entries().is_empty()
+            && self.session.feedback.visible_sends().next().is_none()
             && !self.session.running()
             && self.composer.read(cx).value().trim().is_empty()
             && self.attachments.is_empty()

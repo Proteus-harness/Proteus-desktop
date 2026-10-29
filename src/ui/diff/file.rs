@@ -40,6 +40,7 @@ impl DiffView {
             .group(group.clone())
             .tip_anchor(anchor.clone())
             .w_full()
+            .flex_none()
             .h(prefs::scaled(HEADER))
             .px_2()
             .gap_2()
@@ -105,8 +106,7 @@ impl DiffView {
             .as_ref()
             .map(|(_, _, widths)| widths[index])
             .unwrap_or(px(0.));
-        let split = self.split
-            && !self.narrow
+        let split = self.split()
             && file.lines.iter().any(|line| {
                 matches!(
                     line.kind,
@@ -116,9 +116,10 @@ impl DiffView {
                 )
             });
         let syntax = self.syntax[index].clone();
+        let horizontal = self.list.is_none().then_some(&self.horizontal[index]);
         let body = motion::reveal(self.key(index, cx), open, cx, || {
             if !split {
-                return code(file, syntax, None, width, cx);
+                return code(file, syntax, None, width, horizontal.map(|h| &h[0]), cx);
             }
             h_flex()
                 .w_full()
@@ -140,12 +141,20 @@ impl DiffView {
                                 .bg(cx.theme().muted.opacity(0.35))
                                 .child(if old { "Было" } else { "Стало" }),
                         )
-                        .child(code(file.clone(), syntax.clone(), Some(old), width, cx))
+                        .child(code(
+                            file.clone(),
+                            syntax.clone(),
+                            Some(old),
+                            width,
+                            horizontal.map(|h| &h[if old { 1 } else { 2 }]),
+                            cx,
+                        ))
                 }))
                 .into_any_element()
         });
         v_flex()
             .w_full()
+            .flex_none()
             .child(header)
             .children(body)
             .into_any_element()
@@ -157,16 +166,33 @@ fn code(
     syntax: Rc<super::syntax::Syntax>,
     side: Option<bool>,
     width: Pixels,
+    horizontal: Option<&ScrollHandle>,
     cx: &App,
 ) -> AnyElement {
     let id = SharedString::from(format!("diff-code-{}-{side:?}", file.path));
-    div()
+    let code = div()
         .w_full()
         .min_w_0()
         .font_family(cx.theme().mono_font_family.clone())
         .text_xs()
-        .child(lines::Lines::new(file, syntax, side, width, cx))
-        .overflow_x_scrollbar()
-        .id(id)
-        .into_any_element()
+        .child(lines::Lines::new(file, syntax, side, width, cx));
+    if let Some(horizontal) = horizontal {
+        // Unlike overflow_x_scrollbar, this does not remap vertical wheel
+        // input onto X: an embedded diff lets it reach the outer chat.
+        div()
+            .relative()
+            .w_full()
+            .min_w_0()
+            .overflow_x_hidden()
+            .child(
+                code.id(id)
+                    .overflow_x_scroll()
+                    .lock_scroll_axis()
+                    .track_scroll(horizontal),
+            )
+            .horizontal_scrollbar(horizontal)
+            .into_any_element()
+    } else {
+        code.overflow_x_scrollbar().id(id).into_any_element()
+    }
 }

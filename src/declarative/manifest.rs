@@ -58,7 +58,11 @@ pub struct Surfaces {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ContentSurface {
+    #[serde(default)]
     pub languages: Vec<String>,
+    /// Full-body media types. The first enabled contributor wins.
+    #[serde(default)]
+    pub formats: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
@@ -291,13 +295,24 @@ pub fn parse(text: &str) -> Result<Manifest> {
     }
     if let Some(content) = &surfaces.content {
         let mut seen = std::collections::HashSet::new();
-        if content.languages.is_empty()
-            || content
-                .languages
-                .iter()
-                .any(|language| !valid_language(language) || !seen.insert(language))
+        if content.languages.is_empty() && content.formats.is_empty() {
+            bail!("content requires languages or formats");
+        }
+        if content
+            .languages
+            .iter()
+            .any(|language| !valid_language(language) || !seen.insert(language))
         {
-            bail!("content languages must be nonempty, unique lowercase fence identifiers");
+            bail!("content languages must be unique lowercase fence identifiers");
+        }
+        let mut seen = std::collections::HashSet::new();
+        if content.formats.iter().any(|format| {
+            let Some((kind, subtype)) = format.split_once('/') else {
+                return true;
+            };
+            !valid_language(kind) || !valid_language(subtype) || !seen.insert(format)
+        }) {
+            bail!("content formats must be unique lowercase media types");
         }
     }
     if surfaces.popup.is_some() && surfaces.badge.is_none() {
@@ -359,18 +374,18 @@ mod tests {
         write(
             &root,
             "todo",
-            r#"{"protocol": 3, "id": "todo", "title": "Задачи", "command": ["python3", "main.py"],
+            r#"{"protocol": 4, "id": "todo", "title": "Задачи", "command": ["python3", "main.py"],
                 "surfaces": {"panel": {"title": "Задачи"}, "badge": {}}}"#,
         );
         write(
             &root,
             "other",
-            r#"{"protocol": 3, "id": "todo", "title": "x", "command": ["x"], "surfaces": {"document": {}}}"#,
+            r#"{"protocol": 4, "id": "todo", "title": "x", "command": ["x"], "surfaces": {"document": {}}}"#,
         );
         write(
             &root,
             "bad",
-            r#"{"protocol": 3, "id": "bad", "title": "x", "command": ["x"], "surfaces": {}}"#,
+            r#"{"protocol": 4, "id": "bad", "title": "x", "command": ["x"], "surfaces": {}}"#,
         );
         std::fs::create_dir_all(root.join("empty")).unwrap();
 
@@ -401,7 +416,7 @@ mod tests {
 
     #[test]
     fn content_only_packages_register_new_languages_without_host_catalog_entries() {
-        let mut value = serde_json::json!({"protocol":3,"id":"figures","title":"Figures",
+        let mut value = serde_json::json!({"protocol":4,"id":"figures","title":"Figures",
             "command":["bin/figures"],"required_features":["surfaces.content.v1"],
             "surfaces":{"content":{"languages":["future-diagram","c++"]}}});
         let parsed = parse(&value.to_string()).unwrap();
@@ -421,8 +436,26 @@ mod tests {
     }
 
     #[test]
+    fn content_formats_are_media_types_and_need_no_fence_registration() {
+        let mut value = serde_json::json!({"protocol":4,"id":"text","title":"Text",
+            "command":["bin/text"], "surfaces":{"content":{"formats":["text/markdown"]}}});
+        let parsed = parse(&value.to_string()).unwrap();
+        assert_eq!(parsed.surfaces.content.unwrap().formats, ["text/markdown"]);
+        for formats in [
+            serde_json::json!([]),
+            serde_json::json!(["markdown"]),
+            serde_json::json!(["text/markdown", "text/markdown"]),
+            serde_json::json!(["TEXT/markdown"]),
+            serde_json::json!(["text/markdown/extra"]),
+        ] {
+            value["surfaces"]["content"]["formats"] = formats;
+            assert!(parse(&value.to_string()).is_err());
+        }
+    }
+
+    #[test]
     fn metadata_is_optional_but_required_features_and_behavior_are_checked() {
-        let mut value = serde_json::json!({"protocol":3,"id":"demo","title":"Demo","command":["run"],
+        let mut value = serde_json::json!({"protocol":4,"id":"demo","title":"Demo","command":["run"],
             "required_features":["session.settings.v1"], "surfaces":{"page":{}},
             "_meta":{"org.example/catalog":{"version":"future"}}});
         parse(&value.to_string()).unwrap();
@@ -443,7 +476,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!("proteus-sources-{}", uuid::Uuid::new_v4()));
         let bundled = root.join("bundled");
         let user = root.join("user");
-        let text = r#"{"protocol":3,"id":"quota","title":"Quota","command":["python3","main.py"],"surfaces":{"badge":{"narrow":true,"place":"rail_end"}}}"#;
+        let text = r#"{"protocol":4,"id":"quota","title":"Quota","command":["python3","main.py"],"surfaces":{"badge":{"narrow":true,"place":"rail_end"}}}"#;
         write(&bundled, "quota", text);
         write(&user, "quota", &text.replace("Quota", "Updated"));
         let (found, errors) = discover_sources(&bundled, Some(&user));
@@ -453,7 +486,7 @@ mod tests {
         write(
             &user,
             "quota",
-            &text.replace("\"protocol\":3", "\"protocol\":1"),
+            &text.replace("\"protocol\":4", "\"protocol\":1"),
         );
         let (found, errors) = discover_sources(&bundled, Some(&user));
         assert!(found.is_empty());

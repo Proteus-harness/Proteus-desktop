@@ -138,7 +138,7 @@ impl Chat {
         true
     }
 
-    pub(super) fn choose_images(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn choose_images(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         if self.attachments_loading {
             return;
         }
@@ -149,7 +149,7 @@ impl Chat {
             multiple: true,
             prompt: Some("Прикрепить".into()),
         });
-        cx.spawn_in(window, async move |this, cx| {
+        cx.spawn(async move |this, cx| {
             let Ok(Ok(Some(paths))) = paths.await else {
                 return;
             };

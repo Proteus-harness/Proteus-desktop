@@ -16,6 +16,7 @@ mod pane;
 mod pins;
 mod size;
 mod tree;
+mod windows;
 
 use std::path::Path;
 

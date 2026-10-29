@@ -69,6 +69,12 @@ impl TabMenu {
         ))
         .separator()
         .item(item(
+            "Переместить в новое окно",
+            true,
+            |this, id, _, window, cx| this.detach_tab(id, window, cx),
+        ))
+        .separator()
+        .item(item(
             "Разделить вправо",
             self.can_split,
             |this, id, pane, window, cx| this.split_tab(id, pane, Edge::Right, window, cx),

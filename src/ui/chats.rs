@@ -86,6 +86,9 @@ impl Workspace {
     ) {
         self.close_settings(cx);
         let id = tabs::chat(&dir);
+        if self.show_external_tab(&id, cx) {
+            return;
+        }
         if self.chats.contains_key(&id) {
             self.show_tab(&id, open, window, cx);
             return;
@@ -246,18 +249,37 @@ impl Workspace {
         let workspace = cx.weak_entity();
         let stream = self.startup_streams.remove(&dir);
         let view = cx.new(|cx| Chat::new(api, workspace, dir, stream, extras, window, cx));
-        let tab = id.clone();
+        self.bind_chat(&id, view, cx);
+        id
+    }
+
+    /// Rebind an existing chat to its destination window without replacing
+    /// its session, pending run, composer or rendered transcript caches.
+    pub(super) fn adopt_chat(
+        &mut self,
+        id: &str,
+        view: Entity<Chat>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let workspace = cx.weak_entity();
+        let extras = self.composer_extras(cx);
+        view.update(cx, |chat, cx| chat.rehost(workspace, extras, window, cx));
+        self.bind_chat(id, view, cx);
+    }
+
+    fn bind_chat(&mut self, id: &str, view: Entity<Chat>, cx: &mut Context<Self>) {
+        let tab = id.to_owned();
         let events = cx.subscribe(&view, move |this, chat, event: &ChatEvent, cx| {
             this.on_chat_event(&tab, &chat, event, cx)
         });
         self.chats.insert(
-            id.clone(),
+            id.to_owned(),
             OpenChat {
                 view,
                 _events: events,
             },
         );
-        id
     }
 
     /// Both public extension places share the activity strip above the

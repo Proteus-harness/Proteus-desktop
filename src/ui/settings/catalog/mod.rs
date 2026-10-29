@@ -15,7 +15,6 @@ pub(in crate::ui) use keys::bind_keys;
 use std::{cell::Cell, rc::Rc};
 
 use gpui_kit::component::input::{InputEvent, InputState};
-use gpui_kit::component::text::TextViewState;
 use gpui_kit::*;
 
 use super::SettingsView;
@@ -35,7 +34,7 @@ pub(super) struct State {
     pub scope: Option<Scope>,
     pub loaded: Vec<(Source, Catalog)>,
     pub selected: Option<(Source, String)>,
-    pub readme: Option<Entity<TextViewState>>,
+    pub readme: Option<Entity<crate::ui::extensions::content::FormattedText>>,
     pub readme_changes: Option<Subscription>,
     pub busy: bool,
     /// The entry whose install or removal holds `busy`.

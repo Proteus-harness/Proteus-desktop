@@ -8,8 +8,7 @@ use gpui_kit::*;
 use proteus_contracts::app_protocol::AppTranscriptTool;
 
 use super::Chat;
-use super::tool_row::{is_running, status_icon, tool_args};
-use crate::tool_display;
+use super::tool_row::{is_running, status_icon};
 use crate::transcript::{affected_rows, tool_chain};
 use crate::ui::fade::faded;
 use crate::ui::kit::Pressable as _;
@@ -65,14 +64,15 @@ pub(super) fn render_chain_header(
 ) -> AnyElement {
     let theme = cx.theme();
     let muted = theme.muted_foreground;
-    let mut labels: Vec<String> = Vec::new();
+    let mut labels: Vec<(&str, usize)> = Vec::new();
     for tool in tools {
-        let label = tool_display::headline(&tool.name, tool_args(tool)).label;
-        if !labels.contains(&label) {
-            labels.push(label);
+        if let Some((_, count)) = labels.iter_mut().find(|(name, _)| *name == tool.name) {
+            *count += 1;
+        } else {
+            labels.push((&tool.name, 1));
         }
     }
-    let summary = labels.join(", ");
+    let weak = cx.entity().downgrade();
     h_flex()
         .id(ElementId::NamedInteger("tool-chain".into(), head))
         .gap_2()
@@ -85,7 +85,29 @@ pub(super) fn render_chain_header(
                 .flex_none()
                 .child(format!("Инструменты · {}", tools.len())),
         )
-        .child(div().min_w_0().text_color(muted).child(faded(summary)))
+        .child(
+            h_flex()
+                .min_w_0()
+                .gap_2()
+                .overflow_hidden()
+                .children(labels.into_iter().map(|(name, count)| {
+                    let label = if count == 1 {
+                        name.to_owned()
+                    } else {
+                        format!("{name} ×{count}")
+                    };
+                    super::tool_hint::group(
+                        div()
+                            .id(SharedString::from(format!("tool-chain-name-{head}-{name}")))
+                            .min_w_0()
+                            .text_color(muted)
+                            .child(faded(label)),
+                        weak.clone(),
+                        head,
+                        name.to_owned(),
+                    )
+                })),
+        )
         .child(chevron(
             ElementId::NamedInteger("tool-chain-chevron".into(), head),
             open,

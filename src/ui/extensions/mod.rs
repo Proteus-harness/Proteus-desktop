@@ -60,6 +60,19 @@ pub(super) struct BadgeSurface {
 pub(super) struct SurfaceView {
     pub view: AnyView,
     pub focus: FocusHandle,
+    pub rehost:
+        std::rc::Rc<dyn Fn(WeakEntity<crate::ui::workspace::Workspace>, &mut Window, &mut App)>,
+}
+
+impl SurfaceView {
+    pub(in crate::ui) fn rehost(
+        &self,
+        workspace: WeakEntity<crate::ui::workspace::Workspace>,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        (self.rehost)(workspace, window, cx);
+    }
 }
 
 pub(super) struct Manifest {

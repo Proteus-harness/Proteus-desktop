@@ -20,6 +20,9 @@ use gpui_kit::{
 #[derive(Default)]
 struct MenuState {
     bounds: Bounds<Pixels>,
+    /// Pointer-anchored menus keep this separate: the trigger's next layout
+    /// must not replace the position captured by the right-click event.
+    pointer_anchor: Option<Bounds<Pixels>>,
     popup: motion::Popup<Entity<PopupMenu>>,
     measure_height: Option<Pixels>,
     /// Whether this pointer press began while the menu was still open.
@@ -35,6 +38,7 @@ pub(crate) struct ContextMenu {
     trigger: Trigger,
     build: Build,
     style: StyleRefinement,
+    at_pointer: bool,
 }
 
 enum Trigger {
@@ -55,6 +59,7 @@ pub(crate) fn menu_button(
         trigger: Trigger::Button(button, caret),
         build: std::rc::Rc::new(build),
         style: StyleRefinement::default(),
+        at_pointer: false,
     }
 }
 
@@ -72,10 +77,18 @@ pub(crate) fn split_button(
         trigger: Trigger::Split(main, arrow, disabled),
         build: std::rc::Rc::new(build),
         style: StyleRefinement::default(),
+        at_pointer: false,
     }
 }
 
 impl ContextMenu {
+    /// Text selection menus belong beside the selected text. They still use
+    /// the shared popup, sizing, focus restoration and reversible motion.
+    pub(crate) fn at_pointer(mut self) -> Self {
+        self.at_pointer = true;
+        self
+    }
+
     /// Styles the wrapper that takes part in the parent layout, where
     /// `w_full` or `flex_none` of the element must be repeated.
     pub(crate) fn trigger_style(mut self, style: StyleRefinement) -> Self {
@@ -102,6 +115,7 @@ impl RenderOnce for ContextMenu {
         let measure_build = build.clone();
         let menu_open = state.read(cx).popup.is_open();
         let disabled = matches!(&self.trigger, Trigger::Split(_, _, true));
+        let at_pointer = self.at_pointer;
         let (click_state, click_build) = (state.clone(), build.clone());
         let trigger = match self.trigger {
             Trigger::Element(element) => element,
@@ -167,9 +181,13 @@ impl RenderOnce for ContextMenu {
                 .left_0()
                 .size_full(),
             )
-            .on_mouse_down(MouseButton::Right, move |_, window, cx| {
+            .on_mouse_down(MouseButton::Right, move |event, window, cx| {
                 cx.stop_propagation();
                 if !disabled {
+                    opened.update(cx, |state, _| {
+                        state.pointer_anchor =
+                            at_pointer.then(|| Bounds::new(event.position, size(px(0.), px(0.))));
+                    });
                     open(&opened, &build, window, cx);
                 }
             });
@@ -197,7 +215,10 @@ impl RenderOnce for ContextMenu {
             }
         }
         let shown = state.update(cx, |state, cx| {
-            let frame = state.popup.frame(state.bounds, window, cx)?;
+            let frame =
+                state
+                    .popup
+                    .frame(state.pointer_anchor.unwrap_or(state.bounds), window, cx)?;
             Some((state.popup.value()?.clone(), frame))
         });
         let Some((menu, frame)) = shown else {
@@ -293,6 +314,7 @@ pub(crate) trait RightClickMenu: InteractiveElement + IntoElement + Sized + 'sta
             trigger: Trigger::Element(self.into_any_element()),
             build: std::rc::Rc::new(build),
             style: StyleRefinement::default(),
+            at_pointer: false,
         }
     }
 }

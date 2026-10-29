@@ -80,7 +80,8 @@ impl Chat {
     /// Sends the composer text and images; the server queues them while a
     /// run is active. A refused message returns to an empty composer.
     pub(super) fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let text = self.composer.read(cx).value().trim().to_owned();
+        let draft_text = self.composer.read(cx).value().to_string();
+        let text = draft_text.trim().to_owned();
         if (text.is_empty() && self.attachments.is_empty())
             || !self.session.connected
             || self.attachments_loading
@@ -96,6 +97,16 @@ impl Chat {
             options: RunOptions::default(),
             session_dir: self.session.dir.clone(),
         };
+        let request_id = request.id.clone().expect("local sends have a request id");
+        let queued = self
+            .session
+            .pending
+            .as_ref()
+            .map(|pending| pending.queued_user_messages.as_slice())
+            .unwrap_or_default();
+        self.session
+            .feedback
+            .begin(request_id.clone(), text.clone(), &request.images, queued);
         self.composer.update(cx, |state, cx| {
             state.clean(window, cx);
             state.focus(window, cx);
@@ -103,27 +114,50 @@ impl Chat {
         self.clear_notice(cx);
         self.show_latest(cx);
         cx.emit(ChatEvent::Sent);
+        cx.notify();
         let api = self.api.clone();
-        cx.spawn_in(window, async move |this, cx| {
+        cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
                 .spawn(async move { api.send(&request) })
                 .await;
-            let Err(error) = result else {
+            let Ok(owner) = this.read_with(cx, |this, _| this.window_handle) else {
                 return;
             };
-            this.update_in(cx, |this, window, cx| {
-                if !this.has_draft(cx) {
-                    this.composer
-                        .update(cx, |state, cx| state.set_value(text, window, cx));
-                    this.attachments = draft;
-                } else {
-                    this.saved_drafts.push(SavedDraft::new(text, draft));
-                }
-                this.show_notice(format!("Не отправлено: {error:#}"), cx);
-                cx.notify();
-            })
-            .ok();
+            owner
+                .update(cx, |_, window, cx| {
+                    this.update(cx, |this, cx| {
+                        let message_id = result
+                            .as_ref()
+                            .ok()
+                            .and_then(|value| value.get("message_id"))
+                            .and_then(|id| serde_json::from_value(id.clone()).ok());
+                        let restore =
+                            this.session
+                                .feedback
+                                .complete(&request_id, result.is_ok(), message_id);
+                        let Err(error) = result else {
+                            cx.notify();
+                            return;
+                        };
+                        if !restore {
+                            // The server already echoed this message. Restoring it
+                            // after a transport error would encourage a duplicate.
+                            cx.notify();
+                            return;
+                        }
+                        if !this.has_draft(cx) {
+                            this.composer
+                                .update(cx, |state, cx| state.set_value(draft_text, window, cx));
+                            this.attachments = draft;
+                        } else {
+                            this.saved_drafts.push(SavedDraft::new(draft_text, draft));
+                        }
+                        this.show_notice(format!("Не отправлено: {error:#}"), cx);
+                        cx.notify();
+                    })
+                })
+                .ok();
         })
         .detach();
     }

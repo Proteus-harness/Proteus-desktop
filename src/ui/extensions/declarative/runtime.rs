@@ -1,6 +1,10 @@
 //! One extension process shared by all surfaces of the extension.
 
 mod commands;
+mod content_queue;
+use content_queue::ContentQueue;
+mod scopes;
+use scopes::Scope;
 
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
@@ -22,15 +26,14 @@ pub(super) struct Runtime {
     setting_running: bool,
     extension: &'static Installed,
     host: Host,
-    window: AnyWindowHandle,
+    scopes: HashMap<String, Scope>,
     process: Option<Process>,
+    theme_context: Option<serde_json::Value>,
     views: HashMap<String, Attached>,
     /// Why the process is not running, or its last protocol mistake.
     pub(super) error: Option<String>,
     pub(super) popup_closed: u64,
     _pump: Option<Task<()>>,
-    _events: Option<Subscription>,
-    _session_events: Option<Subscription>,
     _preferences: Subscription,
 }
 
@@ -39,62 +42,53 @@ struct Attached {
     surface: SurfaceKind,
     argument: Option<String>,
     content: Option<Content>,
+    context: String,
+    host: Host,
+    window: AnyWindowHandle,
+    route_generation: u64,
+    /// At most one source render is in the process. `content` is the latest
+    /// requested source, replacing rather than queueing intermediate edits.
+    queue: ContentQueue,
 }
 
 impl Runtime {
     pub(super) fn new(
         extension: &'static Installed,
         host: Host,
-        window: &Window,
+        _window: &Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let events = host.subscribe(cx, |this: &mut Self, event, cx| {
-            let event = match event {
-                HostEvent::SessionOpened => HostEventKind::SessionOpened,
-                HostEvent::RunSettled => HostEventKind::RunSettled,
-                HostEvent::NavigationChanged => HostEventKind::NavigationChanged,
-            };
-            let session_dir = this.host.session_dir(cx);
-            // Badges keep the old face until the process answers for the new
-            // session; clearing them here made the status bar blink.
-            if this.process.is_none() && this.error.is_none() {
-                this.start(cx);
-            }
-            this.send(&Outgoing::Event {
-                event,
-                session_dir,
-                document: this.host.active_document(cx),
-            });
-            if event == HostEventKind::SessionOpened && this.extension.manifest.session_events {
-                this.send(&this.host.session_snapshot(cx));
-            }
-        });
-        let session_events = host.subscribe_session(cx, |this: &mut Self, event, _| {
-            if this.extension.manifest.session_events {
-                this.send(&Outgoing::SessionUpdate {
-                    session_dir: event.session_dir.clone(),
-                    update: event.update.clone(),
-                });
-            }
-        });
         Self {
             generation: 0,
             settings: VecDeque::new(),
             setting_running: false,
             extension,
             host,
-            window: window.window_handle(),
+            scopes: HashMap::new(),
             process: None,
+            theme_context: None,
             views: HashMap::new(),
             error: None,
             popup_closed: 0,
             _pump: None,
-            _events: events,
-            _session_events: session_events,
             _preferences: cx.observe_global::<crate::ui::prefs::ClientPreferences>(|this, cx| {
                 if super::super::is_enabled(this.extension_id(), cx) {
                     if this.process.is_none() && this.error.is_none() {
                         this.start(cx);
+                    } else if this.process.is_some() {
+                        let theme = this.content_context(cx);
+                        if this.theme_context.as_ref() != Some(&theme) {
+                            this.theme_context = Some(theme);
+                            let views: Vec<_> = this
+                                .views
+                                .iter()
+                                .filter(|(_, view)| view.surface == SurfaceKind::Content)
+                                .map(|(id, _)| id.clone())
+                                .collect();
+                            for view in views {
+                                this.render(&view, cx);
+                            }
+                        }
                     }
                 } else {
                     this.stop(cx);
@@ -114,8 +108,12 @@ impl Runtime {
         argument: Option<String>,
         content: Option<Content>,
         entity: WeakEntity<DeclarativeView>,
+        host: Host,
+        window: AnyWindowHandle,
         cx: &mut Context<Self>,
     ) {
+        let context = host.scope();
+        self.ensure_scope(host.clone(), window, cx);
         self.views.insert(
             view.clone(),
             Attached {
@@ -123,6 +121,11 @@ impl Runtime {
                 surface,
                 argument,
                 content,
+                context,
+                host,
+                window,
+                route_generation: 0,
+                queue: ContentQueue::default(),
             },
         );
         if self.process.is_some() {
@@ -135,6 +138,7 @@ impl Runtime {
     pub(super) fn detach(&mut self, view: &str) {
         if self.views.remove(view).is_some() {
             self.send(&Outgoing::Close { view: view.into() });
+            self.prune_scopes();
         }
     }
 
@@ -157,17 +161,20 @@ impl Runtime {
             return;
         }
         // Read the host outside this update: it lives in the workspace.
-        let host = self.host.clone();
+        let host = self
+            .scopes
+            .values()
+            .next()
+            .map(|scope| scope.host.clone())
+            .unwrap_or_else(|| self.host.clone());
+        let this = cx.weak_entity();
         cx.defer(move |cx| {
             let server = host.api(cx).map(|api| Server {
                 origin: api.origin().to_string(),
                 token: api.token().to_string(),
             });
             let workspace = host.workspace_path(cx);
-            let Some(this) = host_runtime(cx, &host) else {
-                return;
-            };
-            this.update(cx, |this, cx| this.launch(server, workspace, cx));
+            let _ = this.update(cx, |this, cx| this.launch(server, workspace, cx));
         });
     }
 
@@ -213,13 +220,9 @@ impl Runtime {
                     server,
                 });
                 self.process = Some(process);
-                self.send(&Outgoing::Event {
-                    event: HostEventKind::NavigationChanged,
-                    session_dir: self.host.session_dir(cx),
-                    document: self.host.active_document(cx),
-                });
-                if self.extension.manifest.session_events {
-                    self.send(&self.host.session_snapshot(cx));
+                let contexts: Vec<_> = self.scopes.keys().cloned().collect();
+                for context in contexts {
+                    self.announce_scope(&context, cx);
                 }
                 self._pump = Some(cx.spawn(async move |this, cx| {
                     while let Ok(signal) = signals.recv().await {
@@ -238,17 +241,66 @@ impl Runtime {
         cx.notify();
     }
 
-    fn render(&self, view: &str, cx: &App) {
-        let Some(attached) = self.views.get(view) else {
+    fn render(&mut self, view: &str, cx: &App) {
+        let theme = self.content_context(cx);
+        self.theme_context = Some(theme.clone());
+        let Some(attached) = self.views.get_mut(view) else {
             return;
         };
-        self.send(&Outgoing::Render {
+        if attached.surface == SurfaceKind::Content
+            && !attached.queue.begin(
+                attached
+                    .content
+                    .as_ref()
+                    .and_then(|content| content.source_revision),
+            )
+        {
+            return;
+        }
+        let message = Outgoing::Render {
+            context: attached.context.clone(),
             view: view.into(),
             surface: attached.surface,
             argument: attached.argument.clone(),
-            content: attached.content.clone(),
-            session_dir: self.host.session_dir(cx),
-        });
+            content: attached.content.clone().map(|mut content| {
+                if !content.context.is_object() {
+                    content.context = serde_json::json!({});
+                }
+                content.context["theme"] = theme["theme"].clone();
+                content
+            }),
+            session_dir: self
+                .scopes
+                .get(&attached.context)
+                .and_then(|scope| scope.host.session_dir(cx)),
+        };
+        self.send(&message);
+    }
+
+    pub(super) fn set_content(&mut self, view: &str, content: Content, cx: &App) {
+        if let Some(attached) = self.views.get_mut(view) {
+            attached.content = Some(content);
+        }
+        if self.process.is_some() {
+            self.render(view, cx);
+        }
+    }
+
+    fn content_finished(&mut self, view: &str, revision: Option<u64>, cx: &App) {
+        let Some(attached) = self.views.get_mut(view) else {
+            return;
+        };
+        if attached.surface == SurfaceKind::Content
+            && attached.queue.finish(
+                revision,
+                attached
+                    .content
+                    .as_ref()
+                    .and_then(|content| content.source_revision),
+            )
+        {
+            self.render(view, cx);
+        }
     }
 
     fn stop(&mut self, cx: &mut Context<Self>) {
@@ -257,10 +309,14 @@ impl Runtime {
         self.popup_closed += 1;
         self.process = None;
         self._pump = None;
+        self.reset_scopes();
         for attached in self.views.values() {
             if let Some(view) = attached.view.upgrade() {
                 view.update(cx, |view, cx| view.reset(cx));
             }
+        }
+        for attached in self.views.values_mut() {
+            attached.queue.reset();
         }
     }
 
@@ -271,8 +327,9 @@ impl Runtime {
                 session_dir,
                 error,
                 sequence,
+                source_revision,
             }) => {
-                if session_dir != self.host.session_dir(cx) {
+                if session_dir != self.host_for(&view).and_then(|host| host.session_dir(cx)) {
                     return;
                 }
                 if let Some(entity) = self
@@ -281,34 +338,54 @@ impl Runtime {
                     .filter(|attached| attached.surface == SurfaceKind::Content)
                     .and_then(|attached| attached.view.upgrade())
                 {
-                    entity.update(cx, |view, cx| view.fail(error, sequence, cx));
+                    entity.update(cx, |view, cx| {
+                        view.fail_with_revision(error, sequence, source_revision, cx)
+                    });
                 }
+                self.content_finished(&view, source_revision, cx);
             }
-            Signal::Message(Incoming::Focus { view, control }) => {
+            Signal::Message(Incoming::Focus {
+                view: view_id,
+                control,
+            }) => {
                 if let Some(view) = self
                     .views
-                    .get(&view)
+                    .get(&view_id)
                     .and_then(|attached| attached.view.upgrade())
                 {
-                    let host = self.host.clone();
-                    let _ = self.window.update(cx, move |_, window, cx| {
+                    let Some(attached) = self.views.get(&view_id) else {
+                        return;
+                    };
+                    let _ = attached.window.update(cx, move |_, window, cx| {
                         if let Some(control) = control {
                             view.update(cx, |view, cx| view.focus_control(&control, window, cx));
-                        } else if let Some(chat) = host.chat(cx) {
-                            chat.update(cx, |chat, cx| chat.focus(window, cx));
+                        } else {
+                            view.read(cx).focus().focus(window, cx);
                         }
                     });
                 }
             }
-            Signal::Message(Incoming::ClosePopup) => self.popup_closed += 1,
+            Signal::Message(Incoming::ClosePopup { context }) => {
+                if let Some(scope) = self.scopes.get_mut(&context) {
+                    scope.popup_closed += 1;
+                }
+            }
             Signal::Message(Incoming::Clipboard { text }) => {
                 cx.write_to_clipboard(ClipboardItem::new_string(text))
             }
             Signal::Message(Incoming::SetSession {
+                context,
+                view,
                 id,
                 session_dir,
                 setting,
-            }) => self.set_session(id, session_dir, setting, cx),
+            }) => {
+                let context = view
+                    .as_ref()
+                    .and_then(|view| self.views.get(view))
+                    .map_or(context, |view| view.context.clone());
+                self.set_session(context, view, id, session_dir, setting, cx);
+            }
             Signal::Message(Incoming::Badge {
                 hidden,
                 view,
@@ -317,7 +394,7 @@ impl Runtime {
                 lines,
                 face,
             }) => {
-                if session_dir != self.host.session_dir(cx) {
+                if session_dir != self.host_for(&view).and_then(|host| host.session_dir(cx)) {
                     return;
                 }
                 let Some(attached) = self
@@ -354,6 +431,7 @@ impl Runtime {
                 }
             }
             Signal::Message(Incoming::View {
+                source_revision,
                 title,
                 keys,
                 view,
@@ -361,7 +439,7 @@ impl Runtime {
                 sequence,
                 session_dir,
             }) => {
-                if session_dir != self.host.session_dir(cx) {
+                if session_dir != self.host_for(&view).and_then(|host| host.session_dir(cx)) {
                     return;
                 }
                 let narrow = self
@@ -382,18 +460,25 @@ impl Runtime {
                     return;
                 }
                 if let Some(entity) = self.views.get(&view).and_then(|a| a.view.upgrade()) {
-                    let accepted =
-                        entity.update(cx, |view, cx| view.show(root, sequence, keys, cx));
+                    let accepted = entity.update(cx, |view, cx| {
+                        view.show_with_revision(root, sequence, keys, source_revision, cx)
+                    });
                     if accepted
                         && let Some(title) = title
-                        && let Some(argument) = view.strip_prefix("document:")
+                        && let Some(attached) = self.views.get(&view)
+                        && attached.surface == SurfaceKind::Document
+                        && let Some(argument) = &attached.argument
+                        && let Some(host) = self.host_for(&view)
                     {
-                        self.host.document_title(argument, title, cx);
+                        host.document_title(argument, title, cx);
                     }
                 }
+                self.content_finished(&view, source_revision, cx);
                 self.error = None;
             }
             Signal::Message(Incoming::OpenDocument {
+                mut context,
+                view,
                 argument,
                 preview,
                 focus,
@@ -401,8 +486,17 @@ impl Runtime {
                 if self.extension.manifest.surfaces.document.is_none() {
                     self.error = Some("расширение не объявило документы".into());
                 } else {
-                    let (host, id) = (self.host.clone(), self.extension_id());
-                    let _ = self.window.update(cx, move |_, window, cx| {
+                    if let Some(view) = &view {
+                        let Some(attached) = self.views.get(view) else {
+                            return;
+                        };
+                        context = attached.context.clone();
+                    }
+                    let Some(scope) = self.scopes.get(&context) else {
+                        return;
+                    };
+                    let (host, id) = (scope.host.clone(), self.extension_id());
+                    let _ = scope.window.update(cx, move |_, window, cx| {
                         let open = OpenDocument { preview, focus };
                         host.open_document(id, &argument, open, window, cx);
                     });
@@ -420,8 +514,4 @@ impl Runtime {
     fn extension_id(&self) -> &'static str {
         self.extension.manifest.id.as_str()
     }
-}
-
-fn host_runtime(cx: &App, host: &Host) -> Option<Entity<Runtime>> {
-    super::runtime_of(host, cx)
 }

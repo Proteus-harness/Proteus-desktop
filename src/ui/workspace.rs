@@ -16,12 +16,13 @@ use super::settings::SettingsView;
 use super::tabs::{SplitResize, TabDrop, TabMotion};
 use crate::api::Api;
 use crate::attention::Tracker;
-use crate::connection::BackendGuard;
-use crate::launch::LaunchOptions;
-use crate::tabs::PaneId;
+use crate::launch::{LaunchOptions, Target};
+use crate::tabs::{PaneId, TabLayout};
 
 pub(super) mod startup;
+mod windows;
 use startup::{Boot, boot};
+use windows::WindowGroup;
 
 pub(super) enum Status {
     Starting,
@@ -35,7 +36,9 @@ pub struct Workspace {
     pub(super) workspace_path: PathBuf,
     pub(super) status: Status,
     api: Option<Api>,
-    backend: Option<BackendGuard>,
+    target: Target,
+    pub(super) layout: TabLayout,
+    pub(super) windows: WindowGroup,
     pub(super) sessions: Vec<AppSessionSummary>,
     /// When the session list first arrived, so its rows can enter in turn.
     pub(super) sessions_arrived: Option<Instant>,
@@ -105,19 +108,16 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let mut subscriptions = vec![cx.on_app_quit(|this, _| {
-            let backend = this.backend.take();
-            async move {
-                if let Some(backend) = backend {
-                    backend.shutdown();
-                }
-            }
-        })];
-        let (session_list, list_events) = SessionList::new(window, cx);
-        subscriptions.push(list_events);
-
         let workspace_path = options.workspace.clone();
         let saved = super::prefs::current(cx).tabs.clone();
+        let mut workspace = Self::empty(
+            workspace_path.clone(),
+            options.target.clone(),
+            saved.clone(),
+            WindowGroup::default(),
+            window,
+            cx,
+        );
         let prepared =
             preparation.and_then(|preparation| preparation.for_workspace(&workspace_path));
         let ready = prepared
@@ -149,11 +149,43 @@ impl Workspace {
             }))
         };
 
+        workspace._startup = startup;
+        workspace
+    }
+
+    /// An empty window-local workspace. Detached tabs use the existing API
+    /// and server lease; constructing a window never boots another server.
+    fn empty(
+        workspace_path: PathBuf,
+        target: Target,
+        layout: TabLayout,
+        windows: WindowGroup,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        windows.register(cx.weak_entity(), layout.clone());
+        let released = windows.clone();
+        let id = cx.entity_id();
+        cx.on_release(move |_, cx| released.release(id, cx))
+            .detach();
+        let shutdown = windows.clone();
+        let mut subscriptions = vec![cx.on_app_quit(move |_, _| {
+            let backend = shutdown.take_backend();
+            async move {
+                if let Some(backend) = backend {
+                    backend.shutdown();
+                }
+            }
+        })];
+        let (session_list, list_events) = SessionList::new(window, cx);
+        subscriptions.push(list_events);
         Self {
             workspace_path,
             status: Status::Starting,
             api: None,
-            backend: None,
+            target,
+            layout,
+            windows,
             sessions: Vec::new(),
             sessions_loading: false,
             sessions_stale: false,
@@ -188,7 +220,7 @@ impl Workspace {
             tab_motion: TabMotion::default(),
             tab_area: Rc::default(),
             focus_handle: cx.focus_handle(),
-            _startup: startup,
+            _startup: None,
             _subscriptions: subscriptions,
         }
     }
@@ -204,19 +236,9 @@ impl Workspace {
             Ok(boot) => {
                 self.api = Some(boot.api);
                 if let Some(exited) = boot.backend.as_ref().map(|guard| guard.exited.clone()) {
-                    cx.spawn(async move |this, cx| {
-                        let Ok(report) = exited.recv().await else {
-                            return;
-                        };
-                        this.update(cx, |this, cx| {
-                            this.status = Status::Failed(report.into());
-                            cx.notify();
-                        })
-                        .ok();
-                    })
-                    .detach();
+                    self.windows.watch_backend(exited, cx);
                 }
-                self.backend = boot.backend;
+                self.windows.set_backend(boot.backend);
                 self.startup_streams = boot.streams;
                 self.sessions = boot.sessions;
                 self.sessions_arrived = (!self.sessions.is_empty()).then(Instant::now);

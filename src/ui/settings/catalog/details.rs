@@ -2,7 +2,6 @@
 
 use crate::ui::kit::ButtonLabel as _;
 use gpui_kit::component::scroll::ScrollableElement as _;
-use gpui_kit::component::text::TextView;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -148,7 +147,7 @@ impl SettingsView {
                             .pt_4()
                             .border_t_1()
                             .border_color(theme.border)
-                            .child(TextView::new(state))
+                            .child(state.clone())
                     })),
             )
             .overflow_y_scrollbar()

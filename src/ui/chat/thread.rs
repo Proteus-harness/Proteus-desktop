@@ -3,7 +3,6 @@ use std::ops::Range;
 
 use crate::ui::kit::Clipboard;
 use gpui_kit::base::SelectableText;
-use gpui_kit::component::text::TextView;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -16,8 +15,8 @@ use super::tool_chain::{chain_reveal_key, render_chain_header};
 use super::tool_row::{render_tool, status_icon, tool_line};
 use crate::transcript::{Entry, Role};
 use crate::ui::fade::faded;
+use crate::ui::kit::Hint as _;
 use crate::ui::kit::Pressable as _;
-use crate::ui::kit::{self, Hint as _};
 use crate::ui::motion::{self, chevron, fade_in_if, reveal};
 use crate::ui::{format, prefs};
 
@@ -101,11 +100,6 @@ impl Chat {
         let full = [0, 1].map(|part| self.full_blocks.contains(&(entry.key, part)));
         let fresh = self.fresh_rows.is_fresh(entry.key);
         let key = entry.key;
-        // A run drawn by its head alone ends where its last call does.
-        let last = match &chain {
-            Some(chain) if !chain_open || chain_moving => chain.end == entries.len(),
-            _ => ix + 1 == entries.len(),
-        };
         let spacing = match (&entry.role, &entry.tool) {
             (Role::User, _) => Spacing {
                 top: 4.,
@@ -181,7 +175,6 @@ impl Chat {
             .pt(px(spacing.top * 4.))
             .pb(px(spacing.bottom * 4.))
             .when(ix == 0, |row| row.pt_6())
-            .when(last, |row| row.pb_8())
             .child(fade_in_if(
                 div().w_full().max_w(prefs::chat_width(cx)).child(body),
                 row_id("enter", key),
@@ -233,8 +226,17 @@ impl Chat {
             if let Some(diff) = self.tool_diffs.get(&entry.key) {
                 diff.update(cx, |diff, cx| diff.set_patch(patch, &[], cx));
             } else {
-                let diff =
-                    cx.new(|cx| crate::ui::diff::DiffView::new(patch.to_owned(), Vec::new(), cx));
+                let key = entry.key;
+                let diff = cx.new(|cx| {
+                    crate::ui::diff::DiffView::embedded(patch.to_owned(), Vec::new(), cx)
+                });
+                cx.subscribe(
+                    &diff,
+                    move |this, _, _: &crate::ui::diff::DiffHeightChanged, cx| {
+                        this.remeasure_row(key, cx);
+                    },
+                )
+                .detach();
                 self.tool_diffs.insert(entry.key, diff);
             }
         }
@@ -313,29 +315,18 @@ fn render_assistant(entry: &Entry, reply: Vec<super::replies::Part>, cx: &App) -
             .child(copy_button("copy-assistant", entry.key, text.clone(), cx))
             .children(message_time(entry.key, entry.time, cx))
     });
-    let copy_hint = kit::hint_text("Копировать код", None, cx);
     v_flex()
         .group(ROW_GROUP)
         .w_full()
         .text_size(prefs::chat_text(cx))
-        .children(reply.into_iter().map(|part| match part {
-            super::replies::Part::Content(view) => view.into_any_element(),
-            super::replies::Part::Markdown(state) => {
-                let copy_hint = copy_hint.clone();
-                TextView::new(&state)
-                    .selectable(true)
-                    .stream_fade(true)
-                    .code_block_actions(move |block, _, _| {
-                        let code = block.code();
-                        let copy =
-                            Clipboard::new(row_id("copy-code", hash_code(&code))).value(code);
-                        match &copy_hint {
-                            Some(hint) => copy.tooltip(hint.clone()),
-                            None => copy,
-                        }
-                        .xsmall()
-                    })
-                    .into_any_element()
+        .children(reply.into_iter().map(|part| {
+            match part {
+                super::replies::Part::Content(view) => view.into_any_element(),
+                super::replies::Part::Plain(text) => gpui_kit::base::SelectableText::new(
+                    row_id("plain-reply", entry.key),
+                    SharedString::from(text),
+                )
+                .into_any_element(),
             }
         }))
         .children(actions)
@@ -351,13 +342,6 @@ fn row_actions() -> Div {
         .gap_1()
         .invisible()
         .group_hover(ROW_GROUP, |style| style.visible())
-}
-
-fn hash_code(code: &str) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    code.hash(&mut hasher);
-    hasher.finish()
 }
 
 fn render_note(entry: &Entry, cx: &App) -> AnyElement {
@@ -393,7 +377,17 @@ fn render_subagent(
             .pt_2()
             .pl_5()
             .gap_1()
-            .children(agent.tools.iter().map(|tool| tool_line(tool, app)))
+            .children(agent.tools.iter().map(|tool| {
+                super::tool_hint::row(
+                    tool_line(tool, app).id(SharedString::from(format!(
+                        "subagent-tool-{key}-{}",
+                        tool.call_id
+                    ))),
+                    cx.entity().downgrade(),
+                    key,
+                    tool.call_id.clone(),
+                )
+            }))
             .into_any_element()
     });
     v_flex()

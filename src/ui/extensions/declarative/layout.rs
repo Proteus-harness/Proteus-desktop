@@ -23,7 +23,11 @@ fn greedy(node: &Node) -> bool {
             | Node::Lanes { .. }
             | Node::List { .. }
             | Node::Empty { .. }
-            | Node::Code { height: None, .. }
+            | Node::Code {
+                height: None,
+                embedded: false,
+                ..
+            }
             | Node::Diff { height: None, .. }
             | Node::Terminal { .. }
             | Node::Split { .. }

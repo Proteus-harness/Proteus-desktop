@@ -214,6 +214,7 @@ mod tests {
         };
         let (process, signals) = Process::spawn(&extension).unwrap();
         process.send(&Outgoing::Event {
+            context: "fixture".into(),
             event: HostEventKind::RunSettled,
             document: None,
             session_dir: None,

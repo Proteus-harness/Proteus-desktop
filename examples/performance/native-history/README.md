@@ -83,3 +83,6 @@ SwapPss. Ошибка readiness, неполный `/proc`, превышение 
 
 Этот сценарий не запускает model turns и не измеряет десять субагентов:
 для этого существует [Core history-scale](../../../../Proteus-core/examples/performance/history-scale/README.md).
+
+Классификация процессов включает Rust-бинарники внутри каталога расширений
+и их Node worker. Целевая проверка: `python3 examples/performance/native-history/test_runner.py`.

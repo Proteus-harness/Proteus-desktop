@@ -31,6 +31,14 @@ impl TabLayout {
         self.settle(&before);
     }
 
+    /// Removes a transferred tab without adding it to recently closed tabs.
+    /// The destination window keeps the same document or chat entity.
+    pub fn extract(&mut self, id: &str) {
+        let before = self.pane_ids();
+        self.detach(id);
+        self.settle(&before);
+    }
+
     /// Moves a tab in front of `before` in `pane`, or to its end.
     pub fn move_tab(&mut self, id: &str, pane: PaneId, before: Option<&str>) {
         if !self.contains(id) || self.pane(pane).is_none() {

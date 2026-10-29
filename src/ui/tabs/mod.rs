@@ -1,5 +1,5 @@
 //! Tabs of the window: chats and extension documents (files) in a tree of
-//! panes. The layout lives in the client preferences; this module
+//! panes. Each window owns its layout; preferences retain all open tabs. This module
 //! turns user actions into layout changes and keeps the focus where the
 //! user is.
 
@@ -31,7 +31,7 @@ impl Workspace {
     /// The saved layout without tabs whose extensions are gone, with the
     /// split being resized at its current size.
     pub(super) fn tab_layout(&self, cx: &App) -> TabLayout {
-        let mut layout = prefs::current(cx).tabs.clone();
+        let mut layout = self.layout.clone();
         layout.retain(|id| tab_available(id, cx));
         if let Some(resize) = &self.split_drag {
             layout.set_sizes(&resize.path, &resize.sizes);
@@ -44,14 +44,15 @@ impl Workspace {
         cx: &mut Context<Self>,
         change: impl FnOnce(&mut TabLayout),
     ) {
-        let mut layout = prefs::current(cx).tabs.clone();
+        let mut layout = self.layout.clone();
         layout.retain(|id| tab_available(id, cx));
         let old = layout.clone();
         change(&mut layout);
         self.tab_motion.record(&old, &layout);
         self.documents.retain(|id, _| layout.contains(id));
         self.sync_chats(&layout, cx);
-        prefs::update(cx, |prefs| prefs.tabs = layout);
+        self.layout = layout;
+        self.windows.persist(cx.entity_id(), &self.layout, cx);
         cx.emit(HostEvent::NavigationChanged);
         cx.notify();
     }
@@ -86,7 +87,8 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(id) = extensions::next_document("terminal.new", &self.tab_layout(cx), cx) else {
+        let Some(id) = extensions::next_document("terminal.new", &self.windows.all_tabs(), cx)
+        else {
             return;
         };
         if self.ensure_document(&id, window, cx).is_none() {
@@ -104,6 +106,9 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyView> {
+        if self.show_external_tab(id, cx) {
+            return None;
+        }
         let view = self.ensure_document(id, window, cx)?;
         self.close_settings(cx);
         self.show_tab(id, open, window, cx);
@@ -227,6 +232,9 @@ impl Workspace {
             closed = tabs.take_closed(|id| available.contains(id))
         });
         let Some(closed) = closed else { return };
+        if self.show_external_tab(&closed.id, cx) {
+            return;
+        }
         if tabs::is_chat(&closed.id) {
             self.restore_closed_chat(closed, window, cx);
         } else if self.ensure_document(&closed.id, window, cx).is_some() {
@@ -288,7 +296,7 @@ impl Workspace {
     }
 
     pub(super) fn focus_pane(&mut self, pane: PaneId, cx: &mut Context<Self>) {
-        if prefs::current(cx).tabs.focused != pane {
+        if self.layout.focused != pane {
             self.update_tabs(cx, |tabs| tabs.focus(pane));
         }
     }

@@ -22,9 +22,6 @@ const PEEK_CHARS: usize = 2_000;
 /// Even a block shown in full stops somewhere.
 const FULL_LINES: usize = 400;
 const FULL_CHARS: usize = 40_000;
-/// Subjects longer than this are repeated in full when the row is expanded.
-const SHORT_SUBJECT: usize = 100;
-
 fn row_id(name: &'static str, key: u64) -> ElementId {
     ElementId::NamedInteger(name.into(), key)
 }
@@ -61,28 +58,20 @@ pub(super) fn is_running(status: &str) -> bool {
     matches!(status, "running" | "approved")
 }
 
-/// One-line headline: status, action label, subject and patch stats.
+/// One-line headline: status, canonical tool name and patch stats. Parameters
+/// belong to the hover preview and expanded details, not permanent row width.
 pub(super) fn tool_line(tool: &AppTranscriptTool, cx: &App) -> Div {
-    let theme = cx.theme();
-    let headline = tool_display::headline(&tool.name, tool_args(tool));
-    let subject = headline.subject.map(|subject| {
-        div()
-            .min_w_0()
-            .font_family(theme.mono_font_family.clone())
-            .text_xs()
-            .text_color(theme.muted_foreground)
-            .child(faded(subject))
-    });
+    let stats = (tool.name == tool_display::APPLY_PATCH)
+        .then(|| tool_display::headline(&tool.name, tool_args(tool)).stats)
+        .flatten();
     h_flex()
         .gap_2()
         .text_sm()
         .min_w_0()
         .child(status_icon(&tool.status, cx))
-        .child(div().flex_none().child(headline.label))
-        .children(subject)
+        .child(div().min_w_0().child(faded(tool.name.clone())))
         .children(
-            headline
-                .stats
+            stats
                 .filter(|stats| *stats != (0, 0))
                 .map(|stats| diff_stats(stats, cx)),
         )
@@ -119,14 +108,18 @@ pub(super) fn render_tool(
                 .into_any_element()
         },
     );
+    let header = tool_line(tool, cx)
+        .id(row_id("tool", key))
+        .disclosure(cx)
+        .child(chevron(row_id("tool-chevron", key), expanded, muted))
+        .on_click(cx.listener(move |this, _, _, cx| this.toggle_expanded(key, cx)));
     v_flex()
-        .child(
-            tool_line(tool, cx)
-                .id(row_id("tool", key))
-                .disclosure(cx)
-                .child(chevron(row_id("tool-chevron", key), expanded, muted))
-                .on_click(cx.listener(move |this, _, _, cx| this.toggle_expanded(key, cx))),
-        )
+        .child(super::tool_hint::row(
+            header,
+            cx.entity().downgrade(),
+            key,
+            tool.call_id.clone(),
+        ))
         .children(details)
         .into_any_element()
 }
@@ -279,9 +272,7 @@ fn tool_details(
     let details = v_flex().pl_5().gap_2();
     let patch = (tool.name == tool_display::APPLY_PATCH)
         .then(|| tool_display::patch_text(args))
-        .flatten()
-        .map(tool_display::patch_files)
-        .filter(|files| !files.is_empty());
+        .flatten();
     let plan = (tool.name == tool_display::UPDATE_PLAN)
         .then(|| tool_display::plan_steps(args))
         .filter(|steps| !steps.is_empty());
@@ -290,7 +281,6 @@ fn tool_details(
             div()
                 .w_full()
                 .min_w_0()
-                .h(crate::ui::prefs::scaled(diff.read(cx).embedded_height()))
                 .surface_frame(cx)
                 .overflow_hidden()
                 .child(diff)
@@ -325,7 +315,7 @@ fn tool_details(
     details.children(result)
 }
 
-/// The full subject when the headline had to cut it, and the remaining
+/// The subject and the remaining
 /// arguments as `key: value` lines.
 fn argument_details(fold: &Fold, tool: &AppTranscriptTool, cx: &App) -> Vec<AnyElement> {
     let key = fold.key;
@@ -336,7 +326,7 @@ fn argument_details(fold: &Fold, tool: &AppTranscriptTool, cx: &App) -> Vec<AnyE
     let full_subject = subject_key
         .and_then(|key| args.get(key))
         .and_then(Value::as_str)
-        .filter(|text| text.contains('\n') || text.chars().count() > SHORT_SUBJECT)
+        .filter(|text| !text.is_empty())
         .map(|text| {
             fold.block(
                 1,

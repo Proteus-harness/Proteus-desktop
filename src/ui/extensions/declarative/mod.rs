@@ -20,6 +20,7 @@ mod person;
 mod popup;
 mod prompt;
 mod render;
+mod rich_text;
 mod rows;
 mod runtime;
 mod steps;
@@ -189,6 +190,15 @@ fn runtime(host: &Host, window: &Window, cx: &mut App) -> Option<Entity<Runtime>
     Some(runtime)
 }
 
+/// Register the existing process in a new window, so newly opened sibling
+/// surfaces join it rather than spawning another extension process.
+fn rehost_runtime(runtime: &Entity<Runtime>, host: &Host, cx: &mut App) {
+    cx.default_global::<Runtimes>()
+        .0
+        .insert((host.identity(), host.extension()), runtime.downgrade());
+    host.retain_process(runtime.clone().into(), cx);
+}
+
 pub(super) fn surface(
     host: Host,
     kind: SurfaceKind,
@@ -197,11 +207,15 @@ pub(super) fn surface(
     cx: &mut App,
 ) -> SurfaceView {
     let runtime = runtime(&host, window, cx).expect("catalog lists installed extensions only");
-    let view = cx.new(|cx| DeclarativeView::new(runtime, kind, argument, cx));
+    let view = cx.new(|cx| DeclarativeView::new(runtime, host, kind, argument, window, cx));
     let focus = view.read(cx).focus();
+    let moved = view.downgrade();
     SurfaceView {
         view: view.into(),
         focus,
+        rehost: std::rc::Rc::new(move |workspace, window, cx| {
+            let _ = moved.update(cx, |view, cx| view.rehost(workspace, window, cx));
+        }),
     }
 }
 

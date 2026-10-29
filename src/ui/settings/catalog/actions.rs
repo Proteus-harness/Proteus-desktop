@@ -209,8 +209,12 @@ impl SettingsView {
                 }
                 match result {
                     Ok(Some(text)) => {
-                        let state = cx.new(|cx| {
-                            gpui_kit::component::text::TextViewState::markdown(&text, cx)
+                        let state = cx.new(|_| {
+                            crate::ui::extensions::content::FormattedText::new(
+                                this.workspace.clone(),
+                                "text/markdown",
+                                text,
+                            )
                         });
                         this.catalogs.readme_changes =
                             Some(cx.observe(&state, |_, _, cx| cx.notify()));

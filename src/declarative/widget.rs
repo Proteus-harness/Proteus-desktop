@@ -149,12 +149,26 @@ pub enum Node {
         hint: Option<String>,
         items: Vec<super::control::MenuItem>,
     },
+    /// Native selectable HTML text; parsing Markdown belongs to the producer.
+    RichText {
+        id: String,
+        html: String,
+    },
+    /// A retained content surface selected by language from enabled packages.
+    Content {
+        id: String,
+        language: String,
+        source: String,
+    },
     Code {
         id: String,
         text: String,
         language: String,
         #[serde(default)]
         height: Option<f32>,
+        /// Naturally tall readonly code in a parent scroll area.
+        #[serde(default)]
+        embedded: bool,
         /// Soft-wraps long lines and hides line numbers, for prose and logs.
         #[serde(default)]
         wrap: bool,
