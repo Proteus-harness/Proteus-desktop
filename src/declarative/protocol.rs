@@ -31,6 +31,7 @@ pub const FEATURES: &[&str] = &[
     "widgets.person.v1",
     "documents.title.v1",
     "surfaces.content.v1",
+    "surfaces.content.invalidate.v1",
     "widgets.svg.v1",
     "widgets.rich_text.v1",
     "widgets.content.v1",
@@ -152,6 +153,8 @@ pub enum HostEventKind {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Incoming {
+    /// Refresh this extension's attached content across all host runtimes.
+    InvalidateContent {},
     /// A content renderer declined this source; the host preserves the raw fence.
     ContentError {
         view: String,
@@ -283,6 +286,17 @@ mod tests {
             serde_json::to_value(render).unwrap(),
             json!({"type": "render", "context":"fixture", "view": "document:a", "surface": "document", "argument": "a"})
         );
+    }
+
+    #[test]
+    fn content_invalidation_is_explicit_and_cannot_name_another_extension() {
+        assert!(matches!(
+            parse(r#"{"type":"invalidate_content"}"#).unwrap(),
+            Incoming::InvalidateContent {}
+        ));
+        assert!(parse(r#"{"type":"invalidate_content","extension":"other"}"#).is_err());
+        assert!(parse(r#"{"type":"invalidate_content","view":"content:one"}"#).is_err());
+        assert!(FEATURES.contains(&"surfaces.content.invalidate.v1"));
     }
 
     #[test]

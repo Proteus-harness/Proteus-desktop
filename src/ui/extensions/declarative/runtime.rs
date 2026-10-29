@@ -3,6 +3,7 @@
 mod commands;
 mod content_queue;
 use content_queue::ContentQueue;
+mod invalidation;
 mod scopes;
 use scopes::Scope;
 
@@ -79,15 +80,7 @@ impl Runtime {
                         let theme = this.content_context(cx);
                         if this.theme_context.as_ref() != Some(&theme) {
                             this.theme_context = Some(theme);
-                            let views: Vec<_> = this
-                                .views
-                                .iter()
-                                .filter(|(_, view)| view.surface == SurfaceKind::Content)
-                                .map(|(id, _)| id.clone())
-                                .collect();
-                            for view in views {
-                                this.render(&view, cx);
-                            }
+                            this.invalidate_content(cx);
                         }
                     }
                 } else {
@@ -322,6 +315,12 @@ impl Runtime {
 
     fn handle(&mut self, signal: Signal, cx: &mut Context<Self>) {
         match signal {
+            Signal::Message(Incoming::InvalidateContent {}) => {
+                let extension = self.extension_id();
+                // The sender is one of the targets. Drop its active entity
+                // borrow before walking the registry and updating runtimes.
+                cx.defer(move |cx| invalidation::broadcast(extension, cx));
+            }
             Signal::Message(Incoming::ContentError {
                 view,
                 session_dir,

@@ -1,9 +1,8 @@
 //! Retained native text and nested content. Producers choose formatting and
 //! language; this adapter only mounts public widgets and keeps selection.
 
-use super::{content::ContentView, view::DeclarativeView};
+use super::{code_block, content::ContentView, view::DeclarativeView};
 use gpui_kit::component::text::{TextView, TextViewState};
-use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::*;
 
 pub(super) struct RichText {
@@ -41,7 +40,7 @@ pub(super) struct Content {
     pub(super) view: Option<Entity<ContentView>>,
     language: String,
     renderer: Option<&'static str>,
-    fallback: Option<SharedString>,
+    fallback: Option<Entity<code_block::SourceBlock>>,
     _changed: Option<Subscription>,
     _resize: Option<Subscription>,
 }
@@ -53,10 +52,7 @@ impl Content {
             None => self
                 .fallback
                 .as_ref()
-                .map(|text| {
-                    gpui_kit::base::SelectableText::new("content-fallback", text.clone())
-                        .into_any_element()
-                })
+                .map(|view| view.clone().into_any_element())
                 .unwrap_or_else(|| div().into_any_element()),
         }
     }
@@ -89,8 +85,8 @@ impl DeclarativeView {
         {
             if let Some(view) = &content.view {
                 view.update(cx, |view, cx| view.set_source(language, source, window, cx));
-            } else {
-                content.fallback = Some(source.to_owned().into());
+            } else if let Some(fallback) = &content.fallback {
+                fallback.update(cx, |view, cx| view.set_source(source, cx));
             }
             return;
         }
@@ -107,7 +103,7 @@ impl DeclarativeView {
         });
         let fallback = view
             .is_none()
-            .then(|| SharedString::from(source.to_owned()));
+            .then(|| cx.new(|_| code_block::SourceBlock::new(language, source)));
         let content = Content {
             language: language.into(),
             renderer,
@@ -129,37 +125,34 @@ pub(super) fn embedded_code(
     state: Option<&Entity<gpui_kit::component::input::EditorState>>,
     cx: &mut Context<DeclarativeView>,
 ) -> AnyElement {
-    use crate::ui::kit::{Frame as _, Hint as _};
-    use gpui_kit::component::{ActiveTheme as _, Sizable as _};
+    use gpui_kit::component::ActiveTheme as _;
     let rows = text.bytes().filter(|byte| *byte == b'\n').count() + 1;
     // Editor uses the same mono font and 1.5 leading; an extra physical row
     // covers native input insets at all interface scales.
     let height = cx.theme().mono_font_size * (1.5 * (rows + 1) as f32);
-    v_flex()
-        .w_full()
-        .min_w_0()
-        .surface_frame(cx)
-        .child(
-            h_flex()
-                .w_full()
-                .px_2()
-                .py_1()
-                .gap_1()
-                .child(div().text_xs().child(language.to_owned()))
-                .child(div().flex_1())
-                .child(
-                    crate::ui::kit::Clipboard::new(SharedString::from(format!("code-copy-{id}")))
-                        .value(text.to_owned())
-                        .hint("Копировать код", cx)
-                        .xsmall(),
-                ),
-        )
-        .children(state.map(|state| {
+    let body = state
+        .map(|state| {
             gpui_kit::component::input::Editor::new(state)
                 .readonly(true)
                 .appearance(false)
                 .bordered(false)
                 .h(height)
-        }))
-        .into_any_element()
+                .into_any_element()
+        })
+        .unwrap_or_else(|| {
+            code_block::source(
+                SharedString::from(format!("code-source-{id}")),
+                text.to_owned().into(),
+                cx,
+            )
+        });
+    code_block::shell(
+        SharedString::from(format!("code-copy-{id}")),
+        language,
+        text,
+        None,
+        body,
+        cx,
+    )
+    .into_any_element()
 }

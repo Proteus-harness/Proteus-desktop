@@ -62,4 +62,27 @@ mod tests {
         queue.reset();
         assert!(queue.begin(Some(3)));
     }
+
+    #[test]
+    fn invalidation_coalesces_without_a_source_revision_change_or_queue_reset() {
+        let mut queue = ContentQueue::default();
+        assert!(queue.begin(Some(7)));
+        for _ in 0..100 {
+            assert!(!queue.begin(Some(7)));
+        }
+        assert!(!queue.finish(Some(6), Some(7)));
+        assert!(
+            queue.finish(Some(7), Some(7)),
+            "settings invalidation must refresh even when the source is unchanged"
+        );
+        assert!(queue.begin(Some(7)));
+        assert!(!queue.finish(Some(7), Some(7)));
+
+        assert!(queue.begin(Some(7)));
+        assert!(!queue.begin(Some(8)));
+        assert!(!queue.begin(Some(8)));
+        assert!(queue.finish(Some(7), Some(8)));
+        assert!(queue.begin(Some(8)));
+        assert!(!queue.finish(Some(8), Some(8)));
+    }
 }

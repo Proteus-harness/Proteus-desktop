@@ -7,6 +7,7 @@ mod badge;
 mod bar;
 mod button;
 mod cells;
+mod code_block;
 pub(in crate::ui) mod content;
 mod fields;
 mod graph;

@@ -8,7 +8,7 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use super::view::DeclarativeView;
+use super::{code_block, view::DeclarativeView};
 use crate::declarative::protocol::{Content, SurfaceKind};
 use crate::ui::extensions::Host;
 use crate::ui::kit;
@@ -214,51 +214,10 @@ impl Render for ContentView {
         let ready = enabled && view.ready(cx);
         let error = view.error(cx);
         let raw = self.show_source || !ready;
-        let header = h_flex()
-            .w_full()
-            .items_center()
-            .gap_1()
-            .px_2()
-            .py_1()
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(crate::ui::fade::faded(self.content.language.clone())),
-            )
-            .child(div().flex_1())
-            .child(
-                kit::Clipboard::new("copy-content-source")
-                    .value(self.content.source.clone())
-                    .hint("Копировать исходник", cx)
-                    .xsmall(),
-            )
-            .child(
-                kit::button("content-source")
-                    .icon(IconName::Code)
-                    .xsmall()
-                    .quiet(cx)
-                    .selected(self.show_source)
-                    .disabled(!ready)
-                    .hint(
-                        if self.show_source {
-                            "Показать визуализацию"
-                        } else {
-                            "Показать исходник"
-                        },
-                        cx,
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        cx.emit(WillResize);
-                        this.show_source = !this.show_source;
-                        cx.notify();
-                    })),
-            );
-        v_flex()
+        let body = v_flex()
             .w_full()
             .min_w_0()
             .gap_1()
-            .when(!self.body, |view| view.child(header))
             .when_some(error, |view, error| {
                 view.child(
                     div()
@@ -271,14 +230,47 @@ impl Render for ContentView {
                 )
             })
             .child(if raw {
-                gpui_kit::base::SelectableText::new(
-                    "content-source-text",
-                    SharedString::from(self.content.source.clone()),
-                )
-                .into_any_element()
+                let source = SharedString::from(self.content.source.clone());
+                if self.body {
+                    gpui_kit::base::SelectableText::new("content-source-text", source)
+                        .into_any_element()
+                } else {
+                    code_block::source("content-source-scroll", source, cx)
+                }
             } else {
                 self.rendered.clone().into_any_element()
-            })
+            });
+        if self.body {
+            return body.into_any_element();
+        }
+        let toggle = kit::button("content-source")
+            .icon(IconName::Code)
+            .xsmall()
+            .quiet(cx)
+            .selected(self.show_source)
+            .disabled(!ready)
+            .hint(
+                if self.show_source {
+                    "Показать визуализацию"
+                } else {
+                    "Показать исходник"
+                },
+                cx,
+            )
+            .on_click(cx.listener(|this, _, _, cx| {
+                cx.emit(WillResize);
+                this.show_source = !this.show_source;
+                cx.notify();
+            }));
+        code_block::shell(
+            "copy-content-source",
+            &self.content.language,
+            &self.content.source,
+            Some(toggle.into_any_element()),
+            body.into_any_element(),
+            cx,
+        )
+        .into_any_element()
     }
 }
 
