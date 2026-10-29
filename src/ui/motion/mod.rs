@@ -42,7 +42,7 @@ pub(super) use shimmer::Shimmer;
 pub(super) use slide::{Slide, glide};
 pub(super) use spinner::Spinner;
 pub(super) use transition::PageTransition;
-pub(super) use wave_dots::WaveDots;
+pub(super) use wave_dots::wave_dots;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};

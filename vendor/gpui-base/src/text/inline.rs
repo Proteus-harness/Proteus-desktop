@@ -2237,6 +2237,8 @@ pub(super) mod test_fonts {
     const MONO_ID: FontId = FontId(2);
     const BOLD_BODY_ID: FontId = FontId(3);
     const BOLD_MONO_ID: FontId = FontId(4);
+    const SEMIBOLD_BODY_ID: FontId = FontId(5);
+    const SEMIBOLD_MONO_ID: FontId = FontId(6);
     const UNITS_PER_EM: f32 = 1000.;
 
     pub(crate) struct WideMonoTextSystem;
@@ -2249,6 +2251,8 @@ pub(super) mod test_fonts {
                 BOLD_MONO_ID => 1250.,
                 BODY_ID => 500.,
                 BOLD_BODY_ID => 750.,
+                SEMIBOLD_BODY_ID => 625.,
+                SEMIBOLD_MONO_ID => 1125.,
                 _ => 500.,
             }
         }
@@ -2292,6 +2296,13 @@ pub(super) mod test_fonts {
         }
 
         fn font_id(&self, descriptor: &Font) -> anyhow::Result<FontId> {
+            if descriptor.weight == FontWeight::SEMIBOLD {
+                return Ok(if descriptor.family.as_ref() == MONO {
+                    SEMIBOLD_MONO_ID
+                } else {
+                    SEMIBOLD_BODY_ID
+                });
+            }
             Ok(
                 match (
                     descriptor.family.as_ref() == MONO,

@@ -3308,11 +3308,15 @@ struct TableColumn {
 
 /// Horizontal padding of a table cell: `px_3` unless `style.table_cell`
 /// sets it.
-fn table_cell_padding_x(style: &TextViewStyle, rem_size: Pixels) -> f32 {
+fn table_cell_padding_x(style: &TextViewStyle, window: &Window) -> f32 {
+    let rem_size = window.rem_size();
     let padding = &style.table_cell().padding;
-    let side = |length: Option<DefiniteLength>| match length {
-        Some(DefiniteLength::Absolute(length)) => f32::from(length.to_pixels(rem_size)),
-        _ => f32::from(rems(0.75).to_pixels(rem_size)),
+    let side = |length: Option<DefiniteLength>| {
+        let length = match length {
+            Some(DefiniteLength::Absolute(length)) => length.to_pixels(rem_size),
+            _ => rems(0.75).to_pixels(rem_size),
+        };
+        f32::from(window.pixel_snap(length))
     };
     side(padding.left) + side(padding.right)
 }
@@ -3424,10 +3428,12 @@ fn measure_table_text_columns(
             let mut w = 0.0_f32;
             let mut line_start = 0;
             for line in text.split('\n') {
-                let start = line_start + (line.len() - line.trim_start().len());
-                let line_end = line_start + line.len();
+                // Measure exactly what Inline shapes. HTML normalization
+                // can leave edge spaces in a cell: trimming only here lets
+                // an invisible final space wrap onto an extra blank line.
+                let start = line_start;
+                let line_end = start + line.len();
                 line_start = line_end + 1;
-                let line = line.trim();
                 if line.is_empty() {
                     continue;
                 }
@@ -3923,7 +3929,6 @@ impl BlockNode {
         const CELL_WRAP_MAX_LINES: f32 = 2.0;
         const CELL_WRAP_MIN_PX: f32 = 160.0;
         const CELL_WRAP_MAX_PX: f32 = 480.0;
-        const TABLE_BORDER_PX: f32 = 2.0; // the frame's border_1, left + right
 
         let table = match item {
             BlockNode::Table(table) => table,
@@ -3943,17 +3948,29 @@ impl BlockNode {
         let rem_size = window.rem_size();
         let wrap_min_px = f32::from(rems(4.).to_pixels(rem_size));
         // Widths were measured with the default cell padding.
-        let padding_delta = table_cell_padding_x(style, rem_size) - CELL_PAD_PX;
+        let padding_delta = table_cell_padding_x(style, window) - CELL_PAD_PX;
         // Lengths are rounded to device pixels for layout. Round the content
         // widths up, or a column can lose the fraction of a pixel that keeps
         // its text on one line.
         let scale_factor = window.scale_factor();
+        // GPUI snaps authored borders and padding before flex layout. Text
+        // widths stay cached in logical units, but their enclosing boxes must
+        // use those snapped metrics. At 160%, border_1 occupies 1.25 logical
+        // pixels: treating the frame as 2px would steal width from its cells.
+        let border = f32::from(window.pixel_snap(px(CELL_BORDER_PX))).max(1. / scale_factor);
+        let frame_border = border * 2.;
         let device_ceil = |width: f32| (width * scale_factor).ceil() / scale_factor;
         let columns: Vec<TableColumn> = col_w
             .iter()
             .enumerate()
             .map(|(ix, &w)| {
-                let w = w + padding_delta;
+                let cached_border = if ix + 1 < col_count {
+                    CELL_BORDER_PX
+                } else {
+                    0.
+                };
+                let divider = if ix + 1 < col_count { border } else { 0. };
+                let w = w + padding_delta + divider - cached_border;
                 let floor = if scroll && nowrap {
                     w
                 } else if scroll {
@@ -3963,12 +3980,12 @@ impl BlockNode {
                 } else {
                     w.min(wrap_min_px)
                 };
-                let divider = if ix + 1 < col_count {
-                    CELL_BORDER_PX
-                } else {
-                    0.
-                };
-                let max = device_ceil(w - divider);
+                // Slack participates in flex growth even when the row is
+                // exactly max-content wide. Its tiny share must not take the
+                // final fractional pixel away from an integer-width glyph
+                // run and produce a second line. Keep one device pixel of
+                // content headroom; genuinely constrained columns still wrap.
+                let max = device_ceil(w - divider) + 1. / scale_factor;
                 TableColumn {
                     min: device_ceil(floor - divider).min(max),
                     max,
@@ -3982,7 +3999,7 @@ impl BlockNode {
             .iter()
             .map(|column| column.max + column.divider)
             .sum::<f32>()
-            + TABLE_BORDER_PX;
+            + frame_border;
         let frame = StyleRefinement::default()
             .text_size(text_size)
             .bg(style
@@ -4004,7 +4021,7 @@ impl BlockNode {
                 .iter()
                 .map(|column| column.min + column.divider)
                 .sum::<f32>()
-                + TABLE_BORDER_PX;
+                + frame_border;
             // Scroll viewport owns the visible frame, including any
             // caller-provided radius. Keeping the border here makes the
             // rounded frame stable while the wider row track moves below it.

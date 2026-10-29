@@ -3139,13 +3139,14 @@ mod tests {
             width: Pixels,
             style: TextViewStyle,
             rem_size: Pixels,
+            font_size: Pixels,
         }
 
         impl Render for TableRoot {
             fn render(&mut self, window: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
                 window.set_rem_size(self.rem_size);
                 div()
-                    .text_size(self.rem_size)
+                    .text_size(self.font_size)
                     .w(self.width)
                     .child(TextView::new(&self.text_view).style(self.style.clone()))
             }
@@ -3157,17 +3158,31 @@ mod tests {
             "word ".repeat(30)
         );
         // Heights of the first column's cells, top to bottom.
-        let column_heights = |width: f32, style: TextViewStyle, rem_size: f32, source: &str| {
+        let draw_column = |width: f32,
+                           style: TextViewStyle,
+                           rem_size: f32,
+                           source: &str,
+                           html: bool,
+                           font_size: f32,
+                           scale: f32| {
             let mut app = TestApp::with_text_system(Arc::new(WideMonoTextSystem));
             app.update(crate::init);
             let cell = style.table_cell().clone().bg(gpui::rgb(CELL_BACKGROUND));
             let style = style.with_table_cell(cell);
             let mut window = app.open_window(|_, cx| TableRoot {
-                text_view: cx.new(|cx| TextViewState::markdown(&source, cx)),
+                text_view: cx.new(|cx| {
+                    if html {
+                        TextViewState::html(source, cx)
+                    } else {
+                        TextViewState::markdown(source, cx)
+                    }
+                }),
                 width: px(width),
                 style,
                 rem_size: px(rem_size),
+                font_size: px(font_size),
             });
+            window.simulate_scale_factor_change(scale);
             window.draw();
             app.run_until_parked();
             window.draw();
@@ -3190,6 +3205,9 @@ mod tests {
                     .map(|bounds| bounds.size.height)
                     .collect::<Vec<_>>()
             })
+        };
+        let column_heights = |width, style, rem_size, source: &str| {
+            draw_column(width, style, rem_size, source, false, rem_size, 1.)
         };
         let first_column = |width, style| column_heights(width, style, 16., &source);
         let scroll = || {
@@ -3214,8 +3232,10 @@ mod tests {
             for (layout, style) in [("wrap", TextViewStyle::default()), ("scroll", scroll())] {
                 let heights = column_heights(4000., style, rem_size, scaled_source);
                 assert_eq!(heights.len(), 4, "{layout} {rem_size}: four rows");
-                assert!(heights.iter().all(|height| *height == heights[3]),
-                    "{layout} {rem_size}: Cyrillic/emoji cells fit one line: {heights:?}");
+                assert!(
+                    heights.iter().all(|height| *height == heights[3]),
+                    "{layout} {rem_size}: Cyrillic/emoji cells fit one line: {heights:?}"
+                );
             }
         }
 
@@ -3233,6 +3253,67 @@ mod tests {
             single_line,
             "the table text refinement is measured"
         );
+
+        let html = "<table><thead><tr><th>Игрок</th><th>Монеты</th></tr></thead><tbody><tr><td>Аня</td><td>100</td></tr><tr><td>Боб</td><td>50</td></tr></tbody></table>";
+        let mut failures = Vec::new();
+        for rem_size in [16., 20., 21.6] {
+            for font_size in [15., 15.1, 16., 17.9, 18.25, 18.75, 20.] {
+                for scale in [1., 1.25, 1.6, 2.] {
+                    for (layout, style) in
+                        [("wrap", TextViewStyle::default()), ("scroll", scroll())]
+                    {
+                        let style = style.with_table_head(
+                            StyleRefinement::default().font_weight(gpui::FontWeight::SEMIBOLD),
+                        );
+                        for width in [4000., 240.] {
+                            let heights = draw_column(
+                                width,
+                                style.clone(),
+                                rem_size,
+                                html,
+                                true,
+                                font_size,
+                                scale,
+                            );
+                            assert_eq!(heights.len(), 3);
+                            if heights[0] != heights[1] {
+                                failures.push(format!("{layout} rem={rem_size} font={font_size} scale={scale} width={width}: {heights:?}"));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            failures.is_empty(),
+            "a fitting semibold header must not add a blank line: {failures:?}"
+        );
+        // Pretty-printed HTML from a Markdown renderer can preserve a
+        // trailing space in the final header after HTML normalization. Its
+        // invisible glyph still wraps if intrinsic measurement drops it.
+        let spaced_header = "<table>\n<thead>\n<tr>\n<th>Игрок</th>\n<th>Монеты</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>Аня</td>\n<td>100</td>\n</tr>\n<tr>\n<td>Боб</td>\n<td>50</td>\n</tr>\n</tbody>\n</table>\n";
+        for (layout, style) in [("wrap", TextViewStyle::default()), ("scroll", scroll())] {
+            let style = style.with_table_head(
+                StyleRefinement::default().font_weight(gpui::FontWeight::SEMIBOLD),
+            );
+            let heights = draw_column(820., style, 16., spaced_header, true, 16., 1.);
+            assert_eq!(heights.len(), 3);
+            assert_eq!(
+                heights[0], heights[1],
+                "{layout}: a preserved trailing space must not create a blank header line: {heights:?}"
+            );
+        }
+        let long_header = "<table><tr><th>Several words in a deliberately long header</th><th>B</th></tr><tr><td>A</td><td>B</td></tr></table>";
+        for (layout, style) in [("wrap", TextViewStyle::default()), ("scroll", scroll())] {
+            let style = style.with_table_head(
+                StyleRefinement::default().font_weight(gpui::FontWeight::SEMIBOLD),
+            );
+            let heights = draw_column(200., style, 20., long_header, true, 17.9, 1.);
+            assert!(
+                heights[0] > heights[1],
+                "{layout}: a genuinely long header must still wrap: {heights:?}"
+            );
+        }
     }
 
     #[gpui::test]

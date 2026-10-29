@@ -33,14 +33,14 @@ impl JumpButton {
 }
 
 impl Render for JumpButton {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let scroller = self.scroller.clone();
         let icon = if self.running && !self.hovered {
-            motion::WaveDots.into_any_element()
+            motion::wave_dots(window, cx).into_any_element()
         } else {
             Icon::new(IconName::ArrowDown).small().into_any_element()
         };
-        kit::button("jump-latest")
+        let button = kit::button("jump-latest")
             .secondary()
             .child(
                 h_flex()
@@ -54,14 +54,18 @@ impl Render for JumpButton {
             .border_1()
             .border_color(cx.theme().border)
             .bg(cx.theme().background)
+            .on_click(move |_, _, cx| {
+                let _ = scroller.update(cx, |_, cx| cx.emit(LatestRequested));
+            });
+        div()
+            .id("jump-hover")
+            .flex_none()
             .on_hover(cx.listener(|this, hovered, _, cx| {
                 if this.hovered != *hovered {
                     this.hovered = *hovered;
                     cx.notify();
                 }
             }))
-            .on_click(move |_, _, cx| {
-                let _ = scroller.update(cx, |_, cx| cx.emit(LatestRequested));
-            })
+            .child(button)
     }
 }
