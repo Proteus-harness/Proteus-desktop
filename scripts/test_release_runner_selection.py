@@ -26,7 +26,9 @@ def load_runner():
     subprocess = types.ModuleType("subprocess")
     subprocess.run = Mock()
     subprocess.call = Mock(return_value=0)
-    stubs = {"sources": sources, "limits": limits,
+    runtime = types.ModuleType("runtime_paths")
+    runtime.require_extensions = Mock()
+    stubs = {"runtime_paths": runtime, "sources": sources, "limits": limits,
              "check_licenses": licenses, "subprocess": subprocess}
     spec = importlib.util.spec_from_file_location("candidate_runner", RUNNER_PATH)
     module = importlib.util.module_from_spec(spec)
@@ -117,21 +119,53 @@ class RunnerTests(unittest.TestCase):
         self.runner.subprocess.run.assert_not_called()
         self.runner.subprocess.call.assert_not_called()
 
-    def test_default_full_gate_is_preserved(self):
+    def test_default_gate_is_desktop_only(self):
         self.assertEqual(self.runner.main([]), 0)
         self.runner.limit.assert_called_once_with()
-        self.runner.resolve.assert_called_once_with("extensions")
-        self.assertEqual([call.args[0] for call in self.runner.check.call_args_list], [ROOT, EXTENSIONS])
+        self.runner.resolve.assert_not_called()
+        self.runner.check.assert_called_once_with(ROOT)
+        self.runner.require_extensions.assert_not_called()
+        self.runner.subprocess.run.assert_not_called()
         cargo = self.runner.subprocess.call.call_args
         self.assertEqual(cargo.args[0], ["cargo", "test", "--locked", "--workspace"])
-        env = cargo.kwargs["env"]
-        self.assertEqual(cargo.kwargs["cwd"], ROOT)
-        self.assertEqual(env["RUST_TEST_THREADS"], "4")
-        self.assertEqual(env["PROTEUS_TEST_EXTENSIONS_SOURCE"], str(EXTENSIONS))
-        self.assertEqual(env["PROTEUS_EXTENSIONS_DIR"], str(EXTENSIONS / "packages"))
+        self.assertEqual(cargo.kwargs["env"]["RUST_TEST_THREADS"], "4")
+        self.assertNotIn("PROTEUS_TEST_EXTENSIONS_SOURCE", cargo.kwargs["env"])
+
+    def test_extensions_are_ready_only_and_explicit(self):
+        self.assertEqual(self.runner.main(["--extensions", "--release", "--", "--nocapture"]), 0)
+        self.runner.resolve.assert_called_once_with("extensions")
+        self.runner.subprocess.run.assert_not_called()
+        self.runner.require_extensions.assert_called_once()
+        cargo = self.runner.subprocess.call.call_args
+        self.assertEqual(cargo.args[0], ["cargo", "test", "--locked", "--workspace", "--release", "--", "--nocapture", "--include-ignored"])
+        self.assertEqual(cargo.kwargs["env"]["PROTEUS_TEST_EXTENSIONS_SOURCE"], str(EXTENSIONS))
+        self.assertEqual(cargo.kwargs["env"]["PROTEUS_EXTENSIONS_DIR"], str(EXTENSIONS / "packages"))
+        self.assertEqual([c.args[0] for c in self.runner.check.call_args_list], [ROOT, EXTENSIONS])
+
+    def test_build_extensions_is_the_only_build_opt_in(self):
+        self.runner.main(["--build-extensions", "--release"])
+        env = self.runner.subprocess.call.call_args.kwargs["env"]
         self.runner.subprocess.run.assert_called_once_with(
             [sys.executable, str(EXTENSIONS / "package.py"), "--dev"], check=True, env=env)
-        self.assertEqual(self.stderr.getvalue(), "")
+        self.assertEqual(self.runner.subprocess.call.call_args.args[0][-2:], ["--", "--include-ignored"])
+
+    def test_explicit_ignored_and_libtest_boundary(self):
+        for flag in ("--ignored", "--include-ignored"):
+            runner = load_runner()
+            runner.main(["--extensions", "--", flag])
+            self.assertEqual(runner.subprocess.call.call_args.args[0].count(flag), 1)
+        runner = load_runner()
+        runner.main(["--", "--extensions", "--build-extensions"])
+        runner.resolve.assert_not_called()
+        runner.subprocess.run.assert_not_called()
+        self.assertEqual(runner.subprocess.call.call_args.args[0][-3:], ["--", "--extensions", "--build-extensions"])
+
+    def test_missing_ready_extensions_fail_before_cargo(self):
+        self.runner.require_extensions.side_effect = SystemExit("missing executable; --build-extensions")
+        with self.assertRaisesRegex(SystemExit, "--build-extensions"):
+            self.runner.main(["--extensions"])
+        self.runner.subprocess.run.assert_not_called()
+        self.runner.subprocess.call.assert_not_called()
 
     def test_headless_skips_only_external_setup(self):
         args = ["-p", "proteus-diff", "--lib", "tests::parse", "--", "--nocapture"]
@@ -150,18 +184,27 @@ class RunnerTests(unittest.TestCase):
         self.assertNotIn("PROTEUS_EXTENSIONS_DIR", cargo.kwargs["env"])
         self.assertIn("not the client workspace gate", self.stderr.getvalue())
 
-    def test_ambiguous_selection_preserves_full_setup_and_argv(self):
+    def test_explicit_package_and_manifest_requests_are_never_widened(self):
         for args in (["-p", "proteus-diff", "--workspace"],
                      ["-p", "proteus-tabs", "-p", "proteus-native"],
-                     ["--", "-p", "proteus-tabs"],
+                     ["-p", "proteus-tabs", "--release"],
+                     ["--package=proteus-client-common", "--profile", "release"],
+                     ["--manifest-path", "/selected/Cargo.toml"],
+                     ["-p", "proteus-diff", "--features", "chosen"],
                      ["-p", "proteus-diff", "--manifest-path", "elsewhere/Cargo.toml"]):
             with self.subTest(args=args):
                 runner = load_runner()
                 self.assertEqual(runner.main(args), 0)
-                runner.resolve.assert_called_once_with("extensions")
-                runner.subprocess.run.assert_called_once()
+                runner.resolve.assert_not_called()
+                runner.subprocess.run.assert_not_called()
                 self.assertEqual(runner.subprocess.call.call_args.args[0],
-                                 ["cargo", "test", "--locked", "--workspace", *args])
+                                 ["cargo", "test", "--locked", *args])
+
+    def test_libtest_filter_does_not_become_a_cargo_package_selection(self):
+        runner = load_runner()
+        runner.main(["--", "-p", "proteus-tabs"])
+        self.assertEqual(runner.subprocess.call.call_args.args[0],
+                         ["cargo", "test", "--locked", "--workspace", "--", "-p", "proteus-tabs"])
 
     def test_root_license_failure_blocks_both_paths(self):
         for args in ([], ["-p", "proteus-tabs"]):
@@ -176,14 +219,14 @@ class RunnerTests(unittest.TestCase):
     def test_extension_license_failure_blocks_full_gate(self):
         self.runner.check.side_effect = lambda path: ["extension license failure"] if path == EXTENSIONS else []
         with self.assertRaisesRegex(SystemExit, "extension license failure"):
-            self.runner.main([])
+            self.runner.main(["--extensions"])
         self.runner.subprocess.run.assert_not_called()
         self.runner.subprocess.call.assert_not_called()
 
     def test_extension_build_failure_never_runs_cargo(self):
         self.runner.subprocess.run.side_effect = RuntimeError("fake build failed")
         with self.assertRaisesRegex(RuntimeError, "fake build failed"):
-            self.runner.main([])
+            self.runner.main(["--build-extensions"])
         self.runner.subprocess.call.assert_not_called()
 
     def test_nonzero_cargo_status_is_preserved(self):
@@ -205,4 +248,4 @@ class RunnerTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    raise SystemExit("Run check.py; direct discovery does not verify the patch preimage")
+    unittest.main()

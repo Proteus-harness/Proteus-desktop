@@ -330,6 +330,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "explicit extension conformance; scripts/test.py --extensions"]
     fn shipped_processes_conform_to_the_public_ui_protocol() {
         let root = std::env::var_os("PROTEUS_TEST_EXTENSIONS_SOURCE")
             .map(std::path::PathBuf::from)
@@ -339,7 +340,7 @@ mod tests {
             });
         assert!(
             root.join("package.py").is_file(),
-            "run python3 scripts/test.py to prepare the separately versioned extensions"
+            "run python3 scripts/test.py --build-extensions to prepare the separately versioned extensions"
         );
         let (packages, errors) = crate::declarative::manifest::discover(&root.join("packages"));
         assert!(errors.is_empty(), "{errors:?}");

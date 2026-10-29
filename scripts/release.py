@@ -108,7 +108,7 @@ def gates(section="all"):
     for name, path in (("core", source["harness"]), ("modules", source["modules"]), ("desktop", ROOT)):
         if section in ("all", name):
             run(["cargo", "fmt", "--all", "--", "--check"], path)
-            run([sys.executable, "scripts/test.py", *([] if name == "desktop" else ["full"])], path)
+            run([sys.executable, "scripts/test.py", *(["--build-extensions"] if name == "desktop" else ["full"])], path)
             if name == "core":
                 sdk_gate(path)
     if section in ("all", "extensions"):
@@ -153,7 +153,7 @@ def assets():
     distribution.mkdir()
     binary_archive = BUILD / f"{name}.tar.gz"
     if not binary_archive.is_file():
-        raise SystemExit("Build the release portable with scripts/portable.py first")
+        raise SystemExit("Build the release portable with scripts/portable.py --full first")
     shutil.copy2(binary_archive, distribution / binary_archive.name)
     sources = distribution / f"Proteus-{version(ROOT)}-sources.tar.gz"
     source_archive(source, sources)

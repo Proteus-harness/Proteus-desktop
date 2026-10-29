@@ -119,7 +119,7 @@ jobs:
       - name: Validate clean source pins and release version
         run: python3 scripts/release.py check --tag "$PROTEUS_RELEASE_TAG"
       - name: Build portable and versioned archive
-        run: python3 scripts/portable.py
+        run: python3 scripts/portable.py --full
       - name: Relocate archive and exercise synthetic runtime
         run: python3 scripts/release.py smoke
       - name: Package exact sources, provenance, notices and checksums

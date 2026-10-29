@@ -62,28 +62,47 @@ LICENSE_FILES = ("LICENSE", "LICENSE-GPL", "LICENSE-APACHE")
 
 
 def install_notices(portable, desktop, core, modules, extensions):
-    target = portable / "share/licenses"
     for name, root in (("Proteus-desktop", desktop), ("Proteus-core", core),
                        ("Proteus-modules", modules), ("Proteus-desktop-extensions", extensions)):
-        (target / name).mkdir(parents=True, exist_ok=True)
-        # Like Zed, desktop and extensions keep LICENSE-GPL and LICENSE-APACHE; crates pick one.
-        texts = [path for path in map(root.joinpath, LICENSE_FILES) if path.is_file()]
-        if not texts:
-            raise SystemExit(f"{root} has no license file")
-        for path in texts:
-            shutil.copy2(path, target / name / path.name)
+        install_component_notices(portable, name, root)
+    target = portable / "share/licenses"
+    (target / "README.txt").write_text(NOTICE_README)
+
+
+def install_component_notices(portable, name, root):
+    target = portable / "share/licenses"
+    destination = target / name
+    shutil.rmtree(destination, ignore_errors=True)
+    destination.mkdir(parents=True)
+    texts = [path for path in map(root.joinpath, LICENSE_FILES) if path.is_file()]
+    if not texts:
+        raise SystemExit(f"{root} has no license file")
+    for path in texts:
+        shutil.copy2(path, destination / path.name)
+    if name == "Proteus-modules":
+        install_module_notices(target, root)
+    elif name == "Proteus-desktop":
+        install_desktop_notices(target, root)
+
+
+def install_module_notices(target, modules):
     for relative in ("tool/codex-patch", "hook/codex-context-preparation/src/upstream"):
         for name in ("LICENSE", "NOTICE"):
             source = modules / relative / name
             destination = target / "Proteus-modules" / relative / name
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
+
+
+def install_desktop_notices(target, desktop):
     for vendored in ("vendor/gpui-fast-wgpu", "vendor/gpui-component"):
         for name in ("LICENSE.upstream", "README.proteus.md"):
             destination = target / "Proteus-desktop" / vendored / name
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(desktop / vendored / name, destination)
-    (target / "README.txt").write_text(
+
+
+NOTICE_README = (
         "Proteus-core and Proteus-modules are MIT licensed. Proteus-desktop and the\n"
         "bundled extensions are GPL-3.0-or-later (they include code derived from Zed);\n"
         "the extension SDK and client-common crates are Apache-2.0. Each crate declares\n"
@@ -92,7 +111,7 @@ def install_notices(portable, desktop, core, modules, extensions):
         "The Codex-derived code includes Apache-2.0 LICENSE and NOTICE files below.\n"
         "Patched Apache-2.0 vendored crates keep upstream licenses and source\n"
         "provenance below Proteus-desktop/vendor/.\n"
-        "The release sources archive also contains the four exact Proteus source snapshots.\n",
+        "The release sources archive also contains the four exact Proteus source snapshots.\n"
     )
 
 

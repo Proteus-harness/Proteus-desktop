@@ -26,54 +26,52 @@
 `scripts/sources.py` читает PROTEUS_HARNESS_SOURCE / PROTEUS_MODULES_SOURCE /
 PROTEUS_EXTENSIONS_SOURCE, использует соседние checkout `../Proteus-core`,
 `../Proteus-modules` и `../Proteus-desktop-extensions` или загружает закреплённые
-исходники в `build/sources`. Для самостоятельного clone
+исходники в `build/sources` только для явно выбранных компонентов. Для самостоятельного clone
 достаточно этого репозитория и доступа Git к публичным зависимостям.
+
+Для UI-разработки используйте готовую поставку `build/Proteus` как runtime:
 
 ```bash
 python3 scripts/test.py
 python3 scripts/run.py /path/to/project --config PROFILE
-python3 scripts/portable.py --fast
-python3 scripts/portable.py --fast --reuse-binaries # обновить поставку без компиляции
+python3 scripts/portable.py --no-archive # собрать только Desktop
 ./build/Proteus/proteus-native /path/to/project
 ```
 
-`python3 scripts/test.py` проверяет весь workspace и заранее готовит расширения.
-Для отдельной проверки моделей без сборки GPUI:
+Подготовка с нуля и выбор компонентов описаны в [BUILDING.md](BUILDING.md).
+Обычная UI-правка не пересобирает Core, модули и расширения. Если готовой
+поставки нет, укажите `--base /path/to/Proteus` или явно выполните bootstrap
+через `python3 scripts/portable.py --full --no-archive`.
+
+`python3 scripts/test.py` проверяет Desktop workspace, не собирая расширения.
+Для моделей без GPUI и для явной межрепозиторной проверки:
 
 ```bash
 python3 scripts/test.py -p proteus-diff --lib
 python3 scripts/test.py -p proteus-tabs --lib
 python3 -m unittest discover -s scripts -p 'test_release*.py'
+python3 scripts/test.py --extensions       # wire-проверка с готовыми расширениями
+python3 scripts/test.py --build-extensions # явно собрать расширения и проверить
 ```
 
-Явный выбор только `proteus-diff`/`proteus-tabs` не загружает и не собирает
-расширения. Без селектора, при смешанном выборе или неизвестных опциях
-runner сохраняет полный gate с подготовкой расширений. Проверки Python
-охватывают выбор scope и упаковку; они также входят в desktop release gate.
-
-Обычный `cargo test` включает приложение и оба крейта через `default-members`.
-Явный `cargo test -p proteus-native` не включает перенесённые 8 тестов diff и
-38 тестов tabs; полный runner сохраняет их охват через `--workspace`.
+Desktop release gate явно использует `--build-extensions`. Обычный `cargo test`
+включает приложение и вспомогательные крейты через `default-members`;
+`cargo test -p proteus-native` проверяет только выбранный пакет. Полный runner
+проверяет workspace через `--workspace`. Компиляция публичного
+`proteus-contracts` как зависимости клиента не собирает сервер Core.
 
 Для сборки и упаковки расширений нужен Python 3 без дополнительных pip-пакетов. Их автор —
 Proteus Project. DCP отложен в `Proteus-modules/research/dcp` и исключён из
 штатных профилей, сборки и поставки. Для поставляемых JS hook adapters нужен
 системный Node.js 22.18+; npm для упаковки portable не требуется.
 
-Обычная сборка portable получает Core, Desktop и 18 самостоятельных
-backend-модулей из соответствующих Cargo artifacts; настройки Cargo и кэши
-наследуются. Упаковка модулей и расширений запускается из их собственных checkout.
-
-`--reuse-binaries` упаковывает готовые файлы без Cargo и проверки их свежести.
-Core и Desktop берутся из `<target>/<profile>/<binary>`, где `<target>` —
-`CARGO_TARGET_DIR` либо `target`; относительный путь считается от корня каждого
-checkout. По умолчанию оба профиля — `release`; при `--fast` клиент берётся из
-`fast`, Core — из `release`; при `--debug` оба берутся из `debug`.
-Пути backend-модулей читаются из `Proteus-modules/dist/.artifacts/release.json`
-(при `--debug` — `dev.json`), сохранённого успешной сборкой `package.py`.
-Расширения берутся из `<target>/release` относительно checkout расширений.
-Для произвольного target triple или пути из Cargo config используйте обычную
-сборку. `--reuse-hosts` сохраняет только Core/Desktop, а пакеты пересобирает.
+По умолчанию portable собирает Desktop обычным release-профилем и переносит
+остальные компоненты из готового `--base` (по умолчанию `build/Proteus`).
+Бинарники, runtime-assets и сведения об исходниках повторно используемого
+компонента остаются вместе. Отсутствующий компонент вызывает ошибку до Cargo;
+скрытой сборки Core или соседних пакетов нет. `--components` выбирает
+компоненты явно, `--full` собирает весь стек, `--reuse-binaries` копирует
+готовую поставку целиком без компиляции и загрузки исходников.
 
 Для правки одного расширения используйте в его репозитории
 `python3 package.py --package <id>` и установите ZIP через менеджер расширений.
@@ -280,15 +278,18 @@ Model/режим и остальные значки расширений, акт
 ## Portable
 
 ```bash
-python3 scripts/portable.py           # release с архивом
-python3 scripts/portable.py --fast    # локальная пересборка
-python3 scripts/portable.py --debug   # быстрее всего собрать
-python3 scripts/portable.py --fast --reuse-hosts # собрать пакеты, сохранить Core/Desktop
+python3 scripts/portable.py --no-archive # Desktop; остальное из build/Proteus
+python3 scripts/portable.py --components desktop extensions --no-archive
+python3 scripts/portable.py --components extensions --base /path/to/Proteus --no-archive
+python3 scripts/portable.py --reuse-binaries --base /path/to/Proteus --no-archive
+python3 scripts/portable.py --full       # явная полная сборка с архивом
+python3 scripts/portable.py --plan       # показать scope, без Cargo и загрузки исходников
 ```
 
-`--fast` собирает клиент профилем `fast`: оптимизация как в release, но без
-LTO и инкрементально, поэтому правка клиента пересобирается за секунды, а не
-минуты; архив не пишется. Агент и backend-пакеты при этом берутся из release.
+Профиль по умолчанию — обычный `release`. `--fast` и `--reuse-hosts` удалены;
+выбор сборки задаётся компонентами. `--debug` доступен для отладки выбранных
+компонентов; для оценки плавности используйте release.
+Подробности, сохранение provenance и замеры — в [BUILDING.md](BUILDING.md).
 
 `scripts/portable.py` и `scripts/test.py` не занимают всю машину: они
 перезапускаются в systemd scope примерно с 40% процессоров и памяти, с низким
@@ -298,8 +299,8 @@ LTO и инкрементально, поэтому правка клиента 
 `--debug` собирает код клиента без оптимизаций: интерфейс может
 подтормаживать, для оценки плавности он не подходит.
 
-Скрипт собирает `proteus`, независимые backend-пакеты и клиент, затем
-складывает `build/Proteus/` и архив
+Скрипт собирает выбранные компоненты, остальные переносит из готовой базы,
+затем складывает `build/Proteus/` и, без `--no-archive`, архив
 `build/Proteus-<version>-linux-<arch>.tar.gz`:
 
 - `proteus-native` — запуск: ставит профили из `share/configs` в
@@ -327,14 +328,18 @@ LTO и инкрементально, поэтому правка клиента 
   системный proxy не включается из сохранённых адресов. PAC и отдельный SOCKS
   этим launcher не преобразуются: HTTP-клиенты поставляемой сборки используют
   HTTP proxy;
-- `bin/` — клиент, сервер агента и reference-модуль одной сборки;
+- `bin/` — клиент, сервер агента и исполняемые файлы backend-модулей;
+  при выборочной сборке готовые компоненты сохраняются из базы;
 - `share/extensions/` — самостоятельные процессные пакеты стандартных расширений.
   Поставляемые Rust-бинарники запускаются без Python и исходного checkout; SDK
   используется при разработке пакетов.
 - `share/licenses/` — лицензии четырёх репозиториев и Apache LICENSE/NOTICE
   заимствованного кода;
-- `share/release-sources.json` — версия, фактические commits всех четырёх
-  исходных checkout, их dirty-состояние, платформа и версии инструментов сборки.
+- `share/release-sources.json` — сведения об исходниках компонентов.
+  Выборочная сборка обновляет provenance только выбранных компонентов,
+  сохраняет данные остальных из базы и записывает scope и SHA256 бинарников.
+  Полная релизная сборка записывает commits всех четырёх checkout,
+  dirty-состояние, платформу и версии инструментов.
 
 ## Проверки И Alpha-Релизы
 
@@ -400,7 +405,7 @@ cargo run --locked --release --example history_scrollbar -- \
 
 Первая платформа поставки — Linux x86_64 с glibc 2.39+ и системными библиотеками
 GPUI. Node.js, Python, git, ripgrep и bubblewrap устанавливаются отдельно.
-Для разработки остаётся обычный `python3 scripts/portable.py --fast`; он не
+Для UI-разработки используйте `python3 scripts/portable.py --no-archive`; он не
 запускает Actions и не публикует релиз.
 
 ## Расширения без пересборки

@@ -1,36 +1,33 @@
 #!/usr/bin/env python3
-"""Builds the portable native client: build/Proteus.
+"""Update selected portable components; default builds Desktop only.
 
-The folder runs without the repository: the client, the agent server, the
-independent modules and the tracked profiles sit next to a launcher. A tar.gz
-of the folder is written next to it.
+Unselected components are copied intact from --base (default build/Proteus).
+An explicit --full bootstraps all components. --plan never builds or clones.
 """
-
 import argparse
-import hashlib
+import copy
 import json
 import os
+from pathlib import Path
 import shutil
 import stat
 import subprocess
 import sys
 import tarfile
-from pathlib import Path
+import tempfile
 
-NATIVE = Path(__file__).resolve().parent.parent
-ROOT = None
-MODULES = None
-EXTENSIONS = None
-REUSE_HOSTS = False
 from sources import resolve
 from limits import limit
-from cargo_binary import build_binary, existing_binary
+from cargo_binary import build_binary
 from portable_modules import assemble as assemble_modules
-from release_metadata import install_notices, version, write_manifest
+from portable_state import (COMPONENTS, SOURCE_NAMES, binary_hashes, clear_modules,
+                            desktop_protocol, publish, read_record, verify_extension_source, verify_protocol)
+from release_metadata import install_component_notices, source_record, version, write_manifest
+
+NATIVE = Path(__file__).resolve().parent.parent
 BUILD = NATIVE / "build"
 PORTABLE = BUILD / "Proteus"
 ASSETS = Path(__file__).resolve().parent / "portable"
-ICON = NATIVE / "assets/icon.png"
 
 
 def run(command, cwd):
@@ -38,111 +35,148 @@ def run(command, cwd):
     subprocess.run(command, cwd=cwd, check=True)
 
 
-def tracked_configs():
-    output = subprocess.run(
-        ["git", "ls-files", "-z", "configs"],
-        cwd=ROOT,
-        check=True,
-        capture_output=True,
-    ).stdout
-    return [Path(name.decode()) for name in output.split(b"\0") if name]
-
-
 def install_file(source, target, executable=False):
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, target)
     if executable:
-        mode = target.stat().st_mode
-        target.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        target.chmod(target.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
-def assemble(agent, client, module_profile="release", reuse_binaries=False):
-    staging = BUILD / "Proteus.next"
-    shutil.rmtree(staging, ignore_errors=True)
-    install_file(client, staging / "bin/proteus-native", True)
-    install_file(agent, staging / "bin/proteus", True)
-    module_flags = ["--no-build"] if reuse_binaries else []
-    run([sys.executable, str(MODULES / "package.py"), "--profile", module_profile,
-         "--bundle", str(staging), *module_flags], MODULES)
-    assemble_modules(ROOT, MODULES, staging)
-    for path in tracked_configs():
-        install_file(ROOT / path, staging / "share" / path)
-    extension_flags = ["--no-build"] if reuse_binaries else []
-    run([sys.executable, str(EXTENSIONS / "package.py"), "--bundle",
-         str(staging / "share/extensions"), *extension_flags], EXTENSIONS)
-    install_notices(staging, NATIVE, ROOT, MODULES, EXTENSIONS)
-    record = write_manifest(staging, NATIVE, ROOT, MODULES, EXTENSIONS)
-    if reuse_binaries or REUSE_HOSTS:
-        record["build_mode"] = "reuse-binaries" if reuse_binaries else "reuse-hosts"
-        record["binary_sha256"] = {}
-        for binary in (staging / "bin").iterdir():
-            if binary.is_file():
-                with binary.open("rb") as stream:
-                    record["binary_sha256"][binary.name] = hashlib.file_digest(stream, "sha256").hexdigest()
-        (staging / "share/release-sources.json").write_text(json.dumps(record, indent=2) + "\n")
-    install_file(ICON, staging / "share/icons/proteus-native.png")
-    install_file(NATIVE / "assets/proteus-logo.svg", staging / "share/icons/proteus-native.svg")
-    install_file(ASSETS / "proteus-native", staging / "proteus-native", True)
-    install_file(ASSETS / "system_proxy.py", staging / "share/system_proxy.py")
-    install_file(ASSETS / "install-shortcut", staging / "install-shortcut", True)
-    shutil.rmtree(PORTABLE, ignore_errors=True)
-    staging.rename(PORTABLE)
+def install_desktop(stage, flags):
+    client = build_binary(NATIVE, "proteus-native", "proteus-native", flags, NATIVE / "Cargo.toml")
+    install_file(client, stage / "bin/proteus-native", True)
+    shutil.rmtree(stage / "share/icons", ignore_errors=True)
+    install_file(NATIVE / "assets/icon.png", stage / "share/icons/proteus-native.png")
+    install_file(NATIVE / "assets/proteus-logo.svg", stage / "share/icons/proteus-native.svg")
+    for name in ("proteus-native", "install-shortcut"):
+        install_file(ASSETS / name, stage / name, True)
+    install_file(ASSETS / "system_proxy.py", stage / "share/system_proxy.py")
+
+
+def install_core(stage, core, flags):
+    agent = build_binary(core, "proteus-core", "proteus", flags,
+                         core / "crates/proteus-core/Cargo.toml")
+    install_file(agent, stage / "bin/proteus", True)
+    shutil.rmtree(stage / "share/configs", ignore_errors=True)
+    output = subprocess.run(["git", "ls-files", "-z", "configs"], cwd=core,
+                            check=True, capture_output=True).stdout
+    for name in output.split(b"\0"):
+        if name:
+            path = Path(name.decode())
+            install_file(core / path, stage / "share" / path)
+
+
+def assemble(stage, selected, roots, profile, base_record=None):
+    flags = [] if profile == "debug" else ["--release"]
+    for component in selected:
+        if component == "desktop":
+            install_desktop(stage, flags)
+        elif component == "core":
+            install_core(stage, roots["core"], flags)
+        elif component == "modules":
+            clear_modules(stage)
+            modules = roots["modules"]
+            run([sys.executable, str(modules / "package.py"), "--profile",
+                 "dev" if profile == "debug" else "release", "--bundle", str(stage)], modules)
+            # Hook SDK is copied as source; selecting modules never compiles Core.
+            assemble_modules(roots["core"], modules, stage)
+        elif component == "extensions":
+            shutil.rmtree(stage / "share/extensions", ignore_errors=True)
+            extensions = roots["extensions"]
+            run([sys.executable, str(extensions / "package.py"), "--bundle",
+                 str(stage / "share/extensions")], extensions)
+        install_component_notices(stage, SOURCE_NAMES[component], roots[component])
+    if base_record is None:
+        # Official full release metadata keeps exactly the release.py manifest schema.
+        write_manifest(stage, NATIVE, roots["core"], roots["modules"], roots["extensions"])
+        from release_metadata import NOTICE_README
+        (stage / "share/licenses/README.txt").write_text(NOTICE_README)
+    else:
+        record = copy.deepcopy(base_record)
+        record["build_mode"] = "partial"
+        record["build_components"] = list(selected)
+        record["binary_sha256"] = binary_hashes(stage)
+        for component in selected:
+            record["sources"][SOURCE_NAMES[component]] = source_record(
+                SOURCE_NAMES[component], roots[component])
+        if "modules" in selected:
+            record["module_sdk_source"] = source_record("Proteus-core", roots["core"])
+        if "desktop" in selected:
+            record["version"] = version(NATIVE)
+            record["desktop_protocol"] = desktop_protocol(NATIVE)
+        (stage / "share/release-sources.json").write_text(json.dumps(record, indent=2) + "\n")
 
 
 def archive():
-    machine = os.uname().machine
-    path = BUILD / f"Proteus-{version(NATIVE)}-linux-{machine}.tar.gz"
+    packaged = json.loads((PORTABLE / "share/release-sources.json").read_text())["version"]
+    path = BUILD / f"Proteus-{packaged}-linux-{os.uname().machine}.tar.gz"
     with tarfile.open(path, "w:gz") as tar:
         tar.add(PORTABLE, arcname="Proteus")
     return path
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    mode = parser.add_mutually_exclusive_group()
-    mode.add_argument(
-        "--debug",
-        action="store_true",
-        help="use debug builds (faster to build, slower to run)",
-    )
-    mode.add_argument(
-        "--fast",
-        action="store_true",
-        help="build the client without LTO, incrementally, and skip the archive "
-        "(for local rebuilds; runs nearly as fast as release)",
-    )
-    parser.add_argument(
-        "--no-archive", action="store_true", help="skip the tar.gz archive"
-    )
-    parser.add_argument(
-        "--reuse-binaries", action="store_true",
-        help="assemble profiles, modules and extensions using existing binaries; skip Cargo builds",
-    )
-    parser.add_argument(
-        "--reuse-hosts", action="store_true",
-        help="build module/extension packages while reusing existing Core and Desktop binaries",
-    )
-    args = parser.parse_args()
-    if not args.reuse_binaries:
+def parser():
+    result = argparse.ArgumentParser(description=__doc__)
+    scope = result.add_mutually_exclusive_group()
+    scope.add_argument("--components", nargs="+", choices=COMPONENTS,
+                       help="components to build (default: desktop)")
+    scope.add_argument("--full", action="store_true", help="explicitly build all four components")
+    scope.add_argument("--reuse-binaries", action="store_true",
+                       help="copy a complete ready --base intact; no builds or source resolution")
+    result.add_argument("--base", type=Path, default=None, help="ready portable (default: build/Proteus)")
+    result.add_argument("--debug", action="store_true", help="use debug instead of ordinary release builds")
+    result.add_argument("--no-archive", action="store_true", help="skip tar.gz")
+    result.add_argument("--plan", action="store_true", help="print selected build/reuse scope only")
+    return result
+
+
+def main(argv=None):
+    arguments = parser()
+    args = arguments.parse_args(argv)
+    if args.reuse_binaries and args.debug:
+        arguments.error("--debug cannot be combined with --reuse-binaries (ready binaries stay unchanged)")
+    if args.components and len(set(args.components)) != len(args.components):
+        arguments.error("--components must be distinct")
+    selected = tuple(COMPONENTS if args.full else args.components or ("desktop",))
+    if args.reuse_binaries:
+        selected = ()
+    base = (args.base or PORTABLE).resolve()
+    print(f"Base: {base}")
+    for component in COMPONENTS:
+        print(f"{component}: {'build' if component in selected else 'reuse ready base'}")
+    if args.plan:
+        return
+    complete = set(selected) == set(COMPONENTS)
+    record = None if complete else read_record(base)
+    if selected and not complete:
+        verify_protocol(base, NATIVE, selected, record)
+    roots = {"desktop": NATIVE}
+    # Resolve only chosen sources; modules also need read-only hook SDK sources.
+    if "core" in selected or "modules" in selected:
+        roots["core"] = resolve("harness")
+    if "modules" in selected:
+        roots["modules"] = resolve("modules")
+    if "extensions" in selected:
+        roots["extensions"] = resolve("extensions")
+    if "extensions" in selected and "desktop" not in selected:
+        verify_extension_source(base, roots["extensions"], record)
+    if selected:
         limit()
-    global ROOT, MODULES, EXTENSIONS, REUSE_HOSTS
-    REUSE_HOSTS = args.reuse_hosts
-    ROOT, MODULES, EXTENSIONS = resolve("harness"), resolve("modules"), resolve("extensions")
-    profile = "debug" if args.debug else "release"
-    flags = [] if args.debug else ["--release"]
-    client_profile = "fast" if args.fast else profile
-    client_flags = ["--profile", "fast"] if args.fast else flags
-    if args.reuse_binaries or args.reuse_hosts:
-        agent = existing_binary(ROOT, profile, "proteus")
-        client = existing_binary(NATIVE, client_profile, "proteus-native")
-    else:
-        agent = build_binary(ROOT, "proteus-core", "proteus", flags,
-                             ROOT / "crates/proteus-core/Cargo.toml")
-        client = build_binary(NATIVE, "proteus-native", "proteus-native", client_flags,
-                              NATIVE / "Cargo.toml")
-    assemble(agent, client, "dev" if args.debug else "release", reuse_binaries=args.reuse_binaries)
+    BUILD.mkdir(parents=True, exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix="Proteus.next-", dir=BUILD))
+    try:
+        if not complete:
+            shutil.copytree(base, stage, dirs_exist_ok=True, symlinks=True)
+        if selected:
+            assemble(stage, selected, roots, "debug" if args.debug else "release", record)
+        # Reject incomplete selected packaging before replacing a working installation.
+        read_record(stage)
+        publish(stage, PORTABLE)
+    finally:
+        if stage.exists():
+            shutil.rmtree(stage)
     print(f"Portable: {PORTABLE}")
-    if not (args.no_archive or args.fast):
+    if not args.no_archive:
         print(f"Archive:  {archive()}")
 
 

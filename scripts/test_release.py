@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -169,6 +170,29 @@ class MetadataTests(unittest.TestCase):
                 "synthetic gpui-component LICENSE.upstream",
             )
             self.assertIn("Apache-2.0", (portable / "share/licenses/README.txt").read_text())
+
+
+class GateScopeTests(unittest.TestCase):
+    def test_release_desktop_gate_explicitly_prepares_extensions(self):
+        sources = {name: Path('/synthetic') / name for name in ('harness', 'modules', 'extensions')}
+        with patch.object(release, 'check_sources', return_value=sources), patch.object(release, 'run') as run:
+            release.gates('desktop')
+        calls = [list(call.args[0]) for call in run.call_args_list]
+        self.assertIn([sys.executable, 'scripts/test.py', '--build-extensions'], calls)
+        self.assertFalse(any('cargo' == str(arg) and 'build' in call for call in calls for arg in call))
+
+    def test_partial_portable_is_rejected_by_release_provenance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            build = Path(directory)
+            portable = build / 'Proteus/share'
+            portable.mkdir(parents=True)
+            expected = {'sources': {'Desktop': {'dirty': False}}}
+            (portable / 'release-sources.json').write_text(json.dumps({**expected, 'build_mode': 'partial'}))
+            sources = {name: Path('/synthetic') / name for name in ('harness', 'modules', 'extensions')}
+            with patch.object(release, 'BUILD', build), patch.object(release, 'check_sources', return_value=sources), \
+                 patch.object(release, 'manifest', return_value=expected):
+                with self.assertRaisesRegex(SystemExit, 'provenance'):
+                    release.assets()
 
 
 if __name__ == "__main__":

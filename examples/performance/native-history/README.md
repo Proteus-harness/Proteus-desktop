@@ -5,20 +5,40 @@
 отдельный config/cache: сначала открытие без прикладного read-cache, затем новый
 процесс с сохранёнными cache/preferences. Кэш ОС не сбрасывается.
 
-Подготовка (из каждого соответствующего репозитория):
+Для UI-изменений используйте готовые Core, модули, расширения и уже
+собранный `session_index_fixture`. Стенд получает их явными путями и сам не
+собирает Core. Найдите готовый seeder в сохранённых артефактах или
+`Proteus-core/target/release/examples/session_index_fixture`; пересборка
+Desktop не требует его обновления. Для ручной проверки можно использовать
+ранее созданные синтетические чаты. Этот runner создаёт собственные корпуса
+через готовый seeder, поэтому не направляйте его на реальные сессии.
+
+Обновление только клиента, из Proteus-desktop:
 
 ```sh
-# Proteus-core
-CARGO_BUILD_JOBS=2 cargo build --locked --release -p proteus-core --example session_index_fixture
-# Proteus-desktop; не задавайте CARGO_TARGET_DIR для portable assembly
 python3 scripts/portable.py --no-archive
+# либо взять готовый runtime из другой поставки:
+python3 scripts/portable.py --base /absolute/ready/Proteus --no-archive
 ```
 
-Сохраните executable до и после обновления отдельно. Для сравнения нужны
-одинаковые release profiles, seeder, extensions и параметры корпуса. `--fast`
-измеряйте отдельной серией. Корпус содержит 5 000/50 000 отдельных сообщений,
-а не многократную замену одного сообщения. `--text-repeats 4` задаёт примерно
-1,96/19,69 МБ UTF-8 текста плюс canonical metadata.
+Если нужного seeder нет, не запускайте сборку Core автоматически. Целевая
+сборка генератора оправдана, когда изменён его код/формат истории и требуется
+новый корпус, либо владелец явно поручил получить новую fixture таким способом.
+Тогда команда из Proteus-core:
+
+```sh
+CARGO_BUILD_JOBS=2 cargo build --locked --release -p proteus-core --example session_index_fixture
+```
+
+Сохраните до обновления всю готовую portable-папку вместе с executable,
+runtime-assets и provenance. Для сравнения нужны одинаковые обычные release
+profiles, Core, seeder, modules, extensions и параметры корпуса; меняйте только
+исследуемые компоненты. Профиля `--fast` больше нет. Корпус содержит
+5 000/50 000 отдельных сообщений, а не многократную замену одного сообщения.
+`--text-repeats 4` задаёт примерно 1,96/19,69 МБ UTF-8 текста плюс canonical metadata.
+Выбор компонентов и отдельный замер стоимости сборки описаны в
+[BUILDING.md](../../../BUILDING.md) и
+[build-cost](../build-cost/README.md).
 
 На niri используйте `background-gui`: создайте собственный display командой
 `bgui.py start`, откройте read-only watcher через `bgui.py watch SESSION`,

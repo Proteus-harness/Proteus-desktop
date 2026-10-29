@@ -6,6 +6,7 @@ import sys
 from sources import ROOT, resolve
 from limits import limit
 from check_licenses import check
+from runtime_paths import require_extensions
 
 
 HEADLESS_PACKAGES = {"proteus-diff", "proteus-tabs"}
@@ -52,24 +53,62 @@ def headless_only(args):
     return bool(packages) and all(package in HEADLESS_PACKAGES for package in packages)
 
 
+def runner_options(args):
+    """Consume wrapper flags only before Cargo's libtest delimiter."""
+    cargo, extensions, build = [], False, False
+    boundary = args.index("--") if "--" in args else len(args)
+    for arg in args[:boundary]:
+        if arg == "--extensions":
+            extensions = True
+        elif arg == "--build-extensions":
+            extensions, build = True, True
+        else:
+            cargo.append(arg)
+    return cargo + args[boundary:], extensions, build
+
+
+def include_ignored(args):
+    """Enable explicit conformance without treating libtest args as Cargo flags."""
+    if "--" not in args:
+        return [*args, "--", "--include-ignored"]
+    boundary = args.index("--")
+    if "--ignored" in args[boundary + 1:] or "--include-ignored" in args[boundary + 1:]:
+        return args
+    return [*args, "--include-ignored"]
+
+
+def explicit_selection(args):
+    """Cargo owns package/manifest selection; never widen an explicit request."""
+    before = args[:args.index("--")] if "--" in args else args
+    return any(arg in ("-p", "--package", "--workspace", "--all", "--manifest-path")
+               or arg.startswith(("--package=", "--manifest-path="))
+               or arg.startswith("-p") and not arg.startswith("--")
+               for arg in before)
+
+
 def main(args):
+    args, extensions_enabled, build_extensions = runner_options(args)
     limit()
     env = os.environ.copy()
     headless = headless_only(args)
-    if not headless:
-        extensions = resolve("extensions")
-        env["PROTEUS_TEST_EXTENSIONS_SOURCE"] = str(extensions)
-        env["PROTEUS_EXTENSIONS_DIR"] = str(extensions / "packages")
     env.setdefault("RUST_TEST_THREADS", "4")
-    problems = check(ROOT) + ([] if headless else check(extensions))
+    problems = check(ROOT)
     if problems:
         raise SystemExit("\n".join(problems))
+    if extensions_enabled:
+        extensions = resolve("extensions")
+        problems = check(extensions)
+        if problems:
+            raise SystemExit("\n".join(problems))
+        if build_extensions:
+            subprocess.run([sys.executable, str(extensions / "package.py"), "--dev"], check=True, env=env)
+        require_extensions(extensions / "packages", hint="Prepare extensions explicitly: python3 scripts/test.py --build-extensions.", path=env.get("PATH"))
+        env["PROTEUS_TEST_EXTENSIONS_SOURCE"] = str(extensions)
+        env["PROTEUS_EXTENSIONS_DIR"] = str(extensions / "packages")
+        args = include_ignored(args)
     if headless:
         print("Targeted headless package check; not the client workspace gate.", file=sys.stderr)
-    else:
-        # Packages are Rust binaries; --dev places them next to their manifests.
-        subprocess.run([sys.executable, str(extensions / "package.py"), "--dev"], check=True, env=env)
-    selection = [] if headless else ["--workspace"]
+    selection = [] if explicit_selection(args) else ["--workspace"]
     return subprocess.call(["cargo", "test", "--locked", *selection, *args], cwd=ROOT, env=env)
 
 

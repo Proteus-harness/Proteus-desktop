@@ -194,129 +194,254 @@ class CargoBinaryTests(unittest.TestCase):
 
 
 def portable_module():
-    stubs = {}
-    for name, exports in {
-        "sources": ("resolve",),
-        "limits": ("limit",),
-        "portable_modules": ("assemble",),
-        "release_metadata": ("install_notices", "version", "write_manifest"),
-    }.items():
-        module = types.ModuleType(name)
-        for export in exports:
-            setattr(module, export, Mock())
-        stubs[name] = module
-    stubs["cargo_binary"] = cargo_binary
-    with patch.dict(sys.modules, stubs):
+    # Import real packaging helpers. Every compiler/process call is mocked by tests.
+    with patch.dict(sys.path_importer_cache, {}):
         return load_file("portable_under_test", SCRIPTS / "portable.py")
 
 
-class PortableWiringTests(unittest.TestCase):
+class PortableSelectionTests(unittest.TestCase):
     def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="portable scope tests ")
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.native = self.root / "desktop"
+        self.native.mkdir()
+        protocol = self.native / "src/declarative/protocol.rs"
+        protocol.parent.mkdir(parents=True)
+        protocol.write_text("pub const PROTOCOL: u32 = 4;\n")
         self.portable = portable_module()
-        self.portable.ROOT = Path("/synthetic/core")
-        self.portable.MODULES = Path("/synthetic/modules")
-        self.portable.EXTENSIONS = Path("/synthetic/extensions")
-        self.sources = {
-            "harness": self.portable.ROOT, "modules": self.portable.MODULES,
-            "extensions": self.portable.EXTENSIONS,
-        }
+        self.portable.NATIVE = self.native
+        self.portable.BUILD = self.native / "build"
+        self.portable.PORTABLE = self.portable.BUILD / "Proteus"
+        self.base = self.root / "ready base"
+        self.seed(self.base)
+        self.client = self.root / "desktop executable"
+        self.client.write_text("new desktop")
+        self.resolved = []
+        self.built = []
+        self.executed = []
+        for name in ("resolve", "limit", "build_binary", "run", "install_file",
+                     "install_component_notices", "assemble_modules", "source_record", "version"):
+            patcher = patch.object(self.portable, name)
+            setattr(self, name, patcher.start())
+            self.addCleanup(patcher.stop)
+        self.resolve.side_effect = self.fake_resolve
+        self.build_binary.side_effect = self.fake_build
+        self.run.side_effect = self.fake_run
+        self.install_file.side_effect = self.copy_file
+        self.version.return_value = "9.0.0"
+        self.source_record.side_effect = lambda name, root: {"commit": "current-" + name}
 
-    def invoke_main(self, flags):
-        outputs = [Path("/cache/core"), Path("/cache/native")]
-        with patch.object(self.portable, "resolve", side_effect=self.sources.__getitem__), \
-             patch.object(self.portable, "build_binary", side_effect=outputs) as build, \
-             patch.object(self.portable, "assemble") as assemble, \
-             patch.object(self.portable, "archive") as archive, \
-             patch.object(sys, "argv", ["portable.py", *flags]), \
-             contextlib.redirect_stdout(io.StringIO()):
-            self.portable.main()
-        return build, assemble, archive, outputs
+    def seed(self, base):
+        files = ("bin/proteus", "bin/proteus-native", "bin/old-module", "proteus-native",
+                 "install-shortcut", "share/system_proxy.py", "share/icons/icon",
+                 "share/configs/profile", "share/extensions/old/bin/ext")
+        for name in files:
+            path = base / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("old " + name)
+            if name.startswith("bin/") or "/bin/" in name or name in ("proteus-native", "install-shortcut"):
+                path.chmod(0o755)
+        for name in self.portable.SOURCE_NAMES.values():
+            path = base / "share/licenses" / name / "LICENSE"
+            path.parent.mkdir(parents=True)
+            path.write_text("old license " + name)
+        self.write_json(base / "share/extensions/old/extension.json",
+                        {"protocol": 4, "command": ["bin/ext"]})
+        self.write_json(base / "share/modules/old/module.json", {"command": ["bin/old-module"]})
+        self.write_json(base / "share/release-sources.json", {
+            "version": "1.2.3", "sources": {name: {"commit": "old-" + name}
+                                                 for name in self.portable.SOURCE_NAMES.values()},
+        })
 
-    def test_release_and_no_archive_keep_release_builds(self):
-        for flags in ([], ["--no-archive"]):
-            with self.subTest(flags=flags):
-                build, assemble, archive, outputs = self.invoke_main(flags)
-                self.assertEqual([call.args[3] for call in build.call_args_list],
-                                 [["--release"], ["--release"]])
-                self.assertEqual([call.args[1:3] for call in build.call_args_list], [
-                    ("proteus-core", "proteus"),
-                    ("proteus-native", "proteus-native"),
-                ])
-                self.assertEqual(build.call_args_list[0].args[4],
-                                 self.portable.ROOT / "crates/proteus-core/Cargo.toml")
-                self.assertEqual(build.call_args_list[1].args[4],
-                                 self.portable.NATIVE / "Cargo.toml")
-                assemble.assert_called_once_with(*outputs, "release", reuse_binaries=False)
-                self.assertEqual(archive.call_count, 0 if flags else 1)
+    @staticmethod
+    def write_json(path, record):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(record))
 
-    def test_fast_and_debug_existing_semantics_unchanged(self):
-        for flag, expected in [
-            ("--fast", [["--release"], ["--profile", "fast"]]),
-            ("--debug", [[], []]),
-        ]:
-            with self.subTest(flag=flag):
-                build, _, archive, _ = self.invoke_main([flag])
-                self.assertEqual([call.args[3] for call in build.call_args_list], expected)
-                self.assertEqual(archive.call_count, 0 if flag == "--fast" else 1)
+    def copy_file(self, source, target, executable=False):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(source.read_bytes() if source.is_file() else b"new desktop asset")
+        if executable:
+            target.chmod(0o755)
 
-    def test_build_failure_prevents_any_assembly_or_archive(self):
-        with patch.object(self.portable, "resolve", side_effect=self.sources.__getitem__), \
-             patch.object(self.portable, "build_binary", side_effect=SystemExit("missing artifact")), \
-             patch.object(self.portable, "assemble") as assemble, \
-             patch.object(self.portable, "archive") as archive, \
-             patch.object(sys, "argv", ["portable.py"]):
-            with self.assertRaises(SystemExit):
-                self.portable.main()
-        assemble.assert_not_called()
-        archive.assert_not_called()
+    def fake_resolve(self, name):
+        self.resolved.append(name)
+        root = self.root / name
+        if name == "extensions" and not (root / "packages/new/extension.json").exists():
+            self.write_json(root / "packages/new/extension.json", {"protocol": 4})
+        return root
 
-    def test_reuse_skips_all_builds_and_limits_and_keeps_fast_profile(self):
-        outputs = [Path("/cache/core"), Path("/cache/native")]
-        with patch.object(self.portable, "resolve", side_effect=self.sources.__getitem__), \
-             patch.object(self.portable, "build_binary") as build, \
-             patch.object(self.portable, "existing_binary", side_effect=outputs) as existing, \
-             patch.object(self.portable, "limit") as limit, \
-             patch.object(self.portable, "assemble") as assemble, \
-             patch.object(self.portable, "archive") as archive, \
-             patch.object(sys, "argv", ["portable.py", "--fast", "--reuse-binaries"]), \
-             contextlib.redirect_stdout(io.StringIO()):
-            self.portable.main()
-        build.assert_not_called()
-        limit.assert_not_called()
-        archive.assert_not_called()
-        self.assertEqual([call.args[1:] for call in existing.call_args_list], [
-            ("release", "proteus"),
-            ("fast", "proteus-native"),
-        ])
-        assemble.assert_called_once_with(*outputs, "release", reuse_binaries=True)
+    def fake_build(self, root, package, binary, flags, manifest):
+        self.built.append((package, flags))
+        return self.client
 
-    def test_assemble_uses_exact_binaries_and_extensions_source_cwd(self):
-        agent, client = [Path("/external cache") / name for name in ("core", "client")]
-        with patch.object(self.portable, "install_file") as install, \
-             patch.object(self.portable, "tracked_configs", return_value=[]), \
-             patch.object(self.portable, "run") as run, \
-             patch.object(self.portable.shutil, "rmtree"), \
-             patch.object(Path, "rename"):
-            self.portable.assemble(agent, client)
-        staging = self.portable.BUILD / "Proteus.next"
-        self.assertEqual(install.call_args_list[0].args, (client, staging / "bin/proteus-native", True))
-        self.assertEqual(install.call_args_list[1].args, (agent, staging / "bin/proteus", True))
-        self.assertEqual(run.call_count, 2)
-        self.assertEqual(run.call_args_list[0].args, ([
-            sys.executable, str(self.portable.MODULES / "package.py"), "--profile", "release",
-            "--bundle", str(staging),
-        ], self.portable.MODULES))
-        self.assertEqual(run.call_args_list[1].args, ([
-            sys.executable, str(self.portable.EXTENSIONS / "package.py"),
-            "--bundle", str(staging / "share/extensions"),
-        ], self.portable.EXTENSIONS))
-        # package.py builds at its own source ROOT and interprets the inherited
-        # relative CARGO_TARGET_DIR at its process cwd. These now coincide.
-        relative = Path("relative cache")
-        child_cwd = run.call_args.args[1]
-        self.assertEqual(child_cwd / relative, self.portable.EXTENSIONS / relative)
-        self.assertTrue(Path(run.call_args.args[0][1]).is_absolute())
-        self.assertTrue(Path(run.call_args.args[0][3]).is_absolute())
+    def fake_run(self, command, cwd):
+        self.executed.append((command, cwd))
+        destination = Path(command[command.index("--bundle") + 1])
+        if cwd.name == "extensions":
+            self.write_json(destination / "new/extension.json", {"protocol": 4, "command": ["bin/ext"]})
+            path = destination / "new/bin/ext"
+        else:
+            self.write_json(destination / "share/modules/new/module.json", {"command": ["bin/new-module"]})
+            path = destination / "bin/new-module"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("new selected binary")
+        path.chmod(0o755)
+
+    def invoke(self, *args):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.portable.main(["--base", str(self.base), "--no-archive", *args])
+
+    def record(self):
+        return json.loads((self.portable.PORTABLE / "share/release-sources.json").read_text())
+
+    def test_default_builds_only_desktop_and_preserves_whole_reused_components(self):
+        self.invoke()
+        self.assertEqual(self.built, [("proteus-native", ["--release"])])
+        self.assertEqual(self.resolved, [])
+        self.run.assert_not_called()
+        self.assemble_modules.assert_not_called()
+        for name in ("bin/proteus", "share/extensions/old/bin/ext", "share/extensions/old/extension.json",
+                     "share/configs/profile", "share/licenses/Proteus-core/LICENSE", "share/modules/old/module.json"):
+            self.assertEqual((self.portable.PORTABLE / name).read_bytes(), (self.base / name).read_bytes())
+        record = self.record()
+        self.assertEqual(record["sources"]["Proteus-core"]["commit"], "old-Proteus-core")
+        self.assertEqual(record["sources"]["Proteus-desktop"]["commit"], "current-Proteus-desktop")
+        self.assertEqual(record["build_components"], ["desktop"])
+        self.assertEqual(record["build_mode"], "partial")
+        self.assertIn("proteus", record["binary_sha256"])
+
+    def test_extension_only_never_builds_desktop_or_resolves_core_and_replaces_assets(self):
+        self.invoke("--components", "extensions")
+        self.build_binary.assert_not_called()
+        self.assertEqual(self.resolved, ["extensions"])
+        self.assertEqual(len(self.executed), 1)
+        self.assertNotIn("--no-build", self.executed[0][0])
+        self.assertFalse((self.portable.PORTABLE / "share/extensions/old").exists())
+        self.assertEqual((self.portable.PORTABLE / "bin/proteus-native").read_text(), "old bin/proteus-native")
+        self.assertEqual(self.record()["version"], "1.2.3")
+
+    def test_modules_only_copy_sdk_sources_without_core_cargo(self):
+        self.invoke("--components", "modules")
+        self.build_binary.assert_not_called()
+        self.assertEqual(self.resolved, ["harness", "modules"])
+        self.assemble_modules.assert_called_once()
+        self.assertEqual(self.record()["sources"]["Proteus-core"]["commit"], "old-Proteus-core")
+        self.assertEqual(self.record()["module_sdk_source"]["commit"], "current-Proteus-core")
+        self.assertFalse((self.portable.PORTABLE / "bin/old-module").exists())
+        self.assertFalse((self.portable.PORTABLE / "share/modules/old").exists())
+
+    def test_reuse_is_exact_copy_no_resolve_build_or_metadata_rewrite(self):
+        self.invoke("--reuse-binaries")
+        for mock in (self.build_binary, self.run, self.limit, self.resolve, self.source_record):
+            mock.assert_not_called()
+        for path in self.base.rglob("*"):
+            if path.is_file():
+                self.assertEqual(path.read_bytes(), (self.portable.PORTABLE / path.relative_to(self.base)).read_bytes())
+
+    def test_plan_has_no_source_resolution_build_limits_or_base_requirement(self):
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.portable.main(["--plan", "--base", str(self.root / "absent")])
+        for mock in (self.build_binary, self.run, self.resolve, self.limit):
+            mock.assert_not_called()
+        self.assertFalse(self.portable.BUILD.exists())
+
+    def test_missing_or_incomplete_base_fails_before_build_or_resolution(self):
+        for missing in ("share/release-sources.json", "share/extensions/old/bin/ext", "bin/proteus"):
+            path = self.base / missing
+            data = path.read_bytes()
+            path.unlink()
+            with self.subTest(missing=missing), self.assertRaisesRegex(SystemExit, "--full"):
+                self.invoke()
+            path.write_bytes(data)
+        self.build_binary.assert_not_called()
+        self.resolve.assert_not_called()
+        self.limit.assert_not_called()
+
+    def test_protocol_mismatch_requires_explicit_extensions_before_cargo(self):
+        self.write_json(self.base / "share/extensions/old/extension.json",
+                        {"protocol": 3, "command": ["bin/ext"]})
+        with self.assertRaisesRegex(SystemExit, "--components desktop extensions"):
+            self.invoke()
+        self.build_binary.assert_not_called()
+        self.resolve.assert_not_called()
+
+    def test_nonexecutable_ready_component_is_rejected_before_cargo(self):
+        (self.base / "bin/proteus").chmod(0o644)
+        with self.assertRaisesRegex(SystemExit, "not executable"):
+            self.invoke()
+        self.build_binary.assert_not_called()
+        self.resolve.assert_not_called()
+
+    def test_extension_only_checks_selected_protocol_independently_of_desktop_sources(self):
+        self.write_json(self.root / "extensions/packages/new/extension.json", {"protocol": 5})
+        with self.assertRaisesRegex(SystemExit, "--components desktop extensions"):
+            self.invoke("--components", "extensions")
+        self.build_binary.assert_not_called()
+        self.run.assert_not_called()
+
+    def test_selected_build_failure_keeps_previous_package(self):
+        self.portable.PORTABLE.mkdir(parents=True)
+        sentinel = self.portable.PORTABLE / "previous"
+        sentinel.write_text("working")
+        self.build_binary.side_effect = SystemExit("fake compiler failure")
+        with self.assertRaisesRegex(SystemExit, "fake compiler failure"):
+            self.invoke()
+        self.assertEqual(sentinel.read_text(), "working")
+        self.assertEqual(list(self.portable.BUILD.glob("Proteus.next-*")), [])
+
+    def test_full_is_explicit_and_invokes_all_components_without_requiring_base(self):
+        # Keep the real selector/installer paths, substitute metadata/config IO only.
+        full_record = {"version": "9.0.0", "sources": {name: {"commit": "new"}
+                       for name in self.portable.SOURCE_NAMES.values()}}
+        def metadata(stage, *roots):
+            self.write_json(stage / "share/release-sources.json", full_record)
+        def notices(stage, name, root):
+            path = stage / "share/licenses" / name
+            path.mkdir(parents=True)
+        self.install_component_notices.side_effect = notices
+        def core(stage, root, flags):
+            self.fake_build(root, "proteus-core", "proteus", flags, root / "Cargo.toml")
+            self.copy_file(self.client, stage / "bin/proteus", executable=True)
+            path = stage / "share/configs/profile"
+            path.parent.mkdir(parents=True)
+            path.write_text("fresh")
+        with patch.object(self.portable, "install_core", side_effect=core), \
+             patch.object(self.portable, "write_manifest", side_effect=metadata):
+            self.invoke("--full")
+        self.assertEqual([name for name, flags in self.built], ["proteus-native", "proteus-core"])
+        self.assertEqual(self.resolved, ["harness", "modules", "extensions"])
+        self.assertEqual(len(self.executed), 2)
+        self.assertNotIn("build_mode", self.record())
+
+    def test_invalid_combinations_and_removed_fast_are_parser_errors(self):
+        for flags in (("--full", "--components", "desktop"), ("--full", "--reuse-binaries"),
+                      ("--components", "desktop", "--reuse-binaries"),
+                      ("--reuse-binaries", "--debug"), ("--fast",), ("--reuse-hosts",),
+                      ("--components", "desktop", "desktop")):
+            with self.subTest(flags=flags), contextlib.redirect_stderr(io.StringIO()), \
+                 self.assertRaises(SystemExit) as caught:
+                self.invoke(*flags)
+            self.assertEqual(caught.exception.code, 2)
+        self.build_binary.assert_not_called()
+
+    def test_publication_failure_restores_previous_package(self):
+        from portable_state import publish
+        destination = self.root / "published"
+        destination.mkdir()
+        (destination / "working").write_text("old")
+        stage = self.root / "stage"
+        stage.mkdir()
+        original = Path.rename
+        def rename(path, target):
+            if path == stage:
+                raise OSError("fake publish failure")
+            return original(path, target)
+        with patch.object(Path, "rename", rename), self.assertRaisesRegex(OSError, "fake publish"):
+            publish(stage, destination)
+        self.assertEqual((destination / "working").read_text(), "old")
+        self.assertFalse(destination.with_name("published.previous").exists())
 
 
 class ExistingBinaryTests(unittest.TestCase):
