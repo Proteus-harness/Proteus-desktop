@@ -225,6 +225,7 @@ impl Runtime {
             "accent": theme.primary.to_hex(), "danger": theme.danger.to_hex(),
             "surface": theme.muted.to_hex(), "surface_alt": theme.group_box.to_hex(),
             "font_family": theme.font_family.to_string(), "font_family_mono": theme.mono_font_family.to_string(),
+            "radius": f32::from(theme.radius), "radius_lg": f32::from(theme.radius_lg),
         }})
     }
 }
