@@ -1,14 +1,19 @@
 """Transport/control checks; these do not claim to validate native rendering."""
 import json
+import os
 from pathlib import Path
+import shutil
+import subprocess
+import sys
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 import unittest
+import time
 from urllib.error import HTTPError
 from urllib.request import ProxyHandler, Request, build_opener
 
 from fixture_server import Fixture, MESSAGE_ID, THREAD_ID, message
-from run import advance, check_copy, save
+from run import advance, check_copy, digest, launched_executable, save, stop_native
 from scenario import BOOT, CHILD_ID, EXPECTED, PRIMARY, STAGES, emit_stage
 
 
@@ -122,6 +127,39 @@ class ControlTests(unittest.TestCase):
             clipboard.write_bytes(EXPECTED["hold"]["secondary"].encode())
             check_copy(SimpleNamespace(output=output, stage="hold", row="secondary", file=clipboard))
             self.assertTrue(json.loads((output / "copy-hold-secondary.json").read_text())["passed"])
+
+
+@unittest.skipUnless(sys.platform.startswith("linux"), "Linux /proc executable provenance")
+class ProvenanceTests(unittest.TestCase):
+    def test_wrapper_exec_records_actual_image_separately(self):
+        sleeper = Path(shutil.which("sleep")).resolve()
+        with TemporaryDirectory() as directory:
+            launcher = Path(directory) / "wrapper"
+            # A real wrapper exec, without a GUI or product build.
+            launcher.write_text("#!/bin/sh\nexec " + str(sleeper) + " 10\n")
+            launcher.chmod(0o700)
+            process = subprocess.Popen([str(launcher)], start_new_session=True)
+            try:
+                until = time.monotonic() + 3
+                while os.readlink(f"/proc/{process.pid}/exe") != str(sleeper):
+                    self.assertIsNone(process.poll())
+                    self.assertLess(time.monotonic(), until)
+                    time.sleep(.01)
+                receipt = launched_executable(process.pid)
+                self.assertEqual(receipt["executable"], str(sleeper))
+                self.assertEqual(receipt["executable_sha256"], digest(sleeper))
+                self.assertNotEqual(receipt["executable_sha256"], digest(launcher))
+            finally:
+                stop_native(process)
+
+    def test_interpreter_parent_is_not_misattributed_as_native(self):
+        process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(10)"],
+                                   start_new_session=True)
+        try:
+            with self.assertRaisesRegex(RuntimeError, "wrapper must exec Native"):
+                launched_executable(process.pid)
+        finally:
+            stop_native(process)
 
 
 if __name__ == "__main__":

@@ -503,9 +503,9 @@ fn real_reducer_matches_at_completion_tool_and_turn_barriers() {
         )),
         delta(4, "!", 16, 10),
         PumpItem::Event(turn),
-        delta(5, "ignored old root", 18, 10),
-        delta(5, "new root", 19, 20),
-        delta(13, " tail", 20, 20),
+        delta(5, " root tail", 18, 10),
+        delta(5, "ignored child", 19, 20),
+        delta(13, " ignored child tail", 20, 20),
     ];
     let (mut actual, _) = ready();
     let (mut expected, _) = ready();
@@ -537,6 +537,83 @@ fn real_reducer_matches_at_completion_tool_and_turn_barriers() {
         assert_eq!(observed_rows(&actual), observed_rows(&expected));
     }
     assert_eq!(barriers, 3);
+    assert_eq!(&*actual.transcript.entries()[0].text, "done! root tail");
+}
+
+#[test]
+fn child_turn_started_cannot_hijack_a_snapshot_root_or_colliding_message() {
+    // The snapshot already contains the root's TurnStarted, so it is not replayed.
+    let (mut session, _) = ready();
+    let delta = |thread, offset, text: &str, number| {
+        let mut event = event(
+            Event::AssistantTextDelta {
+                offset,
+                message_id: id(100),
+                phase: None,
+                text: text.into(),
+            },
+            number,
+        );
+        let AppServerEvent::Runtime { envelope } = event.as_mut() else {
+            unreachable!();
+        };
+        envelope.thread_id = id(thread);
+        PumpItem::Event(event)
+    };
+    let mut child_start = event(
+        Event::TurnStarted {
+            session_id: id(1),
+            thread_id: id(20),
+            turn_id: id(4),
+        },
+        12,
+    );
+    let AppServerEvent::Runtime { envelope } = child_start.as_mut() else {
+        unreachable!();
+    };
+    envelope.thread_id = id(20);
+    let source = vec![
+        delta(10, 0, "root", 11),
+        PumpItem::Event(child_start),
+        delta(20, 0, "CHILD", 13),
+        delta(20, 5, " HIJACK", 14),
+        delta(10, 4, " continued", 15),
+        delta(10, 14, "!", 16),
+    ];
+    let mut text_batches = 0;
+    for item in batches(source) {
+        match item {
+            BatchItem::Text(run) => {
+                let outcome = session.apply_text_run(run);
+                text_batches += 1;
+                match text_batches {
+                    1 => assert_eq!(&*session.transcript.entries()[0].text, "root"),
+                    2 => {
+                        assert!(!outcome.shown());
+                        assert_eq!(&*session.transcript.entries()[0].text, "root");
+                    }
+                    3 => assert_eq!(&*session.transcript.entries()[0].text, "root continued!"),
+                    _ => unreachable!(),
+                }
+            }
+            BatchItem::Barrier(PumpItem::Event(event)) => {
+                assert!(session.cursor.accept(&event));
+                let AppServerEvent::Runtime { envelope } = event.as_ref() else {
+                    unreachable!();
+                };
+                assert_eq!(
+                    session
+                        .transcript
+                        .apply_runtime(envelope.thread_id, &envelope.event),
+                    Change::None
+                );
+            }
+            BatchItem::Barrier(_) => unreachable!(),
+        }
+    }
+    assert_eq!(text_batches, 3);
+    assert_eq!(session.transcript.entries().len(), 1);
+    assert_eq!(session.transcript.entries()[0].time, Some(11));
 }
 
 mod layout;

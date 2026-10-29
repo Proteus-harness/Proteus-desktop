@@ -104,6 +104,37 @@ fn subagent_tools_group_under_the_card() {
 }
 
 #[test]
+fn rootless_snapshot_keeps_turn_started_bootstrap_and_later_turn_switching() {
+    let mut transcript = Transcript::default();
+    transcript.set_root_thread(Some(Uuid::from_u128(99)));
+    transcript.set_root_thread(None);
+    for thread in [Uuid::from_u128(10), Uuid::from_u128(20)] {
+        assert_eq!(
+            transcript.apply_runtime(
+                thread,
+                &Event::TurnStarted {
+                    session_id: Uuid::from_u128(1),
+                    thread_id: thread,
+                    turn_id: Uuid::new_v4(),
+                }
+            ),
+            Change::None
+        );
+        assert_eq!(transcript.turn_thread, Some(thread));
+        assert!(!transcript.snapshot_root_known);
+        assert_eq!(
+            transcript.apply_runtime(thread, &delta(Uuid::new_v4(), 0, "current turn")),
+            Change::Pushed
+        );
+        assert_eq!(
+            transcript.apply_runtime(Uuid::from_u128(30), &delta(Uuid::new_v4(), 0, "foreign")),
+            Change::None
+        );
+    }
+    assert_eq!(transcript.entries().len(), 2);
+}
+
+#[test]
 fn snapshot_reuses_keys_and_text_of_known_messages() {
     let mut transcript = Transcript::default();
     let id = Uuid::new_v4();

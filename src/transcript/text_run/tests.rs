@@ -113,6 +113,7 @@ fn assert_transcript(actual: &Transcript, expected: &Transcript) {
         expected.next_key.load(std::sync::atomic::Ordering::Relaxed),
     );
     assert_eq!(actual.turn_thread, expected.turn_thread);
+    assert_eq!(actual.snapshot_root_known, expected.snapshot_root_known);
     assert_eq!(actual.entries.len(), expected.entries.len());
     for (actual, expected) in actual.entries.iter().zip(&expected.entries) {
         assert_entry(actual, expected);

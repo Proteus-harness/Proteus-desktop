@@ -55,6 +55,8 @@ pub enum Change {
 pub struct Transcript {
     entries: Vec<Entry>,
     turn_thread: Option<ThreadId>,
+    /// A known snapshot root remains authoritative over child TurnStarted events.
+    snapshot_root_known: bool,
     next_key: Arc<AtomicU64>,
     #[cfg(test)]
     text_work: text_run::TextWork,
@@ -64,6 +66,7 @@ impl Transcript {
     /// A snapshot replaces routing too: its TurnStarted need not be replayed.
     pub fn set_root_thread(&mut self, root: Option<ThreadId>) {
         self.turn_thread = root;
+        self.snapshot_root_known = root.is_some();
     }
 
     pub fn entries(&self) -> &[Entry] {
@@ -226,7 +229,9 @@ impl Transcript {
 
     pub fn apply_runtime(&mut self, thread_id: ThreadId, event: &Event) -> Change {
         match event {
-            Event::TurnStarted { .. } => {
+            Event::TurnStarted { .. }
+                if !self.snapshot_root_known || self.is_turn_thread(thread_id) =>
+            {
                 self.turn_thread = Some(thread_id);
                 Change::None
             }

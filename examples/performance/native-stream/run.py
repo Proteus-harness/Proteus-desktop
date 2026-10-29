@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import signal
 import subprocess
@@ -24,6 +25,29 @@ def save(path, value):
 def digest(path):
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def launched_executable(pid):
+    """Fingerprint the running image, after any same-PID wrapper exec."""
+    proc_exe = Path(f"/proc/{pid}/exe")
+    path = os.readlink(proc_exe)
+    name = Path(path).name
+    if re.fullmatch(r"(?:python(?:\d+(?:\.\d+)*)?|pypy\d*|node(?:-\d+)?|"
+                    r"bash|dash|sh|zsh|fish|env|busybox|perl|ruby|lua(?:[\d.]+)?)", name):
+        raise RuntimeError("Launched PID still belongs to an interpreter/launcher; "
+                           "the wrapper must exec Native in its own PID")
+    with proc_exe.open("rb") as stream:
+        stat = os.fstat(stream.fileno())
+        if stream.read(4) != b"\x7fELF":
+            raise RuntimeError("Launched executable is not a native Linux ELF image")
+        stream.seek(0)
+        checksum = hashlib.file_digest(stream, "sha256").hexdigest()
+    current = proc_exe.stat()
+    if (os.readlink(proc_exe) != path or
+            (current.st_dev, current.st_ino) != (stat.st_dev, stat.st_ino)):
+        raise RuntimeError("Launched executable changed while recording provenance")
+    return {"executable": path, "executable_sha256": checksum,
+            "executable_verified_at_ns": time.monotonic_ns()}
 
 
 def stop_native(process):
@@ -95,7 +119,7 @@ def run(args):
                       secrets.token_hex(24), [message(BOOT, 1)]).start()
     process = None
     state = {"status": "starting", "stage": "ready", "origin": fixture.origin,
-             "native": str(args.native), "native_sha256": digest(args.native),
+             "launcher": str(args.native), "launcher_sha256": digest(args.native),
              "source_sha256": {path.name: digest(path) for path in
                                Path(__file__).parent.glob("*.py")},
              "timeout_s": args.timeout, "events_written": 0}
@@ -133,6 +157,9 @@ def run(args):
                 if (args.output / "control/stop").exists():
                     break
                 if fixture.connected.is_set() and state["status"] == "starting":
+                    # A shebang/Python wrapper can exec a different Native at
+                    # the same path/PID. Hash its actual kernel image at READY.
+                    state.update(launched_executable(process.pid))
                     state["status"] = "running"
                     save(args.output / "state.json", state)
                     print("READY " + json.dumps(state), flush=True)
