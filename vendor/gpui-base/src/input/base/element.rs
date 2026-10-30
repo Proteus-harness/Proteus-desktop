@@ -53,12 +53,14 @@ pub(super) const LINE_NUMBER_RIGHT_MARGIN: Pixels = px(6.);
 const FOLD_ICON_WIDTH: Pixels = px(14.);
 const FOLD_ICON_HITBOX_WIDTH: Pixels = px(18.);
 const MAX_HIGHLIGHT_LINE_LENGTH: usize = 10_000;
-const MIN_LINE_NUMBER_DIGITS: usize = 3;
 const MAX_LINE_NUMBER_DIGITS: usize = 7;
 const MAX_DISPLAYED_LINE_NUMBER: usize = 9_999_999;
 
-fn line_number_len(total_lines: usize) -> usize {
-    (total_lines.max(1).ilog10() as usize + 1).clamp(MIN_LINE_NUMBER_DIGITS, MAX_LINE_NUMBER_DIGITS)
+fn line_number_len(total_lines: usize, minimum_digits: usize) -> usize {
+    (total_lines.max(1).ilog10() as usize + 1).clamp(
+        minimum_digits.clamp(1, MAX_LINE_NUMBER_DIGITS),
+        MAX_LINE_NUMBER_DIGITS,
+    )
 }
 
 fn displayed_line_number(number: usize) -> usize {
@@ -1184,9 +1186,9 @@ impl<M: InputModeKind> TextElement<M> {
         window: &mut Window,
     ) -> (Pixels, usize) {
         let total_lines = text.lines_len();
-        // Reserve three digits for small documents, then follow the actual
-        // line count up to seven digits.
-        let line_number_len = line_number_len(total_lines);
+        // Use the configured minimum for small documents, then follow the actual
+        // line count up to seven digits. This width also drives paint and hit testing.
+        let line_number_len = line_number_len(total_lines, state.mode.min_line_number_digits());
 
         let mut line_number_width = if state.mode.line_number() {
             let empty_line_number = window.text_system().shape_line(
@@ -3815,15 +3817,51 @@ mod tests {
     };
 
     #[test]
-    fn line_number_column_stays_at_three_digits_then_grows_up_to_seven() {
-        assert_eq!(line_number_len(1), 3);
-        assert_eq!(line_number_len(9), 3);
-        assert_eq!(line_number_len(10), 3);
-        assert_eq!(line_number_len(999), 3);
-        assert_eq!(line_number_len(1_000), 4);
-        assert_eq!(line_number_len(999_999), 6);
-        assert_eq!(line_number_len(9_999_999), 7);
-        assert_eq!(line_number_len(10_000_000), 7);
+    fn line_number_columns_follow_the_configured_minimum_and_document_size() {
+        let mut mode = super::super::mode::LayoutMode::code_editor(Default::default());
+        assert_eq!(mode.min_line_number_digits(), 3);
+        for (lines, expected) in [
+            (0, 3),
+            (1, 3),
+            (9, 3),
+            (10, 3),
+            (999, 3),
+            (1_000, 4),
+            (999_999, 6),
+            (9_999_999, 7),
+            (usize::MAX, 7),
+        ] {
+            assert_eq!(
+                line_number_len(lines, mode.min_line_number_digits()),
+                expected
+            );
+        }
+        mode.set_min_line_number_digits(1);
+        for (lines, expected) in [
+            (0, 1),
+            (1, 1),
+            (9, 1),
+            (10, 2),
+            (99, 2),
+            (100, 3),
+            (999, 3),
+            (1_000, 4),
+            (usize::MAX, 7),
+        ] {
+            assert_eq!(
+                line_number_len(lines, mode.min_line_number_digits()),
+                expected
+            );
+        }
+        assert!(
+            !mode.set_min_line_number_digits(0),
+            "zero clamps to the current one digit"
+        );
+        assert_eq!(mode.min_line_number_digits(), 1);
+        assert!(mode.set_min_line_number_digits(usize::MAX));
+        assert_eq!(mode.min_line_number_digits(), 7);
+        assert_eq!(line_number_len(1, mode.min_line_number_digits()), 7);
+        assert!(!mode.set_min_line_number_digits(8));
     }
 
     #[test]
@@ -3831,6 +3869,7 @@ mod tests {
         assert_eq!(displayed_line_number(42), 42);
         assert_eq!(displayed_line_number(9_999_999), 9_999_999);
         assert_eq!(displayed_line_number(10_000_000), 9_999_999);
+        assert_eq!(displayed_line_number(usize::MAX), 9_999_999);
     }
 
     struct DecorationHarness(Entity<EditorState>);
@@ -3846,11 +3885,21 @@ mod tests {
         text: &str,
         wrap: bool,
     ) -> (Entity<EditorState>, gpui::WindowHandle<DecorationHarness>) {
+        decoration_editor_with_minimum_digits(cx, text, wrap, 3)
+    }
+
+    fn decoration_editor_with_minimum_digits(
+        cx: &mut TestAppContext,
+        text: &str,
+        wrap: bool,
+        minimum_digits: usize,
+    ) -> (Entity<EditorState>, gpui::WindowHandle<DecorationHarness>) {
         cx.update(crate::init);
         let mut editor = None;
         let window = cx.open_window(size(px(240.), px(140.)), |window, cx| {
             let state = cx.new(|cx| {
                 EditorState::new(window, cx)
+                    .min_line_number_digits(minimum_digits)
                     .soft_wrap(wrap)
                     .folding(true)
                     .default_value(text)
@@ -4561,6 +4610,72 @@ mod tests {
                 wide > narrow,
                 "more line-number digits must widen the gutter"
             );
+        });
+    }
+
+    #[gpui::test]
+    fn compact_line_number_gutter_and_mouse_mapping_follow_the_same_width(cx: &mut TestAppContext) {
+        let (editor, window) = decoration_editor_with_minimum_digits(cx, "abcd", false, 1);
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.update(|window, cx| {
+            let mut previous_width = None;
+            for total_lines in [1, 10, 100, 1_000] {
+                let text = std::iter::repeat_n("abcd", total_lines)
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                editor.update(cx, |state, cx| state.set_value(text.as_str(), window, cx));
+                window.draw(cx).clear(cx);
+                let state = editor.read(cx);
+                let layout = state.last_layout.as_ref().unwrap();
+                let width = layout.line_number_width;
+                if let Some(previous_width) = previous_width {
+                    assert!(
+                        width > previous_width,
+                        "each digit boundary must widen the compact gutter"
+                    );
+                }
+                previous_width = Some(width);
+                let character = layout.lines[0]
+                    .position_for_index(1, layout, false)
+                    .unwrap();
+                let origin = state.last_bounds.unwrap().origin;
+                let pointer = origin + point(width + character.x, layout.line_height * 0.5);
+                assert_eq!(
+                    state.resolve_mouse_position(pointer).0,
+                    1,
+                    "hit testing must subtract the gutter actually used to draw code"
+                );
+                let start = origin + point(width, layout.line_height * 0.5);
+                assert_eq!(state.resolve_mouse_position(start).0, 0);
+            }
+
+            // A retained code surface can leave embedded mode without keeping
+            // the compact setting or a stale hit-test origin.
+            editor.update(cx, |state, cx| {
+                state.set_value("abcd", window, cx);
+                state.set_min_line_number_digits(3, cx);
+            });
+            window.draw(cx).clear(cx);
+            let default_width = editor
+                .read(cx)
+                .last_layout
+                .as_ref()
+                .unwrap()
+                .line_number_width;
+            editor.update(cx, |state, cx| state.set_min_line_number_digits(1, cx));
+            window.draw(cx).clear(cx);
+            let state = editor.read(cx);
+            let layout = state.last_layout.as_ref().unwrap();
+            assert!(layout.line_number_width < default_width);
+            let character = layout.lines[0]
+                .position_for_index(1, layout, false)
+                .unwrap();
+            let pointer = state.last_bounds.unwrap().origin
+                + point(
+                    layout.line_number_width + character.x,
+                    layout.line_height * 0.5,
+                );
+            assert_eq!(state.resolve_mouse_position(pointer).0, 1);
         });
     }
 

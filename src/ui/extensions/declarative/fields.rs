@@ -383,6 +383,7 @@ impl DeclarativeView {
                         let mut editor = EditorState::new(window, cx)
                             .language(language.clone())
                             .line_number(line_numbers)
+                            .min_line_number_digits(if *embedded { 1 } else { 3 })
                             .folding(!*embedded)
                             .soft_wrap(*wrap && !*embedded)
                             .scroll_beyond_last_line(if *embedded { Some(0) } else { None });
@@ -393,6 +394,7 @@ impl DeclarativeView {
                 editor.update(cx, |editor, cx| {
                     editor.set_highlighter(language.clone(), cx);
                     editor.set_line_number(line_numbers, window, cx);
+                    editor.set_min_line_number_digits(if *embedded { 1 } else { 3 }, cx);
                     editor.set_scroll_beyond_last_line(
                         if *embedded { Some(0) } else { None },
                         window,

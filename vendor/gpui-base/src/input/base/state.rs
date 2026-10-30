@@ -12398,6 +12398,22 @@ impl InputBaseState<crate::input::EditorMode> {
         self
     }
 
+    /// Reserve at least this many digit columns for line numbers.
+    ///
+    /// Defaults to three columns. Values are clamped to one through seven;
+    /// larger documents still widen the gutter to fit their line count.
+    pub fn min_line_number_digits(mut self, digits: usize) -> Self {
+        self.mode.set_min_line_number_digits(digits);
+        self
+    }
+
+    /// Update the minimum digit columns reserved for line numbers.
+    pub fn set_min_line_number_digits(&mut self, digits: usize, cx: &mut Context<Self>) {
+        if self.mode.set_min_line_number_digits(digits) {
+            cx.notify();
+        }
+    }
+
     /// Set line number.
     pub fn set_line_number(&mut self, line_number: bool, _: &mut Window, cx: &mut Context<Self>) {
         if let LayoutMode::CodeEditor { line_number: l, .. } = &mut self.mode {

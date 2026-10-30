@@ -41,6 +41,8 @@ pub(crate) enum LayoutMode {
         rows: usize,
         /// Show line number
         line_number: bool,
+        /// Minimum digit columns reserved for line numbers.
+        min_line_number_digits: usize,
         language: Box<EditorLanguage>,
         indent_guides: bool,
         folding: bool,
@@ -81,6 +83,7 @@ impl LayoutMode {
             highlighter: Rc::new(RefCell::new(None)),
             highlighter_factory: None,
             line_number: true,
+            min_line_number_digits: 3,
             indent_guides: true,
             folding: true,
             diagnostics: DiagnosticSet::new(&Rope::new()),
@@ -269,6 +272,32 @@ impl LayoutMode {
         }
     }
 
+    pub(super) fn min_line_number_digits(&self) -> usize {
+        match self {
+            Self::CodeEditor {
+                min_line_number_digits,
+                ..
+            } => *min_line_number_digits,
+            _ => 3,
+        }
+    }
+
+    pub(super) fn set_min_line_number_digits(&mut self, digits: usize) -> bool {
+        let Self::CodeEditor {
+            min_line_number_digits,
+            ..
+        } = self
+        else {
+            return false;
+        };
+        let digits = digits.clamp(1, 7);
+        if *min_line_number_digits == digits {
+            return false;
+        }
+        *min_line_number_digits = digits;
+        true
+    }
+
     /// Update the syntax highlighter with new text.
     ///
     pub(crate) fn update_highlighter<M: InputModeKind>(
@@ -448,6 +477,7 @@ mod tests {
 
         let mode = LayoutMode::CodeEditor {
             line_number: false,
+            min_line_number_digits: 3,
             indent_guides: false,
             folding: false,
             rows: 0,
