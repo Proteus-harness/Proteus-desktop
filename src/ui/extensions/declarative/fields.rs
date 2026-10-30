@@ -382,8 +382,10 @@ impl DeclarativeView {
                     cx.new(|cx| {
                         let mut editor = EditorState::new(window, cx)
                             .language(language.clone())
+                            .rows(1)
                             .line_number(line_numbers)
                             .min_line_number_digits(if *embedded { 1 } else { 3 })
+                            .show_trailing_empty_line(!*embedded)
                             .folding(!*embedded)
                             .soft_wrap(*wrap && !*embedded)
                             .scroll_beyond_last_line(if *embedded { Some(0) } else { None });
@@ -395,6 +397,7 @@ impl DeclarativeView {
                     editor.set_highlighter(language.clone(), cx);
                     editor.set_line_number(line_numbers, window, cx);
                     editor.set_min_line_number_digits(if *embedded { 1 } else { 3 }, cx);
+                    editor.set_show_trailing_empty_line(!*embedded, cx);
                     editor.set_scroll_beyond_last_line(
                         if *embedded { Some(0) } else { None },
                         window,

@@ -643,6 +643,14 @@ impl<M: InputModeKind> TextElement<M> {
         // Resolve a cursor or selection endpoint to a content-space position.
         let visible_buffer_lines = &last_layout.visible_buffer_lines;
         let caret_for = |row: usize, offset: usize, affinity: bool| -> Point<Pixels> {
+            // EOF still addresses the full rope, but readonly embedded code
+            // presents it at the end of the last visible source line.
+            let projected = state.presentation_offset(offset);
+            let (row, offset) = if projected != offset {
+                (state.text.offset_to_point(projected).row, projected)
+            } else {
+                (row, offset)
+            };
             // y of the top of buffer line `row` in content space.
             let top = line_height * state.display_map.buffer_line_to_display_row(row);
             let line_origin = point(px(0.), top);
@@ -1118,9 +1126,9 @@ impl<M: InputModeKind> TextElement<M> {
             return (0..1, vec![0], px(0.));
         }
 
-        let total_lines = state.display_map.wrap_row_count();
-        let display_count = state.display_map.display_row_count();
-        let buffer_line_count = state.display_map.buffer_line_count();
+        let total_lines = state.presentation_wrap_row_count();
+        let display_count = state.presentation_display_row_count();
+        let buffer_line_count = state.presentation_buffer_line_count();
         if display_count == 0 || buffer_line_count == 0 {
             return (0..0, Vec::new(), px(0.));
         }
@@ -1180,12 +1188,11 @@ impl<M: InputModeKind> TextElement<M> {
     /// Return (line_number_width, line_number_len)
     fn layout_line_numbers(
         state: &InputBaseState<M>,
-        text: &Rope,
         font_size: Pixels,
         style: &TextStyle,
         window: &mut Window,
     ) -> (Pixels, usize) {
-        let total_lines = text.lines_len();
+        let total_lines = state.presentation_buffer_line_count();
         // Use the configured minimum for small documents, then follow the actual
         // line count up to seven digits. This width also drives paint and hit testing.
         let line_number_len = line_number_len(total_lines, state.mode.min_line_number_digits());
@@ -2733,7 +2740,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
 
         // Calculate the width of the line numbers
         let (line_number_width, line_number_len) =
-            Self::layout_line_numbers(&state, &text, text_size, &text_style, window);
+            Self::layout_line_numbers(&state, text_size, &text_style, window);
 
         let mut bounds = bounds;
         let wrap_width = if multi_line && state.soft_wrap {
@@ -2983,7 +2990,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
         let ghost_line_count = ghost_lines.len();
         let ghost_lines_height = ghost_line_count as f32 * line_height;
 
-        let total_wrapped_lines = state.display_map.wrap_row_count();
+        let total_wrapped_lines = state.presentation_wrap_row_count();
         let empty_bottom_height = empty_bottom_height(
             state.is_code_editor(),
             state.scroll_beyond_last_line,
@@ -3810,7 +3817,11 @@ fn split_runs_by_bg_segments(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::input::{EditorMode, EditorState, FoldRange, RangeDecoration, Redo, Undo};
+    use crate::actions::SelectUp;
+    use crate::input::{
+        Copy, EditorMode, EditorState, FoldRange, MoveDown, MoveEnd, MoveHome, MoveToEnd, MoveUp,
+        RangeDecoration, Redo, Undo,
+    };
     use gpui::{
         AppContext as _, Context, EntityInputHandler as _, ListAlignment, ListOffset, ListState,
         Render, TestAppContext, VisualTestContext, div, list, prelude::FluentBuilder as _,
@@ -3908,6 +3919,341 @@ mod tests {
             DecorationHarness(state)
         });
         (editor.unwrap(), window)
+    }
+
+    fn embedded_code_editor(
+        cx: &mut TestAppContext,
+        text: &str,
+        wrap: bool,
+    ) -> (Entity<EditorState>, gpui::WindowHandle<DecorationHarness>) {
+        cx.update(crate::init);
+        let mut editor = None;
+        let window = cx.open_window(size(px(240.), px(140.)), |window, cx| {
+            let state = cx.new(|cx| {
+                EditorState::new(window, cx)
+                    .rows(1)
+                    .readonly(true)
+                    .min_line_number_digits(1)
+                    .show_trailing_empty_line(false)
+                    .scroll_beyond_last_line(Some(0))
+                    .soft_wrap(wrap)
+                    .folding(false)
+                    .default_value(text)
+            });
+            editor = Some(state.clone());
+            DecorationHarness(state)
+        });
+        (editor.unwrap(), window)
+    }
+
+    #[gpui::test]
+    fn readonly_code_omits_only_the_synthetic_final_row_and_copies_exact_source(
+        cx: &mut TestAppContext,
+    ) {
+        let (editor, window) = embedded_code_editor(cx, "", false);
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.update(|window, cx| {
+            for (source, rows) in [
+                ("", 1),
+                ("\n", 1),
+                ("a", 1),
+                ("a\n", 1),
+                ("a\nb\n", 2),
+                ("a\nb\n\n", 3),
+                ("a\nb\n\n\n", 4),
+                ("a\r\nb\r\n", 2),
+            ] {
+                editor.update(cx, |state, cx| {
+                    state.set_value(source, window, cx);
+                    state.focus(window, cx);
+                });
+                window.draw(cx).clear(cx);
+                {
+                    let state = editor.read(cx);
+                    assert_eq!(state.value(), source);
+                    assert_eq!(state.presentation_buffer_line_count(), rows, "{source:?}");
+                    assert_eq!(state.presentation_display_row_count(), rows, "{source:?}");
+                    assert_eq!(state.presentation_wrap_row_count(), rows, "{source:?}");
+                    let layout = state.last_layout.as_ref().unwrap();
+                    assert_eq!(layout.visible_range, 0..rows, "{source:?}");
+                    assert_eq!(layout.visible_buffer_lines, (0..rows).collect::<Vec<_>>());
+                    assert_eq!(state.scroll_size.height, state.input_bounds.size.height);
+                }
+                editor.update(cx, |state, cx| {
+                    let previous_clipboard = "readonly final-row copy sentinel";
+                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(
+                        previous_clipboard.into(),
+                    ));
+                    state.select_all(window, cx);
+                    assert_eq!(state.selected_range(), 0..source.len());
+                    state.copy(&Copy, window, cx);
+                    assert_eq!(
+                        cx.read_from_clipboard().and_then(|item| item.text()),
+                        Some(
+                            if source.is_empty() {
+                                previous_clipboard
+                            } else {
+                                source
+                            }
+                            .to_owned()
+                        )
+                    );
+                    state.move_to_end(&MoveToEnd, window, cx);
+                    assert_eq!(state.selected_range(), source.len()..source.len());
+                });
+                window.draw(cx).clear(cx);
+
+                let (layout, input_bounds, scroll_size) = {
+                    let state = editor.read(cx);
+                    (
+                        state.last_layout.clone().unwrap(),
+                        state.input_bounds,
+                        state.scroll_size,
+                    )
+                };
+                let mut bounds = input_bounds;
+                let (carets, offset, _, _) = TextElement::new(editor.clone()).layout_cursors(
+                    &layout,
+                    &mut bounds,
+                    scroll_size,
+                    window,
+                    cx,
+                );
+                assert_eq!(
+                    offset.y,
+                    px(0.),
+                    "Ctrl+End must not scroll to a synthetic row"
+                );
+                assert_eq!(carets.len(), 1);
+                let caret = carets[0].bounds;
+                assert!(caret.top() >= input_bounds.top());
+                assert!(caret.bottom() <= input_bounds.bottom());
+                let row_top = input_bounds.top() + layout.line_height * (rows - 1);
+                assert!(caret.top() >= row_top);
+                assert!(caret.bottom() <= row_top + layout.line_height);
+            }
+        });
+    }
+
+    #[gpui::test]
+    fn final_row_keyboard_movement_uses_the_displayed_eof_origin_and_column(
+        cx: &mut TestAppContext,
+    ) {
+        let (editor, window) = embedded_code_editor(cx, "aaa\nbbb\n", false);
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.update(|window, cx| {
+            for source in ["aaa\nbbb\n", "aaa\r\nbbb\r\n"] {
+                editor.update(cx, |state, cx| state.set_value(source, window, cx));
+                window.draw(cx).clear(cx);
+                editor.update(cx, |state, cx| {
+                    let last_start = source.find('b').unwrap();
+                    let last_end = last_start + 3;
+                    state.move_to_end(&MoveToEnd, window, cx);
+                    assert_eq!(state.selected_range(), source.len()..source.len());
+                    assert_eq!(state.active_selection().column_anchor.unwrap().1, 3);
+                    state.up(&MoveUp, window, cx);
+                    assert_eq!(
+                        state.selected_range(),
+                        3..3,
+                        "Up starts at the displayed last row"
+                    );
+                    state.down(&MoveDown, window, cx);
+                    assert_eq!(state.selected_range(), last_end..last_end);
+                    state.down(&MoveDown, window, cx);
+                    assert_eq!(
+                        state.selected_range(),
+                        last_end..last_end,
+                        "Down stays in the displayed final column"
+                    );
+
+                    state.move_to_end(&MoveToEnd, window, cx);
+                    state.down(&MoveDown, window, cx);
+                    assert_eq!(state.selected_range(), last_end..last_end);
+                    state.move_to_end(&MoveToEnd, window, cx);
+                    state.home(&MoveHome, window, cx);
+                    assert_eq!(state.selected_range(), last_start..last_start);
+                    state.move_to_end(&MoveToEnd, window, cx);
+                    state.end(&MoveEnd, window, cx);
+                    assert_eq!(state.selected_range(), last_end..last_end);
+
+                    state.move_to_end(&MoveToEnd, window, cx);
+                    state.select_up(&SelectUp, window, cx);
+                    assert_eq!(state.selected_range(), 3..source.len());
+                    state.copy(&Copy, window, cx);
+                    assert_eq!(
+                        cx.read_from_clipboard().and_then(|item| item.text()),
+                        Some(source[3..].to_owned())
+                    );
+                    assert_eq!(state.value(), source);
+                    assert_eq!(state.scroll_offset().y, px(0.));
+
+                    // Editable editors keep ordinary EOF movement even when
+                    // a retained readonly presentation setting is disabled.
+                    state.set_readonly(false, cx);
+                    state.move_to_end(&MoveToEnd, window, cx);
+                    state.up(&MoveUp, window, cx);
+                    assert_eq!(state.selected_range(), last_start..last_start);
+                    state.set_readonly(true, cx);
+                });
+            }
+        });
+    }
+
+    #[gpui::test]
+    fn final_row_policy_is_readonly_only_and_updates_retained_gutter_width(
+        cx: &mut TestAppContext,
+    ) {
+        // Nine source lines plus a terminal line ending must fit one digit.
+        let source = "x\n".repeat(9);
+        let (editor, window) = decoration_editor_with_minimum_digits(cx, &source, false, 1);
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.update(|window, cx| {
+            editor.update(cx, |state, cx| state.set_readonly(true, cx));
+            window.draw(cx).clear(cx);
+            let ordinary_width = editor
+                .read(cx)
+                .last_layout
+                .as_ref()
+                .unwrap()
+                .line_number_width;
+            assert_eq!(editor.read(cx).presentation_buffer_line_count(), 10);
+            // The default also keeps the terminal row in readonly file previews.
+            for (readonly, show, rows) in [
+                (true, false, 9),
+                (true, true, 10),
+                (false, false, 10),
+                (true, false, 9),
+            ] {
+                editor.update(cx, |state, cx| {
+                    state.set_readonly(readonly, cx);
+                    state.set_show_trailing_empty_line(show, cx);
+                });
+                window.draw(cx).clear(cx);
+                let state = editor.read(cx);
+                assert_eq!(state.value(), source);
+                assert_eq!(state.presentation_buffer_line_count(), rows);
+                assert_eq!(state.presentation_display_row_count(), rows);
+                let width = state.last_layout.as_ref().unwrap().line_number_width;
+                if rows == 9 {
+                    assert!(width < ordinary_width);
+                } else {
+                    assert_eq!(width, ordinary_width);
+                }
+            }
+        });
+    }
+
+    #[gpui::test]
+    fn readonly_final_row_presentation_preserves_wrap_and_fold_projection(cx: &mut TestAppContext) {
+        let source = format!("{}\nfooter\n", "long line ".repeat(12));
+        let (editor, window) = embedded_code_editor(cx, &source, true);
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            {
+                let state = editor.read(cx);
+                assert!(state.display_map.wrap_row_count() > state.text.lines_len());
+                assert_eq!(
+                    state.presentation_wrap_row_count(),
+                    state.display_map.wrap_row_count() - 1
+                );
+                assert_eq!(
+                    state.presentation_display_row_count(),
+                    state.display_map.display_row_count() - 1
+                );
+                assert!(
+                    state
+                        .last_layout
+                        .as_ref()
+                        .unwrap()
+                        .visible_buffer_lines
+                        .iter()
+                        .all(|&line| line < 2)
+                );
+            }
+            // An EOF fold can already hide the terminal row. Do not subtract
+            // another visible row from that projection.
+            editor.update(cx, |state, cx| {
+                state
+                    .display_map
+                    .set_fold_candidates(vec![FoldRange::new(0, 3)]);
+                state.display_map.set_folded(0, true);
+                cx.notify();
+            });
+            window.draw(cx).clear(cx);
+            let state = editor.read(cx);
+            assert_eq!(
+                state.display_map.visible_wrap_row_count_for_buffer_line(2),
+                0
+            );
+            assert_eq!(
+                state.presentation_display_row_count(),
+                state.display_map.display_row_count()
+            );
+            assert_eq!(
+                state.last_layout.as_ref().unwrap().visible_buffer_lines,
+                vec![0]
+            );
+            assert_eq!(state.value(), source);
+        });
+    }
+
+    struct NestedReadonlyCode(Entity<EditorState>, gpui::ScrollHandle);
+
+    impl Render for NestedReadonlyCode {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .id("outer-code-viewport")
+                .w(px(240.))
+                .h(px(300.))
+                .overflow_y_scroll()
+                .track_scroll(&self.1)
+                .child(div().h(px(100.)))
+                .child(div().h(px(40.)).line_height(px(20.)).child(self.0.clone()))
+                .child(div().h(px(600.)))
+        }
+    }
+
+    #[gpui::test]
+    fn readonly_final_row_policy_leaves_vertical_wheel_to_its_parent(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let outer = gpui::ScrollHandle::new();
+        let mut editor = None;
+        let window = cx.open_window(size(px(240.), px(400.)), |window, cx| {
+            let state = cx.new(|cx| {
+                EditorState::new(window, cx)
+                    .rows(1)
+                    .readonly(true)
+                    .show_trailing_empty_line(false)
+                    .scroll_beyond_last_line(Some(0))
+                    .soft_wrap(false)
+                    .folding(false)
+                    .default_value("a\nb\n")
+            });
+            editor = Some(state.clone());
+            NestedReadonlyCode(state, outer.clone())
+        });
+        let editor = editor.unwrap();
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            let state = editor.read(cx);
+            assert_eq!(state.scroll_size.height, px(40.));
+            assert_eq!(state.input_bounds.size.height, px(40.));
+            assert!(!state.takes_scroll(point(px(0.), px(-40.))));
+        });
+        cx.simulate_event(gpui::ScrollEvent {
+            position: point(px(100.), px(120.)),
+            delta: gpui::ScrollDelta::Pixels(point(px(0.), px(-40.))),
+            touch_phase: gpui::TouchPhase::Moved,
+            ..Default::default()
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert_eq!(outer.offset().y, px(-40.));
+        assert_eq!(
+            editor.read_with(&cx, |state, _| state.scroll_offset().y),
+            px(0.)
+        );
     }
 
     /// A list as tall as the window, whose second item is an input that

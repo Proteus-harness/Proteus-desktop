@@ -299,9 +299,17 @@ impl DeclarativeView {
                 id,
                 text,
                 language,
+                wrap,
                 embedded: true,
                 ..
-            } => super::rich_text::embedded_code(id, text, language, self.fields.codes.get(id), cx),
+            } => super::rich_text::embedded_code(
+                id,
+                text,
+                language,
+                *wrap,
+                self.fields.codes.get(id),
+                cx,
+            ),
             Node::Code { id, height, .. } => div()
                 .when(height.is_none(), |node| node.flex_1())
                 .when_some(*height, |node, height| node.h(prefs::scaled(height)))

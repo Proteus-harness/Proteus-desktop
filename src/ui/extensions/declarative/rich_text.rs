@@ -3,6 +3,7 @@
 
 use super::{code_block, content::ContentView, view::DeclarativeView};
 use gpui_kit::component::text::{TextView, TextViewState};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 pub(super) struct RichText {
@@ -136,23 +137,30 @@ impl DeclarativeView {
     }
 }
 
-/// The native editor consumes no vertical wheel input when every physical row
+/// The native editor consumes no vertical wheel input when every preview row
 /// fits. Keep the code unwrapped and disable its editor-only tail/overscroll.
 pub(super) fn embedded_code(
     id: &str,
     text: &str,
     language: &str,
+    wrap: bool,
     state: Option<&Entity<gpui_kit::component::input::EditorState>>,
     cx: &mut Context<DeclarativeView>,
 ) -> AnyElement {
     use gpui_kit::component::ActiveTheme as _;
-    let rows = text.bytes().filter(|byte| *byte == b'\n').count() + 1;
+    let rows = code_block::preview_rows(text);
     // The compact readonly editor has no vertical input insets. Its height
-    // follows the physical source rows, with the same mono font and leading.
+    // follows the preview rows, with the same mono font and leading. The
+    // original source (including its final LF) remains in the editor/copy.
     let height = cx.theme().mono_font_size * (1.5 * rows as f32);
     let body = state
         .map(|state| {
             code_block::readonly_editor(state, cx)
+                // Align the number column with unnumbered source text: the
+                // shell and editor together leave 16 px before its digits.
+                .when(code_block::line_numbers(language, wrap), |editor| {
+                    editor.pl_1p5()
+                })
                 .h(height)
                 .into_any_element()
         })

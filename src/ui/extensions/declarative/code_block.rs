@@ -27,6 +27,12 @@ pub(super) fn line_numbers(language: &str, wrap: bool) -> bool {
         .any(|plain| language.trim().eq_ignore_ascii_case(plain))
 }
 
+/// A final LF terminates the preceding source row; it does not add a blank
+/// editor cursor row to a readonly preview. Further blank rows stay visible.
+pub(super) fn preview_rows(source: &str) -> usize {
+    source.split_terminator('\n').count().max(1)
+}
+
 /// Shared code presentation for embedded and standalone readonly widgets.
 /// Reuses the retained editor while keeping its body and opaque gutter on the
 /// same surface as the fence shell.
@@ -167,5 +173,28 @@ impl Render for SourceBlock {
             source("code-source-scroll", self.source.clone(), cx),
             cx,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::preview_rows;
+
+    #[test]
+    fn preview_rows_omit_only_the_terminal_cursor_row() {
+        for (source, rows) in [
+            ("", 1),
+            ("\n", 1),
+            ("\n\n", 2),
+            ("a", 1),
+            ("a\nb", 2),
+            ("a\nb\n", 2),
+            ("a\nb\n\n", 3),
+            ("a\r\nb\r\n", 2),
+            ("a\rb", 1),
+            ("λ\n🚀\n", 2),
+        ] {
+            assert_eq!(preview_rows(source), rows, "{source:?}");
+        }
     }
 }

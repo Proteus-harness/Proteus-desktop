@@ -43,6 +43,8 @@ pub(crate) enum LayoutMode {
         line_number: bool,
         /// Minimum digit columns reserved for line numbers.
         min_line_number_digits: usize,
+        /// Keep the empty editor row after a final line ending in readonly views.
+        show_trailing_empty_line: bool,
         language: Box<EditorLanguage>,
         indent_guides: bool,
         folding: bool,
@@ -84,6 +86,7 @@ impl LayoutMode {
             highlighter_factory: None,
             line_number: true,
             min_line_number_digits: 3,
+            show_trailing_empty_line: true,
             indent_guides: true,
             folding: true,
             diagnostics: DiagnosticSet::new(&Rope::new()),
@@ -298,6 +301,31 @@ impl LayoutMode {
         true
     }
 
+    pub(super) fn show_trailing_empty_line(&self) -> bool {
+        match self {
+            Self::CodeEditor {
+                show_trailing_empty_line,
+                ..
+            } => *show_trailing_empty_line,
+            _ => true,
+        }
+    }
+
+    pub(super) fn set_show_trailing_empty_line(&mut self, show: bool) -> bool {
+        let Self::CodeEditor {
+            show_trailing_empty_line,
+            ..
+        } = self
+        else {
+            return false;
+        };
+        if *show_trailing_empty_line == show {
+            return false;
+        }
+        *show_trailing_empty_line = show;
+        true
+    }
+
     /// Update the syntax highlighter with new text.
     ///
     pub(crate) fn update_highlighter<M: InputModeKind>(
@@ -478,6 +506,7 @@ mod tests {
         let mode = LayoutMode::CodeEditor {
             line_number: false,
             min_line_number_digits: 3,
+            show_trailing_empty_line: true,
             indent_guides: false,
             folding: false,
             rows: 0,

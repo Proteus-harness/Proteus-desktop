@@ -756,6 +756,50 @@ impl<M: InputModeKind> InputBaseState<M> {
         &self.display_map
     }
 
+    /// Omit only the synthetic row after a final line ending in readonly
+    /// embedded code. The rope and every selection offset stay unchanged.
+    pub(super) fn hides_trailing_empty_line(&self) -> bool {
+        self.readonly
+            && !self.mode.show_trailing_empty_line()
+            && self.text.lines_len() > 1
+            && self.text.line_start_offset(self.text.lines_len() - 1) == self.text.len()
+    }
+
+    pub(super) fn presentation_buffer_line_count(&self) -> usize {
+        self.text.lines_len() - usize::from(self.hides_trailing_empty_line())
+    }
+
+    /// Resolve the raw EOF position onto the last displayed source line.
+    /// Keep the actual selection in rope coordinates for exact copying.
+    pub(super) fn presentation_offset(&self, offset: usize) -> usize {
+        if self.hides_trailing_empty_line() && offset == self.text.len() {
+            self.cursor_boundary(
+                self.text
+                    .line_end_offset(self.presentation_buffer_line_count() - 1),
+                Bias::Left,
+            )
+        } else {
+            offset
+        }
+    }
+
+    pub(super) fn presentation_display_row_count(&self) -> usize {
+        let hidden_row = self.hides_trailing_empty_line()
+            && self
+                .display_map
+                .visible_wrap_row_count_for_buffer_line(self.text.lines_len() - 1)
+                > 0;
+        self.display_map
+            .display_row_count()
+            .saturating_sub(usize::from(hidden_row))
+    }
+
+    pub(super) fn presentation_wrap_row_count(&self) -> usize {
+        self.display_map
+            .wrap_row_count()
+            .saturating_sub(usize::from(self.hides_trailing_empty_line()))
+    }
+
     /// Wrap the text for `font`, `font_size` and `width` before the first
     /// layout, so that [`DisplayMap::wrap_row_count`] is known on the first frame.
     ///
@@ -1885,6 +1929,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             return 0;
         }
 
+        let offset = self.presentation_offset(offset);
         let row = self.text.offset_to_point(offset).row;
         let logical_start = self.text.line_start_offset(row);
 
@@ -1914,6 +1959,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             return self.text.len();
         }
 
+        let offset = self.presentation_offset(offset);
         let row = self.text.offset_to_point(offset).row;
         let logical_start = self.text.line_start_offset(row);
         let logical_end = self.text.line_end_offset(row);
@@ -3047,6 +3093,8 @@ impl<M: InputModeKind> InputBaseState<M> {
         let was_offset = scroll_offset;
         let line_height = last_layout.line_height;
 
+        let line_end_affinity = self.line_end_affinity_at(offset);
+        let offset = self.presentation_offset(offset);
         let point = self.text.offset_to_point(offset);
 
         let row = point.row;
@@ -3054,7 +3102,7 @@ impl<M: InputModeKind> InputBaseState<M> {
         // Resolve the wrapped row even when the target is outside the last layout.
         let display_row = self
             .display_map
-            .offset_to_display_row(offset, self.line_end_affinity_at(offset));
+            .offset_to_display_row(offset, line_end_affinity);
         let row_offset_y = line_height * display_row;
 
         // For Right alignment use 0 margin: the cursor indicator is clamped inside bounds
@@ -12306,6 +12354,15 @@ impl InputBaseState<crate::input::EditorMode> {
         state
     }
 
+    /// Set the editor's minimum height in text rows. Defaults to two.
+    /// A taller parent still fills the available height.
+    pub fn rows(mut self, rows: usize) -> Self {
+        if let LayoutMode::CodeEditor { rows: minimum, .. } = &mut self.mode {
+            *minimum = rows.max(1);
+        }
+        self
+    }
+
     /// Set the language to highlight, e.g. `"rust"`.
     ///
     /// See [`Self::set_highlighter`] to change it after construction.
@@ -12410,6 +12467,23 @@ impl InputBaseState<crate::input::EditorMode> {
     /// Update the minimum digit columns reserved for line numbers.
     pub fn set_min_line_number_digits(&mut self, digits: usize, cx: &mut Context<Self>) {
         if self.mode.set_min_line_number_digits(digits) {
+            cx.notify();
+        }
+    }
+
+    /// Show the synthetic empty row following a final line ending.
+    ///
+    /// Defaults to true. Disabling affects readonly code presentation only;
+    /// editable editors always retain the final row. Text and copied source
+    /// are preserved, including all terminal line endings.
+    pub fn show_trailing_empty_line(mut self, show: bool) -> Self {
+        self.mode.set_show_trailing_empty_line(show);
+        self
+    }
+
+    /// Update final-row presentation without changing the source or selection.
+    pub fn set_show_trailing_empty_line(&mut self, show: bool, cx: &mut Context<Self>) {
+        if self.mode.set_show_trailing_empty_line(show) {
             cx.notify();
         }
     }

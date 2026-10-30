@@ -28,6 +28,7 @@ impl<M: InputModeKind> InputBaseState<M> {
         line_end_affinity: bool,
     ) -> Option<(Pixels, usize)> {
         let last_layout = self.last_layout.as_ref()?;
+        let offset = self.presentation_offset(offset);
         let point = self.text.offset_to_point(offset);
         let line = last_layout.line(point.row)?;
         let pos = line.position_for_index(point.column, last_layout, line_end_affinity)?;
@@ -110,6 +111,7 @@ impl<M: InputModeKind> InputBaseState<M> {
         let Some(last_layout) = &self.last_layout else {
             return (offset, line_end_affinity);
         };
+        let offset = self.presentation_offset(offset);
 
         // Start from the row the caret is drawn on, not the row the raw offset falls in: on a
         // soft wrap boundary those are two different rows.
@@ -125,7 +127,7 @@ impl<M: InputModeKind> InputBaseState<M> {
                 self.display_map
                     .nearest_visible_display_row(display_point.row)
             });
-        let max_display_row = self.display_map.display_row_count().saturating_sub(1);
+        let max_display_row = self.presentation_display_row_count().saturating_sub(1);
         let target_display_row = current_display_row
             .saturating_add_signed(move_lines)
             .min(max_display_row);
@@ -188,7 +190,10 @@ impl<M: InputModeKind> InputBaseState<M> {
         if self.last_layout.is_some() {
             let row = |offset, affinity| {
                 self.display_map
-                    .offset_to_wrap_display_point_with_affinity(offset, affinity)
+                    .offset_to_wrap_display_point_with_affinity(
+                        self.presentation_offset(offset),
+                        affinity,
+                    )
                     .row
             };
             if row(offset, line_end_affinity) == row(target.0, target.1) {
