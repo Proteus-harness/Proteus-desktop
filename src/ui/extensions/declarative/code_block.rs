@@ -8,6 +8,25 @@ use crate::ui::kit::{self, Frame as _, Hint as _};
 use gpui_kit::component::{ActiveTheme as _, Sizable as _, h_flex, v_flex};
 use gpui_kit::*;
 
+/// Plain prose fences have no gutter; programming languages keep the
+/// existing unwrapped editor presentation. This policy also applies when a
+/// retained Code node changes its language without changing its id.
+pub(super) fn line_numbers(language: &str, wrap: bool) -> bool {
+    !wrap
+        && ![
+            "",
+            "md",
+            "markdown",
+            "text",
+            "plaintext",
+            "txt",
+            "text/plain",
+            "text/markdown",
+        ]
+        .iter()
+        .any(|plain| language.trim().eq_ignore_ascii_case(plain))
+}
+
 /// Shared code presentation for embedded and standalone readonly widgets.
 /// Reuses the retained editor while keeping its body and opaque gutter on the
 /// same surface as the fence shell.

@@ -58,6 +58,13 @@ fn main() {
         .with_assets(gpui_kit::assets::AllAssets)
         .run(move |cx| {
             startup_trace::mark("application.ready");
+            // Register before component initialization or the installed-font inventory:
+            // Swash cannot rasterize Fedora's COLRv1-only Noto Color Emoji face.
+            cx.text_system()
+                .add_fonts(vec![std::borrow::Cow::Borrowed(include_bytes!(
+                    "../assets/fonts/noto-color-emoji/NotoColorEmoji.ttf"
+                ))])
+                .expect("register bundled Noto Color Emoji");
             gpui_kit::init(cx);
             startup_trace::mark("components.ready");
             ui::init(cx, preferences);

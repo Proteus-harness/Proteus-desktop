@@ -398,7 +398,7 @@ impl TextViewState {
             .markdown_extensions
             .has_same_parser_configuration(&markdown_extensions);
         self.markdown_extensions = markdown_extensions;
-        if parser_configuration_changed && self.format == TextViewFormat::Markdown {
+        if parser_configuration_changed {
             let text = self.text.clone();
             self.increment_update(&text, false, cx);
         }
@@ -2393,6 +2393,108 @@ mod tests {
         };
         assert_eq!(*start, Some(3));
         assert_eq!(children.len(), 2);
+    }
+
+    #[gpui::test]
+    fn html_inline_configuration_reparses_html_but_renderer_updates_keep_tree(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(crate::init);
+        let source = r#"<p>before <span data-inline="id">plain</span> after</p>"#;
+        let state = cx.update(|cx| cx.new(|cx| TextViewState::html(source, cx)));
+        cx.run_until_parked();
+        let extensions = |label: &'static str, revision| {
+            MarkdownExtensions::default()
+                .parser_revision(revision)
+                .html_inline("data-inline", move |_, _| {
+                    Some(MarkdownNode::new("card", ()).text(label))
+                })
+        };
+        state.update(cx, |state, cx| {
+            state.set_markdown_extensions(Arc::new(extensions("one", 1)), cx)
+        });
+        cx.run_until_parked();
+        let original = state.read_with(cx, |state, _| state.parsed_content.document.blocks.clone());
+        assert_eq!(original[0].text().trim(), "before one after");
+
+        // Changing the matched attribute is a parser change even when the
+        // hook count and explicit revision stay the same.
+        state.update(cx, |state, cx| {
+            state.set_markdown_extensions(
+                Arc::new(
+                    MarkdownExtensions::default()
+                        .parser_revision(1)
+                        .html_inline("data-other", |_, _| {
+                            Some(MarkdownNode::new("card", ()).text("unused"))
+                        }),
+                ),
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        state.read_with(cx, |state, _| {
+            assert_eq!(
+                state.parsed_content.document.blocks[0].text().trim(),
+                "before plain after"
+            )
+        });
+        state.update(cx, |state, cx| {
+            state.set_markdown_extensions(Arc::new(extensions("one", 1)), cx)
+        });
+        cx.run_until_parked();
+        let original = state.read_with(cx, |state, _| state.parsed_content.document.blocks.clone());
+        state.update(cx, |state, cx| state.select_all(cx));
+        state.read_with(cx, |state, _| {
+            assert_eq!(state.selected_text().trim(), "before one after")
+        });
+
+        // A rebuilt equivalent parser plus a newly registered renderer does
+        // not discard the parsed tree or its retained selection/layout state.
+        state.update(cx, |state, cx| {
+            state.set_markdown_extensions(
+                Arc::new(extensions("not reparsed", 1).inline_renderer("card", |_, _, _, _| None)),
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        state.read_with(cx, |state, _| {
+            assert!(Arc::ptr_eq(
+                &original,
+                &state.parsed_content.document.blocks
+            ));
+            assert_eq!(state.selected_text().trim(), "before one after");
+        });
+
+        state.update(cx, |state, cx| {
+            state.set_markdown_extensions(Arc::new(extensions("two", 2)), cx)
+        });
+        cx.run_until_parked();
+        state.read_with(cx, |state, _| {
+            assert_eq!(
+                state.parsed_content.document.blocks[0].text().trim(),
+                "before two after"
+            )
+        });
+
+        // Removing the hook restores ordinary HTML. Its original source
+        // stays available, while clipboard selection remains plain text.
+        state.update(cx, |state, cx| {
+            state.set_markdown_extensions(Arc::default(), cx)
+        });
+        cx.run_until_parked();
+        state.update(cx, |state, cx| state.select_all(cx));
+        state.read_with(cx, |state, _| {
+            assert_eq!(state.selected_text().trim(), "before plain after");
+            assert_eq!(state.source().as_ref(), source);
+        });
+        state.update(cx, |state, cx| {
+            state.set_selection_format(SelectionFormat::Source, cx)
+        });
+        state.read_with(cx, |state, _| {
+            assert_eq!(state.selected_text().trim(), "before plain after");
+            assert_eq!(state.source().as_ref(), source);
+            assert_eq!(state.selected_source_range(), None);
+        });
     }
 
     #[gpui::test]

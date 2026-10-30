@@ -153,6 +153,9 @@ pub enum Node {
     RichText {
         id: String,
         html: String,
+        /// Atomic content slots referenced by HTML `data-content` attributes.
+        #[serde(default)]
+        inlines: Vec<InlineContent>,
     },
     /// A retained content surface selected by language from enabled packages.
     Content {
@@ -178,6 +181,12 @@ pub enum Node {
         source: String,
         width: f32,
         height: f32,
+        /// Alphabetic baseline measured from the SVG's top edge.
+        #[serde(default)]
+        baseline: Option<f32>,
+        /// Font size used by the producer, for inherited inline typography.
+        #[serde(default)]
+        em_size: Option<f32>,
     },
     /// A shared read-only diff, with file cards and responsive split/unified
     /// rows. Optional metadata keeps non-text files visible too.
@@ -327,6 +336,14 @@ pub enum Node {
     /// as a notice instead of failing the whole view.
     #[serde(other)]
     Unknown,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct InlineContent {
+    pub id: String,
+    pub language: String,
+    pub source: String,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -542,11 +559,36 @@ impl Node {
             bail!("widget tree has more than {MAX_NODES} nodes");
         }
         let children: &[Node] = match self {
+            Node::RichText { inlines, .. } => {
+                let ids: std::collections::HashSet<_> =
+                    inlines.iter().map(|slot| &slot.id).collect();
+                if inlines.len() > 256
+                    || ids.len() != inlines.len()
+                    || inlines.iter().any(|slot| {
+                        slot.id.is_empty()
+                            || slot.id.len() > 256
+                            || slot.language.is_empty()
+                            || slot.source.len() > 32 * 1024
+                    })
+                {
+                    bail!("rich_text requires at most 256 bounded, unique inline content slots");
+                }
+                &[]
+            }
             Node::Svg {
                 source,
                 width,
                 height,
+                baseline,
+                em_size,
             } => {
+                if baseline
+                    .is_some_and(|value| !value.is_finite() || !(0. ..=*height).contains(&value))
+                    || em_size
+                        .is_some_and(|value| !value.is_finite() || value <= 0. || value > 4096.)
+                {
+                    bail!("svg baseline/em_size must be finite and within its typography bounds");
+                }
                 if !width.is_finite()
                     || !height.is_finite()
                     || !(1. ..=4096.).contains(width)

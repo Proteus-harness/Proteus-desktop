@@ -89,13 +89,21 @@ impl MeasuredInlineObject {
                 window,
                 cx,
             );
-            let metrics = InlineMetrics {
+            let mut metrics = InlineMetrics {
                 size: measured,
                 baseline: presentation.baseline.unwrap_or(
                     (measured.height - (fallback.size.height - fallback.baseline))
                         .max(Pixels::ZERO),
                 ),
             };
+            // GPUI rounds authored lengths to the nearest device pixel before
+            // layout. A valid fractional baseline can therefore end just past
+            // the snapped box; compensate only for that half-pixel rounding.
+            if metrics.baseline > measured.height
+                && metrics.baseline - measured.height <= px(0.5 / window.scale_factor())
+            {
+                metrics.baseline = measured.height;
+            }
             if metrics.is_valid() {
                 result.metrics = metrics;
                 result.content = Some(Rc::new(RefCell::new(Some(element))));
@@ -494,26 +502,66 @@ mod tests {
     }
 
     #[test]
-    fn invalid_baseline_uses_text_fallback_and_zero_width_remains_finite() {
-        let mut app = gpui::TestApp::new();
-        in_prepaint(&mut app, |window, cx| {
-            for baseline in [px(f32::NAN), px(-1.), px(30.)] {
+    fn fractional_native_baseline_survives_device_pixel_snapping() {
+        for scale in [1., 1.25, 2.] {
+            let mut app = gpui::TestApp::new();
+            in_prepaint(&mut app, move |window, cx| {
+                window.set_scale_factor(scale);
+                // Real inline E = mc² SVG geometry: its valid baseline is
+                // above the 13 px box obtained by snapping at 100% DPI.
+                let baseline = px(13.2752);
                 let native =
-                    InlineElement::new(div().w(px(20.)).h(px(20.))).with_baseline(baseline);
+                    InlineElement::new(div().w(px(43.7856)).h(px(13.4672))).with_baseline(baseline);
                 let measured = MeasuredInlineObject::measure(
-                    "fallback",
+                    "$E = mc^2$",
                     Some(native),
                     &TextStyle::default(),
                     window,
                     cx,
                 );
-                assert!(measured.content.is_none());
+                let expected_height = px((13.4672_f32 * scale).round() / scale);
+                assert!(measured.content.is_some(), "scale {scale}");
+                assert_eq!(measured.metrics.size.height, expected_height);
+                assert_eq!(measured.metrics.baseline, baseline.min(expected_height));
                 assert!(measured.metrics.is_valid());
-                let zero = measured.fit_text(Some(px(0.)));
-                assert_eq!(zero.metrics.size, size(px(0.), px(0.)));
-                assert_eq!(zero.metrics.baseline, px(0.));
-            }
-        });
+            });
+        }
+    }
+
+    #[test]
+    fn invalid_baseline_uses_text_fallback_and_zero_width_remains_finite() {
+        for scale in [1., 1.25, 2.] {
+            let mut app = gpui::TestApp::new();
+            in_prepaint(&mut app, move |window, cx| {
+                window.set_scale_factor(scale);
+                for baseline in [
+                    px(f32::NAN),
+                    px(f32::INFINITY),
+                    px(f32::NEG_INFINITY),
+                    px(-1.),
+                    px(20. + 0.51 / scale),
+                    px(30.),
+                ] {
+                    let native =
+                        InlineElement::new(div().w(px(20.)).h(px(20.))).with_baseline(baseline);
+                    let measured = MeasuredInlineObject::measure(
+                        "fallback",
+                        Some(native),
+                        &TextStyle::default(),
+                        window,
+                        cx,
+                    );
+                    assert!(
+                        measured.content.is_none(),
+                        "scale {scale}, baseline {baseline}"
+                    );
+                    assert!(measured.metrics.is_valid());
+                    let zero = measured.fit_text(Some(px(0.)));
+                    assert_eq!(zero.metrics.size, size(px(0.), px(0.)));
+                    assert_eq!(zero.metrics.baseline, px(0.));
+                }
+            });
+        }
     }
 
     #[test]

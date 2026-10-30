@@ -33,7 +33,9 @@ pub const FEATURES: &[&str] = &[
     "surfaces.content.v1",
     "surfaces.content.invalidate.v1",
     "widgets.svg.v1",
+    "widgets.svg.typography.v1",
     "widgets.rich_text.v1",
+    "widgets.rich_text.inlines.v1",
     "widgets.content.v1",
     "widgets.code_embedded.v1",
 ];

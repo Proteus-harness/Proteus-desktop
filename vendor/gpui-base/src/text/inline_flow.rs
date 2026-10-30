@@ -96,7 +96,7 @@ struct InlineFlowFrameState {
     fragment_states: Vec<Arc<Mutex<InlineState>>>,
     /// What `layouts` were laid out from. A frame whose items or typography
     /// differ starts over.
-    key: Option<FlowLayoutKey>,
+    key: Option<Rc<FlowLayoutKey>>,
     /// The layouts of `key`, one per wrap width the flow was measured at:
     /// taffy probes a flow at more than one width in a frame (unconstrained,
     /// then the column's). A frame that changes nothing finds every width
@@ -117,11 +117,11 @@ impl InlineFlowFrameState {
     }
 
     /// Makes `key` the current one, dropping the layouts of another key.
-    fn set_key(&mut self, key: FlowLayoutKey) {
+    fn set_key(&mut self, key: Rc<FlowLayoutKey>) {
         if !self
             .key
             .as_ref()
-            .is_some_and(|current| current.matches(&key))
+            .is_some_and(|current| Rc::ptr_eq(current, &key) || current.matches(&key))
         {
             self.layouts.clear();
         }
@@ -402,11 +402,12 @@ impl Element for InlineFlow {
             })
             .collect::<Vec<_>>();
         let objects = prepare_objects(&measure_items, &typography.text_style, window, cx);
-        frame_state.borrow_mut().set_key(FlowLayoutKey {
+        let key = Rc::new(FlowLayoutKey {
             items: measure_items,
             image_sizes,
             typography: typography.clone(),
         });
+        frame_state.borrow_mut().set_key(key.clone());
         let layout_state = InlineFlowLayoutState {
             typography: typography.clone(),
             frame_state: frame_state.clone(),
@@ -425,13 +426,16 @@ impl Element for InlineFlow {
                     None
                 };
                 let mut state = frame_state.borrow_mut();
+                // Deferred callbacks may run after another leaf requested the
+                // same fallback id (notably spanless HTML). Its key and native
+                // objects must never replace this request's captured inputs.
+                state.set_key(key.clone());
                 if let Some(layout) = state.layout_at(wrap_width) {
                     let size = layout.size;
                     *current.borrow_mut() = Some(layout);
                     return size;
                 }
                 let state = &mut *state;
-                let key = state.key.as_ref().expect("set by request_layout");
                 let layout = window.with_rem_size(Some(typography.rem_size), |window| {
                     window.with_text_style(
                         Some(typography.text_style.subtract(&Default::default())),
@@ -1844,6 +1848,191 @@ mod tests {
 
         fn layouts() -> usize {
             FLOW_LAYOUTS.with(|layouts| layouts.get())
+        }
+
+        /// HTML leaves have no source spans. Cells and adjacent blocks must
+        /// not share a deferred measurement's items or consume its element.
+        #[test]
+        fn html_atomic_cells_keep_distinct_presentations_across_native_frames() {
+            use crate::text::inline::test_fonts::WideMonoTextSystem;
+            use crate::text::{InlineElement, MarkdownExtensions, MarkdownNode};
+            use gpui::{TestApp, size};
+            use std::sync::Arc;
+
+            const COLORS: [u32; 6] = [0x11aa77, 0x8844bb, 0x3388cc, 0xbb7733, 0xcc4488, 0x44aaee];
+            const WORDS: [&str; 6] = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"];
+            struct AtomicAnswer {
+                text: Entity<TextViewState>,
+                width: Pixels,
+                extensions: MarkdownExtensions,
+            }
+            impl Render for AtomicAnswer {
+                fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                    div().w(self.width).child(
+                        TextView::new(&self.text)
+                            .selectable(true)
+                            .markdown_extensions(self.extensions.clone()),
+                    )
+                }
+            }
+            let source = r#"<p><span data-card="0">alpha</span></p>
+                <table><tr><td><span data-card="1">beta</span></td><td><span data-card="2">gamma</span></td></tr>
+                <tr><td><span data-card="3">delta</span></td><td><span data-card="4">epsilon</span></td></tr></table>
+                <ul><li><span data-card="5">zeta</span></li></ul>"#;
+            let extensions = MarkdownExtensions::default()
+                .html_inline("data-card", |id, _| {
+                    Some(MarkdownNode::new("card", id.parse::<usize>().unwrap()))
+                })
+                .inline_renderer("card", |node, _, _, _| {
+                    let ix = *node.data::<usize>()?;
+                    let width = 12. + ix as f32 * 2.;
+                    let height = 10. + ix as f32 * 2.;
+                    Some(
+                        InlineElement::new(
+                            div().w(px(width)).h(px(height)).bg(gpui::rgb(COLORS[ix])),
+                        )
+                        .with_baseline(px(height * 0.75)),
+                    )
+                });
+            let mut app = TestApp::with_text_system(Arc::new(WideMonoTextSystem));
+            app.update(crate::init);
+            let mut window = app.open_window(|_, cx| AtomicAnswer {
+                text: cx.new(|cx| TextViewState::html(source, cx)),
+                width: px(240.),
+                extensions,
+            });
+            for width in [240., 120., 300., 120.] {
+                window.update(|root, _, cx| {
+                    root.width = px(width);
+                    cx.notify();
+                });
+                window.draw();
+                app.run_until_parked();
+                window.draw();
+                window.update(|root, window, cx| {
+                    let quads = window.painted_quads();
+                    let mut boxes = Vec::new();
+                    for (ix, color) in COLORS.iter().enumerate() {
+                        let background: gpui::Background = gpui::rgb(*color).into();
+                        let matches = quads
+                            .iter()
+                            .filter(|quad| quad.background == background)
+                            .collect::<Vec<_>>();
+                        assert_eq!(
+                            matches.len(),
+                            1,
+                            "card {ix} at width {width} must paint once"
+                        );
+                        let bounds = matches[0].bounds;
+                        assert_eq!(
+                            bounds.size,
+                            size(px(12. + ix as f32 * 2.), px(10. + ix as f32 * 2.))
+                                .scale(window.scale_factor())
+                        );
+                        boxes.push(bounds);
+                    }
+                    assert!(boxes[1].left() < boxes[2].left(), "distinct columns");
+                    assert!(boxes[1].top() < boxes[3].top(), "distinct rows");
+                    root.text.update(cx, |state, cx| state.select_all(cx));
+                    let copied = root.text.read(cx).selected_text();
+                    for word in WORDS {
+                        assert_eq!(copied.matches(word).count(), 1, "copy {word}: {copied}");
+                    }
+                });
+            }
+        }
+
+        /// Underlines come from text foreground painting, after the retained
+        /// StyledText has been reclaimed. AST/copy and object-colored quads
+        /// alone cannot detect a prefix silently dropped during that handoff.
+        #[test]
+        fn html_paragraph_prefixes_paint_independently_before_atomic_content() {
+            use crate::text::inline::test_fonts::WideMonoTextSystem;
+            use crate::text::{InlineElement, MarkdownExtensions, MarkdownNode, SelectionFormat};
+            use gpui::TestApp;
+            use std::sync::Arc;
+
+            struct PrefixAnswer {
+                text: Entity<TextViewState>,
+                width: Pixels,
+                extensions: MarkdownExtensions,
+            }
+            impl Render for PrefixAnswer {
+                fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                    div().w(self.width).child(
+                        TextView::new(&self.text)
+                            .selectable(true)
+                            .markdown_extensions(self.extensions.clone()),
+                    )
+                }
+            }
+            let source = r#"<p><u>Энергия:</u> <span data-card="a">E</span> первый хвост.</p>
+                <p><u>Корень:</u> <span data-card="b">sqrt</span> второй хвост.</p>
+                <p><u>Дробь:</u> <span data-card="c">fraction</span> третий хвост.</p>"#;
+            let extensions = MarkdownExtensions::default()
+                .html_inline("data-card", |id, _| {
+                    Some(MarkdownNode::new("card", id.to_owned()))
+                })
+                .inline_renderer("card", |_, _, _, _| {
+                    Some(
+                        InlineElement::new(div().w(px(20.)).h(px(14.)).bg(gpui::rgb(0x44aa77)))
+                            .with_baseline(px(10.)),
+                    )
+                });
+            let mut app = TestApp::with_text_system(Arc::new(WideMonoTextSystem));
+            app.update(crate::init);
+            let mut window = app.open_window(|_, cx| PrefixAnswer {
+                text: cx.new(|cx| TextViewState::html(source, cx)),
+                width: px(400.),
+                extensions,
+            });
+            for width in [400., 340., 420., 340.] {
+                window.update(|root, _, cx| {
+                    root.width = px(width);
+                    cx.notify();
+                });
+                window.draw();
+                app.run_until_parked();
+                window.draw();
+                window.update(|root, window, cx| {
+                    let mut underlines = window.painted_underlines();
+                    underlines.sort_by_key(|line| line.bounds.top());
+                    assert_eq!(
+                        underlines.len(),
+                        3,
+                        "every paragraph prefix must actually paint at width {width}"
+                    );
+                    assert!(
+                        underlines
+                            .windows(2)
+                            .all(|pair| pair[0].bounds.bottom() < pair[1].bounds.top()),
+                        "prefixes must paint on their own paragraph rows"
+                    );
+                    assert!(
+                        underlines.iter().all(
+                            |line| line.bounds.size.width > px(0.).scale(window.scale_factor())
+                        )
+                    );
+                    root.text.update(cx, |state, cx| {
+                        state.select_all(cx);
+                        state.set_selection_format(SelectionFormat::Source, cx);
+                    });
+                    let state = root.text.read(cx);
+                    let copy = state.selected_text();
+                    for prefix in ["Энергия:", "Корень:", "Дробь:"] {
+                        assert_eq!(
+                            copy.matches(prefix).count(),
+                            1,
+                            "copy preserves {prefix}: {copy}"
+                        );
+                    }
+                    assert_eq!(
+                        state.source().as_ref(),
+                        source,
+                        "exact HTML source stays intact"
+                    );
+                });
+            }
         }
 
         /// Scrolling redraws every visible paragraph each frame; a flow whose

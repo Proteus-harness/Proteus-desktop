@@ -12,6 +12,7 @@ pub(in crate::ui) mod content;
 mod fields;
 mod graph;
 mod images;
+mod inline_content;
 mod lanes;
 mod lanes_paint;
 mod layout;

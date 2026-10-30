@@ -162,7 +162,9 @@ impl DeclarativeView {
         cx: &mut Context<Self>,
     ) {
         match node {
-            Node::RichText { id, html } => self.prepare_rich_text(id, html, cx),
+            Node::RichText { id, html, inlines } => {
+                self.prepare_rich_text(id, html, inlines, window, cx)
+            }
             Node::Content {
                 id,
                 language,
@@ -375,11 +377,12 @@ impl DeclarativeView {
                 embedded,
                 ..
             } => {
+                let line_numbers = super::code_block::line_numbers(language, *wrap);
                 let editor = self.fields.codes.entry(id.clone()).or_insert_with(|| {
                     cx.new(|cx| {
                         let mut editor = EditorState::new(window, cx)
                             .language(language.clone())
-                            .line_number(!*wrap)
+                            .line_number(line_numbers)
                             .folding(!*embedded)
                             .soft_wrap(*wrap && !*embedded)
                             .scroll_beyond_last_line(if *embedded { Some(0) } else { None });
@@ -389,6 +392,7 @@ impl DeclarativeView {
                 });
                 editor.update(cx, |editor, cx| {
                     editor.set_highlighter(language.clone(), cx);
+                    editor.set_line_number(line_numbers, window, cx);
                     editor.set_scroll_beyond_last_line(
                         if *embedded { Some(0) } else { None },
                         window,

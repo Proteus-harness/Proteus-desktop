@@ -90,6 +90,7 @@ impl Images {
                 source,
                 width,
                 height,
+                ..
             } = node
             {
                 if let Some(key) = self.key(source, *width, *height) {
@@ -235,6 +236,8 @@ mod tests {
             source: source.into(),
             width: 640.,
             height: 360.,
+            baseline: None,
+            em_size: None,
         };
         node.validate().unwrap();
         let mut images = Images::default();
@@ -255,6 +258,8 @@ mod tests {
             source: source.into(),
             width: 640.,
             height: 360.,
+            baseline: None,
+            em_size: None,
         };
         let mut images = Images::default();
         images.scale = 1.;
@@ -275,6 +280,8 @@ mod tests {
             source: source.into(),
             width: 20.,
             height: 20.,
+            baseline: None,
+            em_size: None,
         };
         let mut images = Images::default();
         images.scale = 1.;
@@ -306,6 +313,8 @@ mod tests {
             source: source.into(),
             width: 4096.,
             height: 4096.,
+            baseline: None,
+            em_size: None,
         };
         let mut images = Images::default();
         images.scale = 4.;

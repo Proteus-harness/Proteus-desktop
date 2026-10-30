@@ -2820,7 +2820,7 @@ impl Paragraph {
 
         if self.should_render_inline_flow() {
             return InlineFlow::new(
-                leaf_element_id(fade_key),
+                leaf_element_id(fade_key, &self.state),
                 self.inline_flow_items(fade_key, fades, backgrounds, node_cx, cx),
                 node_cx.link_click_handler.clone(),
             )
@@ -3001,7 +3001,7 @@ impl Paragraph {
         }
 
         div()
-            .id(leaf_element_id(fade_key))
+            .id(leaf_element_id(fade_key, &self.state))
             .children(child_nodes)
             .into_any_element()
     }
@@ -3198,9 +3198,13 @@ fn block_element_id(kind: &'static str, span: Option<Span>, ix: usize) -> Elemen
 /// The element id of a paragraph that needs one: an inline flow, whose
 /// objects are accessibility nodes, or an image, whose element state is its
 /// animation. The leaf key is unique per paragraph in a parsed Markdown
-/// document; the HTML parser records no spans, so its paragraphs share one.
-fn leaf_element_id(fade_key: Option<TextLeafKey>) -> ElementId {
-    fade_key.map_or_else(|| ElementId::from("p"), ElementId::from)
+/// document. Spanless HTML uses the retained paragraph's state identity so
+/// neighboring flows cannot share shaped-text ownership or native children.
+fn leaf_element_id(fade_key: Option<TextLeafKey>, state: &Arc<Mutex<InlineState>>) -> ElementId {
+    fade_key.map_or_else(
+        || ("html-paragraph", Arc::as_ptr(state) as usize).into(),
+        ElementId::from,
+    )
 }
 
 /// A link's underline: a hairline in a translucent link color, so a run of
@@ -3382,8 +3386,12 @@ fn measure_table_columns(
         let cell = &table.children[row_ix].children[ix];
         let items = cell.children.inline_flow_items(None, &[], &[], node_cx, cx);
         let style = text_styles.row_refinement(row_ix).clone();
-        let width = window.with_text_style(Some(style), |window| {
-            super::inline_flow::intrinsic_width(&items, window, cx)
+        let width = window.with_id(("table-row", row_ix), |window| {
+            window.with_id(("table-cell", ix), |window| {
+                window.with_text_style(Some(style), |window| {
+                    super::inline_flow::intrinsic_width(&items, window, cx)
+                })
+            })
         });
         let border = if ix + 1 < col_count {
             CELL_BORDER_PX
@@ -3942,7 +3950,12 @@ impl BlockNode {
             .map(|row| row.children.len())
             .max()
             .unwrap_or(0);
-        let col_w = measure_table_columns(table, col_count, node_cx, window, cx);
+        // Intrinsic probes do not paint. Keep their transient native children
+        // separate from both other tables and the cells' actual presentations.
+        let col_w = window.with_id(
+            block_element_id("table-intrinsic", table.span, options.ix),
+            |window| measure_table_columns(table, col_count, node_cx, window, cx),
+        );
         let scroll = matches!(style.table().overflow.x, Some(Overflow::Scroll));
         let nowrap = style.table_cell().text.white_space == Some(WhiteSpace::Nowrap);
         let rem_size = window.rem_size();
@@ -4053,6 +4066,7 @@ impl BlockNode {
         };
 
         div()
+            .id(block_element_id("table-surface", table.span, options.ix))
             .pb(block_gap(options, style))
             .w(px(content_width))
             .max_w_full()
@@ -4172,6 +4186,7 @@ impl BlockNode {
                 cells.push(
                     TableCellElement(
                         div()
+                            .id(("table-cell", ix))
                             .flex_basis(px(0.))
                             .flex_grow(CELL_GROW)
                             .min_w(px(column.min))
@@ -4197,6 +4212,7 @@ impl BlockNode {
             }
             rows.push(
                 div()
+                    .id(("table-row", row_ix))
                     .w_full()
                     .when(row_ix < row_count - 1, |this| this.border_b_1())
                     .border_color(style.border())

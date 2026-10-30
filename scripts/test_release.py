@@ -157,6 +157,10 @@ class MetadataTests(unittest.TestCase):
                 vendored.mkdir(parents=True)
                 for name in ("LICENSE.upstream", "README.proteus.md"):
                     (vendored / name).write_text("synthetic " + vendored_name + " " + name)
+            font = roots[0] / "assets/fonts/noto-color-emoji"
+            font.mkdir(parents=True)
+            for name in ("OFL.txt", "UPSTREAM.md"):
+                (font / name).write_text("synthetic Noto " + name)
             portable = base / "portable"
             install_notices(portable, *roots)
             self.assertEqual((portable / "share/licenses/Proteus-core/LICENSE").read_text(), "core")
@@ -170,6 +174,11 @@ class MetadataTests(unittest.TestCase):
                 "synthetic gpui-component LICENSE.upstream",
             )
             self.assertIn("Apache-2.0", (portable / "share/licenses/README.txt").read_text())
+            for name in ("OFL.txt", "UPSTREAM.md"):
+                self.assertEqual(
+                    (portable / "share/licenses/Proteus-desktop/assets/fonts/noto-color-emoji" / name).read_text(),
+                    "synthetic Noto " + name,
+                )
 
 
 class GateScopeTests(unittest.TestCase):

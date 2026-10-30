@@ -175,15 +175,69 @@ impl ContentView {
         window: &mut Window,
         cx: &mut App,
     ) -> Option<Entity<Self>> {
+        Self::child_with_context(
+            host,
+            id,
+            language,
+            source,
+            serde_json::Value::Null,
+            window,
+            cx,
+        )
+    }
+
+    pub(super) fn inline(
+        host: Host,
+        id: String,
+        language: &str,
+        source: &str,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Option<Entity<Self>> {
+        Self::child_with_context(
+            host,
+            id,
+            language,
+            source,
+            serde_json::json!({"presentation":"inline"}),
+            window,
+            cx,
+        )
+    }
+
+    fn child_with_context(
+        host: Host,
+        id: String,
+        language: &str,
+        source: &str,
+        context: serde_json::Value,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Option<Entity<Self>> {
         let extension = language_renderer(language, cx)?;
         let host = host.with_extension(extension);
         let content = Content {
             language: language.into(),
             source: source.into(),
-            context: serde_json::Value::Null,
+            context,
             source_revision: Some(0),
         };
         Some(cx.new(|cx| Self::new(host, id, content, Arc::from(""), window, cx)))
+    }
+
+    /// Inline content consumes the accepted atomic SVG directly, without the
+    /// block shell. Missing/disabled providers preserve the text's fallback.
+    pub(super) fn inline_element(
+        &self,
+        context: &gpui_kit::base::text::InlineRenderContext,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Option<gpui_kit::base::text::InlineElement> {
+        if !crate::ui::extensions::is_enabled(self.extension, cx) {
+            return None;
+        }
+        self.rendered
+            .update(cx, |view, cx| view.inline_element(context, window, cx))
     }
 
     pub(in crate::ui) fn set_source(

@@ -481,3 +481,37 @@ fn native_rich_text_and_nested_content_have_closed_typed_fields() {
         Node::Code { embedded: true, .. }
     ));
 }
+
+#[test]
+fn inline_content_slots_and_svg_typography_are_bounded() {
+    let slot = json!({"id":"formula", "language":"tex", "source":"x_1"});
+    let mut rich = json!({"type":"rich_text", "id":"p", "html":"<p><span data-content=\"formula\">$x_1$</span></p>", "inlines":[slot.clone()]});
+    assert!(parse(rich.clone()).is_ok());
+    for slots in [
+        json!([slot.clone(), slot.clone()]),
+        json!([{"id":"", "language":"tex", "source":"x"}]),
+        json!([{"id":"x", "language":"", "source":"x"}]),
+        json!([{"id":"x", "language":"tex", "source":"x".repeat(32769)}]),
+        json!(
+            (0..257)
+                .map(|id| json!({"id":id.to_string(),"language":"tex","source":"x"}))
+                .collect::<Vec<_>>()
+        ),
+    ] {
+        rich["inlines"] = slots;
+        assert!(parse(rich.clone()).is_err());
+    }
+    let mut svg = json!({"type":"svg", "source":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 10\"/>", "width":20, "height":24, "baseline":18, "em_size":16});
+    assert!(parse(svg.clone()).is_ok());
+    for (field, value) in [
+        ("baseline", -1),
+        ("baseline", 25),
+        ("em_size", 0),
+        ("em_size", 4097),
+    ] {
+        let original = svg[field].clone();
+        svg[field] = json!(value);
+        assert!(parse(svg.clone()).is_err());
+        svg[field] = original;
+    }
+}

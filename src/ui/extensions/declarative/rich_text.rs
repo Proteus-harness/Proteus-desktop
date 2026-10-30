@@ -8,6 +8,7 @@ use gpui_kit::*;
 pub(super) struct RichText {
     state: Entity<TextViewState>,
     html: String,
+    slots: super::inline_content::Slots,
     _changed: Subscription,
 }
 
@@ -18,6 +19,7 @@ impl RichText {
         Self {
             state,
             html: html.into(),
+            slots: super::inline_content::Slots::default(),
             _changed: changed,
         }
     }
@@ -29,9 +31,19 @@ impl RichText {
         }
     }
 
+    pub(super) fn rehost(
+        &self,
+        workspace: WeakEntity<crate::ui::workspace::Workspace>,
+        window: &mut Window,
+        cx: &mut Context<DeclarativeView>,
+    ) {
+        self.slots.rehost(workspace, window, cx);
+    }
+
     pub(super) fn element(&self) -> AnyElement {
         TextView::new(&self.state)
             .selectable(true)
+            .markdown_extensions(self.slots.extensions.clone())
             .into_any_element()
     }
 }
@@ -59,15 +71,23 @@ impl Content {
 }
 
 impl DeclarativeView {
-    pub(super) fn prepare_rich_text(&mut self, id: &str, html: &str, cx: &mut Context<Self>) {
-        match self.fields.rich_text.get_mut(id) {
-            Some(text) => text.set_html(html, cx),
-            None => {
-                self.fields
-                    .rich_text
-                    .insert(id.into(), RichText::new(html, cx));
-            }
-        }
+    pub(super) fn prepare_rich_text(
+        &mut self,
+        id: &str,
+        html: &str,
+        inlines: &[crate::declarative::widget::InlineContent],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let host = self.host(cx);
+        let mut text = self
+            .fields
+            .rich_text
+            .remove(id)
+            .unwrap_or_else(|| RichText::new(html, cx));
+        text.set_html(html, cx);
+        text.slots.sync(id, inlines, host, &text.state, window, cx);
+        self.fields.rich_text.insert(id.into(), text);
     }
 
     pub(super) fn prepare_content(

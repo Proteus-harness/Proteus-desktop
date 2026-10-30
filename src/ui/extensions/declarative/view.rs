@@ -3,6 +3,7 @@
 use crate::ui::kit::{ButtonLabel as _, Frame as _};
 use std::{collections::HashMap, rc::Rc, sync::Arc};
 
+mod inline;
 mod preparation;
 use preparation::Preparation;
 
@@ -38,6 +39,7 @@ pub(super) struct DeclarativeView {
     action_sequence: u64,
     resize_on_reply: bool,
     source_revision: Option<u64>,
+    accepted_source_revision: Option<u64>,
     focus_page: bool,
     pub(super) presentation: Option<Presentation>,
     /// Selected tab of every `tabs` node, by tree path.
@@ -103,6 +105,7 @@ impl DeclarativeView {
             action_sequence: 0,
             resize_on_reply: false,
             source_revision,
+            accepted_source_revision: None,
             focus_page: false,
             presentation: None,
             tabs: HashMap::new(),
@@ -176,6 +179,9 @@ impl DeclarativeView {
                 content.rehost(workspace.clone(), window, cx)
             });
         }
+        for text in self.fields.rich_text.values() {
+            text.rehost(workspace.clone(), window, cx);
+        }
         let id = self.view.clone();
         self.runtime.update(cx, |runtime, cx| {
             runtime.rehost(&id, workspace, window.window_handle(), cx)
@@ -213,6 +219,7 @@ impl DeclarativeView {
         {
             self.focus_page |= old != new;
         }
+        self.accepted_source_revision = self.source_revision;
         self.root = Some(Rc::new(root));
         cx.notify();
         true

@@ -272,7 +272,7 @@ fn task_checked(node: &Rc<Node>) -> Option<bool> {
     None
 }
 
-fn parse_table_row(table: &mut Table, node: &Rc<Node>) {
+fn parse_table_row(table: &mut Table, node: &Rc<Node>, cx: &mut NodeContext) {
     let mut row = TableRow::default();
     let mut count = 0;
     for child in node.children.borrow().iter() {
@@ -283,7 +283,7 @@ fn parse_table_row(table: &mut Table, node: &Rc<Node>) {
                 ..
             } if name.local == local_name!("td") || name.local == local_name!("th") => {
                 count += 1;
-                parse_table_cell(&mut row, child, attrs);
+                parse_table_cell(&mut row, child, attrs, cx);
             }
             _ => {}
         }
@@ -298,10 +298,11 @@ fn parse_table_cell(
     row: &mut node::TableRow,
     node: &Rc<Node>,
     attrs: &RefCell<Vec<html5ever::Attribute>>,
+    cx: &mut NodeContext,
 ) {
     let mut paragraph = HtmlParagraph::default();
     for child in node.children.borrow().iter() {
-        parse_paragraph(&mut paragraph, child);
+        parse_paragraph(&mut paragraph, child, cx);
     }
     let width = attr_width_height(attrs).0;
     let table_cell = node::TableCell {
@@ -331,7 +332,37 @@ fn trim_text(text: &str) -> String {
     out
 }
 
-fn parse_paragraph(paragraph: &mut HtmlParagraph, node: &Rc<Node>) {
+/// Text-only fallback for a matched custom element. Ordinary HTML never
+/// pays for this traversal; its normal inline conversion remains unchanged.
+fn plain_inline_text(node: &Node) -> String {
+    fn append(node: &Node, text: &mut String) {
+        match &node.data {
+            NodeData::Text { contents } => text.push_str(&contents.borrow()),
+            NodeData::Element { name, .. } if name.local == local_name!("br") => text.push('\n'),
+            _ => {
+                for child in node.children.borrow().iter() {
+                    append(child, text);
+                }
+            }
+        }
+    }
+    let mut text = String::new();
+    append(node, &mut text);
+    text
+}
+
+fn parse_paragraph(paragraph: &mut HtmlParagraph, node: &Rc<Node>, cx: &mut NodeContext) {
+    fn merge_mark(node: &mut InlineNode, new_mark: TextMark) {
+        let len = node.text.len();
+        if let Some(last) = node.marks.last_mut()
+            && last.0 == (0..len)
+        {
+            last.1.merge(new_mark);
+        } else {
+            node.marks.push((0..len, new_mark));
+        }
+    }
+
     fn push_merged(
         paragraph: &mut HtmlParagraph,
         text: String,
@@ -343,15 +374,7 @@ fn parse_paragraph(paragraph: &mut HtmlParagraph, node: &Rc<Node>) {
         }
         let mut node = InlineNode::new(text).marks(marks);
         if let Some(new_mark) = new_mark {
-            let len = node.text.len();
-            if let Some(last) = node.marks.last_mut()
-                && last.0.start == 0
-                && last.0.end == len
-            {
-                last.1.merge(new_mark);
-            } else {
-                node.marks.push((0..node.text.len(), new_mark));
-            }
+            merge_mark(&mut node, new_mark);
         }
         paragraph.push(node);
     }
@@ -360,6 +383,7 @@ fn parse_paragraph(paragraph: &mut HtmlParagraph, node: &Rc<Node>) {
         node: &Node,
         paragraph: &mut HtmlParagraph,
         new_mark: Option<TextMark>,
+        cx: &mut NodeContext,
     ) {
         let mut merged_text = String::new();
         let mut merged_marks = Vec::new();
@@ -367,31 +391,33 @@ fn parse_paragraph(paragraph: &mut HtmlParagraph, node: &Rc<Node>) {
 
         for child in node.children.borrow().iter() {
             let mut child_paragraph = HtmlParagraph::default();
-            parse_paragraph(&mut child_paragraph, &child);
+            parse_paragraph(&mut child_paragraph, &child, cx);
 
             if !child_paragraph.content.is_empty() {
                 ends_with_break = Some(child_paragraph.ends_with_break);
             }
-            for node in child_paragraph.content.children {
-                let offset = merged_text.len();
-                merged_text.push_str(&node.text);
-                for (range, child_mark) in node.marks {
-                    merged_marks.push((range.start + offset..range.end + offset, child_mark));
-                }
-
-                if let Some(mut image) = node.image {
-                    if let Some(link_mark) = new_mark.as_ref().and_then(|mark| mark.link.clone()) {
-                        image.link = Some(link_mark);
-                    }
-
+            for mut node in child_paragraph.content.children {
+                if node.custom.is_some() || node.image.is_some() {
                     push_merged(
                         paragraph,
                         std::mem::take(&mut merged_text),
                         std::mem::take(&mut merged_marks),
                         new_mark.clone(),
                     );
-
-                    paragraph.push(InlineNode::image(image));
+                    if let Some(image) = &mut node.image {
+                        if let Some(link) = new_mark.as_ref().and_then(|mark| mark.link.clone()) {
+                            image.link = Some(link);
+                        }
+                    } else if let Some(mark) = &new_mark {
+                        merge_mark(&mut node, mark.clone());
+                    }
+                    paragraph.push(node);
+                    continue;
+                }
+                let offset = merged_text.len();
+                merged_text.push_str(&node.text);
+                for (range, child_mark) in node.marks {
+                    merged_marks.push((range.start + offset..range.end + offset, child_mark));
                 }
             }
         }
@@ -402,6 +428,22 @@ fn parse_paragraph(paragraph: &mut HtmlParagraph, node: &Rc<Node>) {
         }
     }
 
+    if let NodeData::Element { attrs, .. } = &node.data {
+        let attrs = attrs.borrow();
+        if let Some(custom) = cx.markdown_extensions.parse_html_inline(
+            |name| {
+                attrs
+                    .iter()
+                    .find(|attr| attr.name.local.as_ref() == name)
+                    .map(|attr| attr.value.as_ref())
+            },
+            || plain_inline_text(node),
+        ) {
+            paragraph.push(InlineNode::custom(custom));
+            return;
+        }
+    }
+
     match &node.data {
         NodeData::Text { contents } => {
             let part = &contents.borrow();
@@ -409,23 +451,29 @@ fn parse_paragraph(paragraph: &mut HtmlParagraph, node: &Rc<Node>) {
         }
         NodeData::Element { name, attrs, .. } => match name.local {
             local_name!("em") | local_name!("i") => {
-                merge_children_with_mark(node, paragraph, Some(TextMark::default().italic()));
+                merge_children_with_mark(node, paragraph, Some(TextMark::default().italic()), cx);
             }
             local_name!("strong") | local_name!("b") => {
-                merge_children_with_mark(node, paragraph, Some(TextMark::default().bold()));
+                merge_children_with_mark(node, paragraph, Some(TextMark::default().bold()), cx);
             }
             local_name!("del") | local_name!("s") => {
                 merge_children_with_mark(
                     node,
                     paragraph,
                     Some(TextMark::default().strikethrough()),
+                    cx,
                 );
             }
             local_name!("u") => {
-                merge_children_with_mark(node, paragraph, Some(TextMark::default().underline()));
+                merge_children_with_mark(
+                    node,
+                    paragraph,
+                    Some(TextMark::default().underline()),
+                    cx,
+                );
             }
             local_name!("code") => {
-                merge_children_with_mark(node, paragraph, Some(TextMark::default().code()));
+                merge_children_with_mark(node, paragraph, Some(TextMark::default().code()), cx);
             }
             local_name!("mark") => {
                 let color = mark_color(&attrs).unwrap_or_else(default_mark_color);
@@ -433,6 +481,7 @@ fn parse_paragraph(paragraph: &mut HtmlParagraph, node: &Rc<Node>) {
                     node,
                     paragraph,
                     Some(TextMark::default().highlight(color)),
+                    cx,
                 );
             }
             local_name!("a") => {
@@ -448,6 +497,7 @@ fn parse_paragraph(paragraph: &mut HtmlParagraph, node: &Rc<Node>) {
                     node,
                     paragraph,
                     Some(TextMark::default().link(link_mark)),
+                    cx,
                 );
             }
             local_name!("br") => {
@@ -475,11 +525,11 @@ fn parse_paragraph(paragraph: &mut HtmlParagraph, node: &Rc<Node>) {
                 });
             }
             _ => {
-                merge_children_with_mark(node, paragraph, None);
+                merge_children_with_mark(node, paragraph, None, cx);
             }
         },
         _ => {
-            merge_children_with_mark(node, paragraph, None);
+            merge_children_with_mark(node, paragraph, None, cx);
         }
     }
 }
@@ -529,7 +579,7 @@ fn parse_node(
 
                 let mut paragraph = HtmlParagraph::default();
                 for child in node.children.borrow().iter() {
-                    parse_paragraph(&mut paragraph, child);
+                    parse_paragraph(&mut paragraph, child, cx);
                 }
 
                 let heading = BlockNode::Heading {
@@ -642,11 +692,11 @@ fn parse_node(
                                 || name.local == local_name!("thead") =>
                         {
                             for sub_child in child.children.borrow().iter() {
-                                parse_table_row(&mut table, &sub_child);
+                                parse_table_row(&mut table, &sub_child, cx);
                             }
                         }
                         _ => {
-                            parse_table_row(&mut table, &child);
+                            parse_table_row(&mut table, &child, cx);
                         }
                     }
                 }
@@ -700,7 +750,7 @@ fn parse_node(
                     }
                 } else {
                     // Others to as Inline
-                    parse_paragraph(paragraph, node);
+                    parse_paragraph(paragraph, node, cx);
 
                     if paragraph.content.is_image() {
                         Some(BlockNode::Paragraph(paragraph.take()))
@@ -786,6 +836,89 @@ mod tests {
     };
 
     use super::trim_text;
+
+    #[test]
+    fn html_inline_hooks_preserve_atomic_nodes_in_paragraphs_tables_lists_and_marks() {
+        use crate::text::{MarkdownExtensions, MarkdownNode};
+
+        fn paragraph(block: &BlockNode) -> &Paragraph {
+            match block {
+                BlockNode::Paragraph(paragraph) => paragraph,
+                BlockNode::Table(table) => &table.children[0].children[0].children,
+                BlockNode::Root { children, .. }
+                | BlockNode::List { children, .. }
+                | BlockNode::ListItem { children, .. } => paragraph(&children[0]),
+                _ => panic!("unexpected block: {block:?}"),
+            }
+        }
+        let element = r#"<span data-inline="opaque&amp;id">x<sup>2</sup></span>"#;
+        for html in [
+            format!("<p>before {element} after</p>"),
+            format!("<table><tr><td>before {element} after</td></tr></table>"),
+            format!("<ul><li>before {element} after</li></ul>"),
+            format!(r#"<p>before <strong><a href="/next">{element}</a></strong> after</p>"#),
+        ] {
+            let mut cx = NodeContext::default();
+            cx.markdown_extensions = Arc::new(MarkdownExtensions::default().html_inline(
+                "DATA-INLINE",
+                |value, fallback| {
+                    assert_eq!(value, "opaque&id");
+                    assert_eq!(fallback, "x2");
+                    Some(MarkdownNode::new("card", value.to_owned()).markdown("card-source"))
+                },
+            ));
+            let document = super::parse(&html, &mut cx).unwrap();
+            let paragraph = paragraph(&document.blocks[0]);
+            assert_eq!(paragraph.text().trim(), "before x2 after", "{html}");
+            let custom = paragraph
+                .children
+                .iter()
+                .filter(|node| node.custom.is_some())
+                .collect::<Vec<_>>();
+            assert_eq!(custom.len(), 1);
+            let custom = custom[0];
+            assert_eq!(custom.text(), "x2");
+            assert_eq!(
+                custom.as_custom().unwrap().data::<String>().unwrap(),
+                "opaque&id"
+            );
+            if html.contains("<strong>") {
+                assert!(custom.mark_runs().iter().any(|(range, mark)| {
+                    *range == (0..2)
+                        && mark.bold
+                        && mark
+                            .link
+                            .as_ref()
+                            .is_some_and(|link| link.url.as_ref() == "/next")
+                }));
+            }
+            assert_eq!(custom.as_custom().unwrap().as_markdown(), "card-source");
+            assert_eq!(document.source.as_ref(), html);
+        }
+    }
+
+    #[test]
+    fn html_inline_unmatched_or_declined_hooks_keep_native_fallback() {
+        use crate::text::MarkdownExtensions;
+        let html = r#"<p>before <b><span data-inline="id">x<sup>2</sup></span></b> after</p>"#;
+        let plain = super::parse(html, &mut NodeContext::default()).unwrap();
+        for extensions in [
+            MarkdownExtensions::default()
+                .html_inline("data-other", |_, _| panic!("unmatched hook")),
+            MarkdownExtensions::default().html_inline("data-inline", |_, _| None),
+        ] {
+            let mut cx = NodeContext::default();
+            cx.markdown_extensions = Arc::new(extensions);
+            let document = super::parse(html, &mut cx).unwrap();
+            assert_eq!(document.text(), plain.text());
+            assert_eq!(document.to_markdown(), plain.to_markdown());
+            assert_eq!(document.source, plain.source);
+            let BlockNode::Paragraph(paragraph) = &document.blocks[0] else {
+                panic!()
+            };
+            assert!(paragraph.children.iter().all(|node| node.custom.is_none()));
+        }
+    }
 
     #[test]
     fn html_tasks_keep_checked_state_without_unicode_markers() {

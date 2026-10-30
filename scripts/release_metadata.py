@@ -100,6 +100,11 @@ def install_desktop_notices(target, desktop):
             destination = target / "Proteus-desktop" / vendored / name
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(desktop / vendored / name, destination)
+    font = "assets/fonts/noto-color-emoji"
+    for name in ("OFL.txt", "UPSTREAM.md"):
+        destination = target / "Proteus-desktop" / font / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(desktop / font / name, destination)
 
 
 NOTICE_README = (

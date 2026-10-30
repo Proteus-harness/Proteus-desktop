@@ -16,6 +16,7 @@ use parking_lot::RwLock;
 use smallvec::SmallVec;
 use std::{borrow::Cow, ops::Range, sync::Arc};
 use swash::{
+    TableProvider as _,
     scale::{Render, ScaleContext, Source, StrikeWith},
     zeno::{Format, Vector},
 };
@@ -330,7 +331,9 @@ impl CosmicTextSystemState {
         self.font_ids_by_family_cache.clear();
         let db = self.font_system.db_mut();
         for bytes in fonts {
-            db.load_font_source(cosmic_text::fontdb::Source::Binary(Arc::new(bytes)));
+            let installed =
+                db.load_font_source(cosmic_text::fontdb::Source::Binary(Arc::new(bytes)));
+            prefer_supported_color_faces(db, &installed);
         }
         Ok(())
     }
@@ -1204,6 +1207,72 @@ fn check_is_known_emoji_font(postscript_name: &str) -> bool {
     postscript_name == "NotoColorEmoji"
 }
 
+/// Keep font registration additive. The sole exception is an unsupported Noto
+/// color face shadowing a successfully installed bitmap face of the same family.
+/// Noto COLRv1 contains component outlines, but its mapped emoji have no usable
+/// standalone outlines; Swash 0.2 supports COLRv0 and CBDT, not COLRv1 paint graphs.
+/// Limit this exception to Noto rather than discard other fonts whose monochrome
+/// outlines might still be useful. This changes only this process's font database.
+fn prefer_supported_color_faces(
+    db: &mut cosmic_text::fontdb::Database,
+    installed: &[cosmic_text::fontdb::ID],
+) {
+    let replacement_families: Vec<_> = installed
+        .iter()
+        .filter_map(|&id| {
+            let face = db.face(id)?;
+            if !check_is_known_emoji_font(&face.post_script_name)
+                || db.with_face_data(id, has_supported_color_bitmap) != Some(true)
+            {
+                return None;
+            }
+            Some(face.families.iter().map(|name| name.0.clone()))
+        })
+        .flatten()
+        .collect();
+    if replacement_families.is_empty() {
+        return;
+    }
+    let obsolete: Vec<_> = db
+        .faces()
+        .filter(|face| {
+            !installed.contains(&face.id)
+                && check_is_known_emoji_font(&face.post_script_name)
+                && face
+                    .families
+                    .iter()
+                    .any(|family| replacement_families.iter().any(|name| name == &family.0))
+                && db.with_face_data(face.id, is_colrv1_only) == Some(true)
+        })
+        .map(|face| face.id)
+        .collect();
+    for id in obsolete {
+        db.remove_face(id);
+    }
+}
+
+fn has_supported_color_bitmap(data: &[u8], index: u32) -> bool {
+    let Some(font) = swash::FontRef::from_index(data, index as usize) else {
+        return false;
+    };
+    font.table_by_tag(u32::from_be_bytes(*b"CBDT")).is_some()
+        && font.table_by_tag(u32::from_be_bytes(*b"CBLC")).is_some()
+}
+
+fn is_colrv1_only(data: &[u8], index: u32) -> bool {
+    let Some(font) = swash::FontRef::from_index(data, index as usize) else {
+        return false;
+    };
+    let Some(colr) = font.table_by_tag(u32::from_be_bytes(*b"COLR")) else {
+        return false;
+    };
+    colr.len() >= 14
+        && u16::from_be_bytes([colr[0], colr[1]]) == 1
+        && u16::from_be_bytes([colr[2], colr[3]]) == 0
+        && !has_supported_color_bitmap(data, index)
+        && font.table_by_tag(u32::from_be_bytes(*b"sbix")).is_none()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1258,6 +1327,178 @@ mod tests {
     const IBM_PLEX: &[u8] =
         include_bytes!("../../../assets/fonts/ibm-plex-sans/IBMPlexSans-Regular.ttf");
     const LILEX: &[u8] = include_bytes!("../../../assets/fonts/lilex/Lilex-Regular.ttf");
+    const NOTO_EMOJI: &[u8] =
+        include_bytes!("../../../assets/fonts/noto-color-emoji/NotoColorEmoji.ttf");
+
+    /// A synthetic same-family COLRv1-only face, without a host-font dependency.
+    /// fontdb only needs the unchanged name/metrics tables for registration.
+    fn colrv1_only_noto() -> Vec<u8> {
+        let mut bytes = NOTO_EMOJI.to_vec();
+        let count = u16::from_be_bytes([bytes[4], bytes[5]]) as usize;
+        let mut records: Vec<[u8; 16]> = bytes[12..12 + count * 16]
+            .chunks_exact(16)
+            .map(|record| record.try_into().unwrap())
+            .collect();
+        for record in &mut records {
+            match &record[..4] {
+                b"CBDT" => {
+                    record[..4].copy_from_slice(b"COLR");
+                    let offset = u32::from_be_bytes(record[8..12].try_into().unwrap()) as usize;
+                    bytes[offset..offset + 34].fill(0);
+                    bytes[offset..offset + 2].copy_from_slice(&1_u16.to_be_bytes());
+                    record[12..16].copy_from_slice(&34_u32.to_be_bytes());
+                }
+                b"CBLC" => record[..4].copy_from_slice(b"BLOC"),
+                _ => {}
+            }
+        }
+        records.sort_unstable_by_key(|record| <[u8; 4]>::try_from(&record[..4]).unwrap());
+        for (index, record) in records.iter().enumerate() {
+            bytes[12 + index * 16..12 + (index + 1) * 16].copy_from_slice(record);
+        }
+        bytes
+    }
+
+    #[test]
+    fn emoji_bitmap_registration_replaces_only_unsupported_same_family_faces() -> Result<()> {
+        let text_system = text_system()?;
+        let latin_id = text_system.font_id(&gpui::font("IBM Plex Sans"))?;
+        let latin_metrics = text_system.font_metrics(latin_id);
+        let system_face = {
+            let mut state = text_system.0.write();
+            state
+                .font_system
+                .db_mut()
+                .load_font_source(cosmic_text::fontdb::Source::Binary(Arc::new(
+                    colrv1_only_noto(),
+                )))[0]
+        };
+        assert!(
+            text_system
+                .0
+                .read()
+                .font_system
+                .db()
+                .face(system_face)
+                .is_some()
+        );
+
+        // Invalid data and unrelated valid font additions must not remove it.
+        text_system.add_fonts(vec![Cow::Borrowed(b"not a font"), Cow::Borrowed(LILEX)])?;
+        assert!(
+            text_system
+                .0
+                .read()
+                .font_system
+                .db()
+                .face(system_face)
+                .is_some()
+        );
+        text_system.add_fonts(vec![Cow::Borrowed(NOTO_EMOJI)])?;
+        assert!(
+            text_system
+                .0
+                .read()
+                .font_system
+                .db()
+                .face(system_face)
+                .is_none()
+        );
+        assert_eq!(
+            text_system.all_font_names(),
+            ["IBM Plex Sans", "Lilex", "Noto Color Emoji"]
+        );
+        assert_eq!(text_system.font_id(&gpui::font("IBM Plex Sans"))?, latin_id);
+        assert_eq!(
+            text_system.font_metrics(latin_id).ascent,
+            latin_metrics.ascent
+        );
+
+        // Supported faces remain additive, including an existing same-family bitmap face.
+        let count = text_system.0.read().font_system.db().faces().count();
+        text_system.add_fonts(vec![Cow::Borrowed(NOTO_EMOJI)])?;
+        assert_eq!(
+            text_system.0.read().font_system.db().faces().count(),
+            count + 1
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn emoji_color_support_does_not_misclassify_outlines_or_colrv0() {
+        assert!(has_supported_color_bitmap(NOTO_EMOJI, 0));
+        assert!(!is_colrv1_only(NOTO_EMOJI, 0));
+        assert!(!is_colrv1_only(IBM_PLEX, 0));
+        assert!(!is_colrv1_only(b"invalid", 0));
+        let mut unsupported = colrv1_only_noto();
+        assert!(is_colrv1_only(&unsupported, 0));
+        let font = swash::FontRef::from_index(&unsupported, 0).unwrap();
+        let colr = font.table_by_tag(u32::from_be_bytes(*b"COLR")).unwrap();
+        let offset = colr.as_ptr() as usize - unsupported.as_ptr() as usize;
+        // A v1 table can also contain Swash-compatible v0 base glyph records.
+        unsupported[offset + 2..offset + 4].copy_from_slice(&1_u16.to_be_bytes());
+        assert!(!is_colrv1_only(&unsupported, 0));
+    }
+
+    #[test]
+    fn emoji_bitmap_fallback_produces_visible_color_glyphs_at_ui_sizes() -> Result<()> {
+        let text_system = text_system()?;
+        text_system.add_fonts(vec![Cow::Borrowed(NOTO_EMOJI)])?;
+        let latin_id = text_system.font_id(&gpui::font("IBM Plex Sans"))?;
+        // Exercise normal text shaping/fallback, not just an explicit emoji font lookup.
+        let text = "A🟢🟡🔴☕💡🚀🌌Z";
+        let layout = text_system.layout_line(
+            text,
+            gpui::px(16.),
+            &[FontRun {
+                len: text.len(),
+                font_id: latin_id,
+            }],
+        );
+        let glyphs: Vec<_> = layout
+            .runs
+            .iter()
+            .flat_map(|run| run.glyphs.iter().map(move |glyph| (run.font_id, glyph)))
+            .collect();
+        assert_eq!(glyphs.len(), 9);
+        let mut emoji_count = 0;
+        for (font_id, glyph) in glyphs {
+            let ch = text[glyph.index..].chars().next().unwrap();
+            if ch == 'A' || ch == 'Z' {
+                assert_eq!(font_id, latin_id);
+                assert!(!glyph.is_emoji);
+                continue;
+            }
+            emoji_count += 1;
+            assert!(glyph.is_emoji, "emoji classification for {ch}");
+            for font_size in [12., 16., 24.] {
+                for scale_factor in [1., 1.25, 2.] {
+                    let params = RenderGlyphParams {
+                        font_id,
+                        glyph_id: glyph.id,
+                        font_size: gpui::px(font_size),
+                        subpixel_variant: point(0, 0),
+                        scale_factor,
+                        is_emoji: glyph.is_emoji,
+                        subpixel_rendering: false,
+                        dilation: 0,
+                    };
+                    let bounds = text_system.glyph_raster_bounds(&params)?;
+                    assert!(!bounds.is_zero(), "empty glyph bounds for {ch}");
+                    let (_, bitmap) = text_system.rasterize_glyph(&params, bounds)?;
+                    assert!(
+                        bitmap
+                            .chunks_exact(4)
+                            .any(|pixel| pixel[3] != 0
+                                && (pixel[0] != pixel[1] || pixel[1] != pixel[2])),
+                        "no visible color pixels for {ch} at {font_size} * {scale_factor}"
+                    );
+                }
+            }
+        }
+        assert_eq!(emoji_count, 7);
+        Ok(())
+    }
 
     /// Every code point of `Bidi_Class=B`, each of which starts a new bidi
     /// paragraph and so can split one line into mixed-direction paragraphs.

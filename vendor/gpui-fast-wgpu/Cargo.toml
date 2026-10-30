@@ -55,6 +55,10 @@ name = "gpui_wgpu"
 path = "src/gpui_wgpu.rs"
 doctest = false
 
+[dev-dependencies.naga]
+version = "=30.0.1"
+features = ["wgsl-in"]
+
 [dependencies.anyhow]
 version = "1.0.86"
 

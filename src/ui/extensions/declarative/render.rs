@@ -271,6 +271,7 @@ impl DeclarativeView {
                 source,
                 width,
                 height,
+                ..
             } => div()
                 .w_full()
                 .min_w_0()

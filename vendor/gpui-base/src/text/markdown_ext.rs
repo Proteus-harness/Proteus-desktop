@@ -41,6 +41,10 @@ type MarkdownInlineRenderFn = dyn Fn(&MarkdownNode, &InlineRenderContext, &mut W
     + Send
     + Sync;
 
+/// Converts a matched HTML attribute and its element's plain text fallback
+/// into an atomic inline node. Like Markdown parsers, this runs without UI.
+type HtmlInlineParserFn = dyn Fn(&str, &str) -> Option<MarkdownNode> + Send + Sync;
+
 /// A reusable Markdown extension that parses and renders one custom node.
 pub trait MarkdownPlugin: Send + Sync + 'static {
     /// Whether this plugin produces block-level nodes.
@@ -249,6 +253,7 @@ pub struct MarkdownExtensions {
     block_parsers: Vec<Arc<MarkdownBlockParserFn>>,
     block_renderers: HashMap<SharedString, Arc<MarkdownBlockRenderFn>>,
     inline_parsers: Vec<Arc<MarkdownInlineParserFn>>,
+    html_inline_parsers: Vec<(SharedString, Arc<HtmlInlineParserFn>)>,
     inline_renderers: HashMap<SharedString, Arc<MarkdownInlineRenderFn>>,
     revision: u64,
     parser_revision: u64,
@@ -307,6 +312,35 @@ impl MarkdownExtensions {
         self
     }
 
+    /// Register an HTML inline element by attribute name. Matching hooks run
+    /// in registration order; the first accepted node replaces the element.
+    /// Its plain fallback is collected only after an attribute matches.
+    /// Change `parser_revision` when the callback's captured policy changes.
+    pub fn html_inline<F>(mut self, attribute_name: impl Into<SharedString>, parser: F) -> Self
+    where
+        F: Fn(&str, &str) -> Option<MarkdownNode> + Send + Sync + 'static,
+    {
+        let name = attribute_name.into().to_ascii_lowercase().into();
+        self.html_inline_parsers.push((name, Arc::new(parser)));
+        self.bump_revision();
+        self
+    }
+
+    /// Register a renderer for an atomic inline node produced by any parser.
+    /// Changing only a renderer preserves the parsed document.
+    pub fn inline_renderer<F>(mut self, name: impl Into<SharedString>, renderer: F) -> Self
+    where
+        F: Fn(&MarkdownNode, &InlineRenderContext, &mut Window, &mut App) -> Option<InlineElement>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.inline_renderers
+            .insert(name.into(), Arc::new(renderer));
+        self.bump_revision();
+        self
+    }
+
     /// Apply a reusable Markdown plugin.
     pub fn plugin<P>(self, plugin: P) -> Self
     where
@@ -353,17 +387,13 @@ impl MarkdownExtensions {
             && self.enable_mdx == other.enable_mdx
             && self.enable_frontmatter == other.enable_frontmatter
             && self.block_parsers.len() == other.block_parsers.len()
-            && self.block_renderers.len() == other.block_renderers.len()
             && self.inline_parsers.len() == other.inline_parsers.len()
-            && self.inline_renderers.len() == other.inline_renderers.len()
+            && self.html_inline_parsers.len() == other.html_inline_parsers.len()
             && self
-                .inline_renderers
-                .keys()
-                .all(|name| other.inline_renderers.contains_key(name))
-            && self
-                .block_renderers
-                .keys()
-                .all(|name| other.block_renderers.contains_key(name))
+                .html_inline_parsers
+                .iter()
+                .zip(&other.html_inline_parsers)
+                .all(|((name, _), (other_name, _))| name == other_name)
     }
 
     pub(crate) fn push_block_parser<F>(&mut self, parser: F)
@@ -429,6 +459,18 @@ impl MarkdownExtensions {
         self.inline_parsers
             .iter()
             .find_map(|parser| parser(node, cx))
+    }
+
+    pub(crate) fn parse_html_inline<'a>(
+        &self,
+        attribute: impl Fn(&str) -> Option<&'a str>,
+        plain_fallback: impl FnOnce() -> String,
+    ) -> Option<MarkdownNode> {
+        let fallback = std::cell::LazyCell::new(plain_fallback);
+        self.html_inline_parsers.iter().find_map(|(name, parser)| {
+            let value = attribute(name)?;
+            parser(value, fallback.as_str()).map(|node| node.with_inline_source(fallback.as_str()))
+        })
     }
 
     pub(crate) fn render_inline(
@@ -520,5 +562,40 @@ impl MarkdownPlugin for TestInlinePlugin {
         self.renderer
             .as_ref()
             .and_then(|render| render(node, context, window, cx))
+    }
+}
+
+#[cfg(test)]
+mod html_tests {
+    use super::*;
+    use std::cell::Cell;
+
+    #[test]
+    fn html_inline_fallback_is_lazy_and_shared_between_matching_hooks() {
+        let collected = Cell::new(0);
+        let extensions = MarkdownExtensions::default()
+            .html_inline("data-first", |_, _| None)
+            .html_inline("data-second", |value, fallback| {
+                assert_eq!(value, "id");
+                assert_eq!(fallback, "plain");
+                Some(MarkdownNode::new("card", ()))
+            });
+        assert!(
+            extensions
+                .parse_html_inline(|_| None, || panic!("unmatched fallback"))
+                .is_none()
+        );
+        let node = extensions
+            .parse_html_inline(
+                |_| Some("id"),
+                || {
+                    collected.set(collected.get() + 1);
+                    "plain".into()
+                },
+            )
+            .unwrap();
+        assert_eq!(collected.get(), 1);
+        assert_eq!(node.as_text(), "plain");
+        assert_eq!(node.as_markdown(), "plain");
     }
 }
