@@ -405,6 +405,9 @@ impl DeclarativeView {
                     );
                     if *embedded {
                         editor.set_scroll_bounce(false, cx);
+                        editor.set_scrollbar_renderer(Some(std::rc::Rc::new(
+                            super::code_geometry::editor_scrollbar,
+                        )));
                     }
                     if editor.value().as_ref() != text {
                         editor.set_value(text.clone(), window, cx);

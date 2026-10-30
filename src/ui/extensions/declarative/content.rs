@@ -280,6 +280,7 @@ impl Render for ContentView {
         let ready = enabled && view.ready(cx);
         let error = view.error(cx);
         let raw = self.show_source || !ready;
+        let mut source_width = None;
         let body = v_flex()
             .w_full()
             .min_w_0()
@@ -297,6 +298,7 @@ impl Render for ContentView {
             })
             .child(if raw {
                 let source = SharedString::from(self.content.source.clone());
+                source_width = Some(source.clone());
                 if self.body {
                     gpui_kit::base::SelectableText::new("content-source-text", source)
                         .into_any_element()
@@ -328,14 +330,20 @@ impl Render for ContentView {
                 this.show_source = !this.show_source;
                 cx.notify();
             }));
+        // Keep this frame's immutable revision; a later streaming update must
+        // not change the source owned by an already rendered copy button.
+        let content = Arc::clone(&self.content);
         code_block::shell(
             "copy-content-source",
             &self.content.language,
-            &self.content.source,
+            move |_, _| content.source.clone().into(),
             Some(toggle.into_any_element()),
             body.into_any_element(),
             cx,
         )
+        .when_some(source_width, |shell, source| {
+            shell.fit(super::code_geometry::Width::Source(source))
+        })
         .into_any_element()
     }
 }

@@ -17,6 +17,8 @@ mod base;
 pub(crate) mod blink_cursor;
 #[path = "base/change.rs"]
 mod change;
+#[path = "base/content_width.rs"]
+mod content_width;
 #[path = "base/cursor.rs"]
 mod cursor;
 #[path = "editor/decorations.rs"]

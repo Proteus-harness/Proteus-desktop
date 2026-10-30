@@ -88,6 +88,14 @@ impl Hinted<NativeClipboard> {
         self.inner = self.inner.value(value);
         self
     }
+
+    pub fn value_fn(
+        mut self,
+        value: impl Fn(&mut Window, &mut App) -> SharedString + 'static,
+    ) -> Self {
+        self.inner = self.inner.value_fn(value);
+        self
+    }
 }
 
 impl<T: IntoElement + 'static> RenderOnce for Hinted<T> {

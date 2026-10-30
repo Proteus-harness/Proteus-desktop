@@ -8,6 +8,7 @@ mod bar;
 mod button;
 mod cells;
 mod code_block;
+mod code_geometry;
 pub(in crate::ui) mod content;
 mod fields;
 mod graph;

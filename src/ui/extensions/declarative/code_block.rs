@@ -4,8 +4,10 @@
 //! Only the visible body is mounted; the shell never creates an editor or a
 //! renderer. Full-document content deliberately bypasses it.
 
+use super::code_geometry::Width;
 use crate::ui::kit::{self, Frame as _, Hint as _};
 use gpui_kit::component::{ActiveTheme as _, Sizable as _, h_flex, v_flex};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 /// Plain prose fences have no gutter; programming languages keep the
@@ -48,56 +50,112 @@ pub(super) fn readonly_editor(
         .bg(cx.theme().muted)
 }
 
-pub(super) fn shell(
+pub(super) fn shell<F: Fn(&mut Window, &mut App) -> SharedString + 'static>(
     copy_id: impl Into<ElementId>,
     language: &str,
-    source: &str,
+    copy_source: F,
     controls: Option<AnyElement>,
     body: AnyElement,
-    cx: &App,
-) -> Div {
-    v_flex()
-        .group("code-block")
-        .w_full()
-        .min_w_0()
-        .surface_frame(cx)
-        .bg(cx.theme().muted)
-        .overflow_hidden()
-        .gap_0p5()
-        .child(
-            h_flex()
-                .w_full()
-                .min_w_0()
-                .items_center()
-                .px_1p5()
-                .py_0p5()
-                .gap_1()
-                .child(
-                    div()
-                        .min_w_0()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(crate::ui::fade::faded(language.to_owned())),
-                )
-                .child(div().flex_1())
-                .child(HoverCopy {
-                    id: copy_id.into(),
-                    source: source.to_owned().into(),
-                })
-                .children(controls),
-        )
-        .child(div().w_full().min_w_0().px_1p5().pb_1p5().child(body))
+    _: &App,
+) -> Shell<F> {
+    Shell {
+        copy_id: copy_id.into(),
+        language: language.to_owned(),
+        copy_source,
+        controls,
+        body,
+        width: None,
+    }
+}
+
+#[derive(IntoElement)]
+pub(super) struct Shell<F: Fn(&mut Window, &mut App) -> SharedString + 'static> {
+    copy_id: ElementId,
+    language: String,
+    copy_source: F,
+    controls: Option<AnyElement>,
+    body: AnyElement,
+    width: Option<Width>,
+}
+
+impl<F: Fn(&mut Window, &mut App) -> SharedString + 'static> Shell<F> {
+    pub(super) fn fit(mut self, width: Width) -> Self {
+        self.width = Some(width);
+        self
+    }
+}
+
+impl<F: Fn(&mut Window, &mut App) -> SharedString + 'static> RenderOnce for Shell<F> {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        // Keep the language and action slots readable even for an empty fence.
+        // These are the same text_xs and xsmall icon sizes as the header below.
+        let width = self.width.as_ref().map(|width| {
+            let font = window.text_style().font();
+            let font_size = rems(0.75).to_pixels(window.rem_size());
+            let run = TextRun {
+                len: self.language.len(),
+                font,
+                color: black(),
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            };
+            let label = window
+                .text_system()
+                .shape_line(self.language.clone().into(), font_size, &[run], None)
+                .width();
+            let actions = if self.controls.is_some() { 52. } else { 28. };
+            let insets = rems(0.75).to_pixels(window.rem_size()) + px(2.);
+            (width.measure(&self.copy_id, window, cx) + insets)
+                .max(label + rems(actions / 16.).to_pixels(window.rem_size()) + insets)
+                .ceil()
+        });
+        v_flex()
+            .group("code-block")
+            .min_w_0()
+            .max_w_full()
+            .self_start()
+            .when_some(width, |this, width| this.w(width))
+            .when(width.is_none(), |this| this.w_full())
+            .surface_frame(cx)
+            .bg(cx.theme().muted)
+            .overflow_hidden()
+            .gap_0p5()
+            .child(
+                h_flex()
+                    .w_full()
+                    .min_w_0()
+                    .items_center()
+                    .px_1p5()
+                    .py_0p5()
+                    .gap_1()
+                    .child(
+                        div()
+                            .min_w_0()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(crate::ui::fade::faded(self.language)),
+                    )
+                    .child(div().flex_1())
+                    .child(HoverCopy {
+                        id: self.copy_id,
+                        copy_source: self.copy_source,
+                    })
+                    .children(self.controls),
+            )
+            .child(div().w_full().min_w_0().px_1p5().pb_1p5().child(self.body))
+    }
 }
 
 /// Keep the button in the layout and tab order while hidden. A focused child
 /// reveals it too, so keyboard activation retains the native clipboard state.
 #[derive(IntoElement)]
-struct HoverCopy {
+struct HoverCopy<F: Fn(&mut Window, &mut App) -> SharedString + 'static> {
     id: ElementId,
-    source: SharedString,
+    copy_source: F,
 }
 
-impl RenderOnce for HoverCopy {
+impl<F: Fn(&mut Window, &mut App) -> SharedString + 'static> RenderOnce for HoverCopy<F> {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let id = ElementId::NamedChild(std::sync::Arc::new(self.id.clone()), "hover".into());
         let focus = window
@@ -117,7 +175,7 @@ impl RenderOnce for HoverCopy {
             .group_hover("code-block", |style| style.opacity(1.))
             .child(
                 kit::Clipboard::new(self.id)
-                    .value(self.source)
+                    .value_fn(self.copy_source)
                     .hint("Копировать код", cx)
                     .xsmall(),
             )
@@ -127,17 +185,46 @@ impl RenderOnce for HoverCopy {
 /// Lightweight source display retains native selection and horizontal scroll
 /// without allocating the editor/highlighter used by ordinary Code widgets.
 pub(super) fn source(id: impl Into<ElementId>, text: SharedString, cx: &App) -> AnyElement {
-    div()
-        .id(id)
-        .w_full()
-        .min_w_0()
-        .overflow_x_scroll()
-        .font_family(cx.theme().mono_font_family.clone())
-        .text_size(cx.theme().mono_font_size)
-        .line_height(relative(1.5))
-        .whitespace_nowrap()
-        .child(gpui_kit::base::SelectableText::new("source-text", text))
-        .into_any_element()
+    source_body(id.into(), text, cx)
+}
+
+fn source_body(id: ElementId, text: SharedString, _: &App) -> AnyElement {
+    Source { id, text }.into_any_element()
+}
+
+#[derive(IntoElement)]
+struct Source {
+    id: ElementId,
+    text: SharedString,
+}
+impl RenderOnce for Source {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let handle = window
+            .use_keyed_state((self.id.clone(), "scroll"), cx, |_, _| ScrollHandle::new())
+            .read(cx)
+            .clone();
+        div()
+            .relative()
+            .w_full()
+            .min_w_0()
+            .child(
+                div()
+                    .id(self.id)
+                    .w_full()
+                    .min_w_0()
+                    .overflow_x_scroll()
+                    .track_scroll(&handle)
+                    .font_family(cx.theme().mono_font_family.clone())
+                    .text_size(cx.theme().mono_font_size)
+                    .line_height(relative(1.5))
+                    .whitespace_nowrap()
+                    .child(gpui_kit::base::SelectableText::new(
+                        "source-text",
+                        self.text,
+                    )),
+            )
+            .child(super::code_geometry::source_fades(handle, cx))
+    }
 }
 
 /// Missing providers retain an entity so element ids and native selection
@@ -165,14 +252,16 @@ impl SourceBlock {
 
 impl Render for SourceBlock {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let copy_source = self.source.clone();
         shell(
             "copy-code-source",
             &self.language,
-            &self.source,
+            move |_, _| copy_source.clone(),
             None,
             source("code-source-scroll", self.source.clone(), cx),
             cx,
         )
+        .fit(Width::Source(self.source.clone()))
     }
 }
 

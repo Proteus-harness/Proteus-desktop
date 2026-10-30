@@ -148,3 +148,83 @@ Native и transport. SIGINT/SIGTERM и timeout также выполняют о�
 python3 examples/performance/native-stream/status_demo.py --check-fixture \
   --output build/verification/native-status-smoke-new
 ```
+
+## Ширина блоков, горизонтальная прокрутка и Copy
+
+`code_blocks.py` показывает одно синтетическое assistant сообщение с пятью
+завершёнными fences: Rust из двух строк с финальным LF, короткие `text` и `md`,
+три строки с ASCII/CJK/табами/эмодзи и Rust строку длиннее 180 колонок.
+У CJK-строки больше UTF-8 байтов, чем у ASCII, но она визуально короче:
+ширину нельзя считать через длину строки. Короткие блоки должны занимать ширину
+содержимого, длинный — ограничиваться чатом. Индикаторы скрытого текста нужны
+только на соответствующем краю при горизонтальной прокрутке; номера строк
+остаются на месте, вертикальное колесо продолжает прокручивать чат.
+
+Запускайте внутри отдельного background-gui display с watcher, как основной
+runner. Для Markdown нужен **готовый каталог установленных расширений**:
+Из указанного `--extensions` стенд берёт только готовый `markdown-render` и
+создаёт symlink в частном `OUTPUT/renderer-extensions`; именно этот каталог
+передаётся как `PROTEUS_EXTENSIONS_DIR`. Остальные расширения и их badges
+не загружаются. Это проверка кодовых блоков с Markdown, а не расхода всей
+сборки со всеми расширениями. HOME/config/cache/session/workspace находятся
+только в новом output; пакеты не собираются и не устанавливаются.
+
+```sh
+python3 /absolute/background-gui/scripts/bgui.py run SESSION --cwd /absolute/Proteus-desktop -- \
+  python3 /absolute/Proteus-desktop/examples/performance/native-stream/code_blocks.py \
+  --native /absolute/Proteus-desktop/build/Proteus/proteus-native \
+  --extensions /absolute/Proteus-desktop/build/Proteus/share/extensions \
+  --output /absolute/Proteus-desktop/build/verification/native-code-blocks-current \
+  --timeout 600
+```
+
+`READY` подтверждает доставку первого snapshot, а не геометрию кадра.
+Изначально стадия `initial` держится без автоматического обновления. При
+1440×1000 сообщение рассчитано примерно на 700 px высоты; если из-за настроек
+шрифта нижний длинный fence не виден, прокрутите чат вниз. Проверьте каждый
+блок и скопируйте его **кнопкой блока**, включая финальный LF и табы.
+Точный исходник каждого fence сохранён в `expected/initial/{rust,text,markdown,unicode,long}.txt`;
+`message.txt` содержит всё сообщение и предназначен для отдельного message Copy.
+Не используйте expected-файл вместо реального clipboard. Например, после
+копирования короткого Rust блока сохраните clipboard из того же display:
+
+```sh
+python3 /absolute/background-gui/scripts/bgui.py exec SESSION -- wl-paste --no-newline
+# Сохранить stdout команды wl-paste из ответа bgui в OUTPUT/clipboard-rust.txt,
+# без JSON-обёртки bgui и без добавления LF; затем сравнить:
+cmp OUTPUT/expected/initial/rust.txt OUTPUT/clipboard-rust.txt
+```
+
+Только после начальных Copy/геометрии запустите единственное явное обновление:
+
+```sh
+touch OUTPUT/control/update
+# Дождаться STAGE updated и нового кадра; Rust теперь из трёх строк.
+```
+
+Обновляется тот же message_id через существующие SSE delta и tool barrier,
+затем execution переходит в success. Второй snapshot/AssistantMessageCompleted
+не отправляется. Все fences закрыты до и после обновления, автоматических
+замен больше нет. Повторно проверьте Copy: новый короткий Rust должен совпасть
+с `expected/updated/rust.txt`, остальные — со своими updated-файлами.
+Это проверяет обновление сохранённого исходника без копирования текста на
+каждом render; старое значение нельзя подставлять из начального oracle.
+После обновления в ленте также появляется синтетический tool barrier.
+
+```sh
+touch OUTPUT/control/stop
+```
+
+Stop, SIGINT/SIGTERM и timeout (10–600 секунд, по умолчанию 600) завершают
+только собственный Native и transport, сохраняя `trace.json`, `state.json`,
+`native.log`, SHA256 launcher и фактического ELF. State также хранит исходный
+installed-каталог, частный каталог, путь и SHA256 manifest/ELF Markdown renderer.
+Секретный token в state/stdout
+не выводится. Затем остановите собственную background-gui session. Сервер —
+тот же локальный mock, Core, модели и реальные журналы не используются.
+Wire/source smoke без GUI и сборки:
+
+```sh
+python3 examples/performance/native-stream/code_blocks.py --check-fixture \
+  --output build/verification/native-code-blocks-smoke-new
+```

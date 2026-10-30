@@ -5,20 +5,32 @@ use std::rc::Rc;
 
 /// Current-frame editor geometry and its retained scroll offset.
 /// The editor applies caret scrolling before invoking the presentation callback.
-/// Like other [`ScrollbarHandle`] implementations, the content size includes
-/// the viewport's padding, so subtracting the track size gives the scroll range.
+/// The [`ScrollbarHandle`] geometry includes padding and the scrollbar's trailing
+/// presentation margin. Use [`Self::horizontal_scroll_range`] for the text's
+/// actual horizontal endpoint rather than deriving it from the track size.
 #[derive(Clone)]
 pub struct EditorScrollbarContext {
     pub(crate) handle: ScrollHandle,
     pub(crate) viewport: Bounds<Pixels>,
     pub(crate) scroll_viewport: Size<Pixels>,
     pub(crate) content: Size<Pixels>,
+    pub(crate) horizontal_scroll_range: Pixels,
     pub(crate) axis: ScrollbarAxis,
 }
 
 impl EditorScrollbarContext {
     pub fn axis(&self) -> ScrollbarAxis {
         self.axis
+    }
+
+    /// The distance from offset zero to the editor's actual horizontal endpoint.
+    ///
+    /// Uses the same clamp as wheel and caret scrolling, including alignment's
+    /// caret clearance. Unlike the scrollbar track's content extent, this does
+    /// not include an extra trailing presentation margin. The current offset
+    /// reaches the right endpoint at `-self.horizontal_scroll_range()`.
+    pub fn horizontal_scroll_range(&self) -> Pixels {
+        self.horizontal_scroll_range
     }
 
     /// The editor's viewport without padding, for consumers that need its

@@ -209,7 +209,7 @@ class Fixture:
         path = parsed.path
         scoped = path in ("/events", "/config", "/config/local", "/context", "/cancel")
         require(query == ({"session_dir": [self.session]} if scoped else {}),
-                "Unexpected session query")
+                f"Unexpected session query: {path}; keys={sorted(query)}")
         body = None
         if method == "POST":
             require(h.headers.get("Transfer-Encoding") is None, "Chunked request not allowed")

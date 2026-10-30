@@ -100,6 +100,29 @@ class TransportTests(unittest.TestCase):
 
 
 class ControlTests(unittest.TestCase):
+    def test_code_block_fixture_selects_only_ready_markdown_renderer(self):
+        from code_blocks import select_renderer
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            installed, output = root / "installed", root / "output"
+            package = installed / "markdown-render"
+            (package / "bin").mkdir(parents=True)
+            output.mkdir()
+            (installed / "unrelated-badge").mkdir()
+            manifest = package / "extension.json"
+            save(manifest, {"id": "markdown-render", "command": ["bin/markdown-render"],
+                            "surfaces": {"content": {"formats": ["text/markdown"]}}})
+            executable = package / "bin/markdown-render"
+            executable.write_text("#!/bin/sh\nexit 0\n")
+            executable.chmod(0o700)
+            receipt = select_renderer(output, installed)
+            selected = Path(receipt["selected_extensions"])
+            self.assertEqual([path.name for path in selected.iterdir()], ["markdown-render"])
+            self.assertTrue((selected / "markdown-render").is_symlink())
+            self.assertEqual((selected / "markdown-render").resolve(), package)
+            self.assertEqual(receipt["renderer_manifest_sha256"], digest(manifest))
+            self.assertEqual(receipt["renderer_executable_sha256"], digest(executable))
+
     def test_stage_order_and_exact_copy_receipt(self):
         with TemporaryDirectory() as directory:
             output = Path(directory)

@@ -142,6 +142,7 @@ pub(super) struct LongestLineKey {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct EditorScrollbarSnapshot {
     layout: EditorScrollbarLayout,
+    horizontal_scroll_range: Pixels,
     cursor_scroll_offset: Point<Pixels>,
     soft_wrap: bool,
 }
@@ -160,6 +161,12 @@ impl EditorScrollbarSnapshot {
                 last_layout.line_number_width,
                 scroll_size,
                 state.editor_paddings,
+            ),
+            horizontal_scroll_range: -clamp_horizontal_scroll_offset(
+                px(f32::MIN),
+                scroll_size.width,
+                input_bounds.size.width,
+                last_layout.text_align,
             ),
             cursor_scroll_offset,
             soft_wrap: state.soft_wrap,
@@ -273,6 +280,7 @@ impl<M: InputModeKind> Element for EditorScrollbar<M> {
                 viewport: snapshot.layout.bounds,
                 scroll_viewport: snapshot.layout.scroll_viewport_size,
                 content: snapshot.layout.scroll_size,
+                horizontal_scroll_range: snapshot.horizontal_scroll_range,
                 axis: if snapshot.soft_wrap {
                     crate::ScrollbarAxis::Vertical
                 } else {
@@ -1192,6 +1200,15 @@ impl<M: InputModeKind> TextElement<M> {
         style: &TextStyle,
         window: &mut Window,
     ) -> (Pixels, usize) {
+        Self::layout_line_numbers_for_font(state, style.font(), font_size, window)
+    }
+
+    pub(super) fn layout_line_numbers_for_font(
+        state: &InputBaseState<M>,
+        font: gpui::Font,
+        font_size: Pixels,
+        window: &mut Window,
+    ) -> (Pixels, usize) {
         let total_lines = state.presentation_buffer_line_count();
         // Use the configured minimum for small documents, then follow the actual
         // line count up to seven digits. This width also drives paint and hit testing.
@@ -1203,7 +1220,7 @@ impl<M: InputModeKind> TextElement<M> {
                 font_size,
                 &[TextRun {
                     len: line_number_len,
-                    font: style.font(),
+                    font,
                     color: gpui::black(),
                     background_color: None,
                     underline: None,
@@ -4415,6 +4432,89 @@ mod tests {
                 text_origin.y + px(stretch)
             );
         });
+    }
+
+    #[gpui::test]
+    fn scrollbar_horizontal_scroll_range_matches_the_actual_endpoint(cx: &mut TestAppContext) {
+        use crate::ScrollbarHandle as _;
+
+        let (editor, window) = decoration_editor(cx, "x", false);
+        let presented = std::rc::Rc::new(std::cell::RefCell::new(None));
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.update(|_, cx| {
+            editor.update(cx, |state, cx| {
+                state.set_scroll_bounce(false, cx);
+                let presented = presented.clone();
+                state.set_scrollbar_renderer(Some(std::rc::Rc::new(move |context, _, _| {
+                    *presented.borrow_mut() = Some(context);
+                    div().into_any_element()
+                })));
+            });
+        });
+
+        for (long, digits, numbers, folding, padded, align) in [
+            (false, 1, true, false, false, TextAlign::Left),
+            (true, 3, true, true, false, TextAlign::Left),
+            (true, 1, true, false, false, TextAlign::Left),
+            (true, 1, false, false, true, TextAlign::Left),
+            (false, 1, true, false, true, TextAlign::Center),
+            (true, 1, true, false, true, TextAlign::Center),
+            (false, 1, true, false, false, TextAlign::Right),
+            (true, 1, true, false, false, TextAlign::Right),
+        ] {
+            cx.update(|window, cx| {
+                editor.update(cx, |state, cx| {
+                    state.set_value(if long { "x".repeat(100) } else { "x".into() }, window, cx);
+                    state.set_min_line_number_digits(digits, cx);
+                    state.set_line_number(numbers, window, cx);
+                    state.set_folding(folding, window, cx);
+                    // The public setter allows alignment only for single-line
+                    // inputs. Exercise the shared layout/clamp geometry here
+                    // directly, including its centered/right caret clearance.
+                    state.text_align = align;
+                    state.set_editor_paddings(if padded {
+                        Edges { left: px(7.), right: px(13.), top: px(2.), bottom: px(3.) }
+                    } else {
+                        Edges::default()
+                    });
+                });
+                // First publish the new source/style geometry. Seeking with the
+                // preceding document's layout can be adjusted by caret reveal.
+                window.refresh();
+                window.draw(cx).clear(cx);
+                editor.update(cx, |state, cx| {
+                    state.set_scroll_offset(point(px(f32::MIN), px(0.)), cx);
+                });
+                window.refresh();
+                window.draw(cx).clear(cx);
+                let state = editor.read(cx);
+                let context = presented.borrow().clone().unwrap();
+                let range = context.horizontal_scroll_range();
+                assert_eq!(state.last_layout.as_ref().unwrap().text_align, align);
+                assert_eq!(range, -state.scroll_offset().x,
+                    "long={long}, digits={digits}, numbers={numbers}, folding={folding}, padded={padded}, align={align:?}");
+                assert_eq!(context.offset().x, -range);
+                assert_eq!(
+                    range,
+                    -clamp_horizontal_scroll_offset(
+                        px(f32::MIN),
+                        state.scroll_size.width,
+                        state.input_bounds.size.width,
+                        align,
+                    ),
+                );
+                if align == TextAlign::Left {
+                    if long {
+                        assert!(range > px(0.));
+                        let track_range = context.content_size().width - context.viewport_bounds().size.width;
+                        assert!((track_range - range - RIGHT_MARGIN).abs() < px(0.01),
+                            "the scrollbar's trailing margin must not extend the reported text range");
+                    } else {
+                        assert_eq!(range, px(0.));
+                    }
+                }
+            });
+        }
     }
 
     /// A scrollbar supplied through `set_scrollbar_renderer` gets the editor's own

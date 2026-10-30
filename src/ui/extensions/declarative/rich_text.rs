@@ -153,6 +153,12 @@ pub(super) fn embedded_code(
     // follows the preview rows, with the same mono font and leading. The
     // original source (including its final LF) remains in the editor/copy.
     let height = cx.theme().mono_font_size * (1.5 * rows as f32);
+    // Rope clones share the current revision; materialize only on activation.
+    // The fallback similarly shares its one text allocation with the body.
+    let source = state.map(|state| state.read(cx).text().clone());
+    let fallback = source
+        .is_none()
+        .then(|| SharedString::from(text.to_owned()));
     let body = state
         .map(|state| {
             code_block::readonly_editor(state, cx)
@@ -167,17 +173,28 @@ pub(super) fn embedded_code(
         .unwrap_or_else(|| {
             code_block::source(
                 SharedString::from(format!("code-source-{id}")),
-                text.to_owned().into(),
+                fallback.as_ref().unwrap().clone(),
                 cx,
             )
         });
+    let width = match state {
+        Some(state) => super::code_geometry::Width::Editor(
+            state.clone(),
+            code_block::line_numbers(language, wrap),
+        ),
+        None => super::code_geometry::Width::Source(fallback.as_ref().unwrap().clone()),
+    };
     code_block::shell(
         SharedString::from(format!("code-copy-{id}")),
         language,
-        text,
+        move |_, _| match &source {
+            Some(source) => source.to_string().into(),
+            None => fallback.as_ref().unwrap().clone(),
+        },
         None,
         body,
         cx,
     )
+    .fit(width)
     .into_any_element()
 }
