@@ -35,6 +35,7 @@ pub(super) fn readonly_editor(
     cx: &App,
 ) -> gpui_kit::component::input::Editor {
     gpui_kit::component::input::Editor::new(state)
+        .xsmall()
         .readonly(true)
         .appearance(false)
         .bordered(false)
@@ -50,19 +51,20 @@ pub(super) fn shell(
     cx: &App,
 ) -> Div {
     v_flex()
+        .group("code-block")
         .w_full()
         .min_w_0()
         .surface_frame(cx)
         .bg(cx.theme().muted)
         .overflow_hidden()
-        .gap_1()
+        .gap_0p5()
         .child(
             h_flex()
                 .w_full()
                 .min_w_0()
                 .items_center()
-                .px_2()
-                .py_1()
+                .px_1p5()
+                .py_0p5()
                 .gap_1()
                 .child(
                     div()
@@ -72,15 +74,48 @@ pub(super) fn shell(
                         .child(crate::ui::fade::faded(language.to_owned())),
                 )
                 .child(div().flex_1())
-                .child(
-                    kit::Clipboard::new(copy_id)
-                        .value(source.to_owned())
-                        .hint("Копировать код", cx)
-                        .xsmall(),
-                )
+                .child(HoverCopy {
+                    id: copy_id.into(),
+                    source: source.to_owned().into(),
+                })
                 .children(controls),
         )
-        .child(div().w_full().min_w_0().px_2().pb_2().child(body))
+        .child(div().w_full().min_w_0().px_1p5().pb_1p5().child(body))
+}
+
+/// Keep the button in the layout and tab order while hidden. A focused child
+/// reveals it too, so keyboard activation retains the native clipboard state.
+#[derive(IntoElement)]
+struct HoverCopy {
+    id: ElementId,
+    source: SharedString,
+}
+
+impl RenderOnce for HoverCopy {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let id = ElementId::NamedChild(std::sync::Arc::new(self.id.clone()), "hover".into());
+        let focus = window
+            .use_keyed_state(id.clone(), cx, |_, cx| cx.focus_handle())
+            .read(cx)
+            .clone();
+        div()
+            .id(id)
+            .track_focus(&focus)
+            .tab_stop(false)
+            .flex_none()
+            .opacity(if focus.contains_focused(window, cx) {
+                1.
+            } else {
+                0.
+            })
+            .group_hover("code-block", |style| style.opacity(1.))
+            .child(
+                kit::Clipboard::new(self.id)
+                    .value(self.source)
+                    .hint("Копировать код", cx)
+                    .xsmall(),
+            )
+    }
 }
 
 /// Lightweight source display retains native selection and horizontal scroll

@@ -147,9 +147,9 @@ pub(super) fn embedded_code(
 ) -> AnyElement {
     use gpui_kit::component::ActiveTheme as _;
     let rows = text.bytes().filter(|byte| *byte == b'\n').count() + 1;
-    // Editor uses the same mono font and 1.5 leading; an extra physical row
-    // covers native input insets at all interface scales.
-    let height = cx.theme().mono_font_size * (1.5 * (rows + 1) as f32);
+    // The compact readonly editor has no vertical input insets. Its height
+    // follows the physical source rows, with the same mono font and leading.
+    let height = cx.theme().mono_font_size * (1.5 * rows as f32);
     let body = state
         .map(|state| {
             code_block::readonly_editor(state, cx)
