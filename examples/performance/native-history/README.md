@@ -67,6 +67,13 @@ python3 /absolute/background-gui/scripts/bgui.py run SESSION --cwd /absolute/Pro
 и `report.json`. После измерения каждый запуск проверяет через SSE точный
 session ID, число сообщений по cursor и текст/IDs последних 50 сообщений.
 Canonical journal и blobs должны остаться побайтно неизменными.
+Runner включает `PROTEUS_STARTUP_TRACE=1`: для `PROTEUS_HISTORY` клиент
+обходит удерживаемые строки и вложенные tool args/metadata, чтобы посчитать
+`payload_bytes`. Без этой opt-in трассировки диагностический обход не нужен
+и не выполняется; обязательный подсчёт для ограничения history-cache остаётся.
+Сравнивайте запуски с одинаковым режимом трассировки. Этот trace-enabled стенд
+не измеряет выигрыш от пропуска диагностического обхода в обычном запуске;
+устранение работы видно в исходниках, а численное ускорение из него не следует.
 Измеряются RSS, PSS, SwapPss, private memory, CPU, IO и sampled peak всего
 дерева: GUI, backend, modules, extensions. Сам sampler, compositor и observer
 в сумму приложения не входят. 100% CPU означает одно логическое ядро.

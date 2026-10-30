@@ -225,6 +225,10 @@ impl Chat {
     }
 
     pub(super) fn prepare_tool_diffs(&mut self, cx: &mut Context<Self>) {
+        // Folding retains diff entities, but needs no source preparation.
+        if self.expanded.is_empty() {
+            return;
+        }
         for entry in self.history.displayed(&self.session.transcript).entries() {
             if !self.expanded.contains(&entry.key) {
                 continue;

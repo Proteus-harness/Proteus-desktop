@@ -346,6 +346,9 @@ impl Runtime {
                     });
                 }
                 self.content_finished(&view, source_revision, cx);
+                // The addressed view notified if it accepted the failure.
+                // Queue progress is not a change to every other surface.
+                return;
             }
             Signal::Message(Incoming::Focus {
                 view: view_id,
@@ -477,7 +480,11 @@ impl Runtime {
                     }
                 }
                 self.content_finished(&view, source_revision, cx);
-                self.error = None;
+                // show_with_revision already notifies the accepted target.
+                // Only clearing a shared runtime error affects other views.
+                if self.error.take().is_none() {
+                    return;
+                }
             }
             Signal::Message(Incoming::OpenDocument {
                 mut context,

@@ -322,7 +322,7 @@ impl Chat {
         crate::startup_trace::history_window(
             start,
             rows.len(),
-            rows.iter().map(|row| row.retained_bytes()).sum(),
+            || rows.iter().map(|row| row.retained_bytes()).sum(),
             self.session.transcript.entries().len(),
         );
         cx.notify();

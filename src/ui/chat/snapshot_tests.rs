@@ -3,6 +3,7 @@ use super::{Session, history::History};
 use crate::transcript::Change;
 use proteus_contracts::app_protocol::{
     AppServerEvent, AppSessionSnapshot, AppTranscriptCursor, AppTranscriptMessage,
+    AppTranscriptTool,
 };
 use proteus_contracts::domain::{Event, EventContext, EventEnvelope, MessageId, ThreadId};
 use uuid::Uuid;
@@ -319,4 +320,116 @@ fn rejected_snapshot_cannot_change_root_routing() {
         runtime(&mut session, first, delta(id(101), "right root")),
         Some(Change::Pushed),
     );
+}
+
+fn patch_row(
+    args: serde_json::Value,
+    effective_args: Option<serde_json::Value>,
+) -> AppTranscriptMessage {
+    AppTranscriptMessage {
+        timestamp_ms: None,
+        message_id: None,
+        phase: None,
+        role: "system".into(),
+        text: String::new(),
+        images: Vec::new(),
+        tool: Some(AppTranscriptTool {
+            call_id: "patch-call".into(),
+            name: crate::tool_display::APPLY_PATCH.into(),
+            args,
+            effective_args,
+            status: "done".into(),
+            result: None,
+            metadata: serde_json::Value::Null,
+        }),
+        subagent: None,
+        streaming: false,
+    }
+}
+
+fn displayed_patch<'a>(session: &'a Session, history: &'a History) -> Option<&'a str> {
+    let entry = history.displayed(&session.transcript).entries().first()?;
+    crate::tool_display::patch_text(super::tool_row::tool_args(entry.tool.as_ref()?))
+}
+
+#[test]
+fn patch_source_follows_snapshots_while_the_row_key_stays_stable() {
+    use serde_json::json;
+
+    let (mut session, mut history) = session();
+    let cases = [
+        (json!({"patch": "raw-a"}), None, Some("raw-a")),
+        (json!({"patch": "raw-b"}), None, Some("raw-b")),
+        (
+            json!({"patch": "raw-b"}),
+            Some(json!({"input": "effective-a"})),
+            Some("effective-a"),
+        ),
+        (
+            json!({"patch": "raw-c"}),
+            Some(json!({"input": "effective-b"})),
+            Some("effective-b"),
+        ),
+        (
+            json!({"patch": "raw-c"}),
+            Some(json!({"patch": null, "input": "not-a-fallback"})),
+            None,
+        ),
+        (
+            json!({"patch": "raw-c"}),
+            Some(json!({"patch": "  ", "input": "not-a-fallback"})),
+            None,
+        ),
+        (json!({"input": "raw-d"}), None, Some("raw-d")),
+    ];
+    let mut key = None;
+    for (index, (args, effective, expected)) in cases.into_iter().enumerate() {
+        let mut revision = cursor(0);
+        revision.revision = format!("revision-{index}");
+        deliver_snapshot(
+            &mut session,
+            &mut history,
+            snapshot(
+                Some(id(10)),
+                "first",
+                index as u64 + 1,
+                vec![patch_row(args, effective)],
+                Some(revision),
+            ),
+        )
+        .unwrap();
+        let current = session.transcript.entries()[0].key;
+        assert_eq!(current, *key.get_or_insert(current));
+        // Reopening must select the current source, not a row-key/length cache.
+        assert_eq!(displayed_patch(&session, &history), expected);
+    }
+}
+
+#[test]
+fn reconnect_patch_source_replaces_effective_args_without_replacing_the_row_key() {
+    use serde_json::json;
+
+    let (mut session, mut history) = session();
+    let mut key = None;
+    for (stream, seq, effective) in [("first", 9, "before"), ("restarted", 0, "after")] {
+        session.cursor.begin_connection();
+        deliver_snapshot(
+            &mut session,
+            &mut history,
+            snapshot(
+                Some(id(10)),
+                stream,
+                seq,
+                vec![patch_row(
+                    json!({"patch": "raw"}),
+                    Some(json!({"patch": effective})),
+                )],
+                None,
+            ),
+        )
+        .unwrap();
+        let current = session.transcript.entries()[0].key;
+        assert_eq!(current, *key.get_or_insert(current));
+        assert_eq!(displayed_patch(&session, &history), Some(effective));
+    }
 }

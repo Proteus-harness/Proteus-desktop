@@ -127,6 +127,20 @@ python3 examples/performance/build-cost/run.py --output "$PWD/build/performance/
 python3 examples/performance/build-cost/run.py --output "$PWD/build/performance/build-ui-extensions" --components desktop extensions --jobs 2 --runs 2
 ```
 
+Git-штамп Desktop отслеживает HEAD и текущую ссылку, в том числе после
+`git pack-refs` и в linked worktree. Если loose ref отсутствует, build script
+наблюдает существующий ближайший каталог внутри `refs` и существующее
+хранилище ссылок, а не отсутствующий файл. Изменение соседней ссылки в этом
+каталоге или общего `packed-refs` может консервативно вызвать пересборку;
+неизменный checkout не должен пересобираться лишь из-за packed ref.
+Штамп остаётся short HEAD: отдельные tags и dirty-файлы не добавляют version
+или dirty suffix. Release-профиль, LTO и выбор компонентов не меняются.
+
+Регрессии этой границы — `scripts/test_release_build_commit.py`: маленький
+offline Cargo fixture без GPUI/Core проверяет повторную release-сборку,
+переходы loose/packed, nested branch, detached HEAD и linked worktree.
+Это проверка freshness и штампа, не замер скорости приложения.
+
 Сохраняйте `target` и кэши. Указывайте компоненты, состояние кэша и фактические
 метрики; повторная сборка с существующим кэшем не называется холодной. Не
 запускайте runtime-бенчмарки одновременно со сборкой: нагрузка искажает время.
