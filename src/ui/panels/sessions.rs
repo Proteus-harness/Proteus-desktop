@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use crate::ui::context::RightClickMenu as _;
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::scroll::ScrollableElement as _;
+use gpui_kit::component::scroll::{ScrollableElement as _, vertical_scroll_gutter};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -195,10 +195,11 @@ impl Workspace {
             .overflow_y_scroll()
             .track_scroll(&self.session_list.scroll)
             .px_2()
-            .pr_4()
             .pb_2()
             .gap_0p5()
             .children(items);
+        let list =
+            vertical_scroll_gutter(list, &self.session_list.scroll, rems(0.5), rems(1.), window);
         let list = self
             .session_list_actions(v_flex().flex_1().min_h_0().relative(), cx)
             .child(list)

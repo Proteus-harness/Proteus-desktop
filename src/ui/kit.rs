@@ -16,7 +16,7 @@ use gpui_kit::component::input::{Input, InputState, Textarea, TextareaState};
 use gpui_kit::{App, ElementId, MouseButton, SharedString, StatefulInteractiveElement, Styled};
 
 use super::prefs;
-use super::tip::Tip as _;
+use super::tip::{Tip as _, TooltipContent};
 use crate::preferences::Hints;
 use crate::shortcuts::{self, Command};
 
@@ -255,54 +255,49 @@ pub(crate) fn step_focus(
     false
 }
 
-/// Compose independently enabled tooltip parts once, with no duplicate title.
-fn tooltip_text(
+/// Filter independent semantic parts without flattening their visual roles.
+fn tooltip_content(
     hints: Hints,
     title: Option<(&str, bool)>,
     description: Option<&str>,
     keys: Option<&str>,
-) -> Option<SharedString> {
+) -> Option<TooltipContent> {
     let title = title
         .filter(|(text, clipped)| !text.is_empty() && hints.title.shows(*clipped))
         .map(|(text, _)| text);
     let description =
         description.filter(|text| hints.description && !text.is_empty() && Some(*text) != title);
-    let keys = keys.filter(|text| hints.shortcut && !text.is_empty());
-    let detail = match (description, keys) {
-        (Some(description), Some(keys)) => Some(format!("{description} · {keys}")),
-        (Some(text), None) | (None, Some(text)) => Some(text.to_owned()),
-        (None, None) => None,
-    };
-    match (title, detail) {
-        (Some(title), Some(detail)) => Some(format!("{title}\n{detail}").into()),
-        (Some(title), None) => Some(title.to_owned().into()),
-        (None, Some(detail)) => Some(detail.into()),
-        (None, None) => None,
-    }
+    let shortcut = keys.filter(|text| hints.shortcut && !text.is_empty());
+    (title.is_some() || description.is_some() || shortcut.is_some()).then(|| TooltipContent {
+        title: title.map(|text| text.to_owned().into()),
+        description: description.map(|text| text.to_owned().into()),
+        shortcut: shortcut.map(|text| text.to_owned().into()),
+        context: None,
+    })
 }
 
-/// Setting descriptions and configuration paths share one measured caption
-/// tooltip. Paths are semantic context, controlled with the description.
-pub(crate) fn caption_hint_text(
+/// Configuration paths are secondary semantic context, governed by the
+/// description flag rather than the keyboard-shortcut flag.
+pub(crate) fn caption_hint_content(
     hints: Hints,
     title: &str,
     clipped: bool,
     description: Option<&str>,
     context: Option<&str>,
-) -> Option<SharedString> {
-    let text = tooltip_text(hints, Some((title, clipped)), description, None);
+) -> Option<TooltipContent> {
+    let content = tooltip_content(hints, Some((title, clipped)), description, None);
     let context = context.filter(|context| hints.description && !context.is_empty());
-    match (text, context) {
-        (Some(text), Some(context)) => Some(format!("{text}\n{context}").into()),
-        (None, Some(context)) => Some(context.to_owned().into()),
-        (text, None) => text,
+    if content.is_none() && context.is_none() {
+        return None;
     }
+    Some(TooltipContent {
+        context: context.map(|text| text.to_owned().into()),
+        ..content.unwrap_or_default()
+    })
 }
 
-/// Plain action hints have a description and an optional keyboard shortcut.
-/// The title policy is handled by measured captions and native button labels.
-pub(crate) fn hint_text(text: &str, keys: Option<&str>, cx: &App) -> Option<SharedString> {
-    tooltip_text(prefs::current(cx).hints, None, Some(text), keys)
+fn hint_content(text: &str, keys: Option<&str>, cx: &App) -> Option<TooltipContent> {
+    tooltip_content(prefs::current(cx).hints, None, Some(text), keys)
 }
 
 fn button_title<'a>(
@@ -325,11 +320,11 @@ pub(super) fn button_hints(
     button.render_with(move |button, context, _, _| {
         let description = description.clone();
         let keys = keys.clone();
-        button.tip_text_observing_focus(
+        button.tip_content_observing_focus(
             context.on_hover.clone(),
             Some(context.focus_handle.clone()),
             move |cx| {
-                tooltip_text(
+                tooltip_content(
                     prefs::current(cx).hints,
                     button_title(
                         context.label.as_deref(),
@@ -372,8 +367,8 @@ impl Hint for Button {
 
 impl Hint for Switch {
     fn hint_keys(self, text: &str, keys: Option<&str>, cx: &App) -> Self {
-        match hint_text(text, keys, cx) {
-            Some(text) => self.tooltip(text),
+        match hint_content(text, keys, cx) {
+            Some(content) => self.tooltip_content(content),
             None => self,
         }
     }
@@ -381,8 +376,8 @@ impl Hint for Switch {
 
 impl Hint for Clipboard {
     fn hint_keys(self, text: &str, keys: Option<&str>, cx: &App) -> Self {
-        match hint_text(text, keys, cx) {
-            Some(text) => self.tooltip(text),
+        match hint_content(text, keys, cx) {
+            Some(content) => self.tooltip_content(content),
             None => self,
         }
     }
@@ -390,27 +385,36 @@ impl Hint for Clipboard {
 
 #[cfg(test)]
 mod hint_tests {
-    use super::{button_title, caption_hint_text, tooltip_text};
+    use super::{button_title, caption_hint_content, tooltip_content};
     use crate::preferences::{Hints, TitleHint};
+    use crate::ui::tip::TooltipContent;
+
+    fn content(
+        title: Option<&str>,
+        description: Option<&str>,
+        shortcut: Option<&str>,
+    ) -> TooltipContent {
+        TooltipContent {
+            title: title.map(Into::into),
+            description: description.map(Into::into),
+            shortcut: shortcut.map(Into::into),
+            context: None,
+        }
+    }
 
     #[test]
     fn tooltip_parts_can_be_enabled_independently() {
-        for (title, description, shortcut, expected) in [
-            (false, false, false, None),
-            (false, false, true, Some("Ctrl+Enter")),
-            (false, true, false, Some("Сохранить настройки")),
-            (false, true, true, Some("Сохранить настройки · Ctrl+Enter")),
-            (true, false, false, Some("Сохранить")),
-            (true, false, true, Some("Сохранить\nCtrl+Enter")),
-            (true, true, false, Some("Сохранить\nСохранить настройки")),
-            (
-                true,
-                true,
-                true,
-                Some("Сохранить\nСохранить настройки · Ctrl+Enter"),
-            ),
+        for (title, description, shortcut) in [
+            (false, false, false),
+            (false, false, true),
+            (false, true, false),
+            (false, true, true),
+            (true, false, false),
+            (true, false, true),
+            (true, true, false),
+            (true, true, true),
         ] {
-            let text = tooltip_text(
+            let parts = tooltip_content(
                 Hints {
                     title: if title {
                         TitleHint::Always
@@ -424,7 +428,18 @@ mod hint_tests {
                 Some("Сохранить настройки"),
                 Some("Ctrl+Enter"),
             );
-            assert_eq!(text.as_deref(), expected);
+            if !title && !description && !shortcut {
+                assert_eq!(parts, None);
+                continue;
+            }
+            assert_eq!(
+                parts,
+                Some(content(
+                    title.then_some("Сохранить"),
+                    description.then_some("Сохранить настройки"),
+                    shortcut.then_some("Ctrl+Enter"),
+                ))
+            );
         }
     }
 
@@ -432,11 +447,11 @@ mod hint_tests {
     fn icon_names_remain_discoverable_without_overriding_visible_labels() {
         let name = button_title(None, false, Some("Новый чат"));
         assert_eq!(
-            tooltip_text(Hints::default(), name, None, None).as_deref(),
-            Some("Новый чат")
+            tooltip_content(Hints::default(), name, None, None),
+            Some(content(Some("Новый чат"), None, None))
         );
         assert_eq!(
-            tooltip_text(
+            tooltip_content(
                 Hints {
                     title: TitleHint::Never,
                     ..Hints::default()
@@ -462,18 +477,20 @@ mod hint_tests {
             shortcut: false,
         };
         assert_eq!(
-            caption_hint_text(
+            caption_hint_content(
                 hints,
                 "Модель",
                 false,
                 Some("Выбор модели"),
                 Some("model.name")
-            )
-            .as_deref(),
-            Some("Выбор модели\nmodel.name")
+            ),
+            Some(TooltipContent {
+                context: Some("model.name".into()),
+                ..content(None, Some("Выбор модели"), None)
+            })
         );
         assert_eq!(
-            caption_hint_text(
+            caption_hint_content(
                 Hints {
                     description: false,
                     shortcut: true,
@@ -487,7 +504,7 @@ mod hint_tests {
             None
         );
         assert_eq!(
-            caption_hint_text(
+            caption_hint_content(
                 Hints {
                     title: TitleHint::Always,
                     description: false,
@@ -497,9 +514,8 @@ mod hint_tests {
                 false,
                 Some("Выбор модели"),
                 Some("model.name")
-            )
-            .as_deref(),
-            Some("Модель")
+            ),
+            Some(content(Some("Модель"), None, None))
         );
     }
 
@@ -507,29 +523,28 @@ mod hint_tests {
     fn clipped_title_and_matching_description_form_one_tooltip() {
         let hints = Hints::default();
         assert_eq!(
-            tooltip_text(hints, Some(("Сохранить", false)), None, None),
-            None,
+            tooltip_content(hints, Some(("Сохранить", false)), None, None),
+            None
         );
         assert_eq!(
-            tooltip_text(hints, Some(("Сохранить", true)), None, None).as_deref(),
-            Some("Сохранить"),
+            tooltip_content(hints, Some(("Сохранить", true)), None, None),
+            Some(content(Some("Сохранить"), None, None))
         );
         assert_eq!(
-            tooltip_text(
+            tooltip_content(
                 hints,
                 Some(("Сохранить", true)),
                 Some("Сохранить"),
                 Some("Ctrl+S")
-            )
-            .as_deref(),
-            Some("Сохранить\nCtrl+S"),
+            ),
+            Some(content(Some("Сохранить"), None, Some("Ctrl+S")))
         );
         assert_eq!(
-            tooltip_text(hints, Some(("", true)), Some(""), Some("")),
-            None,
+            tooltip_content(hints, Some(("", true)), Some(""), Some("")),
+            None
         );
         assert_eq!(
-            tooltip_text(
+            tooltip_content(
                 Hints {
                     title: TitleHint::Never,
                     description: false,
@@ -539,7 +554,27 @@ mod hint_tests {
                 Some("Сохранить"),
                 None
             ),
-            None,
+            None
+        );
+    }
+
+    #[test]
+    fn multiline_description_remains_description_rather_than_becoming_a_title() {
+        assert_eq!(
+            tooltip_content(
+                Hints {
+                    title: TitleHint::Always,
+                    ..Hints::default()
+                },
+                Some(("Модель", false)),
+                Some("Первая строка\nВторая строка"),
+                Some("Ctrl+M")
+            ),
+            Some(content(
+                Some("Модель"),
+                Some("Первая строка\nВторая строка"),
+                Some("Ctrl+M")
+            ))
         );
     }
 }

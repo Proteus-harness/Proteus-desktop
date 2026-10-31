@@ -1,16 +1,17 @@
+// Адаптировано из Zed: crates/workspace/src/dock.rs (native panel icon buttons).
 //! The rail along the left edge, under the top bar: the panels it opens
 //! beside itself, the narrow extension icons placed at either end, and the
 //! settings at the bottom.
 
 use gpui_kit::assets::IconName as Lucide;
+use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::preferences::{BadgePlace, SESSIONS_PANEL};
 use crate::shortcuts::Command;
-use crate::ui::kit::Pressable as _;
-use crate::ui::tip::Tip as _;
+use crate::ui::kit::Hint as _;
 use crate::ui::workspace::Workspace;
 use crate::ui::{kit, panels, prefs};
 
@@ -55,12 +56,12 @@ impl Workspace {
                 None
             };
             let keys = command.and_then(|command| kit::command_keys(command, cx));
-            let hint = kit::hint_text(panel.title, keys.as_deref(), cx);
             rail_button(
                 ElementId::Name(format!("rail-panel-{name}").into()),
                 panel.icon,
                 shown == Some(name),
-                hint,
+                panel.title,
+                keys.as_deref(),
                 cx,
             )
             .on_click(cx.listener(move |this, _, window, cx| this.press_panel(name, window, cx)))
@@ -70,12 +71,12 @@ impl Workspace {
 
     fn render_settings_button(&self, cx: &Context<Self>) -> impl IntoElement + use<> {
         let keys = kit::command_keys(Command::ToggleSettings, cx);
-        let hint = kit::hint_text("Настройки", keys.as_deref(), cx);
         rail_button(
             "rail-settings",
             Icon::new(Lucide::Settings),
             self.settings.is_some(),
-            hint,
+            "Настройки",
+            keys.as_deref(),
             cx,
         )
         .on_click(cx.listener(|this, _, window, cx| this.toggle_settings(window, cx)))
@@ -87,14 +88,17 @@ fn rail_button(
     id: impl Into<ElementId>,
     icon: Icon,
     active: bool,
-    hint: Option<SharedString>,
+    title: &str,
+    keys: Option<&str>,
     cx: &App,
-) -> Stateful<Div> {
+) -> Button {
     let theme = cx.theme();
     let foreground = theme.foreground;
-    div()
-        .id(id)
+    kit::button(id)
+        .custom(ButtonCustomVariant::new(cx).foreground(theme.muted_foreground))
+        .accessibility_label(title.to_owned())
         .size_8()
+        .p_0()
         .relative()
         .group("rail-selection")
         .flex()
@@ -102,7 +106,6 @@ fn rail_button(
         .justify_center()
         .rounded(theme.radius)
         .cursor_pointer()
-        .pressable(cx)
         .child(crate::ui::selection::background(
             active,
             false,
@@ -113,9 +116,17 @@ fn rail_button(
         .when(active, |button| {
             button.text_color(theme.sidebar_accent_foreground)
         })
-        .when(!active, |button| {
-            button.hover(move |style| style.text_color(foreground))
-        })
-        .child(icon.with_size(gpui_kit::component::Size::Medium))
-        .when_some(hint, |button, hint| button.tip_text(hint))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .justify_center()
+                .when(!active, |icon| {
+                    icon.group_hover("rail-selection", move |style| style.text_color(foreground))
+                })
+                .child(icon.with_size(gpui_kit::component::Size::Medium)),
+        )
+        // The accessible name is the icon-only title, not a duplicate
+        // description. Native button focus shares the common hover tooltip.
+        .hint_keys("", keys, cx)
 }

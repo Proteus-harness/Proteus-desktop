@@ -8,21 +8,21 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use crate::ui::tip::Tip as _;
+use crate::ui::tip::{Tip as _, TooltipContent};
 
 #[derive(IntoElement)]
 pub(crate) struct Hinted<T: IntoElement + 'static> {
     id: ElementId,
     inner: T,
-    hint: Option<SharedString>,
+    hint: Option<TooltipContent>,
 }
 
 pub(crate) type Switch = Hinted<NativeSwitch>;
 pub(crate) type Clipboard = Hinted<NativeClipboard>;
 
 impl<T: IntoElement + 'static> Hinted<T> {
-    pub fn tooltip(mut self, hint: impl Into<SharedString>) -> Self {
-        self.hint = Some(hint.into());
+    pub fn tooltip_content(mut self, hint: TooltipContent) -> Self {
+        self.hint = Some(hint);
         self
     }
 }
@@ -104,6 +104,8 @@ impl<T: IntoElement + 'static> RenderOnce for Hinted<T> {
             .id(self.id)
             .flex_none()
             .child(self.inner)
-            .when_some(self.hint, |control, hint| control.tip_text(hint))
+            .when_some(self.hint, |control, hint| {
+                control.tip_content_when(move |_| Some(hint.clone()))
+            })
     }
 }

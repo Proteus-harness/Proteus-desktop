@@ -4,9 +4,9 @@ use crate::{InteractiveElementExt as _, StyledExt};
 
 use super::{ScrollableMask, Scrollbar, ScrollbarAxis, ScrollbarHandle};
 use gpui::{
-    App, Div, Element, ElementId, InteractiveElement, IntoElement, Overflow, ParentElement,
-    PointRefinement, RenderOnce, ScrollHandle, Stateful, StatefulInteractiveElement,
-    StyleRefinement, Styled, Window, div, prelude::FluentBuilder,
+    App, DefiniteLength, Div, Element, ElementId, InteractiveElement, IntoElement, Overflow,
+    ParentElement, PointRefinement, RenderOnce, ScrollHandle, Stateful, StatefulInteractiveElement,
+    StyleRefinement, Styled, Window, canvas, div, prelude::FluentBuilder, px,
 };
 
 /// A trait for elements that can be made scrollable with scrollbars.
@@ -69,6 +69,7 @@ pub struct Scrollable<E: InteractiveElement + Styled + ParentElement + Element> 
     element: E,
     axis: ScrollbarAxis,
     scroll_bounce: Option<bool>,
+    vertical_gutter: Option<(DefiniteLength, DefiniteLength)>,
 }
 
 impl<E> Scrollable<E>
@@ -82,6 +83,7 @@ where
             element,
             axis: axis.into(),
             scroll_bounce: None,
+            vertical_gutter: None,
         }
     }
 
@@ -98,6 +100,17 @@ where
     /// macOS, off elsewhere; horizontal-only areas do not bounce.
     pub fn scroll_bounce(mut self, enabled: bool) -> Self {
         self.scroll_bounce = Some(enabled);
+        self
+    }
+
+    /// Right content padding with and without a vertical scroll range.
+    /// The extra space depends on overflow, not scrollbar hover or opacity.
+    pub fn vertical_gutter(
+        mut self,
+        normal: impl Into<DefiniteLength>,
+        overflow: impl Into<DefiniteLength>,
+    ) -> Self {
+        self.vertical_gutter = Some((normal.into(), overflow.into()));
         self
     }
 }
@@ -140,6 +153,11 @@ where
 {
     fn render(mut self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let scroll_handle = scroll_handle_for(&self.id, window, cx);
+
+        if let Some((normal, overflow)) = self.vertical_gutter {
+            self.element =
+                vertical_scroll_gutter(self.element, &scroll_handle, normal, overflow, window);
+        }
 
         // Preserve the caller-requested size on the wrapper, while keeping the
         // caller's element as the actual scroll-tracked layout container.
@@ -226,6 +244,46 @@ where
                 cx,
             ))
     }
+}
+
+/// Applies the same overflow-dependent right padding to an existing tracked
+/// area, without wrapping it or replacing its scroll handle. The prepaint
+/// check observes the current layout and invalidates only its owning view
+/// when the rendered padding no longer matches the measured scroll range.
+pub fn vertical_scroll_gutter<E>(
+    mut element: E,
+    handle: &ScrollHandle,
+    normal: impl Into<DefiniteLength>,
+    overflow: impl Into<DefiniteLength>,
+    window: &Window,
+) -> E
+where
+    E: Styled + ParentElement,
+{
+    let overflowing = handle.max_offset().y > px(0.);
+    element.style().padding.right = Some(if overflowing {
+        overflow.into()
+    } else {
+        normal.into()
+    });
+    let handle = handle.clone();
+    let owner = window.current_view();
+    element.child(
+        canvas(
+            move |_, _, cx| {
+                if overflowing != (handle.max_offset().y > px(0.)) {
+                    cx.notify(owner);
+                }
+            },
+            |_, _, _, _| {},
+        )
+        // Observation must not become scrollable content. A full-size
+        // absolute probe plus trailing padding creates a phantom scroll range.
+        .absolute()
+        .top_0()
+        .left_0()
+        .size(px(0.)),
+    )
 }
 
 impl ScrollableElement for Div {}
@@ -381,6 +439,96 @@ mod tests {
 
     fn plain_item(width: f32) -> Div {
         div().w(px(width)).h(px(20.)).flex_shrink_0()
+    }
+
+    struct ConditionalGutterTest {
+        rows: usize,
+        height: f32,
+        tracked: bool,
+        handle: ScrollHandle,
+    }
+
+    impl Render for ConditionalGutterTest {
+        fn render(&mut self, window: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let content = crate::v_flex()
+                .px(px(8.))
+                .pb(px(8.))
+                .child(row("gutter-first-row", 20.))
+                .children((1..self.rows).map(|_| plain_row(20.)));
+            if self.tracked {
+                div()
+                    .w(px(100.))
+                    .h(px(self.height))
+                    .relative()
+                    .child(vertical_scroll_gutter(
+                        content
+                            .id("gutter-existing-area")
+                            .size_full()
+                            .overflow_y_scroll()
+                            .track_scroll(&self.handle),
+                        &self.handle,
+                        px(8.),
+                        px(16.),
+                        window,
+                    ))
+                    .vertical_scrollbar(&self.handle)
+                    .into_any_element()
+            } else {
+                content
+                    .w(px(100.))
+                    .h(px(self.height))
+                    .overflow_y_scrollbar()
+                    .vertical_gutter(px(8.), px(16.))
+                    .into_any_element()
+            }
+        }
+    }
+
+    fn assert_conditional_gutter(cx: &mut TestAppContext, tracked: bool) {
+        cx.update(crate::init);
+        let (view, cx) = cx.add_window_view(|_, _| ConditionalGutterTest {
+            rows: 1,
+            height: 100.,
+            tracked,
+            handle: ScrollHandle::default(),
+        });
+        let cx: &mut VisualTestContext = cx;
+        // The first layout discovers the scroll range; only a change to its
+        // overflow flag asks the owner to render the matching padding.
+        let check_right = |cx: &mut VisualTestContext, expected| {
+            draw(cx);
+            draw(cx);
+            assert_eq!(
+                cx.debug_bounds("gutter-first-row").unwrap().right(),
+                px(expected)
+            );
+        };
+        check_right(cx, 92.);
+        for (rows, height, expected) in [
+            (10, 100., 84.),
+            (10, 300., 92.),
+            (10, 100., 84.),
+            (1, 100., 92.),
+        ] {
+            cx.update(|_, cx| {
+                view.update(cx, |view, cx| {
+                    view.rows = rows;
+                    view.height = height;
+                    cx.notify();
+                });
+            });
+            check_right(cx, expected);
+        }
+    }
+
+    #[gpui::test]
+    fn wrapper_gutter_tracks_content_and_viewport(cx: &mut TestAppContext) {
+        assert_conditional_gutter(cx, false);
+    }
+
+    #[gpui::test]
+    fn existing_handle_gutter_tracks_content_and_viewport(cx: &mut TestAppContext) {
+        assert_conditional_gutter(cx, true);
     }
 
     struct SizeFullChildTest;

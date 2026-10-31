@@ -13,6 +13,7 @@ use std::{
 use gpui_kit::base::animation::{EffectTransition, ease_in_out_cubic, ease_out_cubic};
 use gpui_kit::base::{ElementExt as _, TooltipOverlay, TooltipRequest, TooltipTransition};
 use gpui_kit::component::tooltip::Tooltip;
+use gpui_kit::component::{ActiveTheme as _, v_flex};
 use gpui_kit::{
     AnyElement, AnyView, App, AppContext as _, Bounds, ElementId, Entity, FocusHandle, Global,
     InteractiveElement, IntoElement, ParentElement as _, Pixels, Point, SharedString, Styled as _,
@@ -26,6 +27,29 @@ const SLIDE: Duration = Duration::from_millis(200);
 /// A full caption wraps like Zed's tooltip title rather than widening to
 /// its unconstrained single-line width.
 const MAX_WIDTH: f32 = 420.;
+
+/// Semantic tooltip parts stay distinct through preference filtering and
+/// rendering. Plain rich-document tooltips keep their own element trees.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct TooltipContent {
+    pub title: Option<SharedString>,
+    pub description: Option<SharedString>,
+    pub context: Option<SharedString>,
+    pub shortcut: Option<SharedString>,
+}
+
+impl TooltipContent {
+    fn is_empty(&self) -> bool {
+        [
+            &self.title,
+            &self.description,
+            &self.context,
+            &self.shortcut,
+        ]
+        .into_iter()
+        .all(|part| part.as_ref().is_none_or(|text| text.is_empty()))
+    }
+}
 
 /// Bounds of the complete control that owns a nested caption's tooltip.
 /// The parent measures itself once; children may use that same stable anchor.
@@ -342,51 +366,43 @@ pub(crate) trait Tip: InteractiveElement + gpui_kit::ParentElement + Sized {
         })
     }
 
-    /// The text can depend on layout or preferences. Snapshot a nonempty
-    /// result when entering the control, before scheduling its tooltip.
-    fn tip_text_when(self, resolve: impl Fn(&App) -> Option<SharedString> + 'static) -> Self {
-        self.tip_text_observing(None, resolve)
+    /// Resolve structured parts when the control is entered or focused;
+    /// only the normal tooltip dwell builds their styled element tree.
+    fn tip_content_when(self, resolve: impl Fn(&App) -> Option<TooltipContent> + 'static) -> Self {
+        self.tip_content_observing_focus(None, None, resolve)
     }
 
-    fn tip_text_observing(
-        self,
-        observer: Option<HoverObserver>,
-        resolve: impl Fn(&App) -> Option<SharedString> + 'static,
-    ) -> Self {
-        self.tip_text_observing_focus(observer, None, resolve)
-    }
-
-    fn tip_text_observing_focus(
+    fn tip_content_observing_focus(
         self,
         observer: Option<HoverObserver>,
         focus: Option<FocusHandle>,
-        resolve: impl Fn(&App) -> Option<SharedString> + 'static,
+        resolve: impl Fn(&App) -> Option<TooltipContent> + 'static,
     ) -> Self {
         let anchor = TooltipAnchor::default();
         self.tip_anchor(anchor.clone())
             .tip_resolved_observing_focus(anchor, observer, focus, move |_, cx| {
-                let text = resolve(cx)?;
-                if text.is_empty() {
+                let content = resolve(cx)?;
+                if content.is_empty() {
                     return None;
                 }
                 Some(Rc::new(move |window, cx| {
-                    text_view(text.clone(), window, cx)
+                    content_view(content.clone(), window, cx)
                 }))
             })
     }
 
-    fn tip_text_when_at(
+    fn tip_content_when_at(
         self,
         anchor: TooltipAnchor,
-        resolve: impl Fn(&App) -> Option<SharedString> + 'static,
+        resolve: impl Fn(&App) -> Option<TooltipContent> + 'static,
     ) -> Self {
         self.tip_resolved_at(anchor, move |_, cx| {
-            let text = resolve(cx)?;
-            if text.is_empty() {
+            let content = resolve(cx)?;
+            if content.is_empty() {
                 return None;
             }
             Some(Rc::new(move |window, cx| {
-                text_view(text.clone(), window, cx)
+                content_view(content.clone(), window, cx)
             }))
         })
     }
@@ -478,6 +494,47 @@ impl Tip for gpui_kit::component::button::Button {
             )
         })
     }
+}
+
+/// Title has the surface foreground; explanatory parts use the same muted
+/// foreground as extension descriptions. No content is split or reclassified.
+fn content_view(content: TooltipContent, window: &mut Window, cx: &mut App) -> AnyView {
+    Tooltip::element(move |_, cx| {
+        let theme = cx.theme();
+        let detail: Option<SharedString> = match (&content.description, &content.shortcut) {
+            (Some(description), Some(shortcut)) => {
+                Some(format!("{description} · {shortcut}").into())
+            }
+            (Some(description), None) => Some(description.clone()),
+            (None, shortcut) => shortcut.clone(),
+        };
+        v_flex()
+            .min_w_0()
+            .max_w(prefs::scaled(MAX_WIDTH - 20.))
+            .gap_1()
+            .children(
+                content
+                    .title
+                    .clone()
+                    .map(|title| div().text_color(theme.popover_foreground).child(title)),
+            )
+            .children(
+                detail.map(|detail: SharedString| {
+                    div().text_color(theme.muted_foreground).child(detail)
+                }),
+            )
+            .children(content.context.clone().map(|context| {
+                div()
+                    .text_xs()
+                    .font_family(theme.mono_font_family.clone())
+                    .text_color(theme.muted_foreground)
+                    .child(context)
+            }))
+    })
+    .m_0()
+    .max_w(prefs::scaled(MAX_WIDTH))
+    .whitespace_normal()
+    .build(window, cx)
 }
 
 fn text_view(text: SharedString, window: &mut Window, cx: &mut App) -> AnyView {

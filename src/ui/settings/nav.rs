@@ -241,7 +241,6 @@ impl SettingsView {
                     .flex_1()
                     .min_h_0()
                     .px_2()
-                    .pr_4()
                     .pb_3()
                     .gap_0p5()
                     .child(div().pt_2().child(item(PageId::Catalog, cx)))
@@ -256,8 +255,11 @@ impl SettingsView {
                             .children(installed.into_iter().map(|page| item(page, cx)))
                     })
                     .overflow_y_scrollbar()
+                    .vertical_gutter(rems(0.5), rems(1.))
             } else {
-                self.render_hits(cx).overflow_y_scrollbar()
+                self.render_hits(cx)
+                    .overflow_y_scrollbar()
+                    .vertical_gutter(rems(0.5), rems(1.))
             })
             .children(profile.map(|(path, writable)| {
                 let name = std::path::Path::new(&path)
@@ -312,7 +314,6 @@ impl SettingsView {
             .flex_1()
             .min_h_0()
             .px_2()
-            .pr_4()
             .pt_1()
             .pb_3()
             .gap_0p5()

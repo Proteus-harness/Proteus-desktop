@@ -98,7 +98,7 @@ impl RenderOnce for Caption {
                 .try_global::<crate::ui::prefs::ClientPreferences>()
                 .map(|prefs| prefs.value.hints)
                 .unwrap_or_default();
-            crate::ui::kit::caption_hint_text(
+            crate::ui::kit::caption_hint_content(
                 hints,
                 &text,
                 clipped.get(),
@@ -108,8 +108,8 @@ impl RenderOnce for Caption {
         };
         let label = div().id(self.id).relative().min_w_0().child(content);
         match self.anchor {
-            Some(anchor) => label.tip_text_when_at(anchor, resolve),
-            None => label.tip_text_when(resolve),
+            Some(anchor) => label.tip_content_when_at(anchor, resolve),
+            None => label.tip_content_when(resolve),
         }
     }
 }

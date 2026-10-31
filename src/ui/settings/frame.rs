@@ -63,12 +63,17 @@ impl SettingsView {
         {
             return self
                 .page_keys(
-                    div()
+                    v_flex()
                         .size_full()
+                        .min_w_0()
+                        .min_h_0()
+                        .items_center()
                         .px_8()
-                        .pt_6()
-                        .pb_4()
-                        .child(page.view.clone()),
+                        .pt_8()
+                        .pb_10()
+                        // The extension owns its scroll container; constrain
+                        // the page without adding a second scrolling surface.
+                        .child(page_column().h_full().min_h_0().child(page.view.clone())),
                 )
                 .into_any_element();
         }
@@ -114,9 +119,7 @@ impl SettingsView {
             ),
         };
         let key = format!("{:?}", self.page);
-        let column = v_flex()
-            .w_full()
-            .max_w(prefs::scaled(COLUMN_WIDTH))
+        let column = page_column()
             .pb_10()
             .gap_6()
             .child(
@@ -323,6 +326,15 @@ impl SettingsView {
                     .on_click(cx.listener(|this, _, _, cx| this.save(cx))),
             )
     }
+}
+
+/// All settings pages share the same responsive content width, including
+/// extension-owned pages that provide their own title and scroll container.
+fn page_column() -> Div {
+    v_flex()
+        .w_full()
+        .min_w_0()
+        .max_w(prefs::scaled(COLUMN_WIDTH))
 }
 
 fn centered(content: impl IntoElement) -> AnyElement {

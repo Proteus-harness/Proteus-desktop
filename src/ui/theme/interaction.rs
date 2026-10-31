@@ -5,6 +5,7 @@
 
 use std::rc::Rc;
 
+use gpui_kit::component::scroll::ScrollbarMode;
 use gpui_kit::component::{Colorize as _, Theme, ThemeConfig};
 use gpui_kit::{App, SharedString};
 
@@ -27,6 +28,7 @@ pub(super) fn enforce(cx: &mut App) {
         && theme.input == theme.border
         && theme.tokens.input == theme.tokens.border
         && !theme.focus_ring
+        && theme.scrollbar_mode == ScrollbarMode::Always
     {
         return;
     }
@@ -46,6 +48,9 @@ fn project(theme: &mut Theme) {
     // Native controls keep their existing thin border on keyboard focus,
     // without an outer ring that ancestor clipping would cut into fragments.
     theme.focus_ring = false;
+    // Keep the existing quiet idle thumb and brighter hover/drag styles,
+    // but do not hide useful scroll position after an idle timeout.
+    theme.scrollbar_mode = ScrollbarMode::Always;
 }
 
 /// Normalize the selected theme configuration before installing either
@@ -135,6 +140,24 @@ mod tests {
         project(&mut theme);
         assert!(!theme.focus_ring);
         assert_eq!(theme.colors, colors);
+    }
+
+    #[::core::prelude::v1::test]
+    fn projection_keeps_overflow_scrollbars_visible_after_system_changes() {
+        use gpui_kit::component::scroll::ScrollbarMode;
+        let mut theme = Theme::default();
+        let colors = theme.colors.clone();
+        for mode in [ScrollbarMode::Scrolling, ScrollbarMode::Hover] {
+            theme.scrollbar_mode = mode;
+            project(&mut theme);
+            assert_eq!(theme.scrollbar_mode, ScrollbarMode::Always);
+        }
+        // Visibility policy reuses theme colors for idle/hover/drag.
+        assert_eq!(theme.colors.scrollbar_thumb, colors.scrollbar_thumb);
+        assert_eq!(
+            theme.colors.scrollbar_thumb_hover,
+            colors.scrollbar_thumb_hover
+        );
     }
 
     #[::core::prelude::v1::test]
