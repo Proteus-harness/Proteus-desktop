@@ -112,7 +112,7 @@ python3 examples/performance/native-stream/test_fixture.py
 ## Ожидание ответа, прокрутка и кнопка вниз
 
 `status_demo.py` использует тот же HTTP/SSE transport и готовый Native, но
-держит активный ход без дельт ответа. В отдельном профиле — 20 синтетических
+держит активный ход без дельт ответа, пока не задан `control/answer`. В отдельном профиле — 20 синтетических
 сообщений и последний вопрос. Расширения пустые; Core и модели не запускаются.
 Запускайте внутри собственной background-gui session, как основной runner:
 
@@ -141,6 +141,39 @@ Native и transport. SIGINT/SIGTERM и timeout также выполняют о�
 `state.json` фиксирует PID и SHA256 реального ELF, `trace.json` — доставленные
 события. Bearer token в state/stdout не записывается. READY подтверждает
 доставку событий, а вид и геометрию подтверждают только screenshots окна.
+
+Чтобы воспроизвести сдвиг при завершении ответа, сначала прокрутите к середине
+или наверх и оставьте видимый текст на месте. Затем отправьте фиксированный
+многострочный ответ внизу:
+
+```sh
+touch OUTPUT/control/answer
+# Дождаться STAGE writing; проверить, что видимый текст не сдвинулся.
+touch OUTPUT/control/complete
+# Дождаться STAGE completed: AssistantMessageCompleted уже доставлен,
+# но execution всё ещё running. Проверить положение того же текста.
+touch OUTPUT/control/finish
+# Дождаться STAGE finished: execution success. Проверить положение снова.
+touch OUTPUT/control/stop
+```
+
+`answer` отправляет один настоящий `AssistantTextDelta` с offset 0; `complete`
+передаёт `AssistantMessageCompleted` с теми же message id и точным текстом,
+без повторного snapshot. Каждый control применяется один раз. `complete`
+необязателен: `finish` из writing сначала отправит completion, затем success;
+без `answer` сохранится исходный thinking-only сценарий без assistant-сообщения.
+Разрешение completion включено только для status demo; основной delta oracle
+по умолчанию по-прежнему запрещает completion и replacement snapshot.
+
+Для проверки изменения высоты viewport при завершении добавьте при запуске
+`--completed-plan`. До `READY` сценарий отправит настоящий `ToolCallRequested`
+для `update_plan` с двумя completed-шагами, затем `ToolFinished` с успешным
+результатом. Пока execution running, над вводом видна полоса «План 2/2».
+Раскройте план, прокрутите к середине или наверх и выполните ту же цепочку
+`answer` → `complete` → `finish`: при `complete` план ещё виден, при `finish`
+он исчезает. Положение читаемого текста должно сохраняться и при исчезновении
+свёрнутой полосы, и при исчезновении раскрытого плана. Без флага план не
+создаётся; это всё ещё синтетический transport без запуска tools/Core.
 
 Постоянная проверка wire-сценария без GUI/сборки:
 
@@ -227,6 +260,42 @@ Wire/source smoke без GUI и сборки:
 ```sh
 python3 examples/performance/native-stream/code_blocks.py --check-fixture \
   --output build/verification/native-code-blocks-smoke-new
+```
+
+Для проверки углов раскрываемых tool-блоков добавьте к запуску `code_blocks.py`
+флаг `--tool-previews`. После пяти fences snapshot содержит три смежные
+завершённые system tool-строки: `read_file` (`preview-short`, короткий result),
+`exec_command` (`preview-long`, subject из 24 строк и result из 80 строк),
+`grep` (`preview-search`, короткий result). Это готовые синтетические DTO;
+команды не исполняются. Точные subject/result и snapshot находятся в
+`expected/tools/`; файлы Copy для пяти fences сохраняются без изменений.
+Сразу после трёх tools следует отдельное assistant-сообщение
+**«AFTER TOOL GROUP · неподвижный маркер»** (message id заканчивается `03e7`,
+отличается от обновляемого code-сообщения). Его Y-позиция позволяет заметить
+скачок в последний кадр раскрытия/сворачивания цепочки; точные UTF-8 байты без
+финального LF сохранены в `expected/tools/after-group-marker.txt`.
+
+После `READY` прокрутите до конца. Если включены «Компактные цепочки
+инструментов» в настройках чата, нажмите строку **«Инструменты · 3»** со
+стрелкой справа: откроются три названия. Для обычного раскрытия нажмите строку
+`read_file`, затем её стрелку повторно для закрытия; короткий subject/result
+должен сохранять округление по ходу движения. Нажмите `exec_command`: сначала
+видны урезанные subject и result. У каждого длинного блока есть собственная
+кнопка **«Показать больше · ещё строк: …»** над ним — по очереди раскройте subject, прокрутите
+к result, раскройте его и проверьте нижние углы. **«Свернуть»** возвращает preview.
+Закройте `exec_command`, затем сверните/раскройте «Инструменты · 3», проверяя
+также углы короткого блока при движении всей цепочки. При выключенных compact
+chains три строки видны сразу; включите настройку для группового варианта.
+
+Только после начальной проверки выполните `control/update`: обновится исходное
+assistant-сообщение с тем же id, а три tool-строки сохранят порядок и содержимое.
+После assistant-маркера добавится прежний `codeblockfreeze` barrier;
+исходная компактная цепочка останется **«Инструменты · 3»**. Стенд не присылает replacement snapshot. Wire/source
+проверка варианта:
+
+```sh
+python3 examples/performance/native-stream/code_blocks.py --check-fixture --tool-previews \
+  --output build/verification/finish-anchor-20261031/tool-previews-wire
 ```
 
 Для проверки I-beam над форматированным текстом `status_demo.py` также принимает

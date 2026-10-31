@@ -56,6 +56,10 @@ struct Toggle {
 }
 
 impl Toggle {
+    fn sample(&self, open: bool, now: Instant) -> Option<f32> {
+        (self.open == open && self.tween.running(now)).then(|| self.progress(now))
+    }
+
     fn progress(&self, now: Instant) -> f32 {
         let target = if self.open { 1. } else { 0. };
         self.from + (target - self.from) * ease_enter(self.tween.linear(now))
@@ -99,8 +103,21 @@ pub(in crate::ui) fn reveal(
     cx: &App,
     content: impl FnOnce() -> AnyElement,
 ) -> Option<AnyElement> {
+    reveal_at(key, open, Instant::now(), cx, content)
+}
+
+/// Split virtual rows must share this timestamp for both their visibility
+/// and the head's disclosure. Work done between rows cannot end the motion
+/// halfway through a layout and render the run twice.
+pub(in crate::ui) fn reveal_at(
+    key: impl Into<SharedString>,
+    open: bool,
+    at: Instant,
+    cx: &App,
+    content: impl FnOnce() -> AnyElement,
+) -> Option<AnyElement> {
     let key = key.into();
-    let progress = progress(&key, open, cx);
+    let progress = progress_at(&key, open, at, cx);
     if !open && progress.is_none() {
         return None;
     }
@@ -151,16 +168,22 @@ pub(in crate::ui) fn preview_reveal(
 /// that splits a disclosure into several rows at rest draws them as one
 /// block meanwhile, so the whole block grows like any other disclosure.
 pub(in crate::ui) fn moving(key: &str, open: bool, cx: &App) -> bool {
-    progress(key, open, cx).is_some()
+    moving_at(key, open, Instant::now(), cx)
+}
+
+pub(in crate::ui) fn moving_at(key: &str, open: bool, at: Instant, cx: &App) -> bool {
+    progress_at(key, open, at, cx).is_some()
 }
 
 /// Eased share of the content shown while `toggled` animates `key`.
 fn progress(key: &str, open: bool, cx: &App) -> Option<f32> {
-    let now = Instant::now();
+    progress_at(key, open, Instant::now(), cx)
+}
+
+fn progress_at(key: &str, open: bool, at: Instant, cx: &App) -> Option<f32> {
     cx.try_global::<Toggles>()
         .and_then(|toggles| toggles.0.get(key).copied())
-        .filter(|toggle| toggle.open == open && toggle.tween.running(now))
-        .map(|toggle| toggle.progress(now))
+        .and_then(|toggle| toggle.sample(open, at))
 }
 
 /// Keeps a view redrawing while any disclosure animates; call from `render`.
@@ -171,5 +194,36 @@ pub(in crate::ui) fn drive(window: &mut Window, cx: &App) {
         .is_some_and(|toggles| toggles.0.values().any(|toggle| toggle.tween.running(now)));
     if running {
         window.request_animation_frame();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SLOW, Toggle, Tween};
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn split_rows_share_the_last_moving_frame_and_settle_together() {
+        let start = Instant::now();
+        for open in [true, false] {
+            let toggle = Toggle {
+                tween: Tween {
+                    at: start,
+                    duration: SLOW,
+                },
+                from: if open { 0. } else { 1. },
+                open,
+            };
+            let frame_at = start + SLOW - Duration::from_nanos(1);
+            let head = toggle.sample(open, frame_at);
+            assert!(head.is_some());
+            // A fresh clock read after rendering a costly head would have
+            // settled the tails already. The captured frame stays uniform.
+            assert!(toggle.sample(open, start + SLOW).is_none());
+            for _ in 0..3 {
+                assert_eq!(toggle.sample(open, frame_at), head);
+            }
+            assert!(toggle.sample(!open, frame_at).is_none());
+        }
     }
 }

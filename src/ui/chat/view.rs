@@ -1,6 +1,7 @@
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use std::time::Instant;
 
 use super::Chat;
 use super::scroller::{ChatList, FooterState};
@@ -18,7 +19,10 @@ impl Render for Chat {
         // disclosures.
         motion::drive(window, cx);
         self.prepare_tool_diffs(cx);
-        let renderer = cx.processor(|this, ix: usize, window, cx| this.render_row(ix, window, cx));
+        let frame_at = Instant::now();
+        let renderer = cx.processor(move |this, ix: usize, window, cx| {
+            this.render_row(ix, frame_at, window, cx)
+        });
         let live = !self.history.archived();
         let thinking = live && self.session.thinking();
         let footer_state = FooterState {

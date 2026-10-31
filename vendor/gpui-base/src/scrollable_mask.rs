@@ -96,6 +96,7 @@ pub(crate) fn horizontal_scroll_area(
         },
         backdrop: None,
         frame_border: px(0.),
+        clip_bottom_to_content_mask: false,
     };
 
     div()
@@ -132,6 +133,7 @@ pub struct RoundedFrameCover {
     corner_radii: Corners<Option<gpui::AbsoluteLength>>,
     backdrop: Option<Hsla>,
     frame_border: Pixels,
+    clip_bottom_to_content_mask: bool,
 }
 
 impl RoundedFrameCover {
@@ -147,6 +149,7 @@ impl RoundedFrameCover {
             },
             backdrop: None,
             frame_border: px(0.),
+            clip_bottom_to_content_mask: false,
         }
     }
 
@@ -166,6 +169,35 @@ impl RoundedFrameCover {
     pub fn backdrop(mut self, color: Hsla) -> Self {
         self.backdrop = Some(color);
         self
+    }
+
+    /// Follow the bottom of an enclosing disclosure's rectangular clip.
+    /// Opt in only while that disclosure moves: ordinary scroll clipping
+    /// must not introduce new rounded edges at a viewport boundary.
+    /// The original top and sides are never moved to the content mask.
+    pub fn clip_bottom_to_content_mask(mut self, clip: bool) -> Self {
+        self.clip_bottom_to_content_mask = clip;
+        self
+    }
+
+    fn frame_bounds(
+        &self,
+        mut bounds: Bounds<Pixels>,
+        mask_bottom: Pixels,
+    ) -> Option<Bounds<Pixels>> {
+        if !self.frame_border.is_zero() {
+            bounds.origin.x -= self.frame_border;
+            bounds.origin.y -= self.frame_border;
+            bounds.size.width += self.frame_border * 2.;
+            bounds.size.height += self.frame_border * 2.;
+        }
+        if self.clip_bottom_to_content_mask {
+            bounds.size.height = bounds.size.height.min(mask_bottom - bounds.top());
+            if bounds.size.height <= px(0.) {
+                return None;
+            }
+        }
+        Some(bounds)
     }
 }
 
@@ -238,13 +270,10 @@ impl Element for RoundedFrameCover {
     ) {
         use crate::theme::ActiveTheme as _;
 
-        let mut bounds = *cover_bounds;
-        if !self.frame_border.is_zero() {
-            bounds.origin.x -= self.frame_border;
-            bounds.origin.y -= self.frame_border;
-            bounds.size.width += self.frame_border * 2.;
-            bounds.size.height += self.frame_border * 2.;
-        }
+        let Some(bounds) = self.frame_bounds(*cover_bounds, window.content_mask().bounds.bottom())
+        else {
+            return;
+        };
         let rem_size = window.rem_size();
         let resolve = |corner: Option<gpui::AbsoluteLength>| {
             corner
@@ -638,6 +667,26 @@ mod tests {
         Context, IntoElement, ListAlignment, ListState, Render, ScrollDelta, ScrollEvent,
         TestAppContext, VisualTestContext, Window, div, list, point, px,
     };
+
+    #[test]
+    fn disclosure_cover_follows_only_the_bottom_and_preserves_the_border_box() {
+        let content = Bounds::new(point(px(21.), px(31.)), gpui::size(px(198.), px(98.)));
+        let border = Bounds::new(point(px(20.), px(30.)), gpui::size(px(200.), px(100.)));
+        let resting = RoundedFrameCover::uniform(px(8.)).frame_border(px(1.));
+        // A normal scroll clip leaves the original frame geometry intact.
+        assert_eq!(resting.frame_bounds(content, px(70.)), Some(border));
+
+        let moving = resting.clip_bottom_to_content_mask(true);
+        assert_eq!(moving.frame_bounds(content, px(200.)), Some(border));
+        assert_eq!(
+            moving.frame_bounds(content, px(70.)),
+            Some(Bounds::new(border.origin, gpui::size(px(200.), px(40.))))
+        );
+        // The reveal has not reached this surface yet: no corner paint may
+        // leak back into its transparent header or the preceding card.
+        assert_eq!(moving.frame_bounds(content, px(30.)), None);
+        assert_eq!(moving.frame_bounds(content, px(10.)), None);
+    }
 
     #[test]
     fn corner_notch_paths_stay_inside_their_corner_squares() {

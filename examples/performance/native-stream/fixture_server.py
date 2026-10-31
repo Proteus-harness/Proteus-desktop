@@ -37,7 +37,7 @@ def run_state(run_id, status):
     return {"run_id": run_id, "options": dict(OPTIONS), "status": status, "error": None}
 
 class Fixture:
-    def __init__(self, workspace, session, token, transcript):
+    def __init__(self, workspace, session, token, transcript, *, allow_completion=False):
         self.workspace, self.session, self.token = str(workspace), str(session), token
         self.transcript = copy.deepcopy(transcript)
         self.trace, self.errors, self.requests = [], [], []
@@ -50,6 +50,7 @@ class Fixture:
         self.stopping = threading.Event()
         self.run_id = None
         self.active = None
+        self.allow_completion = allow_completion
         fixture = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -131,8 +132,9 @@ class Fixture:
 
     def emit(self, event):
         require(not self.stopping.is_set(), "Fixture is stopped")
-        require(not (event["type"] == "runtime" and
-                     "AssistantMessageCompleted" in event["envelope"]["event"]),
+        completion = (event["type"] == "runtime" and
+                      "AssistantMessageCompleted" in event["envelope"]["event"])
+        require(not completion or self.allow_completion,
                 "Completion would heal the delta oracle")
         require(event["type"] != "session_snapshot" or not self.connected.is_set(),
                 "A second snapshot would heal the delta oracle")
@@ -142,7 +144,7 @@ class Fixture:
         row = self.record("event_enqueued", event_type=event["type"],
                           envelope_seq=event.get("envelope", {}).get("seq"),
                           payload_sha256=sha256(data), payload=event,
-                          heals_delta_oracle=False)
+                          heals_delta_oracle=completion)
         self.pending.put_nowait((data, row["trace_seq"]))
         return row["at_ns"]
 

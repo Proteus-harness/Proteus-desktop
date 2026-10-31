@@ -32,7 +32,7 @@ mod wave_dots;
 
 pub(super) use collapse::Collapse;
 pub(super) use disclosure::{
-    chevron, drive, menu_chevron, moving, preview_reveal, reveal, toggled,
+    chevron, drive, menu_chevron, moving, moving_at, preview_reveal, reveal, reveal_at, toggled,
 };
 pub(super) use enter::{fade_in_if, late_in, rise_in, rise_in_if, stagger_in, switch_in};
 pub(super) use number::Number;

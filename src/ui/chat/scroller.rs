@@ -298,9 +298,21 @@ impl ChatScroller {
     /// a request card) keeps the top too and cuts the last lines until the
     /// glide brings them back. A following list stays at its end. Called
     /// before the list lays out at `size`.
-    fn keep_end(&mut self, size: gpui_kit::Size<Pixels>) {
+    fn keep_end(&mut self, size: gpui_kit::Size<Pixels>) -> bool {
         let last = self.size.replace(size);
         let resized = last.is_some_and(|last| last != size);
+        // Closing a completed plan grows the viewport. If the reader is
+        // above the end, native layout must not pull their anchor upward
+        // merely to fill the new room. The ordinary tail consumes this
+        // reservation after layout; downward input releases the remainder.
+        let retained = !self.following
+            && last.is_some_and(|last| size.height > last.height)
+            && self.tail.hold(size.height);
+        if retained {
+            self.remeasure_tail();
+            self.dirty = true;
+            self.last_offset = None;
+        }
         if resized {
             self.wheel.invalidate(&self.list);
         }
@@ -313,6 +325,7 @@ impl ChatScroller {
             // without the user scrolling.
             self.last_offset = None;
         }
+        retained
     }
 
     fn changed(&mut self, cx: &mut Context<Self>) {
@@ -565,14 +578,13 @@ impl RenderOnce for ChatList {
         if middle_active {
             middle::next_frame(self.state.clone(), window);
         }
-        let (list_state, scrollbar, scrolled_up, tail_row, tail_height, painted, middle_origin) = {
+        let (list_state, scrollbar, scrolled_up, tail_row, painted, middle_origin) = {
             let state = self.state.read(cx);
             (
                 state.list.clone(),
                 state.scrollbar.clone(),
                 state.scrolled_up(),
                 state.row_count(),
-                state.tail.height(),
                 state.wheel.painted.clone(),
                 state.middle.origin(),
             )
@@ -581,6 +593,10 @@ impl RenderOnce for ChatList {
         let measured_footer = self.state.clone();
         let rows = list(list_state.clone(), move |ix, window, cx| {
             if ix == tail_row {
+                // keep_end runs immediately before native list prepaint.
+                // Read its reservation now, not from a render-time snapshot
+                // made before a growing viewport could reserve any room.
+                let tail_height = measured_footer.read(cx).tail.height();
                 let measured = measured_footer.clone();
                 return div()
                     .w_full()
@@ -662,7 +678,11 @@ impl RenderOnce for ChatList {
                     .min_w_0()
                     // Ahead of the rows, so it runs before the list lays out.
                     .on_prepaint(move |bounds, _, cx| {
-                        resized.update(cx, |state, _| state.keep_end(bounds.size))
+                        resized.update(cx, |state, cx| {
+                            if state.keep_end(bounds.size) {
+                                cx.notify();
+                            }
+                        })
                     })
                     .child(rows)
                     .child(

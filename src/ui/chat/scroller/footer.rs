@@ -49,6 +49,11 @@ impl ChatScroller {
         if self.footer == footer {
             return false;
         }
+        // Removing status below a paused reader must not make native list
+        // layout clamp their position toward the new, shorter end.
+        if !self.following && self.footer.visible() {
+            self.tail.hold(self.footer_height + self.reading_gap);
+        }
         self.footer = footer;
         self.wheel.invalidate(&self.list);
         self.remeasure_tail();

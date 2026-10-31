@@ -1,6 +1,6 @@
 use super::{ChatScroller, FooterState, HistoryRange, Hold};
 use gpui_kit::component::scroll::ScrollbarHandle as _;
-use gpui_kit::{ListOffset, point, px};
+use gpui_kit::{ListOffset, point, px, size};
 use std::time::{Duration, Instant};
 
 use super::jump::JumpStatus;
@@ -281,4 +281,64 @@ fn visible_footer_and_reading_space_consume_one_minimum_without_hiding_status() 
     assert_eq!(state.tail.height(), px(0.));
     assert_eq!(state.footer_height, px(32.));
     assert_eq!(state.trailing_blank(), px(24.));
+}
+
+#[test]
+fn a_growing_viewport_reserves_room_before_layout_without_moving_a_paused_reader() {
+    let mut state = folded_tail(true);
+    state.following = false;
+    state.wheel_up = true;
+    state.list.scroll_to(ListOffset {
+        item_ix: 20,
+        offset_in_item: px(7.),
+    });
+    let top = state.list.logical_scroll_top();
+    assert!(!state.keep_end(size(px(800.), px(400.))));
+    // Completing a plan grows the viewport before the next list prepaint.
+    assert!(state.keep_end(size(px(800.), px(480.))));
+    assert_eq!(state.tail.height(), px(480.));
+    assert_eq!(state.list.logical_scroll_top(), top);
+    assert!(!state.following);
+    assert!(state.wheel_up);
+    assert!(state.dirty);
+    // Layout cannot grow the floor again; explicit downward input releases it.
+    assert!(!state.keep_end(size(px(800.), px(480.))));
+    state.user_scroll(point(px(0.), px(-3.)));
+    assert_eq!(state.tail.height(), px(0.));
+}
+
+#[test]
+fn viewport_growth_while_following_and_viewport_shrink_do_not_reserve_a_tail() {
+    let mut state = folded_tail(true);
+    state.keep_end(size(px(800.), px(400.)));
+    assert!(!state.keep_end(size(px(800.), px(480.))));
+    assert_eq!(state.tail.height(), px(0.));
+    state.following = false;
+    assert!(!state.keep_end(size(px(800.), px(320.))));
+    assert_eq!(state.tail.height(), px(0.));
+}
+
+#[test]
+fn disappearing_status_preserves_its_measured_space_only_for_a_paused_reader() {
+    let mut state = folded_tail(true);
+    state.set_reading_gap(px(24.));
+    let thinking = FooterState {
+        thinking: true,
+        receipt: None,
+    };
+    state.update_footer(thinking.clone());
+    state.measure_footer(px(32.));
+    state.following = false;
+    state.update_footer(FooterState::default());
+    assert_eq!(state.tail.height(), px(56.));
+    state.measure_footer(px(0.));
+    assert_eq!(state.tail.height(), px(56.));
+    assert!(!state.following);
+    state.user_scroll(point(px(0.), px(-3.)));
+    assert_eq!(state.tail.height(), px(0.));
+    state.following = true;
+    state.update_footer(thinking);
+    state.measure_footer(px(32.));
+    state.update_footer(FooterState::default());
+    assert_eq!(state.tail.height(), px(0.));
 }

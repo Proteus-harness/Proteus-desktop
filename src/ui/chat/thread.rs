@@ -1,5 +1,6 @@
 use crate::ui::kit::Frame as _;
 use std::ops::Range;
+use std::time::Instant;
 
 use crate::ui::kit::Clipboard;
 use gpui_kit::base::SelectableText;
@@ -73,6 +74,7 @@ impl Chat {
     pub(super) fn render_row(
         &mut self,
         ix: usize,
+        frame_at: Instant,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -90,7 +92,7 @@ impl Chat {
         // block, so it grows like any other disclosure.
         let chain_moving = chain_reveal
             .as_ref()
-            .is_some_and(|key| motion::moving(key, chain_open, cx));
+            .is_some_and(|key| motion::moving_at(key, chain_open, frame_at, cx));
         let chain_tail = chain.as_ref().is_some_and(|chain| ix != chain.start);
         if chain_tail && (!chain_open || chain_moving) {
             return div().into_any_element();
@@ -142,7 +144,13 @@ impl Chat {
                     let header = render_chain_header(key, &tools, chain_open, cx);
                     let calls = if chain_moving {
                         let run = self.render_run(chain.clone(), cx);
-                        reveal(chain_reveal.unwrap_or_default(), chain_open, cx, || run)
+                        motion::reveal_at(
+                            chain_reveal.unwrap_or_default(),
+                            chain_open,
+                            frame_at,
+                            cx,
+                            || run,
+                        )
                     } else {
                         chain_open.then(|| {
                             let tool = render_tool(
@@ -151,6 +159,7 @@ impl Chat {
                                 expanded,
                                 full,
                                 self.tool_diffs.get(&entry.key).cloned(),
+                                false,
                                 cx,
                             );
                             div().pt_1().child(tool).into_any_element()
@@ -164,6 +173,7 @@ impl Chat {
                     expanded,
                     full,
                     self.tool_diffs.get(&entry.key).cloned(),
+                    false,
                     cx,
                 ),
             },
@@ -203,7 +213,7 @@ impl Chat {
     /// so the block ends exactly where the rows will.
     fn render_run(&self, run: Range<usize>, cx: &mut Context<Self>) -> AnyElement {
         let entries = self.history.displayed(&self.session.transcript).entries();
-        let gap = px((TOOL_SPACING.bottom + TOOL_SPACING.top) * 4.);
+        let gap = prefs::scaled((TOOL_SPACING.bottom + TOOL_SPACING.top) * 4.);
         let mut block = v_flex();
         for (n, entry) in entries[run].iter().enumerate() {
             let Some(tool) = &entry.tool else {
@@ -217,6 +227,7 @@ impl Chat {
                 expanded,
                 full,
                 self.tool_diffs.get(&entry.key).cloned(),
+                true,
                 cx,
             ));
             block = block.child(if n == 0 { call.pt_1() } else { call.pt(gap) });

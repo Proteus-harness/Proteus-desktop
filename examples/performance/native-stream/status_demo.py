@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hold a ready Native in real thinking state for scroll/hover visual checks."""
+"""Hold a ready Native in thinking/writing states for scroll/hover checks."""
 import argparse
 import json
 import os
@@ -12,11 +12,15 @@ import time
 from urllib.parse import urlencode
 from urllib.request import ProxyHandler, Request, build_opener
 
-from fixture_server import Fixture, SESSION_ID, THREAD_ID, TURN_ID, message
+from fixture_server import Fixture, MESSAGE_ID, SESSION_ID, THREAD_ID, TURN_ID, message
 from run import digest, launched_executable, save, stop_native
 
 DIRECTORIES = ("control", "workspace", "session", "home", "runtime", "config",
                "xdg-config", "xdg-data", "xdg-cache", "empty-extensions")
+ANSWER = "\n\n".join(
+    f"FINISH DEMO · абзац {index + 1}.\n"
+    "Агент пишет внизу; позиция читателя выше не должна изменяться при завершении."
+    for index in range(18))
 
 
 def transcript():
@@ -35,17 +39,57 @@ def transcript():
     return rows
 
 
-def begin(fixture):
+def begin(fixture, *, completed_plan=False):
     fixture.run_id = "run-synthetic-native-status"
     fixture.execution("running")
     fixture.runtime("TurnStarted", {"session_id": SESSION_ID,
                                    "thread_id": THREAD_ID, "turn_id": TURN_ID})
+    if completed_plan:
+        # ToolCall/ToolResult DTOs from contracts/domain/tool.rs; result shape
+        # matches modules/tool/plan-tool, without executing a tool or Core.
+        call_id = "status-completed-plan"
+        steps = [{"step": "Подготовить синтетический ответ", "status": "completed"},
+                 {"step": "Проверить положение читателя", "status": "completed"}]
+        explanation = "Проверка скрытия завершённого плана при execution success"
+        fixture.runtime("ToolCallRequested", {"call": {
+            "id": call_id, "name": "update_plan",
+            "args": {"plan": steps, "explanation": explanation},
+            "surface": "function", "raw_arguments": None}})
+        fixture.runtime("ToolFinished", {"result": {
+            "call_id": call_id, "ok": True, "output": "Plan updated",
+            "content": [], "error": None,
+            "metadata": {"plan": steps, "explanation": explanation,
+                         "completed": 2, "in_progress": 0, "pending": 0}}})
 
 
-def finish(fixture):
-    # No assistant delta or replacement snapshot: the status disappears from
-    # the actual execution update, not from a synthetic answer hiding it.
+def answer(fixture):
+    fixture.delta(0, ANSWER)
+
+
+def complete(fixture):
+    # Same identity and exact bytes as the delta, per domain/events.rs.
+    fixture.runtime("AssistantMessageCompleted", {
+        "message_id": MESSAGE_ID, "phase": None, "text": ANSWER})
+
+
+def finish(fixture, stage="thinking"):
+    if stage == "writing":
+        complete(fixture)
     fixture.execution("success", terminal=True)
+
+
+def advance_control(fixture, control, stage):
+    """Consume each optional stage once; finished never emits more events."""
+    if stage == "thinking" and (control / "answer").exists():
+        answer(fixture)
+        stage = "writing"
+    if stage == "writing" and (control / "complete").exists():
+        complete(fixture)
+        stage = "completed"
+    if stage in ("thinking", "writing", "completed") and (control / "finish").exists():
+        finish(fixture, stage)
+        stage = "finished"
+    return stage
 
 
 def delivered(fixture):
@@ -71,7 +115,7 @@ def record(output, fixture, state):
     save(output / "state.json", state)
 
 
-def check_fixture(output):
+def check_fixture(output, *, completed_plan=False):
     """Permanent wire smoke; it deliberately makes no native GUI claim."""
     fixture = Fixture(output / "workspace", output / "session",
                       secrets.token_hex(24), transcript()).start()
@@ -91,10 +135,13 @@ def check_fixture(output):
             snapshot = read()
             assert len(snapshot["snapshot"]["transcript"]) == 21
             assert snapshot["snapshot"]["transcript"][-1]["role"] == "user"
-            begin(fixture)
+            begin(fixture, completed_plan=completed_plan)
             running, turn = read(), read()
             assert running["execution"]["active"]["status"] == "running"
             assert turn["envelope"]["event"]["TurnStarted"]["thread_id"] == THREAD_ID
+            if completed_plan:
+                assert "ToolCallRequested" in read()["envelope"]["event"]
+                assert "ToolFinished" in read()["envelope"]["event"]
             finish(fixture)
             done = read()
             assert done["execution"]["active"] is None
@@ -102,6 +149,7 @@ def check_fixture(output):
             delivered(fixture)
             fixture.stopping.set()
         record(output, fixture, {"status": "fixture-smoke-passed", "rows": 21,
+                                 "completed_plan": completed_plan,
                                  "native_verified": False})
         print("PASS fixture: 21 rows, running, TurnStarted, success; no GUI checked", flush=True)
     finally:
@@ -110,7 +158,7 @@ def check_fixture(output):
 
 def run(args):
     fixture = Fixture(args.output / "workspace", args.output / "session",
-                      secrets.token_hex(24), transcript()).start()
+                      secrets.token_hex(24), transcript(), allow_completion=True).start()
     process = None
     started = time.monotonic()
     interrupted = False
@@ -118,6 +166,7 @@ def run(args):
              "origin": fixture.origin, "timeout_s": args.timeout,
              "launcher": str(args.native), "launcher_sha256": digest(args.native),
              "extensions": str(args.extensions) if args.extensions else None,
+             "completed_plan": args.completed_plan,
              "source_sha256": {name: digest(Path(__file__).with_name(name)) for name in
                                ("status_demo.py", "fixture_server.py", "run.py")}}
 
@@ -151,17 +200,17 @@ def run(args):
                     break
                 if fixture.connected.is_set() and state["status"] == "starting":
                     state.update(launched_executable(process.pid))
-                    begin(fixture)
+                    begin(fixture, completed_plan=args.completed_plan)
                     delivered(fixture)
                     state.update(status="running", stage="thinking")
                     record(args.output, fixture, state)
                     print("READY " + json.dumps(state), flush=True)
-                if state["stage"] == "thinking" and (args.output / "control/finish").exists():
-                    finish(fixture)
+                stage = advance_control(fixture, args.output / "control", state["stage"])
+                if stage != state["stage"]:
                     delivered(fixture)
-                    state["stage"] = "finished"
+                    state["stage"] = stage
                     record(args.output, fixture, state)
-                    print("STAGE finished", flush=True)
+                    print("STAGE " + stage, flush=True)
                 time.sleep(.05)
         state["status"] = "stopped"
     except BaseException as exc:
@@ -190,6 +239,8 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--timeout", type=float, default=600)
     parser.add_argument("--check-fixture", action="store_true")
+    parser.add_argument("--completed-plan", action="store_true",
+                        help="Show a real two-step completed update_plan until execution finishes")
     args = parser.parse_args()
     if not 10 <= args.timeout <= 600:
         parser.error("--timeout must be between 10 and 600 seconds")
@@ -208,7 +259,7 @@ def main():
     for directory in DIRECTORIES:
         (args.output / directory).mkdir(mode=0o700)
     if args.check_fixture:
-        check_fixture(args.output)
+        check_fixture(args.output, completed_plan=args.completed_plan)
     else:
         run(args)
 

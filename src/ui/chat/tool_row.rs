@@ -2,7 +2,7 @@
 // (bounded tool previews and output disclosure).
 use crate::ui::kit::ButtonLabel as _;
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::base::SelectableText;
+use gpui_kit::base::{RoundedFrameCover, SelectableText};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -92,12 +92,19 @@ pub(super) fn render_tool(
     expanded: bool,
     full: [bool; 2],
     diff: Option<Entity<crate::ui::diff::DiffView>>,
+    external_clip: bool,
     cx: &mut Context<Chat>,
 ) -> AnyElement {
     let muted = cx.theme().muted_foreground;
     let fold = Fold {
         key,
         full,
+        clip: external_clip
+            || crate::ui::motion::moving(
+                &super::thread::reveal_key(cx.entity_id(), key),
+                expanded,
+                cx,
+            ),
         chat: cx.entity().downgrade(),
     };
     let app: &App = cx;
@@ -137,6 +144,7 @@ pub(super) fn render_tool(
 struct Fold {
     key: u64,
     full: [bool; 2],
+    clip: bool,
     chat: WeakEntity<Chat>,
 }
 
@@ -145,6 +153,7 @@ impl Fold {
     /// full, with a button switching between the two. `part` tells the
     /// blocks of a row apart.
     fn block(&self, part: usize, text: &str, build: impl Fn(String) -> Div, cx: &App) -> Div {
+        let build = |text| clipped_surface(build(text), self.clip, cx);
         let lines = text.lines().count();
         let long = lines > PEEK_LINES || text.len() > PEEK_CHARS;
         if !long {
@@ -216,16 +225,31 @@ impl Fold {
             // Keep the trigger above the changing height. A bottom control
             // disappears above the viewport when a long output collapses,
             // even though the scroller correctly retains the freed room.
-            .child(preview_reveal(
-                full_reveal_key(self.chat.entity_id(), key, part),
-                full,
-                cx,
+            .child(
                 div()
                     .relative()
-                    .child(build(preview))
-                    .child(bottom_fade(theme.muted, theme.radius_lg)),
-                build(format::clip_block(text, FULL_LINES, FULL_CHARS)),
-            ))
+                    .w_full()
+                    .min_w_0()
+                    .child(preview_reveal(
+                        full_reveal_key(self.chat.entity_id(), key, part),
+                        full,
+                        cx,
+                        div()
+                            .relative()
+                            .overflow_hidden()
+                            .child(build(preview))
+                            .child(bottom_fade(theme.muted)),
+                        build(format::clip_block(text, FULL_LINES, FULL_CHARS)),
+                    ))
+                    // Reveal clips the full-size child to a rectangular
+                    // mask. Cover the CURRENT viewport's corners, rather
+                    // than the full child's corners, on every moving frame.
+                    .child(
+                        RoundedFrameCover::uniform(theme.radius_lg)
+                            .backdrop(theme.background)
+                            .clip_bottom_to_content_mask(self.clip),
+                    ),
+            )
     }
 }
 
@@ -265,8 +289,21 @@ impl Chat {
 }
 
 /// The end of a cut block melts into its background.
-fn bottom_fade(background: Hsla, radius: Pixels) -> Div {
-    crate::ui::fade::bottom(background, crate::ui::prefs::scaled(56.)).rounded_b(radius)
+fn bottom_fade(background: Hsla) -> Div {
+    crate::ui::fade::bottom(background, crate::ui::prefs::scaled(56.)).max_h(relative(1.))
+}
+
+/// Only actual surfaces follow the clipping edge of an outer tool/chain
+/// disclosure. Headers, argument rows and the gaps between cards stay clear.
+fn clipped_surface(surface: Div, clip: bool, cx: &App) -> Div {
+    if !clip {
+        return surface;
+    }
+    div().relative().w_full().min_w_0().child(surface).child(
+        RoundedFrameCover::uniform(cx.theme().radius_lg)
+            .backdrop(cx.theme().background)
+            .clip_bottom_to_content_mask(true),
+    )
 }
 
 fn tool_details(
@@ -286,12 +323,16 @@ fn tool_details(
         .filter(|steps| !steps.is_empty());
     let details = match (patch, plan) {
         (Some(_), _) => details.children(diff.map(|diff| {
-            div()
-                .w_full()
-                .min_w_0()
-                .surface_frame(cx)
-                .overflow_hidden()
-                .child(diff)
+            clipped_surface(
+                div()
+                    .w_full()
+                    .min_w_0()
+                    .surface_frame(cx)
+                    .overflow_hidden()
+                    .child(diff),
+                fold.clip,
+                cx,
+            )
         })),
         (None, Some(steps)) => details.child(plan_list(&steps, cx)),
         (None, None) => details.children(argument_details(fold, tool, cx)),

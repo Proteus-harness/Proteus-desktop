@@ -6,6 +6,7 @@
 
 use super::code_geometry::Width;
 use crate::ui::kit::{self, Frame as _, Hint as _};
+use gpui_kit::base::RoundedFrameCover;
 use gpui_kit::component::{ActiveTheme as _, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -112,6 +113,7 @@ impl<F: Fn(&mut Window, &mut App) -> SharedString + 'static> RenderOnce for Shel
         });
         v_flex()
             .group("code-block")
+            .relative()
             .min_w_0()
             .max_w_full()
             .self_start()
@@ -144,6 +146,14 @@ impl<F: Fn(&mut Window, &mut App) -> SharedString + 'static> RenderOnce for Shel
                     .children(self.controls),
             )
             .child(div().w_full().min_w_0().px_1p5().pb_1p5().child(self.body))
+            // Native child paint (Editor and source fades included) only
+            // has a rectangular content mask. Keep the surface's corners
+            // clear without changing layout or installing an input layer.
+            .child(
+                RoundedFrameCover::uniform(cx.theme().radius_lg)
+                    .frame_border(px(1.))
+                    .backdrop(cx.theme().background),
+            )
     }
 }
 
