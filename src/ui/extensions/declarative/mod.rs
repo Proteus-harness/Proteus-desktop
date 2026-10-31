@@ -112,6 +112,7 @@ fn entry(extension: Installed) -> Entry {
             label: document.label.as_deref(),
             command: document.command.as_deref(),
         }),
+        content: surfaces.content.as_ref(),
         badge: surfaces.badge.as_ref().map(|badge| BadgeSurface {
             build: badge::build,
             place: badge.place,

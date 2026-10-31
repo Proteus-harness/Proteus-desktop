@@ -15,7 +15,6 @@ use crate::ui::kit;
 use crate::ui::kit::ButtonLabel as _;
 use crate::ui::kit::Pressable as _;
 use crate::ui::prefs;
-use crate::ui::tip::Tip as _;
 
 pub(super) fn tone_color(tone: Tone, cx: &App) -> Hsla {
     let theme = cx.theme();
@@ -40,19 +39,33 @@ impl DeclarativeView {
                 label,
                 description,
                 control,
+                reset,
                 below,
             } => {
-                let title = div()
-                    .id(ElementId::Name(format!("setting-row-title-{id}").into()))
-                    .min_w_0()
-                    .max_w_full()
-                    .child(faded(label.clone()))
-                    .when_some(
-                        description
-                            .as_deref()
-                            .and_then(|text| kit::hint_text(text, None, cx)),
-                        |title, hint| title.tip_text(hint),
-                    );
+                let title = crate::ui::fade::caption(
+                    ElementId::Name(format!("setting-row-title-{id}").into()),
+                    label.clone(),
+                )
+                .description(description.clone().map(Into::into));
+                let title = h_flex().min_w_0().gap_1().child(title).when_some(
+                    reset.as_ref(),
+                    |title, reset| {
+                        let this = cx.entity().downgrade();
+                        let action = reset.action.clone();
+                        let value = reset.value.clone();
+                        title.child(kit::setting_reset(
+                            ElementId::Name(format!("setting-row-reset-{id}").into()),
+                            reset.hint.clone().unwrap_or_else(|| "По умолчанию".into()),
+                            move |window, cx| {
+                                let _ = this.update(cx, |this, cx| {
+                                    this.focus_reset_root(window, cx);
+                                    this.act(action.clone(), value.clone(), cx);
+                                });
+                            },
+                            cx,
+                        ))
+                    },
+                );
                 let content = self.node(control, &format!("{path}.setting({}:{id})", id.len()), cx);
                 let content = div()
                     .min_w_0()
@@ -62,7 +75,13 @@ impl DeclarativeView {
                         |cell| cell.w(prefs::scaled(160.)),
                     )
                     .child(content);
-                kit::settings_row(title, content, *below).into_any_element()
+                kit::settings_row(title, content, *below)
+                    .minimum_control_width(if matches!(control.as_ref(), Node::Input { .. }) {
+                        64.
+                    } else {
+                        36.
+                    })
+                    .into_any_element()
             }
             Node::Person { name, detail } => v_flex()
                 .w_full()
@@ -140,6 +159,7 @@ impl DeclarativeView {
                         .min_w_0()
                         .max_w_full()
                         .faded_label(label.clone())
+                        .px_1p5()
                         .outline(),
                     true,
                     move |menu: PopupMenu, _, _| {
@@ -160,6 +180,8 @@ impl DeclarativeView {
                         })
                     },
                 )
+                .min_w_0()
+                .max_w_full()
                 .into_any_element()
             }
             Node::Menu { .. } => super::button::menu(node, path, Fit::Normal, cx),

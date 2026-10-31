@@ -10,8 +10,10 @@ use std::rc::Rc;
 use std::time::Instant;
 
 mod geometry;
+mod hold;
 pub(crate) use geometry::move_before;
 use geometry::{Pending, Position, keyboard_target, preview_order};
+use hold::Hold;
 
 use super::kit::RowRule as _;
 use super::{drag, fade, motion};
@@ -90,6 +92,7 @@ struct State {
     rows: Vec<(SharedString, Bounds<Pixels>)>,
     pressed: Option<SharedString>,
     press_epoch: u64,
+    hold: Option<Hold>,
     exclusions: Vec<Bounds<Pixels>>,
     armed: bool,
     timer: Option<Task<()>>,
@@ -104,8 +107,51 @@ struct State {
 impl State {
     fn release(&mut self) {
         self.pressed = None;
+        self.hold = None;
         self.armed = false;
         self.timer = None;
+    }
+
+    fn arm(&mut self, epoch: u64, position: Point<Pixels>, active_window: bool) {
+        if active_window
+            && self.pressed.is_some()
+            && self.press_epoch == epoch
+            && self
+                .hold
+                .as_ref()
+                .is_some_and(|hold| hold.contains(position))
+        {
+            self.armed = true;
+        } else {
+            self.release();
+        }
+    }
+
+    fn cancel_motion(&mut self, dragging: bool, position: Point<Pixels>) -> bool {
+        if self.pressed.is_some()
+            && (!dragging
+                || (!self.armed
+                    && self
+                        .hold
+                        .as_ref()
+                        .is_none_or(|hold| !hold.contains(position))))
+        {
+            self.release();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// A native listener was selected during render, before prepaint can
+    /// invalidate its hold. Never let that stale listener reach bubble.
+    fn stale_drag_listener(&self, installed: Option<&SharedString>, epoch: u64) -> bool {
+        installed.is_some_and(|id| {
+            !self.armed
+                || self.pressed.as_ref() != Some(id)
+                || self.hold.is_none()
+                || self.press_epoch != epoch
+        })
     }
 }
 
@@ -117,6 +163,7 @@ struct Dragged {
     width: Pixels,
     height: Pixels,
     preview: Option<Preview>,
+    preview_shift: Point<Pixels>,
 }
 
 impl Render for Dragged {
@@ -133,14 +180,21 @@ impl Render for Dragged {
                     .child(fade::faded(self.label.clone()))
                     .into_any_element()
             });
-        drag::lifted(
-            div()
-                .w(self.width)
-                .min_w(self.width)
-                .h(self.height)
-                .overflow_hidden()
-                .child(div().size_full().child(content)),
-            cx,
+        // Keep a layout parent: relative insets on a layout root itself are
+        // ignored, but its child can compensate the native layer's anchor.
+        div().w(self.width).h(self.height).child(
+            drag::lifted(
+                div()
+                    .w(self.width)
+                    .min_w(self.width)
+                    .h(self.height)
+                    .overflow_hidden()
+                    .child(div().size_full().child(content)),
+                cx,
+            )
+            .relative()
+            .left(self.preview_shift.x)
+            .top(self.preview_shift.y),
         )
     }
 }
@@ -162,6 +216,13 @@ impl RenderOnce for List {
         let key: SharedString = format!("reorder:{:?}", self.id).into();
         let ids: Vec<_> = self.rows.iter().map(|row| row.id.clone()).collect();
         state.update(cx, |state, _| {
+            if state
+                .hold
+                .as_ref()
+                .is_some_and(|hold| !hold.retained(&ids, self.revision))
+            {
+                state.release();
+            }
             if state
                 .pending
                 .as_ref()
@@ -185,6 +246,11 @@ impl RenderOnce for List {
                 state.release();
             });
         }
+        let installed_drag = state
+            .read(cx)
+            .pressed
+            .clone()
+            .filter(|_| state.read(cx).armed);
         let children = self
             .rows
             .into_iter()
@@ -206,13 +272,9 @@ impl RenderOnce for List {
                 });
                 let focused = focus.is_focused(window);
                 let press_focus = focus.clone();
-                let (keys, key_id, moved, revision) = (
-                    state.clone(),
-                    row.id.clone(),
-                    self.moved.clone(),
-                    self.revision,
-                );
+                let (keys, key_id, moved) = (state.clone(), row.id.clone(), self.moved.clone());
                 let (press, id) = (state.clone(), row.id.clone());
+                let revision = self.revision;
                 let data = Dragged {
                     list: key.clone(),
                     id: row.id.clone(),
@@ -220,6 +282,7 @@ impl RenderOnce for List {
                     width: px(0.),
                     height: px(0.),
                     preview: row.preview,
+                    preview_shift: point(px(0.), px(0.)),
                 };
                 div()
                     .id(ElementId::Name(row.id))
@@ -287,6 +350,16 @@ impl RenderOnce for List {
                         let epoch = drag::cancel_epoch(cx);
                         press.update(cx, |state, _| {
                             state.release();
+                            let Some((_, bounds)) = state.rows.iter().find(|(row, _)| *row == id)
+                            else {
+                                return;
+                            };
+                            state.hold = Some(Hold::new(
+                                event.position,
+                                *bounds,
+                                state.rows.iter().map(|(id, _)| id.clone()).collect(),
+                                revision,
+                            ));
                             state.pressed = Some(id.clone());
                             state.press_epoch = epoch;
                         });
@@ -294,16 +367,14 @@ impl RenderOnce for List {
                         let task = window.spawn(cx, async move |cx| {
                             cx.background_executor().timer(motion::HOLD).await;
                             let _ = cx.update(|window, cx| {
-                                if !window.is_window_active() {
-                                    return;
-                                }
                                 let current_epoch = drag::cancel_epoch(cx);
                                 let _ = weak.update(cx, |state, _| {
-                                    if state.pressed.is_some() && state.press_epoch == current_epoch
-                                    {
-                                        state.armed = true;
-                                        window.refresh();
-                                    }
+                                    state.arm(
+                                        current_epoch,
+                                        window.mouse_position(),
+                                        window.is_window_active(),
+                                    );
+                                    window.refresh();
                                 });
                             });
                         });
@@ -314,9 +385,12 @@ impl RenderOnce for List {
                     .on_click(|_, _, _| {})
                     .when(armed, |row| {
                         let start = state.clone();
-                        row.on_drag(data, move |data, _, window, cx| {
+                        row.on_drag(data, move |data, native_offset, window, cx| {
                             let mut data = data.clone();
                             start.update(cx, |state, _| {
+                                if let Some(hold) = &state.hold {
+                                    data.preview_shift = hold.preview_shift(native_offset);
+                                }
                                 if let Some((_, bounds)) =
                                     state.rows.iter().find(|(id, _)| *id == data.id)
                                 {
@@ -374,6 +448,7 @@ impl RenderOnce for List {
                 key,
                 moved: self.moved,
                 revision: self.revision,
+                installed_drag,
             })
     }
 }
@@ -385,6 +460,7 @@ struct Arrange {
     key: SharedString,
     moved: Move,
     revision: Option<u64>,
+    installed_drag: Option<SharedString>,
 }
 
 impl IntoElement for Arrange {
@@ -441,6 +517,15 @@ impl Element for Arrange {
         let positions = self.state.update(cx, |state, _| {
             state.bounds = bounds;
             state.rows = raw.clone();
+            if state.hold.as_ref().is_some_and(|hold| {
+                state
+                    .rows
+                    .iter()
+                    .find(|(id, _)| Some(id) == state.pressed.as_ref())
+                    .is_none_or(|(_, bounds)| *bounds != hold.bounds)
+            }) {
+                state.release();
+            }
             state.exclusions.clear();
             state.motion.retain(|id, _| self.ids.contains(id));
             state.focus.retain(|id, _| self.ids.contains(id));
@@ -545,18 +630,31 @@ impl Element for Arrange {
             }
         });
         // Escape is intercepted before the keymap by the shared drag state.
-        // Movement during HOLD must not permanently disarm the same press:
-        // touchpad jitter and beginning to move before the timer are normal.
+        // Cancel a waiting hold before native bubble listeners see movement;
+        // an armed/active drag may leave the source row normally.
         let cancel = self.state.clone();
-        window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
+        let installed_drag = self.installed_drag.clone();
+        window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
             if phase != DispatchPhase::Capture || cx.has_active_drag() {
                 return;
             }
-            cancel.update(cx, |state, _| {
-                if state.pressed.is_some() && !event.dragging() {
+            let epoch = drag::cancel_epoch(cx);
+            let block = cancel.update(cx, |state, _| {
+                let cancelled = state.cancel_motion(event.dragging(), event.position);
+                let stale = state.stale_drag_listener(installed_drag.as_ref(), epoch);
+                if stale {
                     state.release();
                 }
+                if cancelled || stale {
+                    window.refresh();
+                }
+                stale
             });
+            if block {
+                // GPUI's native handler still remembers the old mousedown;
+                // it cannot reject construction and does not check buttons.
+                cx.stop_propagation();
+            }
         });
         for child in &mut self.children {
             child.paint(window, cx);

@@ -7,6 +7,7 @@ use gpui_kit::*;
 
 use super::SettingsView;
 use crate::preferences::Preferences;
+use crate::ui::tip::{Tip as _, TooltipAnchor};
 use crate::ui::{prefs, theme};
 
 type FontSelect = SelectState<SearchableVec<SharedString>>;
@@ -116,10 +117,16 @@ impl RenderOnce for FontControl {
             .text_system()
             .shape_line(value.clone(), font_size, &[style.to_run(value.len())], None)
             .width();
+        let anchor = TooltipAnchor::default();
+        let caption_anchor = anchor.clone();
+        let caption_id = ("font-caption", self.state.entity_id());
         div()
             .min_w_0()
             .max_w_full()
-            .w(width + prefs::scaled(56.).to_pixels(window.rem_size()))
+            .tip_anchor(anchor)
+            // Native padding, caret and optional clear action; no extra
+            // blank reserve that would take room from the setting caption.
+            .w(width + prefs::scaled(44.).to_pixels(window.rem_size()))
             .child(
                 Select::new(&self.state)
                     .small()
@@ -127,7 +134,11 @@ impl RenderOnce for FontControl {
                     .placeholder(self.inherited)
                     .accessibility_label(self.label)
                     .search_placeholder("Поиск шрифтов…")
-                    .render_title(|title, _, _| crate::ui::fade::faded(title).into_any_element())
+                    .render_title(move |title, _, _| {
+                        crate::ui::fade::caption(caption_id, title)
+                            .anchor(caption_anchor.clone())
+                            .into_any_element()
+                    })
                     .menu_width(prefs::scaled(300.))
                     .min_w_0()
                     .w_full(),

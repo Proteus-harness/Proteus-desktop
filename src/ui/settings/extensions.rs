@@ -1,6 +1,5 @@
 //! Extension manager: order, switch on and off, open the page of an
-//! extension, install one from a ZIP archive or delete it, restore the
-//! standard list.
+//! extension, install one from a ZIP archive or delete it.
 
 use crate::ui::kit::ButtonLabel as _;
 use crate::ui::kit::Frame as _;
@@ -12,9 +11,8 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use super::widgets::{Tone, card, chip, disclosure, item_row, mono, note, section};
+use super::widgets::{Tone, card, chip, disclosure, item_row, mono, section};
 use super::{Feedback, SettingsView};
-use crate::preferences::ExtensionPreferences;
 use crate::settings::catalog::PageId;
 use crate::ui::extensions::{self, Manifest};
 use crate::ui::kit;
@@ -24,7 +22,6 @@ use crate::ui::prefs;
 use crate::ui::reorder;
 
 const ZIP_KEY: &str = "extensions-zip";
-const RESTORE_KEY: &str = "extensions-restore";
 
 impl SettingsView {
     pub(super) fn extensions_page(&self, cx: &Context<Self>) -> Vec<AnyElement> {
@@ -81,7 +78,6 @@ impl SettingsView {
             .into_any_element(),
         );
         parts.push(self.install_section(cx).into_any_element());
-        parts.push(self.restore_section(cx).into_any_element());
         parts
     }
 
@@ -395,45 +391,6 @@ impl SettingsView {
             cx,
         )
     }
-
-    fn restore_section(&self, cx: &Context<Self>) -> AnyElement {
-        let open = self.is_open(RESTORE_KEY);
-        let content = self.reveal(RESTORE_KEY, cx, || {
-            h_flex()
-                .px_4()
-                .pb_4()
-                .gap_4()
-                .items_center()
-                .child(note("Порядок, включение и места значков вернутся к поставляемым. Установленные расширения останутся.", cx).p_0().flex_1())
-                .child(
-                    kit::button("extensions-restore")
-                        .faded_label("Восстановить")
-                        .outline()
-                        .small()
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            prefs::update(cx, |prefs| {
-                                prefs.extensions = ExtensionPreferences::default()
-                            });
-                            this.toggle_open(RESTORE_KEY, cx);
-                        })),
-                )
-                .into_any_element()
-        });
-        card(
-            [v_flex()
-                .child(disclosure(
-                    "extensions-restore-toggle".into(),
-                    open,
-                    "Восстановить стандартный список",
-                    false,
-                    toggler(RESTORE_KEY, cx),
-                    cx,
-                ))
-                .children(content)
-                .into_any_element()],
-            cx,
-        )
-    }
 }
 
 /// Opens or closes the disclosure `key` of the settings view.
@@ -454,7 +411,7 @@ fn surface_chips(manifest: &Manifest, cx: &App) -> Vec<Div> {
         chips.push(chip("Вкладки", Tone::Muted, cx));
     }
     if manifest.badge.is_some() {
-        chips.push(chip("Значок", Tone::Muted, cx));
+        chips.push(chip("Виджет", Tone::Muted, cx));
     }
     if manifest.page.is_some() {
         chips.push(chip("Страница", Tone::Muted, cx));

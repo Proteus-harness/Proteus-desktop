@@ -53,7 +53,7 @@ impl SettingsView {
                 section(
                     origin_title(origin),
                     None,
-                    None,
+                    self.tool_source_action(origin, cx),
                     card(tools.into_iter().map(|tool| self.tool_row(tool, cx)), cx),
                     cx,
                 )
@@ -88,6 +88,34 @@ impl SettingsView {
         ]
     }
 
+    /// One source shortcut belongs to the group, rather than every tool switch.
+    fn tool_source_action(&self, origin: ToolOrigin<'_>, cx: &Context<Self>) -> Option<AnyElement> {
+        let (key, page) = match origin {
+            ToolOrigin::Module { component, module } => {
+                (pack_key(component, module), PageId::Modules)
+            }
+            ToolOrigin::Mcp { server, .. } => (mcp_key(server), PageId::Mcp),
+            _ => return None,
+        };
+        let title = format!("Открыть источник: {}", origin_title(origin));
+        let view = cx.weak_entity();
+        Some(
+            kit::icon_button(hashed_id("tool-source", &key))
+                .icon(IconName::ExternalLink)
+                .quiet(cx)
+                .accessibility_label(title.clone())
+                .hint(&title, cx)
+                .on_click(move |_, window, cx| {
+                    let (key, page) = (key.clone(), page.clone());
+                    let _ = view.update(cx, |this, cx| {
+                        this.open.insert(key);
+                        this.navigate_to(page, window, cx);
+                    });
+                })
+                .into_any_element(),
+        )
+    }
+
     fn tool_row(&self, tool: &ConfigBuilderTool, cx: &Context<Self>) -> AnyElement {
         let on = tool.runtime_managed || self.draft.tools.contains(&tool.name);
         let changed = !tool.runtime_managed
@@ -110,38 +138,6 @@ impl SettingsView {
         if !tool.registered {
             chips.push(chip("не зарегистрирован", Tone::Warning, cx));
         }
-        let link = match (&tool.owner, server) {
-            (Some(owner), _) => Some((
-                owner.module_id.clone(),
-                format!("Пакет модуля {} · открыть", owner.component_id),
-                pack_key(&owner.component_id, &owner.module_id),
-                PageId::Modules,
-            )),
-            (None, Some(server)) => Some((
-                format!("MCP · {server}"),
-                "Включается вместе с MCP-сервером".to_string(),
-                mcp_key(server),
-                PageId::Mcp,
-            )),
-            (None, None) => None,
-        };
-        let owner = link.map(|(label, hint, key, page)| {
-            let view = cx.weak_entity();
-            kit::button(hashed_id("tool-owner", &tool.name))
-                .faded_label(label)
-                .quiet(cx)
-                .xsmall()
-                .hint(&hint, cx)
-                .on_click(move |_, window, cx| {
-                    let (key, page) = (key.clone(), page.clone());
-                    let _ = view.update(cx, |this, cx| {
-                        this.open.insert(key);
-                        this.select_page(page, window, cx);
-                    });
-                })
-                .into_any_element()
-        });
-
         let name = tool.name.clone();
         let switch = kit::switch(hashed_id("tool-switch", &tool.name))
             .checked(on)
@@ -165,7 +161,6 @@ impl SettingsView {
         let trailing = chips
             .into_iter()
             .map(IntoElement::into_any_element)
-            .chain(owner)
             .chain([switch.into_any_element()]);
         self.spotted(
             &super::spot::tool(&tool.name),

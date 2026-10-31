@@ -34,6 +34,10 @@ impl TooltipAnchor {
     }
 }
 
+type HoverObserver = Rc<dyn Fn(&bool, &mut Window, &mut App)>;
+
+type TooltipBuilder = Rc<dyn Fn(&mut Window, &mut App) -> AnyView>;
+
 struct Overlay(Entity<TooltipOverlay>);
 
 thread_local! {
@@ -151,17 +155,38 @@ pub(crate) trait Tip: InteractiveElement + gpui_kit::ParentElement + Sized {
     /// A nested trigger whose tooltip belongs to a larger control. Unlike
     /// `tip`, this does not overwrite the parent's measured anchor.
     fn tip_at(
-        mut self,
+        self,
         anchor: TooltipAnchor,
         build: impl Fn(&mut Window, &mut App) -> AnyView + 'static,
     ) -> Self {
-        let build = Rc::new(build);
+        let build: TooltipBuilder = Rc::new(build);
+        self.tip_resolved_at(anchor, move |_, _| Some(build.clone()))
+    }
+
+    /// Resolve an optional tooltip on hover, then build it only after the
+    /// normal dwell delay. An absent result never creates an empty overlay.
+    fn tip_resolved_at(
+        self,
+        anchor: TooltipAnchor,
+        resolve: impl Fn(&mut Window, &mut App) -> Option<TooltipBuilder> + 'static,
+    ) -> Self {
+        self.tip_resolved_observing(anchor, None, resolve)
+    }
+
+    fn tip_resolved_observing(
+        mut self,
+        anchor: TooltipAnchor,
+        observer: Option<HoverObserver>,
+        resolve: impl Fn(&mut Window, &mut App) -> Option<TooltipBuilder> + 'static,
+    ) -> Self {
+        let resolve = Rc::new(resolve);
         let pressed = anchor.clone();
-        // Through the interactivity: a disabled button sets no hover
-        // listener of its own, and its tooltip still tells what it does.
+        // Through interactivity so a disabled control can explain itself.
         self.interactivity().on_hover(move |hovered, window, cx| {
+            if let Some(observer) = &observer {
+                observer(hovered, window, cx);
+            }
             let hovered = *hovered;
-            let build = build.clone();
             let trigger = anchor.bounds();
             if hovered {
                 HOVERED.set(Some(trigger));
@@ -174,37 +199,70 @@ pub(crate) trait Tip: InteractiveElement + gpui_kit::ParentElement + Sized {
             if hovered && PRESSED.get() == Some(trigger) {
                 return;
             }
+            let build = hovered.then(|| resolve(window, cx)).flatten();
             update(cx, window, move |overlay, window, cx| {
-                if hovered {
+                if let Some(build) = build {
                     let request = TooltipRequest::new(trigger, move |window, cx| build(window, cx));
-                    // Base otherwise switches immediately during its grace
-                    // period. Every new trigger must earn its own dwell time.
+                    // Every new trigger earns its own dwell time.
                     overlay.hide(cx);
                     overlay.request_show(request, window, cx);
+                } else if hovered {
+                    overlay.hide(cx);
                 } else {
                     overlay.request_hide(window, cx);
                 }
             });
         });
-        self
-            // Capture: the element's own controls may stop the press.
-            .capture_any_mouse_down(move |_, window, cx| {
-                PRESSED.set(Some(pressed.bounds()));
-                update(cx, window, |overlay, _, cx| overlay.hide(cx));
+        self.capture_any_mouse_down(move |_, window, cx| {
+            PRESSED.set(Some(pressed.bounds()));
+            update(cx, window, |overlay, _, cx| overlay.hide(cx));
+        })
+    }
+
+    /// The text can depend on layout or preferences. Snapshot a nonempty
+    /// result when entering the control, before scheduling its tooltip.
+    fn tip_text_when(self, resolve: impl Fn(&App) -> Option<SharedString> + 'static) -> Self {
+        self.tip_text_observing(None, resolve)
+    }
+
+    fn tip_text_observing(
+        self,
+        observer: Option<HoverObserver>,
+        resolve: impl Fn(&App) -> Option<SharedString> + 'static,
+    ) -> Self {
+        let anchor = TooltipAnchor::default();
+        self.tip_anchor(anchor.clone())
+            .tip_resolved_observing(anchor, observer, move |_, cx| {
+                let text = resolve(cx)?;
+                if text.is_empty() {
+                    return None;
+                }
+                Some(Rc::new(move |window, cx| {
+                    text_view(text.clone(), window, cx)
+                }))
             })
+    }
+
+    fn tip_text_when_at(
+        self,
+        anchor: TooltipAnchor,
+        resolve: impl Fn(&App) -> Option<SharedString> + 'static,
+    ) -> Self {
+        self.tip_resolved_at(anchor, move |_, cx| {
+            let text = resolve(cx)?;
+            if text.is_empty() {
+                return None;
+            }
+            Some(Rc::new(move |window, cx| {
+                text_view(text.clone(), window, cx)
+            }))
+        })
     }
 
     /// A plain text tooltip.
     fn tip_text(self, text: impl Into<SharedString>) -> Self {
         let text = text.into();
         self.tip(move |window, cx| text_view(text.clone(), window, cx))
-    }
-
-    fn tip_text_at(self, text: impl Into<SharedString>, anchor: TooltipAnchor) -> Self {
-        let text = text.into();
-        self.tip_at(anchor, move |window, cx| {
-            text_view(text.clone(), window, cx)
-        })
     }
 
     /// A tooltip built from an element on every show.
@@ -230,7 +288,53 @@ pub(crate) trait Tip: InteractiveElement + gpui_kit::ParentElement + Sized {
     }
 }
 
-impl<E: InteractiveElement + gpui_kit::ParentElement> Tip for E {}
+impl Tip for gpui_kit::Div {}
+impl Tip for gpui_kit::Stateful<gpui_kit::Div> {}
+impl Tip for gpui_kit::base::Button {}
+
+// The native component already has a default application decorator. A direct
+// rich tooltip replaces that same owner rather than attaching a second hover
+// listener before native render. This also preserves `.hint`/`.tip` call order.
+impl Tip for gpui_kit::component::button::Button {
+    fn tip_resolved_at(
+        self,
+        anchor: TooltipAnchor,
+        resolve: impl Fn(&mut Window, &mut App) -> Option<TooltipBuilder> + 'static,
+    ) -> Self {
+        let resolve = Rc::new(resolve);
+        self.render_with(move |button, context, _, _| {
+            let resolve = resolve.clone();
+            button.tip_resolved_observing(anchor.clone(), context.on_hover, move |window, cx| {
+                resolve(window, cx)
+            })
+        })
+    }
+
+    fn tip_resolved_observing(
+        self,
+        anchor: TooltipAnchor,
+        observer: Option<HoverObserver>,
+        resolve: impl Fn(&mut Window, &mut App) -> Option<TooltipBuilder> + 'static,
+    ) -> Self {
+        let resolve = Rc::new(resolve);
+        self.render_with(move |button, context, _, _| {
+            let resolve = resolve.clone();
+            let native = context.on_hover;
+            let observer = observer.clone();
+            let combined: HoverObserver = Rc::new(move |hovered, window, cx| {
+                if let Some(native) = &native {
+                    native(hovered, window, cx);
+                }
+                if let Some(observer) = &observer {
+                    observer(hovered, window, cx);
+                }
+            });
+            button.tip_resolved_observing(anchor.clone(), Some(combined), move |window, cx| {
+                resolve(window, cx)
+            })
+        })
+    }
+}
 
 fn text_view(text: SharedString, window: &mut Window, cx: &mut App) -> AnyView {
     Tooltip::element(move |_, _| {

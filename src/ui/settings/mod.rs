@@ -336,6 +336,13 @@ impl SettingsView {
             self.load_history(cx);
         }
         self.set_page(page, cx);
+        if matches!(self.page, PageId::Extension(_)) {
+            // Адаптировано из Zed: crates/settings_ui/src/settings_ui.rs
+            // (pop_sub_page). Navigation hands focus to a surviving page
+            // container. The activating card is about to unmount; leaving
+            // its focus behind removes ProteusSettings from the key path.
+            self.page_focus.focus(window, cx);
+        }
     }
 
     fn set_page(&mut self, page: PageId, cx: &mut Context<Self>) {

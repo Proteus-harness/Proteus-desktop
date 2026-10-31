@@ -52,6 +52,39 @@ fn settings_rows_visit_and_validate_their_one_control() {
 }
 
 #[test]
+fn setting_reset_has_a_closed_bounded_action_descriptor() {
+    let row = json!({"type":"setting_row", "id":"r", "label":"Радиус",
+        "control":{"type":"divider"},
+        "reset":{"action":"reset-radius", "hint":"По умолчанию: 8 px", "value":{"radius":8}}});
+    let parsed = parse(row.clone()).unwrap();
+    let Node::SettingRow {
+        reset: Some(reset), ..
+    } = parsed
+    else {
+        panic!("missing reset")
+    };
+    assert_eq!(reset.action, "reset-radius");
+    assert_eq!(reset.value, Some(json!({"radius":8})));
+    for invalid in [
+        json!({"action":""}),
+        json!({"action":" \n"}),
+        json!({"action":"я".repeat(129)}),
+        json!({"action":"reset", "hint":"я".repeat(2049)}),
+        json!({"action":"reset", "extra":true}),
+        json!({"hint":"Reset"}),
+        json!({"action":"reset", "hint":8}),
+        json!("reset"),
+    ] {
+        let mut bad = row.clone();
+        bad["reset"] = invalid;
+        assert!(parse(bad).is_err());
+    }
+    let mut boundary = row;
+    boundary["reset"] = json!({"action":"я".repeat(128), "hint":"я".repeat(2048)});
+    assert!(parse(boundary).is_ok());
+}
+
+#[test]
 fn reads_a_nested_tree_with_defaults() {
     let node = parse(json!({
         "type": "stack",

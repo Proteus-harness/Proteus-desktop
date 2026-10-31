@@ -9,14 +9,14 @@ use proteus_contracts::app_protocol::AppTranscriptTool;
 use serde_json::Value;
 
 use super::{Chat, tool_row::tool_args};
-use crate::ui::tip::Tip as _;
+use crate::ui::tip::Tip;
 
 const ARGUMENTS: usize = 6;
 const PREVIEW_CHARS: usize = 600;
 const RECENT_CALLS: usize = 2;
 
 pub(super) fn row(
-    trigger: impl InteractiveElement + ParentElement + IntoElement + Styled,
+    trigger: impl Tip + IntoElement + Styled,
     chat: WeakEntity<Chat>,
     key: u64,
     call_id: String,
@@ -51,7 +51,7 @@ pub(super) fn row(
 }
 
 pub(super) fn group(
-    trigger: impl InteractiveElement + ParentElement + IntoElement,
+    trigger: impl Tip + IntoElement,
     chat: WeakEntity<Chat>,
     head: u64,
     name: String,

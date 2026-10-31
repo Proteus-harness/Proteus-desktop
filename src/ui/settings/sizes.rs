@@ -5,7 +5,7 @@ use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
 use gpui_kit::*;
 
 use super::SettingsView;
-use crate::preferences::{CHAT_TEXT, CHAT_WIDTH, Preferences, SURFACE_RADIUS};
+use crate::preferences::{CHAT_TEXT, CHAT_WIDTH, Preference, Preferences, SURFACE_RADIUS};
 use crate::ui::prefs;
 
 pub(super) struct SizeSliders {
@@ -58,20 +58,16 @@ impl SizeSliders {
             subscriptions,
         )
     }
-    pub fn reset_appearance(&self, window: &mut Window, cx: &mut Context<SettingsView>) {
-        let value = crate::preferences::ViewPreferences::default();
-        self.surface_radius.update(cx, |state, cx| {
-            state.set_value(f32::from(value.surface_radius), window, cx)
-        });
-    }
-
-    pub fn reset_chat(&self, window: &mut Window, cx: &mut Context<SettingsView>) {
-        let value = crate::preferences::ViewPreferences::default();
-        self.chat_text.update(cx, |state, cx| {
-            state.set_value(f32::from(value.chat_text), window, cx)
-        });
-        self.chat_width.update(cx, |state, cx| {
-            state.set_value(f32::from(value.chat_width), window, cx)
+    pub fn reset(&self, field: Preference, window: &mut Window, cx: &mut Context<SettingsView>) {
+        let defaults = crate::preferences::ViewPreferences::default();
+        let (state, value) = match field {
+            Preference::SurfaceRadius => (&self.surface_radius, defaults.surface_radius),
+            Preference::ChatText => (&self.chat_text, defaults.chat_text),
+            Preference::ChatWidth => (&self.chat_width, defaults.chat_width),
+            _ => return,
+        };
+        state.update(cx, |state, cx| {
+            state.set_value(f32::from(value), window, cx)
         });
     }
 }
@@ -98,7 +94,7 @@ pub(super) fn slider(state: &Entity<SliderState>, unit: &'static str, cx: &App) 
         .min_w_0()
         .max_w_full()
         .gap_2()
-        .child(div().flex_1().min_w_0().child(Slider::new(state)))
+        .child(div().flex_1().min_w_0().child(Slider::new(state).compact()))
         .child(
             div()
                 .flex_none()

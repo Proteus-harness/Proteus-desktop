@@ -1,3 +1,4 @@
+// Адаптировано из Zed: crates/settings_ui/src/settings_ui.rs (render_settings_item_layout)
 //! Client pages: preferences of this device, applied immediately.
 
 use gpui_kit::component::*;
@@ -5,12 +6,14 @@ use gpui_kit::*;
 
 use super::SettingsView;
 use super::sizes::slider;
-use super::widgets::{MenuOption, card, row, section, select_menu};
+use super::widgets::{
+    MenuOption, card, hashed_id, reset_mark, row_with_reset, section, select_menu,
+};
 use crate::preferences::{
-    Hints, LabelTruncation, MotionPreference, Notifications, Preferences, SendMode, ThemePreference,
+    LabelTruncation, MotionPreference, Notifications, Preference, Preferences, SendMode,
+    ThemePreference, TitleHint,
 };
 use crate::ui::kit;
-use crate::ui::kit::{ButtonLabel as _, Hint as _};
 use crate::ui::prefs::{self, ClientPreferences};
 use crate::ui::theme::{self, ThemeProblems};
 
@@ -31,11 +34,10 @@ const TRUNCATIONS: [(LabelTruncation, &str); 2] = [
     (LabelTruncation::Ellipsis, "Многоточие"),
 ];
 
-const HINTS: [(Hints, &str); 4] = [
-    (Hints::Full, "Описание и клавиши"),
-    (Hints::Description, "Только описание"),
-    (Hints::Keys, "Только клавиши"),
-    (Hints::Off, "Не показывать"),
+const HINT_TITLES: [(TitleHint, &str); 3] = [
+    (TitleHint::Clipped, "Только обрезанное"),
+    (TitleHint::Always, "Всегда"),
+    (TitleHint::Never, "Никогда"),
 ];
 
 const SCALES: [(u16, &str); 9] = [
@@ -62,81 +64,113 @@ const NOTIFICATIONS: [(Notifications, &str); 2] = [
 
 /// Title and explanation of a client row, shared with the settings search.
 pub(super) struct RowText {
+    pub(super) field: Preference,
     pub(super) title: &'static str,
     pub(super) about: Option<&'static str>,
 }
 
-const fn text(title: &'static str, about: Option<&'static str>) -> RowText {
-    RowText { title, about }
+const fn text(field: Preference, title: &'static str, about: Option<&'static str>) -> RowText {
+    RowText {
+        field,
+        title,
+        about,
+    }
 }
 
-const THEME: RowText = text("Тема", None);
-const DARK_PALETTE: RowText = text("Тёмная палитра", None);
+const THEME: RowText = text(Preference::Theme, "Тема", None);
+const DARK_PALETTE: RowText = text(Preference::DarkPalette, "Тёмная палитра", None);
 const LIGHT_PALETTE: RowText = text(
+    Preference::LightPalette,
     "Светлая палитра",
     Some(
         "Свои темы в формате gpui-kit кладите в ~/.config/dev.proteus.native/themes/; они читаются при запуске.",
     ),
 );
 const SCALE: RowText = text(
+    Preference::Scale,
     "Масштаб",
     Some("Ctrl + = и Ctrl + − меняют масштаб, Ctrl + 0 возвращает 100%."),
 );
 const SURFACE_RADIUS: RowText = text(
+    Preference::SurfaceRadius,
     "Скругление углов",
     Some(
-        "Радиус углов поля сообщения, раскрытых виджетов, меню и блоков настроек. Размер указан для масштаба 100%.",
+        "Общий радиус поля сообщения, раскрытых виджетов, меню и подсветки. Кнопки и компактные поля используют половину радиуса. Размер указан для масштаба 100%.",
     ),
 );
 const MOTION: RowText = text(
+    Preference::Motion,
     "Анимации",
     Some("Уменьшенные оставляют плавное появление без сдвигов; выключенные показывают всё сразу."),
 );
-const HINTS_ROW: RowText = text(
-    "Подсказки к кнопкам",
-    Some("Сведения значков и полные названия видны всегда."),
+const HINT_TITLE: RowText = text(
+    Preference::HintTitle,
+    "Название в подсказке",
+    Some("Показывать полное название при наведении: только если оно обрезано, всегда или никогда."),
+);
+const HINT_DESCRIPTION: RowText = text(
+    Preference::HintDescription,
+    "Описание в подсказке",
+    Some("Пояснение действия или параметра при наведении."),
+);
+const HINT_SHORTCUT: RowText = text(
+    Preference::HintShortcut,
+    "Клавиши в подсказке",
+    Some("Сочетание клавиш, если оно назначено этому действию."),
 );
 const TRUNCATION: RowText = text(
+    Preference::LabelTruncation,
     "Длинные подписи",
     Some("Как обрезать названия шрифтов и другие подписи, которые не помещаются в строку."),
 );
 const SEND: RowText = text(
+    Preference::Send,
     "Отправка сообщения",
     Some(
         "Shift+Enter всегда переносит строку. Во время ответа отправка добавляет сообщение в очередь.",
     ),
 );
-const TEXT_SIZE: RowText = text("Размер текста", Some("Сообщения диалога и поле ввода."));
+const TEXT_SIZE: RowText = text(
+    Preference::ChatText,
+    "Размер текста",
+    Some("Сообщения диалога и поле ввода."),
+);
 const INTERFACE_FONT: RowText = text(
+    Preference::InterfaceFont,
     "Шрифт интерфейса",
     Some(
         "Установленный шрифт для панелей, меню и настроек. Очистите выбор, чтобы использовать шрифт темы.",
     ),
 );
 const CHAT_FONT: RowText = text(
+    Preference::ChatFont,
     "Шрифт чата",
     Some(
         "Сообщения и поле ввода. Очистите выбор, чтобы наследовать шрифт интерфейса. Код сохраняет моноширинный шрифт.",
     ),
 );
 const CHAT_WIDTH: RowText = text(
+    Preference::ChatWidth,
     "Ширина диалога",
     Some("Наибольшая ширина ленты и поля ввода."),
 );
 const COMPACT_TOOLS: RowText = text(
+    Preference::CompactTools,
     "Компактные цепочки инструментов",
     Some("Три и больше вызова подряд сворачиваются в одну строку."),
 );
 const AUTOSCROLL: RowText = text(
+    Preference::Autoscroll,
     "Автопрокрутка",
     Some("Плавно следовать за ответом, пока лента внизу."),
 );
 const NOTIFICATIONS_ROW: RowText = text(
+    Preference::Notifications,
     "Уведомления",
     Some("Когда окно в фоне: агент закончил, ждёт подтверждения или ответа."),
 );
 
-pub(super) const APPEARANCE_ROWS: [&RowText; 9] = [
+pub(super) const APPEARANCE_ROWS: [&RowText; 11] = [
     &THEME,
     &DARK_PALETTE,
     &LIGHT_PALETTE,
@@ -144,7 +178,9 @@ pub(super) const APPEARANCE_ROWS: [&RowText; 9] = [
     &SCALE,
     &SURFACE_RADIUS,
     &MOTION,
-    &HINTS_ROW,
+    &HINT_TITLE,
+    &HINT_DESCRIPTION,
+    &HINT_SHORTCUT,
     &TRUNCATION,
 ];
 pub(super) const CHAT_ROWS: [&RowText; 7] = [
@@ -158,35 +194,14 @@ pub(super) const CHAT_ROWS: [&RowText; 7] = [
 ];
 
 impl SettingsView {
-    fn reset_preferences(&self, appearance: bool, cx: &Context<Self>) -> AnyElement {
-        kit::button(if appearance {
-            "reset-appearance"
-        } else {
-            "reset-chat"
-        })
-        .icon(IconName::Undo2)
-        .faded_label("Сбросить")
-        .quiet(cx)
-        .small()
-        .hint("Вернуть настройки этого раздела по умолчанию", cx)
-        .on_click(cx.listener(move |view, _, window, cx| {
-            prefs::update(cx, |prefs| {
-                if appearance {
-                    prefs.reset_appearance();
-                } else {
-                    prefs.reset_chat();
-                }
-            });
-            if appearance {
-                view.fonts.reset_interface(window, cx);
-                view.sizes.reset_appearance(window, cx);
-            } else {
-                view.fonts.reset_chat(window, cx);
-                view.sizes.reset_chat(window, cx);
-            }
-            cx.notify();
-        }))
-        .into_any_element()
+    fn reset_preference(&mut self, field: Preference, window: &mut Window, cx: &mut Context<Self>) {
+        prefs::update(cx, |prefs| field.reset(prefs));
+        match field {
+            Preference::InterfaceFont => self.fonts.reset_interface(window, cx),
+            Preference::ChatFont => self.fonts.reset_chat(window, cx),
+            _ => self.sizes.reset(field, window, cx),
+        }
+        cx.notify();
     }
 
     fn text_row(
@@ -195,9 +210,38 @@ impl SettingsView {
         control: impl IntoElement,
         cx: &Context<Self>,
     ) -> AnyElement {
+        let field = text.field;
+        let reset = (!field.is_default(prefs::current(cx))).then(|| {
+            let view = cx.entity().downgrade();
+            let hint = match field {
+                Preference::InterfaceFont => "Вернуть шрифт темы",
+                Preference::ChatFont => "Наследовать шрифт интерфейса",
+                _ => "Вернуть значение по умолчанию",
+            };
+            reset_mark(
+                hashed_id("reset-preference", &text.title),
+                hint,
+                move |window, cx| {
+                    let _ = view.update(cx, |view, cx| view.reset_preference(field, window, cx));
+                },
+                cx,
+            )
+        });
         self.spotted(
             &super::spot::row(text.title),
-            row(text.title, text.about.map(Into::into), control, false, cx),
+            row_with_reset(
+                text.title,
+                text.about.map(Into::into),
+                control,
+                false,
+                reset,
+                cx,
+            )
+            .minimum_control_width(match field {
+                Preference::SurfaceRadius | Preference::ChatText | Preference::ChatWidth => 120.,
+                Preference::InterfaceFont | Preference::ChatFont => 64.,
+                _ => 36.,
+            }),
             cx,
         )
     }
@@ -261,10 +305,35 @@ impl SettingsView {
             )
             .into_any_element(),
             self.text_row(
-                &HINTS_ROW,
-                choice("pref-hints", &HINTS, current.hints, |prefs, value| {
-                    prefs.hints = value
-                }),
+                &HINT_TITLE,
+                choice(
+                    "pref-hint-title",
+                    &HINT_TITLES,
+                    current.hints.title,
+                    |prefs, value| prefs.hints.title = value,
+                ),
+                cx,
+            )
+            .into_any_element(),
+            self.text_row(
+                &HINT_DESCRIPTION,
+                kit::switch("pref-hint-description")
+                    .checked(current.hints.description)
+                    .on_click(|checked, _, cx| {
+                        let checked = *checked;
+                        prefs::update(cx, move |prefs| prefs.hints.description = checked)
+                    }),
+                cx,
+            )
+            .into_any_element(),
+            self.text_row(
+                &HINT_SHORTCUT,
+                kit::switch("pref-hint-shortcut")
+                    .checked(current.hints.shortcut)
+                    .on_click(|checked, _, cx| {
+                        let checked = *checked;
+                        prefs::update(cx, move |prefs| prefs.hints.shortcut = checked)
+                    }),
                 cx,
             )
             .into_any_element(),
@@ -288,16 +357,7 @@ impl SettingsView {
                 .child(format!("Тема не прочитана: {problem}"))
                 .into_any_element()
         }));
-        parts.push(
-            section(
-                "Интерфейс",
-                None,
-                Some(self.reset_preferences(true, cx)),
-                card(rows, cx),
-                cx,
-            )
-            .into_any_element(),
-        );
+        parts.push(section("Интерфейс", None, None, card(rows, cx), cx).into_any_element());
         parts
     }
 
@@ -356,16 +416,7 @@ impl SettingsView {
             .into_any_element(),
         ];
         let mut parts = self.preferences_problem(cx);
-        parts.push(
-            section(
-                "Диалог",
-                None,
-                Some(self.reset_preferences(false, cx)),
-                card(sizes, cx),
-                cx,
-            )
-            .into_any_element(),
-        );
+        parts.push(section("Диалог", None, None, card(sizes, cx), cx).into_any_element());
         parts.push(section("Поле ввода", None, None, card(rows, cx), cx).into_any_element());
         parts
     }

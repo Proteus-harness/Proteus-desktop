@@ -16,18 +16,11 @@ use gpui_kit::*;
 
 use crate::ui::fade::faded;
 use crate::ui::kit;
-use crate::ui::kit::Hint as _;
 use crate::ui::kit::Pressable as _;
 use crate::ui::prefs;
-use crate::ui::tip::Tip as _;
 
-const INPUT_MAX_WIDTH: f32 = 320.;
 /// Inputs for numbers and other short values.
 pub(super) const SHORT_INPUT_WIDTH: f32 = 112.;
-/// Tooltips with descriptions wrap at this width.
-const ABOUT_WIDTH: f32 = 320.;
-/// Long descriptions get a fading preview, rather than a textual ellipsis.
-const ABOUT_CHARS: usize = 600;
 
 pub(super) fn hashed_id(name: &'static str, key: &impl Hash) -> ElementId {
     let mut hasher = DefaultHasher::new();
@@ -134,10 +127,27 @@ pub(super) fn row(
     control: impl IntoElement,
     vertical: bool,
     cx: &App,
-) -> Div {
+) -> kit::SettingsRow {
+    row_with_reset(title, description, control, vertical, None, cx)
+}
+
+/// A per-setting reset lives next to the caption, just like module overrides.
+pub(super) fn row_with_reset(
+    title: impl Into<SharedString>,
+    description: Option<SharedString>,
+    control: impl IntoElement,
+    vertical: bool,
+    reset: Option<AnyElement>,
+    cx: &App,
+) -> kit::SettingsRow {
     let title: SharedString = title.into();
     let id = hashed_id("row-title", &title);
-    let title = described(id, title, description, None, cx);
+    let title = h_flex()
+        .min_w_0()
+        .gap_1()
+        .items_center()
+        .child(described(id, title, description, None, cx))
+        .children(reset);
     field_row(
         title,
         control,
@@ -157,7 +167,11 @@ pub(super) enum Fit {
 }
 
 /// `row` with a title line built by the caller.
-pub(super) fn field_row(title: impl IntoElement, control: impl IntoElement, fit: Fit) -> Div {
+pub(super) fn field_row(
+    title: impl IntoElement,
+    control: impl IntoElement,
+    fit: Fit,
+) -> kit::SettingsRow {
     let control = match fit {
         Fit::Shrink => div()
             .w(prefs::scaled(220.))
@@ -167,11 +181,12 @@ pub(super) fn field_row(title: impl IntoElement, control: impl IntoElement, fit:
         _ => div().min_w_0().max_w_full().child(control),
     };
     kit::settings_row(title, control, matches!(fit, Fit::Below))
+        .minimum_control_width(if matches!(fit, Fit::Shrink) { 64. } else { 36. })
 }
 
-/// The title on one line, fading out where it runs out of room, with an
-/// info mark; hovering either shows the whole title, `about` and the config
-/// `key`. Without both it is the bare title.
+/// One caption and optional information mark own one tooltip. Title clipping
+/// and description preferences apply independently; config keys accompany
+/// descriptions as semantic context rather than keyboard shortcuts.
 pub(super) fn described(
     id: ElementId,
     title: SharedString,
@@ -180,53 +195,19 @@ pub(super) fn described(
     cx: &App,
 ) -> AnyElement {
     let about = about
-        .map(|about| about.trim().to_string())
-        .filter(|about| !about.is_empty());
-    let label = div().min_w_0().child(faded(title.clone()));
-    if about.is_none() && key.is_none() {
-        return label.into_any_element();
-    }
-    let muted = cx.theme().muted_foreground;
-    h_flex()
-        .id(id)
-        .min_w_0()
-        .gap_1()
-        .items_center()
-        .child(label)
-        .child(
-            Icon::new(Lucide::Info)
-                .xsmall()
-                .flex_none()
-                .text_color(muted.opacity(0.7)),
-        )
-        .tip_element(move |_, cx| {
-            let mono = cx.theme().mono_font_family.clone();
-            v_flex()
-                .max_w(prefs::scaled(ABOUT_WIDTH))
-                .gap_1()
-                .py_1()
-                .child(div().font_medium().child(title.clone()))
-                .children(about.clone().map(|about| {
-                    let long = about.chars().count() > ABOUT_CHARS;
-                    div()
-                        .relative()
-                        .max_h(prefs::scaled(240.))
-                        .overflow_hidden()
-                        .child(about)
-                        .when(long, |description| {
-                            description.child(crate::ui::fade::bottom(
-                                cx.theme().popover,
-                                prefs::scaled(40.),
-                            ))
-                        })
-                }))
-                .children(key.clone().map(|key| {
-                    div()
-                        .text_xs()
-                        .text_color(muted)
-                        .font_family(mono)
-                        .child(key)
-                }))
+        .map(|text| text.trim().to_owned().into())
+        .filter(|text: &SharedString| !text.is_empty());
+    let details = about.is_some() || key.is_some();
+    crate::ui::fade::caption(id, title)
+        .description(about)
+        .context(key)
+        .when(details, |caption| {
+            caption.suffix(
+                Icon::new(Lucide::Info)
+                    .xsmall()
+                    .flex_none()
+                    .text_color(cx.theme().muted_foreground.opacity(0.7)),
+            )
         })
         .into_any_element()
 }
@@ -250,7 +231,7 @@ pub(super) fn named(
 pub(super) fn item_row(
     title: impl IntoElement,
     trailing: impl IntoIterator<Item = AnyElement>,
-) -> Div {
+) -> kit::SettingsRow {
     field_row(
         title,
         h_flex()
@@ -270,16 +251,7 @@ pub(super) fn reset_mark(
     reset: impl Fn(&mut Window, &mut App) + 'static,
     cx: &App,
 ) -> AnyElement {
-    kit::button(id)
-        .icon(IconName::Undo2)
-        .quiet(cx)
-        .xsmall()
-        .hint(hint, cx)
-        .on_click(move |_, window, cx| {
-            cx.stop_propagation();
-            reset(window, cx);
-        })
-        .into_any_element()
+    kit::setting_reset(id, hint.to_owned(), reset, cx)
 }
 
 #[derive(Clone, Copy)]
@@ -442,10 +414,11 @@ pub(super) fn select_menu<T: Clone + 'static>(
         ElementId::Name(format!("settings-menu-{id:?}").into()),
         kit::button(id)
             .faded_label(label)
+            .px_1p5()
             .outline()
             .small()
             .min_w_0()
-            .max_w(prefs::scaled(INPUT_MAX_WIDTH)),
+            .max_w_full(),
         true,
         move |menu: PopupMenu, _, _| {
             // Intrinsic width and viewport bounds come from the common menu.
@@ -458,6 +431,7 @@ pub(super) fn select_menu<T: Clone + 'static>(
             })
         },
     )
+    .min_w_0()
     .max_w_full()
     .into_any_element()
 }

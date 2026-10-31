@@ -1,7 +1,7 @@
-//! Compact extension icons, shown under the composer or in the window bars.
+//! Compact extension widgets, shown under the composer or in the window bars.
 //! Details live in the hover tooltip; a click brings the extension forward
-//! when it has a panel; unpinned icons are dragged between places, and the
-//! context menu only hides or pins an icon.
+//! when it has a panel; unpinned widgets are dragged between places, and the
+//! context menu only hides or pins a widget.
 
 use std::rc::Rc;
 
@@ -17,10 +17,10 @@ use crate::ui::kit::Pressable as _;
 use crate::ui::tip::Tip as _;
 use crate::ui::{drag, prefs};
 
-/// What an icon shows; drawn again for its drag preview.
+/// What a widget shows; drawn again for its drag preview.
 pub(super) type Face = Rc<dyn Fn() -> AnyElement>;
 
-/// Payload of an icon being dragged; renders as a lifted copy of the icon.
+/// Payload of a widget being dragged; renders as a lifted copy of the widget.
 #[derive(Clone)]
 pub(in crate::ui) struct DraggedBadge {
     pub id: &'static str,
@@ -34,7 +34,7 @@ impl Render for DraggedBadge {
     }
 }
 
-/// Tooltip lines of an icon: a title and optional details.
+/// Tooltip lines of a widget: a title and optional details.
 pub(super) struct Details {
     pub title: SharedString,
     pub lines: Vec<SharedString>,
@@ -54,7 +54,7 @@ impl Details {
     }
 }
 
-/// Whether the icon of `id` sits in the rail, where it takes the size of
+/// Whether the widget of `id` sits in the rail, where it takes the size of
 /// the rail's own buttons.
 pub(super) fn in_rail(id: &str, cx: &App) -> bool {
     super::find(id).is_some_and(|manifest| super::badge_place(manifest, cx).is_rail())
@@ -72,10 +72,10 @@ fn badge_box() -> Div {
         .text_xs()
 }
 
-/// What a click on an icon does instead of bringing its panel forward.
+/// What a click on a widget does instead of bringing its panel forward.
 pub(super) type Press = Rc<dyn Fn(&mut Window, &mut App)>;
 
-/// An icon whose click runs `press`; a drag still moves it, since a press
+/// A widget whose click runs `press`; a drag still moves it, since a press
 /// only counts once the pointer is released without dragging.
 pub(super) fn pressable_badge(
     id: &'static str,
@@ -174,11 +174,11 @@ fn badge_menu(menu: PopupMenu, id: &'static str, host: &Host, cx: &App) -> Popup
     }
     let extensions = &prefs::current(cx).extensions;
     let pinned = extensions.is_pinned(id);
-    // Places change by dragging; the menu only hides the icon or pins it,
-    // and a pinned icon stays where it is until unpinned.
+    // Places change by dragging; pinning only prevents movement. It does not
+    // override the producer-owned visibility of a contextual widget.
     if !pinned {
         menu = menu.item(
-            PopupMenuItem::new("Скрыть значок").on_click(move |_, _, cx| {
+            PopupMenuItem::new("Скрыть виджет").on_click(move |_, _, cx| {
                 prefs::update(cx, |prefs| {
                     prefs.extensions.set_badge_place(id, BadgePlace::Hidden)
                 })
@@ -186,7 +186,7 @@ fn badge_menu(menu: PopupMenu, id: &'static str, host: &Host, cx: &App) -> Popup
         );
     }
     menu.item(
-        PopupMenuItem::new("Закрепить на месте")
+        PopupMenuItem::new("Закрепить виджет на месте")
             .checked(pinned)
             .on_click(move |_, _, cx| {
                 prefs::update(cx, |prefs| prefs.extensions.set_pinned(id, !pinned))

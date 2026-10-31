@@ -1,4 +1,4 @@
-use std::{rc::Rc, time::Duration};
+use std::{cell::Cell, rc::Rc, time::Duration};
 
 use crate::{
     ActiveTheme, Colorize as _, Disableable, Icon, Placement, RoleOverride, Selectable, Sizable,
@@ -185,6 +185,22 @@ impl ButtonVariant {
     }
 }
 
+/// Visible caption information shared with application render decorators.
+/// The caption renderer records clipping during prepaint; hover handlers can
+/// inspect the result without another retained view or layout pass.
+#[derive(Clone)]
+pub struct ButtonRenderContext {
+    pub label: Option<SharedString>,
+    pub label_clipped: Rc<Cell<bool>>,
+    /// Native hover observer, filtered by the control's enabled/loading state.
+    /// A decorator that owns hover must forward it from its single listener.
+    pub on_hover: Option<Rc<dyn Fn(&bool, &mut Window, &mut App)>>,
+}
+
+type LabelRenderer = Rc<dyn Fn(SharedString, Rc<Cell<bool>>, &mut Window, &mut App) -> AnyElement>;
+type RenderDecorator =
+    Rc<dyn Fn(gpui_base::Button, ButtonRenderContext, &mut Window, &mut App) -> gpui_base::Button>;
+
 /// A Button element.
 #[derive(IntoElement)]
 pub struct Button {
@@ -192,6 +208,8 @@ pub struct Button {
     base: gpui_base::Button,
     icon: Option<ButtonIcon>,
     label: Option<SharedString>,
+    label_renderer: Option<LabelRenderer>,
+    render_decorator: Option<RenderDecorator>,
     /// The announced name, when the visible content is not it.
     accessibility_label: Option<SharedString>,
     children: Vec<AnyElement>,
@@ -248,6 +266,8 @@ impl Button {
             base: gpui_base::Button::new(id),
             icon: None,
             label: None,
+            label_renderer: None,
+            render_decorator: None,
             accessibility_label: None,
             children: Vec::new(),
             disabled: false,
@@ -368,6 +388,35 @@ impl Button {
     /// the group is held engaged, such as while a sibling's menu is open.
     pub(crate) fn hover_group_held(mut self, held: bool) -> Self {
         self.hover_group_held = held;
+        self
+    }
+
+    /// Customize only the visible label, retaining its accessible name.
+    /// The renderer may record its actual clipping in the supplied shared cell.
+    pub fn render_label(
+        mut self,
+        render: impl Fn(SharedString, Rc<Cell<bool>>, &mut Window, &mut App) -> AnyElement + 'static,
+    ) -> Self {
+        self.label_renderer = Some(Rc::new(render));
+        self
+    }
+
+    /// Decorate the completed native control without replacing its behavior.
+    /// Applications can attach one tooltip that combines caption and action
+    /// information; no application-specific preference belongs in this widget.
+    /// The decorator owns hover registration and must forward `context.on_hover`
+    /// through that same listener to preserve native observers without overlap.
+    pub fn render_with(
+        mut self,
+        render: impl Fn(
+            gpui_base::Button,
+            ButtonRenderContext,
+            &mut Window,
+            &mut App,
+        ) -> gpui_base::Button
+        + 'static,
+    ) -> Self {
+        self.render_decorator = Some(Rc::new(render));
         self
     }
 
@@ -622,6 +671,13 @@ impl RenderOnce for Button {
         let style: ButtonVariant = self.variant;
         let interactive = self.interactive();
         let hoverable = self.hoverable();
+        let on_hover = self.on_hover.clone().filter(|_| hoverable);
+        let decorated = self.render_decorator.is_some();
+        let render_context = ButtonRenderContext {
+            label: self.label.clone(),
+            label_clipped: Rc::new(Cell::new(false)),
+            on_hover: decorated.then(|| on_hover.clone()).flatten(),
+        };
         let disabled = self.disabled;
         let selected = self.shows_selected_style();
         let loading = self.loading;
@@ -792,13 +848,15 @@ impl RenderOnce for Button {
                 )
             })
             .when_some(self.label, |this, label| {
-                this.child(
-                    div()
+                this.child(match &self.label_renderer {
+                    Some(render) => render(label, render_context.label_clipped.clone(), window, cx),
+                    None => div()
                         .min_w_0()
                         .whitespace_nowrap()
                         .text_ellipsis()
-                        .child(label),
-                )
+                        .child(label)
+                        .into_any_element(),
+                })
             })
             .children(children)
             .when(self.dropdown_caret, |this| {
@@ -881,7 +939,7 @@ impl RenderOnce for Button {
         .when(loading, |this| {
             this.on_click(|_, _, cx| cx.stop_propagation())
         })
-        .when_some(self.on_hover.filter(|_| hoverable), |this, on_hover| {
+        .when_some(on_hover.filter(|_| !decorated), |this, on_hover| {
             this.on_hover(move |hovered, window, cx| {
                 on_hover(hovered, window, cx);
             })
@@ -911,6 +969,10 @@ impl RenderOnce for Button {
             } else {
                 this
             }
+        })
+        .map(|this| match self.render_decorator {
+            Some(render) => render(this, render_context, window, cx),
+            None => this,
         })
         .when(is_focused && self.focus_ring_enabled, |this| {
             focus_style(this, focus_line, window, cx)

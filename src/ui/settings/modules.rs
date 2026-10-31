@@ -363,7 +363,7 @@ fn export_row(
     export: &ConfigBuilderPluginExport,
     trailing: impl IntoIterator<Item = AnyElement>,
     cx: &App,
-) -> Div {
+) -> kit::SettingsRow {
     item_row(
         named(
             hashed_id("export", &(&export.slot, &export.id)),

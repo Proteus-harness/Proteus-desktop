@@ -13,6 +13,17 @@ use serde_json::Value;
 const MAX_DEPTH: usize = 32;
 const MAX_NODES: usize = 5_000;
 
+/// A settings action, not a second widget or an implicit host-side default.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct SettingReset {
+    pub action: String,
+    #[serde(default)]
+    pub hint: Option<String>,
+    #[serde(default)]
+    pub value: Option<Value>,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Node {
@@ -65,6 +76,9 @@ pub enum Node {
         #[serde(default)]
         description: Option<String>,
         control: Box<Node>,
+        /// Optional producer-owned reset, rendered with the client settings affordance.
+        #[serde(default)]
+        reset: Option<SettingReset>,
         /// Multiline controls are explicitly placed below their caption.
         #[serde(default)]
         below: bool,
@@ -571,9 +585,20 @@ impl Node {
             bail!("widget tree has more than {MAX_NODES} nodes");
         }
         let children: &[Node] = match self {
-            Node::SettingRow { id, control, .. } => {
+            Node::SettingRow {
+                id, control, reset, ..
+            } => {
                 if id.is_empty() {
                     bail!("setting_row requires a non-empty id");
+                }
+                if reset.as_ref().is_some_and(|reset| {
+                    reset.action.trim().is_empty()
+                        || reset.action.len() > 256
+                        || reset.hint.as_ref().is_some_and(|hint| hint.len() > 4096)
+                }) {
+                    bail!(
+                        "setting_row reset requires a non-empty action up to 256 bytes and hint up to 4096 bytes"
+                    );
                 }
                 std::slice::from_ref(control.as_ref())
             }

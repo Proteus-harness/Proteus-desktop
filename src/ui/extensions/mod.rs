@@ -89,7 +89,9 @@ pub(super) struct Manifest {
     pub page: Option<BuildFocused>,
     pub panel: Option<PanelSurface>,
     pub document: Option<DocumentSurface>,
-    /// Icon under the composer or in a window bar.
+    /// Borrowed language/media registrations; settings display these without a runtime.
+    pub content: Option<&'static crate::declarative::manifest::ContentSurface>,
+    /// Compact widget under the composer or in a window bar.
     pub badge: Option<BadgeSurface>,
 }
 

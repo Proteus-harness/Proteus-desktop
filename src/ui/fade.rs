@@ -3,19 +3,25 @@
 //! visible letters, so it suits any background, hovered or selected. A label
 //! whose end matters more, such as a folder path, is cut at its start.
 
+use std::{cell::Cell, rc::Rc};
+
 use gpui_kit::*;
 
 /// Width of the fade in font sizes.
 const FADE: f32 = 1.;
 
-/// A full-text tooltip appears only when the native layout actually clips
-/// this caption. The caller gives an id inside the row/cell that owns it.
+/// One tooltip combines the title (according to actual clipping and the
+/// title preference) with optional description/context. The caller supplies
+/// an id inside the row/cell that owns it.
 #[derive(IntoElement)]
 pub(in crate::ui) struct Caption {
     id: ElementId,
     text: SharedString,
     anchor: Option<crate::ui::tip::TooltipAnchor>,
     start: bool,
+    description: Option<SharedString>,
+    context: Option<SharedString>,
+    suffix: Option<AnyElement>,
 }
 
 pub(in crate::ui) fn caption(id: impl Into<ElementId>, text: impl Into<SharedString>) -> Caption {
@@ -24,10 +30,35 @@ pub(in crate::ui) fn caption(id: impl Into<ElementId>, text: impl Into<SharedStr
         text: text.into(),
         anchor: None,
         start: false,
+        description: None,
+        context: None,
+        suffix: None,
     }
 }
 
 impl Caption {
+    pub(in crate::ui) fn description(mut self, description: Option<SharedString>) -> Self {
+        self.description = description.map(|text| {
+            // Hover previews remain bounded even for user-supplied schemas.
+            if text.chars().take(601).count() > 600 {
+                format!("{}…", text.chars().take(600).collect::<String>()).into()
+            } else {
+                text
+            }
+        });
+        self
+    }
+
+    pub(in crate::ui) fn context(mut self, context: Option<SharedString>) -> Self {
+        self.context = context;
+        self
+    }
+
+    pub(in crate::ui) fn suffix(mut self, suffix: impl IntoElement) -> Self {
+        self.suffix = Some(suffix.into_any_element());
+        self
+    }
+
     /// Keep the end of a clipped path while preserving the same clip-only hint.
     pub(in crate::ui) fn fade_start(mut self) -> Self {
         self.start = true;
@@ -43,50 +74,43 @@ impl Caption {
 }
 
 impl RenderOnce for Caption {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
         use crate::ui::tip::Tip as _;
-        use gpui_kit::prelude::FluentBuilder as _;
-        let measured = window.use_keyed_state(self.id.clone(), cx, |_, _| None::<Pixels>);
-        let Metrics {
-            font_size, style, ..
-        } = metrics(window);
-        let width = window
-            .text_system()
-            .shape_line(
-                self.text.clone(),
-                font_size,
-                &[style.to_run(self.text.len())],
-                None,
-            )
-            .width();
-        let clipped = measured.read(cx).is_some_and(|room| width > room + px(0.5));
+        let clipped = Rc::new(Cell::new(false));
         let text = self.text.clone();
-        div()
-            .id(self.id)
-            .relative()
-            .min_w_0()
-            .child(if self.start {
-                faded_start(self.text)
-            } else {
-                faded(self.text)
-            })
-            .when(clipped, |label| match self.anchor {
-                Some(anchor) => label.tip_text_at(text, anchor),
-                None => label.tip_text(text),
-            })
-            .child(
-                canvas(
-                    move |bounds, window, cx| {
-                        if measured.read(cx).is_none_or(|old| old != bounds.size.width) {
-                            measured.update(cx, |value, _| *value = Some(bounds.size.width));
-                            window.refresh();
-                        }
-                    },
-                    |_, _, _, _| {},
-                )
-                .absolute()
-                .inset_0(),
+        let label = if self.start {
+            faded_start(self.text)
+        } else {
+            faded(self.text)
+        }
+        .report_clipping(clipped.clone());
+        let content = match self.suffix {
+            Some(suffix) => gpui_kit::component::h_flex()
+                .min_w_0()
+                .gap_1()
+                .child(div().flex_1().min_w_0().child(label))
+                .child(suffix)
+                .into_any_element(),
+            None => label.into_any_element(),
+        };
+        let resolve = move |cx: &App| {
+            let hints = cx
+                .try_global::<crate::ui::prefs::ClientPreferences>()
+                .map(|prefs| prefs.value.hints)
+                .unwrap_or_default();
+            crate::ui::kit::caption_hint_text(
+                hints,
+                &text,
+                clipped.get(),
+                self.description.as_deref(),
+                self.context.as_deref(),
             )
+        };
+        let label = div().id(self.id).relative().min_w_0().child(content);
+        match self.anchor {
+            Some(anchor) => label.tip_text_when_at(anchor, resolve),
+            None => label.tip_text_when(resolve),
+        }
     }
 }
 
@@ -111,6 +135,7 @@ pub(in crate::ui) fn bottom(background: Hsla, height: Rems) -> Div {
 /// The font, colour and decorations come from the surrounding text style.
 pub(in crate::ui) struct Faded {
     text: SharedString,
+    clipped: Option<Rc<Cell<bool>>>,
     /// Cut at the start and keep the end visible.
     start: bool,
 }
@@ -123,7 +148,11 @@ pub(in crate::ui) fn faded(text: impl Into<SharedString>) -> Faded {
     } else {
         text
     };
-    Faded { text, start: false }
+    Faded {
+        text,
+        start: false,
+        clipped: None,
+    }
 }
 
 /// A label clipped at its left edge, fading in there when it does not fit.
@@ -131,6 +160,15 @@ pub(in crate::ui) fn faded_start(text: impl Into<SharedString>) -> Faded {
     Faded {
         start: true,
         ..faded(text)
+    }
+}
+
+impl Faded {
+    /// Share the actual painted clipping with the enclosing control's single
+    /// tooltip, without creating a nested hover trigger or retained entity.
+    pub(in crate::ui) fn report_clipping(mut self, clipped: Rc<Cell<bool>>) -> Self {
+        self.clipped = Some(clipped);
+        self
     }
 }
 
@@ -230,7 +268,11 @@ impl Element for Faded {
         let system = window.text_system();
         let line = system.shape_line(text.clone(), font_size, &[style.to_run(text.len())], None);
         let room = bounds.size.width;
-        if line.width() <= room + px(0.5) {
+        let clipped = line.width() > room + px(0.5);
+        if let Some(report) = &self.clipped {
+            report.set(clipped);
+        }
+        if !clipped {
             return Some((line, line_height, px(0.)));
         }
         let ellipsis = cx

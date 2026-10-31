@@ -41,6 +41,9 @@ pub(super) struct DeclarativeView {
     source_revision: Option<u64>,
     accepted_source_revision: Option<u64>,
     focus_page: bool,
+    /// A reset can remove its control on an asynchronous reply. Keep the
+    /// surviving root focused until the user explicitly moves to a control.
+    keep_root_focus: bool,
     pub(super) presentation: Option<Presentation>,
     /// Selected tab of every `tabs` node, by tree path.
     pub(super) tabs: HashMap<String, usize>,
@@ -112,6 +115,7 @@ impl DeclarativeView {
             source_revision,
             accepted_source_revision: None,
             focus_page: false,
+            keep_root_focus: false,
             presentation: None,
             tabs: HashMap::new(),
             steps: HashMap::new(),
@@ -260,6 +264,13 @@ impl DeclarativeView {
         cx.notify();
     }
 
+    /// Hand keyboard routing to a node that survives a settings reset. Do
+    /// not auto-focus an old input before the asynchronous replacement tree.
+    pub(super) fn focus_reset_root(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.keep_root_focus = true;
+        self.focus.focus(window, cx);
+    }
+
     pub(super) fn act(&mut self, action: String, value: Option<Value>, cx: &mut Context<Self>) {
         self.resize_on_reply = true;
         cx.emit(WillResize);
@@ -375,7 +386,10 @@ impl Render for DeclarativeView {
                 self.prepare_fields(&root, window, cx);
             }
         }
-        if self.focus.is_focused(window) {
+        if !self.focus.is_focused(window) {
+            self.keep_root_focus = false;
+        }
+        if !self.keep_root_focus && self.focus.is_focused(window) {
             // Follow visible tree order, not a HashMap of controls that also
             // contains hidden tabs and collapsed disclosures.
             let focus = self.root.as_ref().and_then(|root| {
@@ -383,8 +397,8 @@ impl Render for DeclarativeView {
             });
             if let Some(focus) = focus {
                 let container = self.focus.clone();
-                cx.defer_in(window, move |_, window, cx| {
-                    if container.is_focused(window) {
+                cx.defer_in(window, move |this, window, cx| {
+                    if !this.keep_root_focus && container.is_focused(window) {
                         focus.focus(window, cx);
                     }
                 });

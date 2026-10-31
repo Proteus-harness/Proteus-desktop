@@ -1,4 +1,4 @@
-//! Page of one extension: what it adds, where its icon lives and where it
+//! Page of one extension: what it adds, where its widget lives and where it
 //! comes from.
 
 use crate::ui::kit::ButtonLabel as _;
@@ -7,7 +7,9 @@ use gpui_kit::component::*;
 use gpui_kit::*;
 
 use super::SettingsView;
-use super::widgets::{MenuOption, Tone, card, chip, mono, note, row, section, select_menu};
+use super::widgets::{
+    MenuOption, Tone, card, chip, mono, note, row, row_with_reset, section, select_menu,
+};
 use crate::preferences::BadgePlace;
 use crate::settings::catalog::PageId;
 use crate::ui::extensions::{self, Manifest};
@@ -135,29 +137,81 @@ impl SettingsView {
                 .into_any_element(),
             );
         }
-        if manifest.badge.is_some() {
+        if let Some(content) = manifest.content {
+            if !content.formats.is_empty() {
+                rows.push(
+                    row(
+                        "Форматы сообщений",
+                        Some("Типы содержимого, которые обрабатывает расширение.".into()),
+                        mono(content.formats.join(", "), cx),
+                        false,
+                        cx,
+                    )
+                    .into_any_element(),
+                );
+            }
+            if !content.languages.is_empty() {
+                rows.push(
+                    row(
+                        "Языки блоков",
+                        Some("Метки языков в блоках кода, которые обрабатывает расширение.".into()),
+                        mono(content.languages.join(", "), cx),
+                        false,
+                        cx,
+                    )
+                    .into_any_element(),
+                );
+            }
+        }
+        if let Some(widget) = &manifest.badge {
+            let saved = &prefs::current(cx).extensions;
+            let place_reset = (saved.badge_place(id, widget.place) != widget.place).then(|| {
+                kit::setting_reset(
+                    "extension-widget-place-reset".into(),
+                    "Вернуть расположение из расширения",
+                    move |_, cx| {
+                        prefs::update(cx, |prefs| {
+                            prefs.extensions.badges.remove(id);
+                        });
+                    },
+                    cx,
+                )
+            });
+            let pin_reset = saved.is_pinned(id).then(|| {
+                kit::setting_reset(
+                    "extension-widget-pin-reset".into(),
+                    "Разрешить перенос виджета",
+                    move |_, cx| prefs::update(cx, |prefs| prefs.extensions.set_pinned(id, false)),
+                    cx,
+                )
+            });
             rows.push(
-                row(
-                    "Значок",
-                    Some(
-                        "Его можно перетащить мышью между полем ввода, верхней полосой и \
-                         строкой состояния."
-                            .into(),
-                    ),
+                row_with_reset(
+                    "Расположение виджета",
+                    Some(if widget.initially_hidden {
+                        "Контекстный виджет появляется, когда у расширения есть содержимое. \
+                         Расположение и закрепление не делают его постоянно видимым."
+                            .into()
+                    } else {
+                        "Виджет можно перетащить мышью между полем ввода, верхней полосой \
+                         и боковой полосой."
+                            .into()
+                    }),
                     if enabled {
                         badge_select(manifest, cx)
                     } else {
                         div().into_any_element()
                     },
                     false,
+                    place_reset,
                     cx,
                 )
                 .into_any_element(),
             );
             rows.push(
-                row(
-                    "Закрепить значок",
-                    Some("Закреплённый значок не перетаскивается.".into()),
+                row_with_reset(
+                    "Закрепить виджет",
+                    Some("Запрещает перенос мышью. Не меняет условия появления виджета.".into()),
                     kit::switch("extension-page-pinned")
                         .checked(prefs::current(cx).extensions.is_pinned(id))
                         .disabled(!enabled)
@@ -166,6 +220,7 @@ impl SettingsView {
                             prefs::update(cx, |prefs| prefs.extensions.set_pinned(id, checked));
                         }),
                     false,
+                    pin_reset,
                     cx,
                 )
                 .into_any_element(),
@@ -254,7 +309,7 @@ impl SettingsView {
     }
 }
 
-/// Where the extension icon lives; it can also be dragged or hidden from
+/// Where the extension widget lives; it can also be dragged or hidden from
 /// its context menu.
 fn badge_select(manifest: &'static Manifest, cx: &App) -> AnyElement {
     let current = extensions::badge_place(manifest, cx);

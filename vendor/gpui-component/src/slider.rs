@@ -1,3 +1,5 @@
+// Compact appearance reuses gpui-base Slider/Track/Indicator/Thumb primitives.
+// Zed has no settings slider equivalent; interaction remains in the shared base.
 use std::sync::Arc;
 
 use crate::{ActiveTheme, AxisExt, StyledExt, ThemeStyled as _};
@@ -5,7 +7,7 @@ pub use gpui_base::slider::{SliderEvent, SliderScale, SliderState, SliderValue};
 use gpui_base::{Slider as BaseSlider, SliderIndicator, SliderThumb, SliderTrack, spring};
 
 use gpui::{
-    App, Axis, Background, Corners, DefiniteLength, ElementId, Entity, EntityId, Hsla,
+    App, Axis, Background, Corners, DefiniteLength, Div, ElementId, Entity, EntityId, Hsla,
     InteractiveElement as _, IntoElement, MouseButton, ParentElement as _, Pixels, RenderOnce,
     SharedString, StatefulInteractiveElement as _, StyleRefinement, Styled, Window, div,
     prelude::FluentBuilder as _, px, relative,
@@ -41,7 +43,14 @@ impl ThumbInteraction {
 
 impl ThumbRing {
     /// Samples the ring for the `start` or end thumb of the slider `id`.
-    fn new(id: EntityId, start: bool, color: Hsla, window: &mut Window, cx: &mut App) -> Self {
+    fn new(
+        id: EntityId,
+        start: bool,
+        color: Hsla,
+        compact: bool,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Self {
         let channel = if start { "start" } else { "end" };
         let interaction = window.use_keyed_state(
             ElementId::NamedChild(Arc::new(("slider-thumb-ring", id).into()), channel.into()),
@@ -62,8 +71,12 @@ impl ThumbRing {
 
         Self {
             interaction,
-            width: THUMB_RING_WIDTH * progress,
-            color: color.alpha(THUMB_RING_OPACITY * progress),
+            width: if compact {
+                window.rem_size() * (3. / 16.)
+            } else {
+                THUMB_RING_WIDTH
+            } * progress,
+            color: color.alpha(if compact { 0.2 } else { THUMB_RING_OPACITY } * progress),
         }
     }
 
@@ -90,6 +103,7 @@ pub struct Slider {
     disabled: bool,
     accessibility_label: Option<SharedString>,
     reverse: bool,
+    compact: bool,
 }
 
 impl Slider {
@@ -102,7 +116,15 @@ impl Slider {
             disabled: false,
             accessibility_label: None,
             reverse: false,
+            compact: false,
         }
+    }
+
+    /// Thin track and outlined thumb, retaining a 24 px pointer target at 100%.
+    /// Values, events and keyboard interaction are unchanged.
+    pub fn compact(mut self) -> Self {
+        self.compact = true;
+        self
     }
 
     /// As a horizontal slider.
@@ -163,6 +185,10 @@ impl RenderOnce for Slider {
             (relative(percentage.start), relative(1. - percentage.end))
         };
         let rem_size = window.rem_size();
+        let compact_hit = rem_size * (24. / 16.);
+        let compact_thumb = rem_size * (14. / 16.);
+        let compact_track = rem_size * (3. / 16.);
+        let compact_offset = (compact_track - compact_hit) / 2.;
 
         let bar_color = self
             .style
@@ -201,8 +227,9 @@ impl RenderOnce for Slider {
 
         let ring_color = cx.theme().ring;
         let entity_id = self.state.entity_id();
-        let start_ring = is_range.then(|| ThumbRing::new(entity_id, true, ring_color, window, cx));
-        let end_ring = ThumbRing::new(entity_id, false, ring_color, window, cx);
+        let start_ring =
+            is_range.then(|| ThumbRing::new(entity_id, true, ring_color, self.compact, window, cx));
+        let end_ring = ThumbRing::new(entity_id, false, ring_color, self.compact, window, cx);
 
         let thumb = |position: DefiniteLength, start: bool, ring: ThumbRing| {
             SliderThumb::new(&self.state)
@@ -212,19 +239,40 @@ impl RenderOnce for Slider {
                 .when(!self.disabled, |this| {
                     this.absolute()
                         .when(axis.is_horizontal(), |this| {
-                            this.top(px(-5.)).left(position).ml(-px(8.))
+                            this.top(if self.compact {
+                                compact_offset
+                            } else {
+                                px(-5.)
+                            })
+                            .left(position)
+                            .ml(if self.compact {
+                                -compact_hit / 2.
+                            } else {
+                                -px(8.)
+                            })
                         })
                         .when(axis.is_vertical(), |this| {
-                            this.bottom(position).left(px(-5.)).mb(-px(8.))
+                            this.bottom(position)
+                                .left(if self.compact {
+                                    compact_offset
+                                } else {
+                                    px(-5.)
+                                })
+                                .mb(if self.compact {
+                                    -compact_hit / 2.
+                                } else {
+                                    -px(8.)
+                                })
                         })
                         .flex()
                         .items_center()
                         .justify_center()
                         .flex_shrink_0()
                         .rounded_full_style(cx)
-                        .bg(bar_color.opacity(0.5))
-                        .size_4()
-                        .p(px(1.))
+                        .when(self.compact, |this| this.size(compact_hit))
+                        .when(!self.compact, |this| {
+                            this.bg(bar_color.opacity(0.5)).size_4().p(px(1.))
+                        })
                         .on_hover({
                             let interaction = ring.interaction.clone();
                             move |entered, _, cx| {
@@ -242,27 +290,32 @@ impl RenderOnce for Slider {
                         .capture_any_mouse_down(ring.press_listener(true))
                         .capture_any_mouse_up(ring.press_listener(false))
                         .on_mouse_up_out(MouseButton::Left, ring.press_listener(false))
-                        // The ring grows outward from the thumb's edge: inset by
-                        // its own width so its inner edge sits flush against it.
-                        .child(
+                        .when(!self.compact, |this| this.child(thumb_ring(&ring, cx)))
+                        .child(if self.compact {
+                            // Only the visual thumb is painted; the transparent
+                            // surrounding target retains comfortable dragging.
                             div()
+                                .relative()
                                 .flex_none()
-                                .absolute()
-                                .top(-ring.width)
-                                .left(-ring.width)
-                                .right(-ring.width)
-                                .bottom(-ring.width)
+                                .size(compact_thumb)
                                 .rounded_full_style(cx)
-                                .border(ring.width)
-                                .border_color(ring.color),
-                        )
-                        .child(
+                                .border(px(1.))
+                                .border_color(
+                                    bar_color
+                                        .as_solid()
+                                        .unwrap_or_else(|| cx.theme().tokens.slider_bar.into()),
+                                )
+                                .bg(cx.theme().background)
+                                .child(thumb_ring(&ring, cx))
+                                .into_any_element()
+                        } else {
                             div()
                                 .flex_shrink_0()
                                 .size_full()
                                 .rounded_full_style(cx)
-                                .bg(thumb_bg),
-                        )
+                                .bg(thumb_bg)
+                                .into_any_element()
+                        })
                 })
         };
 
@@ -296,8 +349,16 @@ impl RenderOnce for Slider {
                     .child(
                         SliderIndicator::new(&self.state)
                             .relative()
-                            .when(axis.is_horizontal(), |this| this.w_full().h_1p5())
-                            .when(axis.is_vertical(), |this| this.h_full().w_1p5())
+                            .when(axis.is_horizontal(), |this| {
+                                this.w_full()
+                                    .when(self.compact, |this| this.h(compact_track))
+                                    .when(!self.compact, |this| this.h_1p5())
+                            })
+                            .when(axis.is_vertical(), |this| {
+                                this.h_full()
+                                    .when(self.compact, |this| this.w(compact_track))
+                                    .when(!self.compact, |this| this.w_1p5())
+                            })
                             .bg(bar_color.opacity(0.2))
                             .active(|this| this.bg(bar_color.opacity(0.4)))
                             .corner_radii(radius)
@@ -322,6 +383,20 @@ impl RenderOnce for Slider {
     }
 }
 
+/// Hover decoration around the visual thumb rather than its hit target.
+fn thumb_ring(ring: &ThumbRing, cx: &App) -> Div {
+    div()
+        .flex_none()
+        .absolute()
+        .top(-ring.width)
+        .left(-ring.width)
+        .right(-ring.width)
+        .bottom(-ring.width)
+        .rounded_full_style(cx)
+        .border(ring.width)
+        .border_color(ring.color)
+}
+
 #[cfg(test)]
 mod tests {
     use gpui::{AppContext as _, Context, Modifiers, Render, TestAppContext, point};
@@ -331,39 +406,85 @@ mod tests {
     struct Harness {
         state: Entity<SliderState>,
         disabled: bool,
+        compact: bool,
     }
 
     impl Render for Harness {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-            div()
-                .w(px(100.))
-                .h(px(24.))
-                .child(Slider::new(&self.state).disabled(self.disabled))
+            div().w(px(100.)).h(px(24.)).child(
+                Slider::new(&self.state)
+                    .disabled(self.disabled)
+                    .when(self.compact, Slider::compact),
+            )
         }
     }
 
     fn harness(
         cx: &mut TestAppContext,
         disabled: bool,
+        compact: bool,
     ) -> (&mut gpui::VisualTestContext, Entity<SliderState>) {
         cx.update(crate::theme::init);
         let state = cx.new(|_| SliderState::new());
         let result = state.clone();
-        let (_, cx) = cx.add_window_view(move |_, _| Harness { state, disabled });
+        let (_, cx) = cx.add_window_view(move |_, _| Harness {
+            state,
+            disabled,
+            compact,
+        });
         cx.update(|window, cx| window.draw(cx).clear(cx));
         (cx, result)
     }
 
     #[gpui::test]
     fn pointer_updates_the_migrated_state(cx: &mut TestAppContext) {
-        let (cx, state) = harness(cx, false);
+        let (cx, state) = harness(cx, false, false);
         cx.simulate_click(point(px(50.), px(12.)), Modifiers::default());
         cx.update(|_, cx| assert!((state.read(cx).value().end() - 50.).abs() < 1.));
     }
 
     #[gpui::test]
     fn disabled_slider_is_inert(cx: &mut TestAppContext) {
-        let (cx, state) = harness(cx, true);
+        let (cx, state) = harness(cx, true, false);
+        cx.simulate_click(point(px(50.), px(12.)), Modifiers::default());
+        cx.update(|_, cx| assert_eq!(state.read(cx).value(), SliderValue::Single(0.)));
+    }
+
+    #[gpui::test]
+    fn compact_slider_keeps_track_clicks_and_dragging(cx: &mut TestAppContext) {
+        let (cx, state) = harness(cx, false, true);
+        cx.simulate_click(point(px(50.), px(12.)), Modifiers::default());
+        cx.update(|window, cx| {
+            assert!((state.read(cx).value().end() - 50.).abs() < 1.);
+            window.draw(cx).clear(cx);
+        });
+        // Above the 14 px painted thumb but within its 24 px pointer target.
+        cx.simulate_mouse_down(
+            point(px(50.), px(2.)),
+            MouseButton::Left,
+            Modifiers::default(),
+        );
+        cx.simulate_mouse_move(
+            point(px(65.), px(2.)),
+            Some(MouseButton::Left),
+            Modifiers::default(),
+        );
+        cx.simulate_mouse_move(
+            point(px(80.), px(2.)),
+            Some(MouseButton::Left),
+            Modifiers::default(),
+        );
+        cx.simulate_mouse_up(
+            point(px(80.), px(2.)),
+            MouseButton::Left,
+            Modifiers::default(),
+        );
+        cx.update(|_, cx| assert!((state.read(cx).value().end() - 80.).abs() < 1.));
+    }
+
+    #[gpui::test]
+    fn compact_disabled_slider_is_inert(cx: &mut TestAppContext) {
+        let (cx, state) = harness(cx, true, true);
         cx.simulate_click(point(px(50.), px(12.)), Modifiers::default());
         cx.update(|_, cx| assert_eq!(state.read(cx).value(), SliderValue::Single(0.)));
     }

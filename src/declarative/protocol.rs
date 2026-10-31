@@ -29,6 +29,7 @@ pub const FEATURES: &[&str] = &[
     "widgets.lanes.v2",
     "widgets.disclosure.v1",
     "widgets.setting_row.v1",
+    "widgets.setting_row.reset.v1",
     "surfaces.badge.visibility.v1",
     "widgets.person.v1",
     "documents.title.v1",

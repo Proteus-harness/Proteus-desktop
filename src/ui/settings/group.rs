@@ -120,7 +120,7 @@ impl SettingsView {
             let (view, path) = (cx.weak_entity(), path.clone());
             reset_mark(
                 hashed_id("group-reset", &path),
-                "Своя группа · сбросить",
+                "Сбросить параметры группы",
                 move |_, cx| {
                     let _ = view.update(cx, |this, cx| this.reset_field(&path, cx));
                 },

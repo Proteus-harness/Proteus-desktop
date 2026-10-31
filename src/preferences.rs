@@ -51,17 +51,43 @@ pub enum MotionPreference {
     Off,
 }
 
-/// What the hover tooltip of a control says.
+/// When a caption's full title appears in its hover tooltip.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Hints {
-    /// What the control does and its shortcut.
+pub enum TitleHint {
     #[default]
-    Full,
-    Description,
-    /// The shortcut alone; a control without one has no tooltip.
-    Keys,
-    Off,
+    Clipped,
+    Always,
+    Never,
+}
+
+impl TitleHint {
+    pub const fn shows(self, clipped: bool) -> bool {
+        match self {
+            Self::Clipped => clipped,
+            Self::Always => true,
+            Self::Never => false,
+        }
+    }
+}
+
+/// Independent parts of a hover tooltip, applied immediately on this device.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Hints {
+    pub title: TitleHint,
+    pub description: bool,
+    pub shortcut: bool,
+}
+
+impl Default for Hints {
+    fn default() -> Self {
+        Self {
+            title: TitleHint::Clipped,
+            description: true,
+            shortcut: true,
+        }
+    }
 }
 
 /// How single-line captions indicate that their text does not fit.
@@ -111,30 +137,83 @@ pub struct Preferences {
     pub shortcuts: Shortcuts,
 }
 
-impl Preferences {
-    /// Reset only the controls on the Appearance page.
-    pub fn reset_appearance(&mut self) {
-        let defaults = Self::default();
-        self.theme = defaults.theme;
-        self.themes = defaults.themes;
-        self.fonts.interface = defaults.fonts.interface;
-        self.view.scale = defaults.view.scale;
-        self.view.surface_radius = defaults.view.surface_radius;
-        self.motion = defaults.motion;
-        self.hints = defaults.hints;
-        self.label_truncation = defaults.label_truncation;
+/// One device-local setting. Reset restores its default or inherited value;
+/// unrelated preferences and workspace state are never touched.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Preference {
+    Theme,
+    DarkPalette,
+    LightPalette,
+    InterfaceFont,
+    Scale,
+    SurfaceRadius,
+    Motion,
+    HintTitle,
+    HintDescription,
+    HintShortcut,
+    LabelTruncation,
+    Send,
+    ChatFont,
+    ChatText,
+    ChatWidth,
+    CompactTools,
+    Autoscroll,
+    Notifications,
+}
+
+impl Preference {
+    pub fn is_default(self, prefs: &Preferences) -> bool {
+        match self {
+            Self::Theme => prefs.theme == ThemePreference::default(),
+            Self::DarkPalette => prefs.themes.dark == DEFAULT_DARK_THEME,
+            Self::LightPalette => prefs.themes.light == DEFAULT_LIGHT_THEME,
+            Self::InterfaceFont => prefs.fonts.interface.is_none(),
+            Self::Scale => prefs.view.scale == ViewPreferences::default().scale,
+            Self::SurfaceRadius => {
+                prefs.view.surface_radius == ViewPreferences::default().surface_radius
+            }
+            Self::Motion => prefs.motion == MotionPreference::default(),
+            Self::HintTitle => prefs.hints.title == Hints::default().title,
+            Self::HintDescription => prefs.hints.description == Hints::default().description,
+            Self::HintShortcut => prefs.hints.shortcut == Hints::default().shortcut,
+            Self::LabelTruncation => prefs.label_truncation == LabelTruncation::default(),
+            Self::Send => prefs.send == SendMode::default(),
+            Self::ChatFont => prefs.fonts.chat.is_none(),
+            Self::ChatText => prefs.view.chat_text == ViewPreferences::default().chat_text,
+            Self::ChatWidth => prefs.view.chat_width == ViewPreferences::default().chat_width,
+            Self::CompactTools => {
+                prefs.view.compact_tools == ViewPreferences::default().compact_tools
+            }
+            Self::Autoscroll => prefs.view.autoscroll == ViewPreferences::default().autoscroll,
+            Self::Notifications => prefs.notifications == Notifications::default(),
+        }
     }
 
-    /// Reset only the controls on the Chat page, preserving interface sizes.
-    pub fn reset_chat(&mut self) {
-        let defaults = Self::default();
-        self.fonts.chat = defaults.fonts.chat;
-        self.send = defaults.send;
-        self.notifications = defaults.notifications;
-        self.view.chat_text = defaults.view.chat_text;
-        self.view.chat_width = defaults.view.chat_width;
-        self.view.compact_tools = defaults.view.compact_tools;
-        self.view.autoscroll = defaults.view.autoscroll;
+    pub fn reset(self, prefs: &mut Preferences) {
+        match self {
+            Self::Theme => prefs.theme = ThemePreference::default(),
+            Self::DarkPalette => prefs.themes.dark = DEFAULT_DARK_THEME.into(),
+            Self::LightPalette => prefs.themes.light = DEFAULT_LIGHT_THEME.into(),
+            Self::InterfaceFont => prefs.fonts.interface = None,
+            Self::Scale => prefs.view.scale = ViewPreferences::default().scale,
+            Self::SurfaceRadius => {
+                prefs.view.surface_radius = ViewPreferences::default().surface_radius
+            }
+            Self::Motion => prefs.motion = MotionPreference::default(),
+            Self::HintTitle => prefs.hints.title = Hints::default().title,
+            Self::HintDescription => prefs.hints.description = Hints::default().description,
+            Self::HintShortcut => prefs.hints.shortcut = Hints::default().shortcut,
+            Self::LabelTruncation => prefs.label_truncation = LabelTruncation::default(),
+            Self::Send => prefs.send = SendMode::default(),
+            Self::ChatFont => prefs.fonts.chat = None,
+            Self::ChatText => prefs.view.chat_text = ViewPreferences::default().chat_text,
+            Self::ChatWidth => prefs.view.chat_width = ViewPreferences::default().chat_width,
+            Self::CompactTools => {
+                prefs.view.compact_tools = ViewPreferences::default().compact_tools
+            }
+            Self::Autoscroll => prefs.view.autoscroll = ViewPreferences::default().autoscroll,
+            Self::Notifications => prefs.notifications = Notifications::default(),
+        }
     }
 }
 
@@ -469,8 +548,8 @@ pub fn load() -> Result<Preferences> {
 }
 
 fn parse(text: &str, path: &Path) -> Result<Preferences> {
-    let preferences: Preferences = serde_json::from_str(text)
-        .with_context(|| format!("invalid preferences in {}", path.display()))?;
+    let preferences =
+        decode_saved(text).with_context(|| format!("invalid preferences in {}", path.display()))?;
     preferences
         .tabs
         .validate()
@@ -492,6 +571,30 @@ fn parse(text: &str, path: &Path) -> Result<Preferences> {
         .validate()
         .with_context(|| format!("invalid shortcuts in {}", path.display()))?;
     Ok(preferences)
+}
+
+/// Upgrade the former tooltip mode only at the saved-file boundary. The public
+/// typed format accepts the current object exclusively and writes no old aliases.
+fn decode_saved(text: &str) -> serde_json::Result<Preferences> {
+    let original = match serde_json::from_str(text) {
+        Ok(preferences) => return Ok(preferences),
+        Err(error) => error,
+    };
+    let mut value: serde_json::Value = serde_json::from_str(text)?;
+    let mode = value.get("hints").and_then(serde_json::Value::as_str);
+    let (description, shortcut) = match mode {
+        Some("full") => (true, true),
+        Some("description") => (true, false),
+        Some("keys") => (false, true),
+        Some("off") => (false, false),
+        _ => return Err(original),
+    };
+    value["hints"] = serde_json::to_value(Hints {
+        title: TitleHint::default(),
+        description,
+        shortcut,
+    })?;
+    serde_json::from_value(value)
 }
 
 fn set_aside(path: &Path) -> std::io::Result<PathBuf> {
@@ -550,51 +653,153 @@ mod tests {
     }
 
     #[test]
-    fn page_resets_preserve_other_pages_and_workspace_state() {
-        let mut value = Preferences::default();
-        value.fonts.interface = Some("Interface".into());
-        value.fonts.chat = Some("Chat".into());
-        value.theme = super::ThemePreference::Light;
-        value.label_truncation = super::LabelTruncation::Ellipsis;
-        value.view.scale = 150;
-        value.view.surface_radius = 4;
-        value.view.chat_text = 20;
-        value.view.chat_width = 1200;
-        value.view.compact_tools = false;
-        value.view.autoscroll = false;
-        value.send = super::SendMode::CtrlEnter;
-        value.notifications = super::Notifications::Off;
-        value.sidebar.width = 320.;
-        value.extensions.set_enabled("plan", false);
-        let changed = value.clone();
-        value.reset_appearance();
-        assert_eq!(value.fonts.interface, None);
-        assert_eq!(value.view.scale, 100);
-        assert_eq!(value.view.surface_radius, 16);
-        assert_eq!(value.label_truncation, super::LabelTruncation::Fade);
-        let mut expected = Preferences::default();
-        expected.fonts.chat = changed.fonts.chat.clone();
-        expected.view.chat_text = changed.view.chat_text;
-        expected.view.chat_width = changed.view.chat_width;
-        expected.view.compact_tools = changed.view.compact_tools;
-        expected.view.autoscroll = changed.view.autoscroll;
-        expected.send = changed.send;
-        expected.notifications = changed.notifications;
-        expected.sidebar = changed.sidebar.clone();
-        expected.extensions = changed.extensions.clone();
-        assert_eq!(value, expected);
-        value = changed.clone();
-        value.reset_chat();
-        expected = changed;
+    fn title_hint_modes_respect_actual_clipping() {
+        use super::TitleHint::*;
+        for (mode, clipped, shown) in [
+            (Clipped, false, false),
+            (Clipped, true, true),
+            (Always, false, true),
+            (Always, true, true),
+            (Never, false, false),
+            (Never, true, false),
+        ] {
+            assert_eq!(mode.shows(clipped), shown, "{mode:?}, clipped={clipped}");
+        }
+    }
+
+    #[test]
+    fn tooltip_parts_default_and_roundtrip_independently() {
+        use super::{Hints, TitleHint};
+        let path = std::path::Path::new("fixture.json");
+        let default = super::parse("{}", path).unwrap().hints;
+        assert_eq!(default.title, TitleHint::Clipped);
+        assert!(default.description);
+        assert!(default.shortcut);
+        assert_eq!(
+            super::parse(r#"{"hints":{}}"#, path).unwrap().hints,
+            default
+        );
+        for title in [TitleHint::Clipped, TitleHint::Always, TitleHint::Never] {
+            for description in [false, true] {
+                for shortcut in [false, true] {
+                    let expected = Hints {
+                        title,
+                        description,
+                        shortcut,
+                    };
+                    let mut prefs = Preferences::default();
+                    prefs.hints = expected;
+                    let text = serde_json::to_string(&prefs).unwrap();
+                    assert_eq!(super::parse(&text, path).unwrap().hints, expected);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn saved_tooltip_modes_migrate_without_losing_other_preferences() {
+        let path = std::path::Path::new("fixture.json");
+        for (mode, description, shortcut) in [
+            ("full", true, true),
+            ("description", true, false),
+            ("keys", false, true),
+            ("off", false, false),
+        ] {
+            let source = serde_json::json!({
+                "hints": mode,
+                "theme": "light",
+                "fonts": {"chat": "Example font"},
+                "sidebar": {"width": 333.0},
+                "extensions": {"disabled": ["analysis", "plan"]},
+            });
+            let prefs = super::parse(&source.to_string(), path).unwrap();
+            let mut expected = Preferences::default();
+            expected.hints.description = description;
+            expected.hints.shortcut = shortcut;
+            expected.theme = super::ThemePreference::Light;
+            expected.fonts.chat = Some("Example font".into());
+            expected.sidebar.width = 333.;
+            expected.extensions.disabled = vec!["analysis".into(), "plan".into()];
+            assert_eq!(prefs, expected, "{mode}");
+            let canonical = serde_json::to_value(&prefs).unwrap();
+            assert!(canonical["hints"].is_object());
+            assert_eq!(
+                super::parse(&canonical.to_string(), path).unwrap(),
+                expected
+            );
+            assert!(serde_json::from_value::<super::Hints>(source["hints"].clone()).is_err());
+        }
+    }
+
+    #[test]
+    fn malformed_tooltips_and_unrelated_corruption_still_fail() {
+        let path = std::path::Path::new("fixture.json");
+        for source in [
+            r#"{"hints":"unknown"}"#,
+            r#"{"hints":null}"#,
+            r#"{"hints":{"title":"sometimes"}}"#,
+            r#"{"hints":{"description":"false"}}"#,
+            r#"{"hints":{"shortcut":0}}"#,
+            r#"{"hints":{"unknown":true}}"#,
+            r#"{"hints":"off","view":{"scale":13}}"#,
+            r#"{"hints":"full","unknown":true}"#,
+        ] {
+            assert!(super::parse(source, path).is_err(), "{source}");
+        }
+    }
+
+    #[test]
+    fn each_setting_reset_changes_only_its_value_and_preserves_workspace_state() {
+        use super::Preference::*;
+        use serde_json::{Value, json};
+
+        let fields = [
+            (Theme, "/theme", json!("light")),
+            (DarkPalette, "/themes/dark", json!("Custom dark")),
+            (LightPalette, "/themes/light", json!("Custom light")),
+            (InterfaceFont, "/fonts/interface", json!("Interface")),
+            (Scale, "/view/scale", json!(150)),
+            (SurfaceRadius, "/view/surface_radius", json!(4)),
+            (Motion, "/motion", json!("off")),
+            (HintTitle, "/hints/title", json!("always")),
+            (HintDescription, "/hints/description", json!(false)),
+            (HintShortcut, "/hints/shortcut", json!(false)),
+            (LabelTruncation, "/label_truncation", json!("ellipsis")),
+            (Send, "/send", json!("ctrl_enter")),
+            (ChatFont, "/fonts/chat", json!("Chat")),
+            (ChatText, "/view/chat_text", json!(20)),
+            (ChatWidth, "/view/chat_width", json!(1200)),
+            (CompactTools, "/view/compact_tools", json!(false)),
+            (Autoscroll, "/view/autoscroll", json!(false)),
+            (Notifications, "/notifications", json!("off")),
+        ];
         let defaults = Preferences::default();
-        expected.fonts.chat = defaults.fonts.chat;
-        expected.view.chat_text = defaults.view.chat_text;
-        expected.view.chat_width = defaults.view.chat_width;
-        expected.view.compact_tools = defaults.view.compact_tools;
-        expected.view.autoscroll = defaults.view.autoscroll;
-        expected.send = defaults.send;
-        expected.notifications = defaults.notifications;
-        assert_eq!(value, expected);
+        let default_json = serde_json::to_value(&defaults).unwrap();
+        let mut modified = default_json.clone();
+        for (field, path, changed) in &fields {
+            assert!(field.is_default(&defaults), "{field:?}");
+            *modified.pointer_mut(path).unwrap() = changed.clone();
+        }
+        *modified.pointer_mut("/sidebar/width").unwrap() = json!(333.0);
+        *modified.pointer_mut("/extensions/disabled").unwrap() = json!(["plan", "analysis"]);
+        let modified_prefs: Preferences = serde_json::from_value(modified.clone()).unwrap();
+        for (field, path, _) in &fields {
+            let mut prefs = modified_prefs.clone();
+            assert!(!field.is_default(&prefs), "{field:?}");
+            field.reset(&mut prefs);
+            assert!(field.is_default(&prefs), "{field:?}");
+            let mut expected: Value = modified.clone();
+            *expected.pointer_mut(path).unwrap() = default_json.pointer(path).unwrap().clone();
+            assert_eq!(serde_json::to_value(&prefs).unwrap(), expected, "{field:?}");
+            field.reset(&mut prefs);
+            assert_eq!(
+                serde_json::to_value(&prefs).unwrap(),
+                expected,
+                "idempotent {field:?}"
+            );
+            let restored: Preferences = serde_json::from_value(expected).unwrap();
+            assert_eq!(restored, prefs);
+        }
     }
 
     #[test]

@@ -151,7 +151,11 @@ impl SettingsView {
             let handler = spec.clone();
             reset_mark(
                 spec.id("reset"),
-                "Своё значение · сбросить",
+                if field.default.is_some() {
+                    "Вернуть значение по умолчанию"
+                } else {
+                    "Убрать своё значение"
+                },
                 move |_, cx| handler.reset(cx),
                 cx,
             )
