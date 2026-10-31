@@ -47,20 +47,36 @@ impl Runtime {
             return;
         }
         let events_context = context.clone();
-        let events = host.subscribe(cx, move |this, event, cx| {
-            this.scope_event(&events_context, event, cx)
-        });
+        let events = self
+            .lifetime
+            .session()
+            .then(|| {
+                host.subscribe(cx, move |this, event, cx| {
+                    this.scope_event(&events_context, event, cx)
+                })
+            })
+            .flatten();
         let session_context = context.clone();
-        let session_events = host.subscribe_session(cx, move |this: &mut Self, event, _| {
-            if this.extension.manifest.session_events {
-                this.send(&Outgoing::SessionUpdate {
-                    context: session_context.clone(),
-                    session_dir: event.session_dir.clone(),
-                    update: event.update.clone(),
-                });
-            }
-        });
-        let source = host.session_source(cx);
+        let session_events = self
+            .lifetime
+            .session()
+            .then(|| {
+                host.subscribe_session(cx, move |this: &mut Self, event, _| {
+                    if this.extension.manifest.session_events {
+                        this.send(&Outgoing::SessionUpdate {
+                            context: session_context.clone(),
+                            session_dir: event.session_dir.clone(),
+                            update: event.update.clone(),
+                        });
+                    }
+                })
+            })
+            .flatten();
+        let source = self
+            .lifetime
+            .session()
+            .then(|| host.session_source(cx))
+            .flatten();
         self.scopes.insert(
             context.clone(),
             Scope {
@@ -84,17 +100,25 @@ impl Runtime {
             return;
         };
         let host = scope.host.clone();
-        let session = host.session_dir(cx);
+        let session = self
+            .lifetime
+            .session()
+            .then(|| host.session_dir(cx))
+            .flatten();
         let snapshot_known = self
             .scopes
             .iter()
             .any(|(id, scope)| id != context && scope.announced && scope.session == session);
         self.send(&Outgoing::Context {
             context: context.into(),
-            workspace: host.workspace_path(cx).unwrap_or_default(),
+            workspace: if !self.lifetime.session() {
+                PathBuf::new()
+            } else {
+                host.workspace_path(cx).unwrap_or_default()
+            },
             session_dir: session.clone(),
         });
-        if self.extension.manifest.session_events && !snapshot_known {
+        if self.lifetime.session() && self.extension.manifest.session_events && !snapshot_known {
             self.send(&host.session_snapshot(cx));
         }
         if let Some(scope) = self.scopes.get_mut(context) {
@@ -188,7 +212,9 @@ impl Runtime {
             {
                 return;
             }
-            super::super::rehost_runtime(&runtime, &host, cx);
+            if runtime.read(cx).lifetime == Lifetime::Workspace {
+                super::super::rehost_runtime(&runtime, &host, cx);
+            }
             runtime.update(cx, |this, cx| {
                 this.ensure_scope(host, window, cx);
                 this.send(&Outgoing::Rehost { view, context });

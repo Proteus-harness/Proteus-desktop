@@ -453,3 +453,29 @@ pub(super) fn hint_text(text: impl Into<String>, cx: &App) -> Option<Div> {
             .child(text)
     })
 }
+
+// Адаптировано из Zed: crates/settings_ui/src/settings_ui.rs (SubPageLink).
+// A shared text action with an end chevron, using the ordinary button's focus
+// and accessibility behavior. Every link follows the same exact destination.
+impl super::SettingsView {
+    pub(super) fn settings_link(
+        &self,
+        id: ElementId,
+        label: impl Into<SharedString>,
+        target: super::spot::Destination,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let label: SharedString = label.into();
+        kit::button(id)
+            .faded_label(label)
+            .quiet(cx)
+            .xsmall()
+            .child(
+                Icon::new(Lucide::ChevronRight)
+                    .xsmall()
+                    .text_color(cx.theme().muted_foreground),
+            )
+            .on_click(cx.listener(move |this, _, window, cx| this.go_to(&target, window, cx)))
+            .into_any_element()
+    }
+}

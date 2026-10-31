@@ -110,6 +110,7 @@ pub(in crate::ui) struct ContentView {
     rendered: Entity<DeclarativeView>,
     content: Arc<Content>,
     extension: &'static str,
+    lifetime: crate::ui::extensions::host::Lifetime,
     show_source: bool,
     body: bool,
     _rendered: Subscription,
@@ -128,6 +129,7 @@ impl ContentView {
         populate_context(&mut content.context, cx);
         let content = Arc::new(content);
         let extension = host.extension();
+        let lifetime = host.runtime_scope().lifetime;
         let runtime = super::runtime(&host, window, cx).expect("registered content extension");
         let rendered = cx.new(|cx| {
             DeclarativeView::with_content(
@@ -148,6 +150,7 @@ impl ContentView {
             rendered,
             content,
             extension,
+            lifetime,
             show_source: false,
             body: false,
         }
@@ -233,7 +236,10 @@ impl ContentView {
         window: &mut Window,
         cx: &mut App,
     ) -> Option<gpui_kit::base::text::InlineElement> {
-        if !crate::ui::extensions::is_enabled(self.extension, cx) {
+        if !self
+            .lifetime
+            .allowed(crate::ui::extensions::is_enabled(self.extension, cx))
+        {
             return None;
         }
         self.rendered
@@ -275,7 +281,9 @@ mod tests;
 
 impl Render for ContentView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let enabled = crate::ui::extensions::is_enabled(self.extension, cx);
+        let enabled = self
+            .lifetime
+            .allowed(crate::ui::extensions::is_enabled(self.extension, cx));
         let view = self.rendered.read(cx);
         let ready = enabled && view.ready(cx);
         let error = view.error(cx);

@@ -36,10 +36,7 @@ impl SettingsView {
             })
             .collect();
         let enabled = if enabled.is_empty() {
-            card(
-                [note("Обработчики не включены.", cx).into_any_element()],
-                cx,
-            )
+            card([note("Hooks не включены.", cx).into_any_element()], cx)
         } else {
             let view = cx.weak_entity();
             card(
@@ -75,21 +72,31 @@ impl SettingsView {
                     ),
                     [kit::switch(hashed_id("hook-switch", &module.id))
                         .checked(false)
-                        .hint("Включить обработчик", cx)
+                        .hint("Включить hook", cx)
                         .on_click(cx.listener(move |this, checked: &bool, _, cx| {
                             let checked = *checked;
                             this.update_draft(cx, |draft| draft.set_hook(&id, checked))
                         }))
                         .into_any_element()],
                 );
-                self.spotted(&super::spot::hook(&module.id), row, cx)
+                let key = format!("params:{HOOK_SLOT}:{}", module.id);
+                v_flex()
+                    .child(self.spotted(&super::spot::hook(&module.id), row, cx))
+                    .children(self.params_disclosure(
+                        HOOK_SLOT,
+                        &module.id,
+                        &key,
+                        self.is_open(&key),
+                        cx,
+                    ))
+                    .into_any_element()
             })
             .collect();
         let available = if available.is_empty() {
             let text = if snapshot.hook_modules.is_empty() {
-                "В профиле нет модулей обработчиков."
+                "В профиле нет модулей hooks."
             } else {
-                "Все обработчики включены."
+                "Все hooks включены."
             };
             card([note(text, cx).into_any_element()], cx)
         } else {
@@ -134,7 +141,7 @@ impl SettingsView {
             [reorder::controls(
                 kit::switch(hashed_id("hook-switch", &id))
                     .checked(true)
-                    .hint("Отключить обработчик", cx)
+                    .hint("Отключить hook", cx)
                     .on_click(cx.listener(move |this, checked: &bool, _, cx| {
                         let checked = *checked;
                         this.update_draft(cx, |draft| draft.set_hook(&target, checked))

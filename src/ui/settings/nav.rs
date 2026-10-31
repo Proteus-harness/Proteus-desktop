@@ -341,8 +341,11 @@ impl SettingsView {
             .pb_3()
             .gap_0p5()
             .children(hits.into_iter().enumerate().map(|(ix, hit)| {
-                let (icon, title, place) =
-                    (page_icon(&hit.page), hit.title.clone(), hit.place.clone());
+                let (icon, title, place) = (
+                    page_icon(&hit.target.page),
+                    hit.title.clone(),
+                    hit.place.clone(),
+                );
                 h_flex()
                     .id(("settings-hit", ix))
                     .flex_none()
@@ -368,7 +371,9 @@ impl SettingsView {
                                     .child(faded(place)),
                             ),
                     )
-                    .on_click(cx.listener(move |this, _, window, cx| this.go_to(&hit, window, cx)))
+                    .on_click(
+                        cx.listener(move |this, _, window, cx| this.go_to(&hit.target, window, cx)),
+                    )
             }))
             .when(empty, |list| {
                 list.child(

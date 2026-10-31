@@ -44,7 +44,7 @@ impl Chat {
                 .iter()
                 .find(|request| &request.request_id == id)
                 .map(|request| self.render_user_input(request, window, cx)),
-            ActivityId::Plan => None,
+            ActivityId::Extension(_) => None,
         }
     }
 }
@@ -53,7 +53,7 @@ pub(super) fn request_fresh(activity: &ActivityId, chat: &Chat) -> bool {
     let id = match activity {
         ActivityId::Approval(id) => format!("approval-{id}"),
         ActivityId::Question(id) => format!("user-input-{id}"),
-        ActivityId::Plan => return false,
+        ActivityId::Extension(_) => return false,
     };
     chat.fresh_requests.is_fresh(request_key(&id))
 }

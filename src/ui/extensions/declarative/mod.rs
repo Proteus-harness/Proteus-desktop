@@ -3,6 +3,8 @@
 //!
 //! Shipped and user-installed packages share this renderer and [`Host`].
 
+mod activity;
+pub(in crate::ui) use activity::{ActivityContribution, ActivitySummary};
 mod badge;
 mod bar;
 mod button;
@@ -43,6 +45,7 @@ use gpui_kit::*;
 use super::{BadgeSurface, DocumentSurface, Host, Manifest, PanelSurface, SurfaceView};
 use crate::declarative::manifest::{self, Installed, Problem};
 use crate::declarative::protocol::SurfaceKind;
+use runtime::Lifetime;
 use runtime::Runtime;
 use view::DeclarativeView;
 
@@ -103,6 +106,13 @@ fn entry(extension: Installed) -> Entry {
             .page
             .as_ref()
             .map(|_| build_page as super::BuildFocused),
+        page_embedded: surfaces.page.as_ref().is_some_and(|page| page.embedded),
+        preview: surfaces
+            .preview
+            .as_ref()
+            .map(|_| preview as super::BuildFocused),
+        activity: surfaces.activity.is_some(),
+        tool_dependencies: manifest.dependencies.tools.as_slice(),
         panel: surfaces.panel.as_ref().map(|panel| PanelSurface {
             title: &panel.title,
             build: build_panel,
@@ -171,7 +181,20 @@ struct Runtimes(HashMap<(EntityId, &'static str), WeakEntity<Runtime>>);
 
 impl Global for Runtimes {}
 
+/// Weak registration supports package reloads without extending a settings
+/// page's lifetime or sharing its process with production surfaces.
+#[derive(Default)]
+struct ViewRuntimes(HashMap<(super::host::ViewOwner, &'static str), WeakEntity<Runtime>>);
+impl Global for ViewRuntimes {}
+
 fn runtime_of(host: &Host, cx: &App) -> Option<Entity<Runtime>> {
+    if let Some(owner) = host.runtime_scope().owner {
+        return cx
+            .try_global::<ViewRuntimes>()?
+            .0
+            .get(&(owner, host.extension()))?
+            .upgrade();
+    }
     cx.try_global::<Runtimes>()?
         .0
         .get(&(host.identity(), host.extension()))?
@@ -184,6 +207,12 @@ fn runtime(host: &Host, window: &Window, cx: &mut App) -> Option<Entity<Runtime>
         return Some(runtime);
     }
     let runtime = cx.new(|cx| Runtime::new(extension, host.clone(), window, cx));
+    if let Some(owner) = host.runtime_scope().owner {
+        let runtimes = &mut cx.default_global::<ViewRuntimes>().0;
+        runtimes.retain(|_, runtime| runtime.upgrade().is_some());
+        runtimes.insert((owner, host.extension()), runtime.downgrade());
+        return Some(runtime);
+    }
     cx.default_global::<Runtimes>()
         .0
         .retain(|_, runtime| runtime.upgrade().is_some());
@@ -225,12 +254,80 @@ pub(super) fn surface(
     }
 }
 
+/// Production surface composed into a host scroller (for example Activity).
+/// It keeps the normal shared runtime and session routing.
+pub(super) fn embedded_surface(
+    host: Host,
+    kind: SurfaceKind,
+    argument: Option<String>,
+    window: &mut Window,
+    cx: &mut App,
+) -> SurfaceView {
+    let runtime = runtime(&host, window, cx).expect("catalog lists installed extensions only");
+    let view = cx.new(|cx| {
+        let mut view = DeclarativeView::new(runtime, host, kind, argument, window, cx);
+        view.embedded = true;
+        view
+    });
+    let focus = view.read(cx).focus();
+    let moved = view.downgrade();
+    SurfaceView {
+        view: view.into(),
+        focus,
+        rehost: std::rc::Rc::new(move |workspace, window, cx| {
+            let _ = moved.update(cx, |view, cx| view.rehost(workspace, window, cx));
+        }),
+    }
+}
+
 fn build_panel(host: Host, window: &mut Window, cx: &mut App) -> SurfaceView {
     surface(host, SurfaceKind::Panel, None, window, cx)
 }
 
 fn build_page(host: Host, window: &mut Window, cx: &mut App) -> SurfaceView {
-    surface(host, SurfaceKind::Page, None, window, cx)
+    let embedded = installed(host.extension())
+        .and_then(|extension| extension.manifest.surfaces.page.as_ref())
+        .is_some_and(|page| page.embedded);
+    if embedded {
+        settings_surface(host, SurfaceKind::Page, true, window, cx)
+    } else {
+        surface(host, SurfaceKind::Page, None, window, cx)
+    }
+}
+
+/// Explicitly selected extension demo, released when its settings view closes.
+pub(super) fn preview(host: Host, window: &mut Window, cx: &mut App) -> SurfaceView {
+    settings_surface(host, SurfaceKind::Preview, true, window, cx)
+}
+
+fn settings_surface(
+    host: Host,
+    kind: SurfaceKind,
+    embedded: bool,
+    window: &mut Window,
+    cx: &mut App,
+) -> SurfaceView {
+    let lifetime = if kind == SurfaceKind::Preview {
+        Lifetime::Preview
+    } else {
+        Lifetime::Settings
+    };
+    let host = host.isolated(lifetime);
+    let runtime = runtime(&host, window, cx).expect("catalog lists installed extensions only");
+    let view = cx.new(|cx| {
+        let mut view = DeclarativeView::new(runtime, host, kind, None, window, cx);
+        view.embedded = embedded;
+        view
+    });
+    let focus = view.read(cx).focus();
+    let moved = view.downgrade();
+    SurfaceView {
+        view: view.into(),
+        focus,
+        rehost: std::rc::Rc::new(move |workspace, window, cx| {
+            let _ = moved.update(cx, |view, cx| view.rehost(workspace, window, cx));
+        }),
+    }
 }
 
 /// Reload packages in live surfaces after an explicit install/update/rescan.
@@ -246,6 +343,19 @@ pub(super) fn reload_runtimes(cx: &mut App) {
         })
         .unwrap_or_default();
     for runtime in runtimes {
+        runtime.update(cx, |runtime, cx| runtime.reload(cx));
+    }
+    let view_runtimes: Vec<_> = cx
+        .try_global::<ViewRuntimes>()
+        .map(|runtimes| {
+            runtimes
+                .0
+                .values()
+                .filter_map(WeakEntity::upgrade)
+                .collect()
+        })
+        .unwrap_or_default();
+    for runtime in view_runtimes {
         runtime.update(cx, |runtime, cx| runtime.reload(cx));
     }
 }

@@ -10,7 +10,6 @@ use gpui_kit::component::*;
 use gpui_kit::*;
 
 use super::SettingsView;
-use super::search::Hit;
 use crate::settings::FieldPath;
 use crate::settings::catalog::PageId;
 use crate::ui::motion;
@@ -24,6 +23,35 @@ const PEAK: f32 = 0.16;
 const SETTLE_FRAMES: u8 = 4;
 /// Room kept above a row scrolled into view.
 const MARGIN: f32 = 48.;
+
+/// One internal settings destination shared by search and text links.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Destination {
+    pub(super) page: PageId,
+    /// Disclosures that must be open before layout and scrolling.
+    pub(super) open: Vec<String>,
+    pub(super) spot: Option<String>,
+}
+
+impl Destination {
+    pub(super) fn new(page: PageId) -> Self {
+        Self {
+            page,
+            open: Vec::new(),
+            spot: None,
+        }
+    }
+
+    pub(super) fn open(mut self, keys: Vec<String>) -> Self {
+        self.open = keys;
+        self
+    }
+
+    pub(super) fn spot(mut self, key: String) -> Self {
+        self.spot = Some(key);
+        self
+    }
+}
 
 pub(super) struct Spot {
     key: String,
@@ -92,7 +120,7 @@ fn strength(elapsed: Duration) -> f32 {
 }
 
 impl SettingsView {
-    pub(super) fn go_to(&mut self, hit: &Hit, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn go_to(&mut self, hit: &Destination, window: &mut Window, cx: &mut Context<Self>) {
         // Unfolded without animation, so the row has its place at once.
         self.open.extend(hit.open.iter().cloned());
         if hit.page == PageId::Tools && !self.tool_query.is_empty() {

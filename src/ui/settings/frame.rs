@@ -1,4 +1,4 @@
-//! Page frame: title, description, scrolled body and the save bar.
+//! Page frame: title with contextual help, scrolled body and the save bar.
 
 use crate::ui::kit::ButtonLabel as _;
 use crate::ui::kit::Frame as _;
@@ -12,7 +12,7 @@ use super::widgets::changed_dot;
 use super::{LoadState, SettingsView};
 use crate::settings::catalog::{PageId, area_labels, page_description, page_title};
 use crate::ui::extensions;
-use crate::ui::fade::faded;
+use crate::ui::fade::{caption, faded};
 use crate::ui::floor::floor;
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
@@ -59,6 +59,7 @@ impl SettingsView {
         }
         if let PageId::Extension(id) = &self.page
             && extensions::is_enabled(id, cx)
+            && extensions::find(id).is_some_and(|manifest| !manifest.page_embedded)
             && let Some((_, page)) = &self.extension_view
         {
             return self
@@ -80,7 +81,6 @@ impl SettingsView {
         if self.page == PageId::Catalog {
             return self.catalog_page(cx);
         }
-        let theme = cx.theme();
         let snapshot = self.snapshot();
         let handle = self.page_scroll();
         super::reveal::begin(handle.clone());
@@ -126,19 +126,11 @@ impl SettingsView {
                 h_flex()
                     .gap_4()
                     .items_start()
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .gap_1()
-                            .child(div().text_xl().font_semibold().child(title))
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(theme.muted_foreground)
-                                    .child(description),
-                            ),
-                    )
+                    .child(div().flex_1().min_w_0().text_xl().font_semibold().child(
+                        caption("settings-page-title", title).description(
+                            (!description.trim().is_empty()).then(|| description.into()),
+                        ),
+                    ))
                     .children(switch.map(|switch| div().flex_none().pt_1().child(switch))),
             )
             .children(

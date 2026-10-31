@@ -1,7 +1,6 @@
-//! Modules page: process components of the profile with their tool packs,
-//! hooks and slot implementations.
+//! Modules overview: process components, overall switches and exact links to
+//! the pages that own tool, hook and slot settings.
 
-use crate::ui::kit::ButtonLabel as _;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -11,17 +10,15 @@ use proteus_contracts::app_protocol::config_builder::{
 };
 
 use super::SettingsView;
+use super::spot::{self, Destination};
 use super::tools::pack_key;
-use super::widgets::{
-    Tone, card, chip, described, disclosure, hashed_id, hint_text, item_row, named, note,
-};
+use super::widgets::{Tone, card, chip, described, hashed_id, item_row, named, note};
 use crate::settings::catalog::{
-    HOOK_SLOT, PackState, PageId, TOOL_SLOT, export_selected, find_tool, pack_summary, page_title,
-    plural, slot_page, slot_title,
+    CONTEXT_PROVIDER_SLOT, HOOK_SLOT, MODEL_SLOT, PackState, PageId, TOOL_SLOT, export_selected,
+    pack_summary, page_title, plural, slot_page, slot_title,
 };
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
-use crate::ui::prefs;
 
 impl SettingsView {
     pub(super) fn modules_page(&self, cx: &Context<Self>) -> Vec<AnyElement> {
@@ -34,13 +31,10 @@ impl SettingsView {
             .map(|component| self.component_card(component, cx))
             .collect();
         if parts.is_empty() {
-            parts.push(
-                card(
-                    [note("В профиле нет процессных модулей.", cx).into_any_element()],
-                    cx,
-                )
-                .into_any_element(),
-            );
+            parts.push(card(
+                [note("В профиле нет процессных модулей.", cx).into_any_element()],
+                cx,
+            ));
         }
         parts
     }
@@ -67,12 +61,7 @@ impl SettingsView {
             ));
         }
         if !hooks.is_empty() {
-            counts.push(plural(
-                hooks.len(),
-                "обработчик",
-                "обработчика",
-                "обработчиков",
-            ));
+            counts.push(plural(hooks.len(), "hook", "hooks", "hooks"));
         }
         if !modules.is_empty() {
             counts.push(plural(
@@ -109,8 +98,7 @@ impl SettingsView {
                     ))),
             )
             .children(counts.into_iter().map(|text| chip(text, Tone::Muted, cx)));
-
-        let mut rows = vec![self.spotted(&super::spot::component(&plugin.id), header, cx)];
+        let mut rows = vec![self.spotted(&spot::component(&plugin.id), header, cx)];
         if plugin.exports.is_empty() && plugin.tool_packs.is_empty() {
             rows.push(note("Модуль не объявил exports.", cx).into_any_element());
         }
@@ -120,11 +108,11 @@ impl SettingsView {
                 plugin
                     .tool_packs
                     .iter()
-                    .map(|pack| self.pack_row(plugin, pack, cx)),
+                    .map(|pack| self.pack_overview(plugin, pack, cx)),
             );
         }
         if !hooks.is_empty() {
-            rows.push(group_label("Обработчики", cx));
+            rows.push(group_label("Hooks", cx));
             rows.extend(
                 hooks
                     .into_iter()
@@ -139,10 +127,10 @@ impl SettingsView {
                     .map(|export| self.module_export_row(export, cx)),
             );
         }
-        card(rows, cx).into_any_element()
+        card(rows, cx)
     }
 
-    fn pack_row(
+    fn pack_overview(
         &self,
         plugin: &ConfigBuilderPlugin,
         pack: &ConfigBuilderToolPack,
@@ -151,30 +139,6 @@ impl SettingsView {
         let snapshot = self.snapshot().expect("modules page needs a snapshot");
         let summary = pack_summary(snapshot, &self.draft, pack);
         let key = pack_key(&plugin.id, &pack.id);
-        let open = self.is_open(&key);
-        let export = plugin
-            .exports
-            .iter()
-            .find(|export| export.slot == TOOL_SLOT && export.id == pack.id);
-        let changed = pack
-            .tools
-            .iter()
-            .any(|name| self.draft.tools.contains(name) != self.baseline.tools.contains(name))
-            || self.draft.module_config(TOOL_SLOT, &pack.id)
-                != self.baseline.module_config(TOOL_SLOT, &pack.id);
-        let view = cx.weak_entity();
-        let toggle_key = key.clone();
-        let title = format!("{} · {} из {}", pack.id, summary.enabled, summary.total);
-        let line = disclosure(
-            hashed_id("pack", &key),
-            open,
-            title,
-            changed,
-            move |cx| {
-                let _ = view.update(cx, |this, cx| this.toggle_open(&toggle_key, cx));
-            },
-            cx,
-        );
         let switchable = summary.switchable.clone();
         let target = summary.state != PackState::On;
         let switch = kit::switch(hashed_id("pack-switch", &key))
@@ -189,97 +153,56 @@ impl SettingsView {
                 cx,
             )
             .on_click(cx.listener(move |this, _: &bool, _, cx| {
-                cx.stop_propagation();
-                let names = switchable.clone();
                 this.update_draft(cx, |draft| {
-                    for name in &names {
+                    for name in &switchable {
                         draft.set_tool(name, target);
                     }
                 });
             }));
-        // The whole row is one hover target, so the switch sits inside it.
-        let header = line
-            .pr_4()
-            .child(div().flex_1())
-            .when(summary.state == PackState::Mixed, |row| {
-                row.child(chip("частично", Tone::Warning, cx))
-            })
-            .child(switch);
-
-        let content = self.reveal(&key, cx, || {
-            let mut content = v_flex().children(
-                export
-                    .and_then(|export| export.description.clone())
-                    .and_then(|text| hint_text(text, cx))
-                    .map(|hint| hint.px_4().pb_2()),
-            );
-            if pack.tools.is_empty() {
-                content = content.child(note("Пакет не сообщил инструментов.", cx));
-            }
-            for name in &pack.tools {
-                content = content.child(self.pack_tool_row(name, cx));
-            }
-            if export.is_some() {
-                let params_key = format!("params:{TOOL_SLOT}:{}", pack.id);
-                let params_open = self.is_open(&params_key);
-                content = content.children(self.params_disclosure(
-                    TOOL_SLOT,
-                    &pack.id,
-                    &params_key,
-                    params_open,
-                    cx,
-                ));
-            }
-            content.into_any_element()
-        });
-        v_flex()
-            .child(self.spotted(&key, header, cx))
-            .children(content)
-            .into_any_element()
-    }
-
-    fn pack_tool_row(&self, name: &str, cx: &Context<Self>) -> AnyElement {
-        let snapshot = self.snapshot().expect("modules page needs a snapshot");
-        let tool = find_tool(snapshot, name);
-        let runtime = tool.is_some_and(|tool| tool.runtime_managed);
-        let mut chips = Vec::new();
-        if let Some(tool) = tool {
-            chips.push(chip(tool.safety.clone(), Tone::Muted, cx));
-        } else {
-            chips.push(chip("нет в списке инструментов", Tone::Warning, cx));
+        let mut trailing = vec![
+            chip(
+                format!("{} из {}", summary.enabled, summary.total),
+                Tone::Muted,
+                cx,
+            )
+            .into_any_element(),
+        ];
+        if summary.state == PackState::Mixed {
+            trailing.push(chip("частично", Tone::Warning, cx).into_any_element());
         }
-        if runtime {
-            chips.push(chip("управляется runtime", Tone::Accent, cx));
-        }
-        let target = name.to_string();
-        h_flex()
-            .pl(prefs::scaled(40.))
-            .pr_4()
-            .py_1p5()
+        trailing.push(
+            self.settings_link(
+                hashed_id("pack-settings", &key),
+                "Открыть Tools",
+                Destination::new(PageId::Tools)
+                    .open(vec![format!("params:{TOOL_SLOT}:{}", pack.id)])
+                    .spot(key.clone()),
+                cx,
+            ),
+        );
+        trailing.push(switch.into_any_element());
+        let about = plugin
+            .exports
+            .iter()
+            .find(|export| export.slot == TOOL_SLOT && export.id == pack.id)
+            .and_then(|export| export.description.clone());
+        let changed = pack
+            .tools
+            .iter()
+            .any(|name| self.draft.tools.contains(name) != self.baseline.tools.contains(name));
+        let title = h_flex()
+            .min_w_0()
             .gap_2()
             .items_center()
-            .child(
-                named(
-                    hashed_id("pack-tool-name", &name),
-                    name.to_string(),
-                    tool.map(|tool| tool.description.clone().into()),
-                    None,
-                    cx,
-                )
-                .text_sm()
-                .flex_1(),
-            )
-            .children(chips)
-            .child(
-                kit::switch(hashed_id("pack-tool", &name))
-                    .checked(runtime || self.draft.tools.contains(name))
-                    .disabled(runtime || tool.is_none())
-                    .on_click(cx.listener(move |this, checked: &bool, _, cx| {
-                        let checked = *checked;
-                        this.update_draft(cx, |draft| draft.set_tool(&target, checked));
-                    })),
-            )
-            .into_any_element()
+            .child(named(
+                hashed_id("pack-name", &key),
+                pack.id.clone(),
+                about.map(Into::into),
+                None,
+                cx,
+            ))
+            .when(changed, |line| line.child(super::widgets::changed_dot(cx)));
+        self.spotted(&key, item_row(title, trailing), cx)
     }
 
     fn hook_export_row(
@@ -288,37 +211,33 @@ impl SettingsView {
         cx: &Context<Self>,
     ) -> AnyElement {
         let position = self.draft.hooks.iter().position(|hook| hook == &export.id);
-        let key = format!("params:{HOOK_SLOT}:{}", export.id);
-        let open = self.is_open(&key);
         let (id, on) = (export.id.clone(), position.is_none());
-        let chips = [match position {
+        let state = match position {
             Some(ix) => chip(format!("№ {} в цепочке", ix + 1), Tone::Success, cx),
             None => chip("выключен", Tone::Muted, cx),
-        }];
-        let order = position.is_some().then(|| {
-            kit::button(hashed_id("hook-order", &export.id))
-                .faded_label("Порядок")
-                .quiet(cx)
-                .xsmall()
-                .on_click(
-                    cx.listener(|this, _, window, cx| this.select_page(PageId::Hooks, window, cx)),
-                )
-                .into_any_element()
-        });
+        };
+        let link = self.settings_link(
+            hashed_id("hook-settings", &export.id),
+            "Открыть Hooks",
+            Destination::new(PageId::Hooks)
+                .open(vec![format!("params:{HOOK_SLOT}:{}", export.id)])
+                .spot(spot::hook(&export.id)),
+            cx,
+        );
         let switch = kit::switch(hashed_id("hook-switch", &export.id))
             .checked(position.is_some())
             .on_click(cx.listener(move |this, _: &bool, _, cx| {
                 this.update_draft(cx, |draft| draft.set_hook(&id, on))
             }));
-        let trailing = chips
-            .into_iter()
-            .map(IntoElement::into_any_element)
-            .chain(order)
-            .chain([switch.into_any_element()]);
-        v_flex()
-            .child(export_row(export, trailing, cx))
-            .children(self.params_disclosure(HOOK_SLOT, &export.id, &key, open, cx))
-            .into_any_element()
+        self.spotted(
+            &spot::export(HOOK_SLOT, &export.id),
+            export_row(
+                export,
+                [state.into_any_element(), link, switch.into_any_element()],
+                cx,
+            ),
+            cx,
+        )
     }
 
     fn module_export_row(
@@ -327,23 +246,43 @@ impl SettingsView {
         cx: &Context<Self>,
     ) -> AnyElement {
         let snapshot = self.snapshot().expect("modules page needs a snapshot");
-        let title = slot_title(snapshot, &export.slot);
-        let mut trailing = vec![chip(title.clone(), Tone::Muted, cx).into_any_element()];
+        let mut trailing =
+            vec![chip(slot_title(snapshot, &export.slot), Tone::Muted, cx).into_any_element()];
         if export_selected(snapshot, &self.draft, export) {
             trailing.push(chip("выбран", Tone::Success, cx).into_any_element());
         }
         let page = slot_page(&export.slot);
-        trailing.push(
-            kit::button(hashed_id("open-slot", &(&export.slot, &export.id)))
-                .faded_label(format!("Открыть {}", page_title(Some(snapshot), &page)))
-                .quiet(cx)
-                .xsmall()
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.select_page(page.clone(), window, cx)
-                }))
-                .into_any_element(),
-        );
-        export_row(export, trailing, cx).into_any_element()
+        let destination = if export.slot == MODEL_SLOT {
+            let target = Destination::new(page.clone());
+            // Model settings belong to provider connections, not a second
+            // module form. Point at an actual matching connection when present.
+            match snapshot
+                .providers
+                .iter()
+                .find(|provider| provider.provider == export.id)
+            {
+                Some(provider) => target.spot(spot::provider(&provider.id)),
+                None => target,
+            }
+        } else {
+            let key = if export.slot == CONTEXT_PROVIDER_SLOT {
+                spot::export(&export.slot, &export.id)
+            } else {
+                spot::module(&export.slot, &export.id)
+            };
+            Destination::new(page.clone()).spot(key)
+        };
+        trailing.push(self.settings_link(
+            hashed_id("open-slot", &(&export.slot, &export.id)),
+            format!("Открыть {}", page_title(Some(snapshot), &page)),
+            destination,
+            cx,
+        ));
+        self.spotted(
+            &spot::export(&export.slot, &export.id),
+            export_row(export, trailing, cx),
+            cx,
+        )
     }
 }
 

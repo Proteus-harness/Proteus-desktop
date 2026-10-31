@@ -15,11 +15,13 @@ use super::widgets::{Tone, card, chip, disclosure, item_row, mono, section};
 use super::{Feedback, SettingsView};
 use crate::settings::catalog::PageId;
 use crate::ui::extensions::{self, Manifest};
+use crate::ui::fade::caption;
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::kit::Pressable as _;
 use crate::ui::prefs;
 use crate::ui::reorder;
+use crate::ui::tip::{Tip as _, TooltipAnchor};
 
 const ZIP_KEY: &str = "extensions-zip";
 
@@ -49,11 +51,7 @@ impl SettingsView {
         parts.push(
             section(
                 "Установленные",
-                Some(
-                    "Включённые расширения получают свою страницу в настройках. \
-                     Чтобы изменить порядок, удерживайте строку и перетащите её."
-                        .into(),
-                ),
+                Some("Чтобы изменить порядок, удерживайте строку и перетащите её.".into()),
                 None,
                 card(
                     [
@@ -191,37 +189,34 @@ impl SettingsView {
         let enabled = extensions::is_enabled(id, cx);
         let removable = extensions::folder(id).is_some();
         let confirming = self.removing.as_deref() == Some(id);
-        let text = v_flex()
+        let anchor = TooltipAnchor::default();
+        let text = h_flex()
             .id(ElementId::Name(format!("extension-open-{id}").into()))
+            .tip_anchor(anchor.clone())
             .flex_1()
             .min_w_0()
-            .gap_0p5()
+            .gap_2()
+            .flex_wrap()
+            .items_center()
+            .text_sm()
             .cursor_pointer()
             .pressable(cx)
+            .child(Icon::new(manifest.icon).small().text_color(if enabled {
+                theme.foreground
+            } else {
+                theme.muted_foreground
+            }))
             .child(
-                h_flex()
-                    .gap_2()
-                    .flex_wrap()
-                    .items_center()
-                    .text_sm()
-                    .child(Icon::new(manifest.icon).small().text_color(if enabled {
-                        theme.foreground
-                    } else {
-                        theme.muted_foreground
-                    }))
-                    .child(manifest.title)
-                    .children(surface_chips(manifest, cx))
-                    .when(removable, |title| {
-                        title.child(chip("установлено", Tone::Accent, cx))
-                    }),
+                caption("extension-title", manifest.title)
+                    .description(
+                        (!manifest.description.trim().is_empty())
+                            .then(|| manifest.description.into()),
+                    )
+                    .anchor(anchor),
             )
-            .when(!manifest.description.is_empty(), |row| {
-                row.child(
-                    div()
-                        .text_xs()
-                        .text_color(theme.muted_foreground)
-                        .child(manifest.description),
-                )
+            .children(surface_chips(manifest, cx))
+            .when(removable, |title| {
+                title.child(chip("установлено", Tone::Accent, cx))
             })
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.select_page(PageId::Extension(id.to_string()), window, cx)
@@ -381,11 +376,7 @@ impl SettingsView {
         }));
         section(
             "Новое расширение",
-            Some(
-                "Расширение — архив с extension.json и программой, которая рисует свои \
-                 панели виджетами. Установка, обновление и удаление применяются сразу. ZIP с тем же id обновляет пакет."
-                    .into(),
-            ),
+            Some("ZIP с тем же id обновляет установленное расширение.".into()),
             None,
             card(rows, cx),
             cx,

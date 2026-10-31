@@ -5,6 +5,7 @@
 use crate::declarative::tree::Row;
 use crate::ui::motion;
 use gpui_kit::component::v_flex;
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::HashMap;
 use std::ops::Range;
@@ -33,6 +34,9 @@ pub(super) struct Tree {
     entity: EntityId,
     pub(super) view: WeakEntity<super::view::DeclarativeView>,
     action: RowAction,
+    /// Embedded surfaces belong to the host scroller, so small trees render
+    /// existing rows directly instead of requiring a virtual-list viewport.
+    natural: bool,
 }
 
 /// A branch whose children grow or shrink; a closing one keeps the children
@@ -55,6 +59,7 @@ impl Tree {
     pub fn new(
         rows: Vec<Row>,
         layout: Layout,
+        natural: bool,
         view: WeakEntity<super::view::DeclarativeView>,
         cx: &mut Context<Self>,
         action: impl Fn(String, &'static str, &mut App) + 'static,
@@ -69,6 +74,7 @@ impl Tree {
             entity: cx.entity_id(),
             view,
             action: Rc::new(action),
+            natural,
         };
         tree.list.splice(0..0, tree.rows.len());
         tree.cursor = tree.rows.iter().position(|row| row.selected).unwrap_or(0);
@@ -337,24 +343,36 @@ impl Render for Tree {
         let focused = self.focus.contains_focused(window, cx);
         let guide = self.active_guide();
         let spans = self.spans(cx);
-        let list = list(
-            self.list.clone(),
-            cx.processor(move |this, index: usize, _, cx| {
-                this.entry(index, &spans, focused, guide.clone(), cx)
-            }),
-        )
-        .flex_1()
-        .min_h_0()
-        .w_full();
+        let body = if self.natural {
+            v_flex()
+                .w_full()
+                .children(
+                    (0..self.rows.len())
+                        .map(|index| self.entry(index, &spans, focused, guide.clone(), cx)),
+                )
+                .into_any_element()
+        } else {
+            list(
+                self.list.clone(),
+                cx.processor(move |this, index: usize, _, cx| {
+                    this.entry(index, &spans, focused, guide.clone(), cx)
+                }),
+            )
+            .flex_1()
+            .min_h_0()
+            .w_full()
+            .into_any_element()
+        };
         v_flex()
-            .size_full()
+            .w_full()
+            .when(!self.natural, |view| view.h_full())
             .track_focus(&self.focus)
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, window, cx| this.focus.focus(window, cx)),
             )
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| this.key(event, cx)))
-            .child(list)
+            .child(body)
     }
 }
 

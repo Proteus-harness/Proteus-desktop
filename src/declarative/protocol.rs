@@ -16,6 +16,7 @@ use super::widget::Node;
 pub const PROTOCOL: u32 = 4;
 pub const FEATURES: &[&str] = &[
     "session.settings.v1",
+    "session.tool_state.v1",
     "widgets.controls.v1",
     "widgets.search.v1",
     "widgets.selection.v1",
@@ -31,6 +32,11 @@ pub const FEATURES: &[&str] = &[
     "widgets.setting_row.v1",
     "widgets.setting_row.reset.v1",
     "surfaces.badge.visibility.v1",
+    "surfaces.activity.v1",
+    "surfaces.preview.v1",
+    "surfaces.invalidate.v1",
+    "surfaces.page.embedded.v1",
+    "manifest.dependencies.tools.v1",
     "widgets.person.v1",
     "documents.title.v1",
     "surfaces.content.v1",
@@ -139,6 +145,7 @@ pub struct Content {
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SurfaceKind {
+    Preview,
     Page,
     Panel,
     Document,
@@ -158,6 +165,9 @@ pub enum HostEventKind {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Incoming {
+    /// Refresh derived surfaces after an extension preference changes.
+    /// Settings editors keep their in-progress drafts.
+    InvalidateSurfaces {},
     /// Refresh this extension's attached content across all host runtimes.
     InvalidateContent {},
     /// A content renderer declined this source; the host preserves the raw fence.
@@ -263,6 +273,7 @@ pub fn parse(line: &str) -> anyhow::Result<Incoming> {
 /// View id of a surface; documents are told apart by their argument.
 pub fn view_id(surface: SurfaceKind, argument: Option<&str>) -> String {
     match (surface, argument) {
+        (SurfaceKind::Preview, _) => "preview".into(),
         (SurfaceKind::Panel, _) => "panel".into(),
         (SurfaceKind::Page, _) => "page".into(),
         (SurfaceKind::Badge, _) => "badge".into(),

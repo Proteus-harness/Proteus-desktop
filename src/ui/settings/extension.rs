@@ -8,13 +8,18 @@ use gpui_kit::*;
 
 use super::SettingsView;
 use super::widgets::{
-    MenuOption, Tone, card, chip, mono, note, row, row_with_reset, section, select_menu,
+    MenuOption, Tone, card, chip, disclosure, hashed_id, item_row, mono, note, row, row_with_reset,
+    section, select_menu,
 };
 use crate::preferences::BadgePlace;
 use crate::settings::catalog::PageId;
 use crate::ui::extensions::{self, Manifest};
 use crate::ui::kit;
 use crate::ui::prefs;
+
+pub(super) fn preview_key(id: &str) -> String {
+    format!("extension-preview:{id}")
+}
 
 const BADGE_PLACES: [(BadgePlace, &str); 7] = [
     (BadgePlace::ComposerStart, "Под полем ввода, слева"),
@@ -71,15 +76,7 @@ impl SettingsView {
         let mut parts = Vec::new();
         if !enabled {
             parts.push(
-                card(
-                    [note(
-                        "Расширение выключено. Включите его переключателем рядом с заголовком.",
-                        cx,
-                    )
-                    .into_any_element()],
-                    cx,
-                )
-                .into_any_element(),
+                card([note("Расширение выключено.", cx).into_any_element()], cx).into_any_element(),
             );
         }
         if !manifest.tags.is_empty() {
@@ -88,6 +85,72 @@ impl SettingsView {
                     .flex_wrap()
                     .gap_1()
                     .children(manifest.tags.iter().map(|tag| chip(*tag, Tone::Muted, cx)))
+                    .into_any_element(),
+            );
+        }
+        if manifest.page_embedded
+            && let Some((page_id, page)) = &self.extension_view
+            && page_id == id
+        {
+            parts.push(section("Параметры", None, None, page.view.clone(), cx).into_any_element());
+        }
+        if !manifest.tool_dependencies.is_empty() {
+            let rows = manifest.tool_dependencies.iter().map(|name| {
+                let tool = self
+                    .snapshot()
+                    .and_then(|snapshot| crate::settings::catalog::find_tool(snapshot, name));
+                let status = match tool {
+                    Some(tool) if tool.runtime_managed || self.draft.tools.contains(name) => {
+                        ("Доступен", Tone::Muted)
+                    }
+                    Some(_) => ("Выключен", Tone::Warning),
+                    None => ("Не подключён", Tone::Warning),
+                };
+                let title = match self.tool_destination(name, cx) {
+                    Some(target) => self.settings_link(
+                        hashed_id("extension-tool-dependency", name),
+                        name.to_owned(),
+                        target,
+                        cx,
+                    ),
+                    None => mono(name.to_owned(), cx).into_any_element(),
+                };
+                item_row(title, [chip(status.0, status.1, cx).into_any_element()])
+                    .into_any_element()
+            });
+            parts.push(
+                section("Использует инструменты", None, None, card(rows, cx), cx)
+                    .into_any_element(),
+            );
+        }
+        if manifest.preview.is_some() {
+            let key = preview_key(id);
+            let open = self.is_open(&key);
+            let target = cx.weak_entity();
+            let toggle_key = key.clone();
+            let toggle = disclosure(
+                hashed_id("extension-preview-toggle", &key),
+                open,
+                "Пример",
+                false,
+                move |cx| {
+                    let _ = target.update(cx, |this, cx| this.toggle_open(&toggle_key, cx));
+                },
+                cx,
+            );
+            let body = crate::ui::motion::reveal(super::reveal_key(&key), open, cx, || {
+                self.extension_preview
+                    .as_ref()
+                    .filter(|(preview_id, _)| preview_id == id)
+                    .map(|(_, preview)| preview.view.clone().into_any_element())
+                    .unwrap_or_else(|| div().into_any_element())
+            });
+            parts.push(
+                v_flex()
+                    .w_full()
+                    .gap_2()
+                    .child(toggle)
+                    .children(body)
                     .into_any_element(),
             );
         }
@@ -113,6 +176,18 @@ impl SettingsView {
     ) -> Vec<AnyElement> {
         let id = manifest.id;
         let mut rows = Vec::new();
+        if manifest.activity {
+            rows.push(
+                row(
+                    "Панель над полем ввода",
+                    Some("Раскрываемое содержимое рядом с запросами и состоянием чата.".into()),
+                    div(),
+                    false,
+                    cx,
+                )
+                .into_any_element(),
+            );
+        }
         if let Some(panel) = &manifest.panel {
             rows.push(
                 row(
@@ -226,7 +301,7 @@ impl SettingsView {
                 .into_any_element(),
             );
         }
-        if manifest.page.is_some() {
+        if manifest.page.is_some() && !manifest.page_embedded {
             rows.push(
                 row(
                     "Страница",

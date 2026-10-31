@@ -102,6 +102,17 @@ pub struct Workspace {
 }
 
 impl Workspace {
+    /// Hidden tabs and the chat area covered by Settings keep no composer
+    /// contribution views or chat-owned extension processes.
+    pub(super) fn release_hidden_chat_activities(&self, layout: &TabLayout, cx: &mut App) {
+        for (id, chat) in &self.chats {
+            if self.settings.is_some() || !layout.visible().any(|visible| visible == id.as_str()) {
+                chat.view
+                    .update(cx, |chat, cx| chat.release_extension_activities(cx));
+            }
+        }
+    }
+
     pub fn new(
         options: LaunchOptions,
         preparation: Option<startup::Preparation>,

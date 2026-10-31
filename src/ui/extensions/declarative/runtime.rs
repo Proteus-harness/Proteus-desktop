@@ -5,6 +5,7 @@ mod content_queue;
 use content_queue::ContentQueue;
 mod invalidation;
 mod scopes;
+pub(super) use crate::ui::extensions::host::Lifetime;
 use scopes::Scope;
 
 use std::collections::{HashMap, VecDeque};
@@ -28,6 +29,7 @@ pub(super) struct Runtime {
     setting_running: bool,
     extension: &'static Installed,
     host: Host,
+    lifetime: Lifetime,
     scopes: HashMap<String, Scope>,
     process: Option<Process>,
     theme_context: Option<serde_json::Value>,
@@ -60,12 +62,14 @@ impl Runtime {
         _window: &Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let lifetime = host.runtime_scope().lifetime;
         Self {
             generation: 0,
             settings: VecDeque::new(),
             setting_running: false,
             extension,
             host,
+            lifetime,
             scopes: HashMap::new(),
             process: None,
             theme_context: None,
@@ -74,7 +78,10 @@ impl Runtime {
             popup_closed: 0,
             _pump: None,
             _preferences: cx.observe_global::<crate::ui::prefs::ClientPreferences>(|this, cx| {
-                if super::super::is_enabled(this.extension_id(), cx) {
+                if this
+                    .lifetime
+                    .allowed(super::super::is_enabled(this.extension_id(), cx))
+                {
                     if this.process.is_none() && this.error.is_none() {
                         this.start(cx);
                     } else if this.process.is_some() {
@@ -82,6 +89,7 @@ impl Runtime {
                         if this.theme_context.as_ref() != Some(&theme) {
                             this.theme_context = Some(theme);
                             this.invalidate_content(cx);
+                            this.invalidate_preview(cx);
                         }
                     }
                 } else {
@@ -133,6 +141,11 @@ impl Runtime {
         if self.views.remove(view).is_some() {
             self.send(&Outgoing::Close { view: view.into() });
             self.prune_scopes();
+            if self.views.is_empty() && !self.lifetime.session() {
+                // Temporary observers must not retain a closed view's process.
+                self.process = None;
+                self._pump = None;
+            }
         }
     }
 
@@ -151,7 +164,10 @@ impl Runtime {
     }
 
     fn start(&mut self, cx: &mut Context<Self>) {
-        if !super::super::is_enabled(self.extension_id(), cx) {
+        if !self
+            .lifetime
+            .allowed(super::super::is_enabled(self.extension_id(), cx))
+        {
             return;
         }
         // Read the host outside this update: it lives in the workspace.
@@ -163,11 +179,15 @@ impl Runtime {
             .unwrap_or_else(|| self.host.clone());
         let this = cx.weak_entity();
         cx.defer(move |cx| {
-            let server = host.api(cx).map(|api| Server {
-                origin: api.origin().to_string(),
-                token: api.token().to_string(),
+            let (server, workspace) = host.runtime_scope().connection(|| {
+                (
+                    host.api(cx).map(|api| Server {
+                        origin: api.origin().to_string(),
+                        token: api.token().to_string(),
+                    }),
+                    host.workspace_path(cx),
+                )
             });
-            let workspace = host.workspace_path(cx);
             let _ = this.update(cx, |this, cx| this.launch(server, workspace, cx));
         });
     }
@@ -195,7 +215,12 @@ impl Runtime {
         workspace: Option<PathBuf>,
         cx: &mut Context<Self>,
     ) {
-        if self.process.is_some() || !super::super::is_enabled(self.extension_id(), cx) {
+        if self.process.is_some()
+            || !self
+                .lifetime
+                .allowed(super::super::is_enabled(self.extension_id(), cx))
+            || !self.lifetime.session() && self.views.is_empty()
+        {
             return;
         }
         let (Some(server), Some(workspace)) = (server, workspace) else {
@@ -251,7 +276,16 @@ impl Runtime {
                 content
             })
         };
-        let content = if attached.surface == SurfaceKind::Content {
+        let content = if attached.surface == SurfaceKind::Preview {
+            // Only the generic appearance is sent; the package owns the
+            // synthetic source and calls its own production renderer.
+            Some(Content {
+                language: String::new(),
+                source: String::new(),
+                context: theme.clone(),
+                source_revision: None,
+            })
+        } else if attached.surface == SurfaceKind::Content {
             let revision = latest.and_then(|content| content.source_revision);
             let Some(content) = attached.queue.begin_with(revision, materialize) else {
                 return;
@@ -267,9 +301,14 @@ impl Runtime {
             argument: attached.argument.clone(),
             content,
             session_dir: self
-                .scopes
-                .get(&attached.context)
-                .and_then(|scope| scope.host.session_dir(cx)),
+                .lifetime
+                .session()
+                .then(|| {
+                    self.scopes
+                        .get(&attached.context)
+                        .and_then(|scope| scope.host.session_dir(cx))
+                })
+                .flatten(),
         };
         self.send(&message);
     }
@@ -319,6 +358,10 @@ impl Runtime {
 
     fn handle(&mut self, signal: Signal, cx: &mut Context<Self>) {
         match signal {
+            Signal::Message(Incoming::InvalidateSurfaces {}) => {
+                let extension = self.extension_id();
+                cx.defer(move |cx| invalidation::broadcast_surfaces(extension, cx));
+            }
             Signal::Message(Incoming::InvalidateContent {}) => {
                 let extension = self.extension_id();
                 // The sender is one of the targets. Drop its active entity
@@ -332,7 +375,7 @@ impl Runtime {
                 sequence,
                 source_revision,
             }) => {
-                if session_dir != self.host_for(&view).and_then(|host| host.session_dir(cx)) {
+                if session_dir != self.session_dir(&view, cx) {
                     return;
                 }
                 if let Some(entity) = self
@@ -386,6 +429,9 @@ impl Runtime {
                 session_dir,
                 setting,
             }) => {
+                if !self.lifetime.session() {
+                    return;
+                }
                 let context = view
                     .as_ref()
                     .and_then(|view| self.views.get(view))
@@ -400,7 +446,7 @@ impl Runtime {
                 lines,
                 face,
             }) => {
-                if session_dir != self.host_for(&view).and_then(|host| host.session_dir(cx)) {
+                if session_dir != self.session_dir(&view, cx) {
                     return;
                 }
                 let Some(attached) = self
@@ -445,7 +491,7 @@ impl Runtime {
                 sequence,
                 session_dir,
             }) => {
-                if session_dir != self.host_for(&view).and_then(|host| host.session_dir(cx)) {
+                if session_dir != self.session_dir(&view, cx) {
                     return;
                 }
                 let narrow = self
@@ -493,6 +539,9 @@ impl Runtime {
                 preview,
                 focus,
             }) => {
+                if self.lifetime == Lifetime::Preview {
+                    return;
+                }
                 if self.extension.manifest.surfaces.document.is_none() {
                     self.error = Some("расширение не объявило документы".into());
                 } else {
@@ -523,5 +572,12 @@ impl Runtime {
 
     fn extension_id(&self) -> &'static str {
         self.extension.manifest.id.as_str()
+    }
+
+    fn session_dir(&self, view: &str, cx: &App) -> Option<PathBuf> {
+        self.lifetime
+            .session()
+            .then(|| self.host_for(view).and_then(|host| host.session_dir(cx)))
+            .flatten()
     }
 }

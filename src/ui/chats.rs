@@ -419,6 +419,7 @@ impl Workspace {
     /// chat; extensions reread the session when it changes.
     pub(super) fn sync_chats(&mut self, layout: &TabLayout, cx: &mut Context<Self>) {
         self.chats.retain(|id, _| layout.contains(id));
+        self.release_hidden_chat_activities(layout, cx);
         self.opening
             .retain(|id, pending| pending.get().is_some() || layout.contains(id));
         let active = layout

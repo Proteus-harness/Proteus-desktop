@@ -32,6 +32,8 @@ pub struct Manifest {
     /// Subscribe to the active session's state and transcript metadata.
     #[serde(default)]
     pub session_events: bool,
+    #[serde(default)]
+    pub dependencies: Dependencies,
     pub surfaces: Surfaces,
     /// Optional author-namespaced descriptive data; it never enables behavior.
     #[serde(default, rename = "_meta")]
@@ -54,6 +56,13 @@ impl Manifest {
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Surfaces {
+    /// Inline expandable contribution above the composer. It uses the
+    /// existing badge presentation and popup content wire surfaces.
+    #[serde(default)]
+    pub activity: Option<ActivitySurface>,
+    /// Explicit, synthetic, view-owned preview in extension settings.
+    #[serde(default)]
+    pub preview: Option<PreviewSurface>,
     /// Fenced assistant-message languages this package can render.
     #[serde(default)]
     pub content: Option<ContentSurface>,
@@ -93,7 +102,28 @@ pub struct PopupSurface {
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub struct PageSurface {}
+pub struct PageSurface {
+    /// Settings controls embedded in the host page's single scroll area.
+    #[serde(default)]
+    pub embedded: bool,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ActivitySurface {}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct PreviewSurface {}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Dependencies {
+    /// Tools required to create new content. Missing tools do not prevent
+    /// reading saved content; the settings shell links to their controls.
+    #[serde(default)]
+    pub tools: Vec<String>,
+}
 
 fn popup_width() -> f32 {
     280.
@@ -327,6 +357,8 @@ pub fn parse(text: &str) -> Result<Manifest> {
         && surfaces.badge.is_none()
         && surfaces.page.is_none()
         && surfaces.content.is_none()
+        && surfaces.activity.is_none()
+        && surfaces.preview.is_none()
     {
         bail!("no surfaces");
     }
@@ -352,8 +384,20 @@ pub fn parse(text: &str) -> Result<Manifest> {
             bail!("content formats must be unique lowercase media types");
         }
     }
-    if surfaces.popup.is_some() && surfaces.badge.is_none() {
-        bail!("popup requires a badge");
+    if surfaces.popup.is_some() && surfaces.badge.is_none() && surfaces.activity.is_none() {
+        bail!("popup requires a badge or activity");
+    }
+    if surfaces.activity.is_some() && surfaces.popup.is_none() {
+        bail!("activity requires popup content");
+    }
+    let mut tools = std::collections::HashSet::new();
+    if manifest.dependencies.tools.iter().any(|tool| {
+        tool.is_empty()
+            || tool.trim() != tool
+            || tool.chars().any(char::is_control)
+            || !tools.insert(tool)
+    }) {
+        bail!("tool dependencies must be unique non-empty tool names");
     }
     if surfaces
         .popup
@@ -403,6 +447,33 @@ mod tests {
         let dir = root.join(folder);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join(MANIFEST), text).unwrap();
+    }
+
+    #[test]
+    fn activity_settings_preview_and_tool_dependencies_are_independent_capabilities() {
+        let mut value = serde_json::json!({
+            "protocol":4,"id":"plan","title":"Plan","command":["run"],
+            "surfaces":{"activity":{},"popup":{},"page":{"embedded":true},"preview":{}},
+            "dependencies":{"tools":["update_plan"]}
+        });
+        let manifest = parse(&value.to_string()).unwrap();
+        assert!(manifest.surfaces.badge.is_none());
+        assert!(manifest.surfaces.activity.is_some());
+        assert!(manifest.surfaces.page.unwrap().embedded);
+        assert!(manifest.surfaces.preview.is_some());
+        assert_eq!(manifest.dependencies.tools, ["update_plan"]);
+        value["surfaces"]["popup"] = serde_json::Value::Null;
+        assert!(parse(&value.to_string()).is_err());
+        value["surfaces"] = serde_json::json!({"preview":{}});
+        assert!(parse(&value.to_string()).is_ok());
+        for tools in [
+            serde_json::json!([""]),
+            serde_json::json!(["x", "x"]),
+            serde_json::json!([" x"]),
+        ] {
+            value["dependencies"]["tools"] = tools;
+            assert!(parse(&value.to_string()).is_err());
+        }
     }
 
     #[test]

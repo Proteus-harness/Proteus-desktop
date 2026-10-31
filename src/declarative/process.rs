@@ -210,6 +210,7 @@ mod tests {
                 command: vec!["sh".into(), "-c".into(), script.into()],
                 session_events: false,
                 surfaces: Surfaces::default(),
+                dependencies: Default::default(),
             },
         };
         let (process, signals) = Process::spawn(&extension).unwrap();

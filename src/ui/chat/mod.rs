@@ -15,7 +15,6 @@ mod feedback;
 mod history;
 mod images;
 mod notice;
-mod plan_panel;
 mod pump;
 mod question_card;
 mod replies;
@@ -123,6 +122,8 @@ pub(super) struct Chat {
     user_input: UserInputDrafts,
     /// Retained selection of the common strip above the input.
     activity_dock: activity_dock::DockState,
+    /// Chat-bound fixed contributions; inactive tabs release their processes.
+    extension_activities: HashMap<&'static str, crate::ui::extensions::ActivityContribution>,
     notice: Notice,
     extras: ComposerExtras,
     /// Current owner; asynchronous replies follow a transferred tab.
@@ -171,6 +172,14 @@ impl Chat {
                 |this, _, _: &scroller::HistorySeekCanceled, cx| this.cancel_history_seek(cx),
             ),
             cx.observe_global::<ClientPreferences>(|this, cx| {
+                let before = this.extension_activities.len();
+                this.extension_activities.retain(|id, _| {
+                    crate::ui::extensions::is_enabled(id, cx)
+                        && crate::ui::extensions::find(id).is_some_and(|manifest| manifest.activity)
+                });
+                if before != this.extension_activities.len() {
+                    cx.notify();
+                }
                 let enter_sends = prefs::current(cx).send == SendMode::Enter;
                 this.composer
                     .update(cx, |state, cx| state.set_submit_on_enter(enter_sends, cx));
@@ -217,6 +226,7 @@ impl Chat {
             fresh_requests: Recent::default(),
             user_input: UserInputDrafts::default(),
             activity_dock: activity_dock::DockState::default(),
+            extension_activities: HashMap::new(),
             notice: Notice::default(),
             extras,
             window_handle: window.window_handle(),
@@ -241,6 +251,7 @@ impl Chat {
         cx: &mut Context<Self>,
     ) {
         self.window_handle = window.window_handle();
+        self.extension_activities.clear();
         self.workspace = workspace.clone();
         self.extras = extras;
         self.composer

@@ -1,7 +1,7 @@
 // Адаптировано из Zed: crates/agent_ui/src/conversation_view/thread_view.rs
 // (render_activity_bar, plan summary and pending permission controls).
 //! One retained strip attached to the top of the composer. Public extension
-//! places, context, pending requests and the real plan use one compact surface.
+//! places, context, pending requests and fixed contributions share one surface.
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::*;
@@ -9,8 +9,8 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::requests::{approval_icon, request_fresh};
-use super::tool_row::plan_list;
 use super::{Chat, ComposerSlot};
+use crate::ui::extensions::{self, ActivityContribution, ActivitySummary, Host};
 use crate::ui::kit::{self, ButtonLabel as _};
 use crate::ui::{fade, motion, prefs};
 
@@ -18,7 +18,7 @@ use crate::ui::{fade, motion, prefs};
 pub(super) enum ActivityId {
     Approval(String),
     Question(String),
-    Plan,
+    Extension(&'static str),
 }
 
 impl ActivityId {
@@ -26,13 +26,13 @@ impl ActivityId {
         let suffix = match self {
             Self::Approval(id) => format!("approval-{id}"),
             Self::Question(id) => format!("question-{id}"),
-            Self::Plan => "plan".to_owned(),
+            Self::Extension(id) => format!("extension-{id}"),
         };
         format!("composer-activity-{chat}-{suffix}").into()
     }
 
     fn pending(&self) -> bool {
-        !matches!(self, Self::Plan)
+        matches!(self, Self::Approval(_) | Self::Question(_))
     }
 }
 
@@ -66,6 +66,10 @@ impl DockState {
         self.selected.as_ref()
     }
 
+    fn present(&self, extras_start: bool, extras_end: bool) -> bool {
+        !self.live.is_empty() || extras_start || extras_end
+    }
+
     pub fn pending_target(&self) -> Option<ActivityId> {
         self.selected
             .as_ref()
@@ -83,6 +87,7 @@ struct Activity {
     id: ActivityId,
     label: String,
     icon: Lucide,
+    summary: Option<String>,
 }
 
 impl Chat {
@@ -90,18 +95,32 @@ impl Chat {
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) -> AnyElement {
+    ) -> Option<AnyElement> {
         let theme = cx.theme().clone();
         let max_details = prefs::scaled(360.)
             .to_pixels(window.rem_size())
             .min(window.viewport_size().height * 0.4);
-        let plan = self.active_plan();
+        let contributions: Vec<_> = extensions::ordered(cx)
+            .into_iter()
+            .filter(|manifest| manifest.activity && extensions::is_enabled(manifest.id, cx))
+            .collect();
+        self.extension_activities
+            .retain(|id, _| contributions.iter().any(|manifest| manifest.id == *id));
+        for manifest in &contributions {
+            if !self.extension_activities.contains_key(manifest.id) {
+                let host = Host::new(self.workspace.clone(), manifest.id)
+                    .for_chat(cx.weak_entity(), self.session.dir.clone());
+                self.extension_activities
+                    .insert(manifest.id, ActivityContribution::new(host, window, cx));
+            }
+        }
         let mut activities = Vec::new();
         if let Some(pending) = &self.session.pending {
             activities.extend(pending.approvals.iter().map(|request| Activity {
                 id: ActivityId::Approval(request.approval_id.clone()),
                 label: format!("Approval · {}", request.call.name),
                 icon: approval_icon(request),
+                summary: None,
             }));
             activities.extend(pending.user_inputs.iter().map(|request| {
                 Activity {
@@ -119,23 +138,52 @@ impl Chat {
                         })
                         .unwrap_or_else(|| "Вопрос".to_owned()),
                     icon: Lucide::MessageCircleQuestionMark,
+                    summary: None,
                 }
             }));
         }
-        if let Some(plan) = &plan {
-            activities.push(Activity {
-                id: ActivityId::Plan,
-                label: format!("План {}/{}", plan.done, plan.steps.len()),
-                icon: Lucide::ListTodo,
-            });
-        }
         let old = self.activity_dock.selected.clone();
+        for manifest in contributions {
+            let contribution = self
+                .extension_activities
+                .get_mut(manifest.id)
+                .expect("visible contribution was built above");
+            if contribution.close_requested(cx)
+                && self.activity_dock.selected.as_ref() == Some(&ActivityId::Extension(manifest.id))
+            {
+                self.activity_dock.selected = None;
+            }
+            if let Some(ActivitySummary {
+                label,
+                icon,
+                current,
+            }) = contribution.summary(cx)
+            {
+                activities.push(Activity {
+                    id: ActivityId::Extension(manifest.id),
+                    label,
+                    icon,
+                    summary: current,
+                });
+            } else {
+                contribution.details(false, window, cx);
+            }
+        }
         self.activity_dock
             .sync(activities.iter().map(|item| item.id.clone()).collect());
         self.animate_dock_change(old, cx);
         // Auto-open is decided after Chat's normal animation driver.
         motion::drive(window, cx);
         let selected = self.activity_dock.selected.clone();
+        let summary = activities
+            .iter()
+            .find(|activity| selected.as_ref() == Some(&activity.id) && activity.summary.is_some())
+            .or_else(|| {
+                activities
+                    .iter()
+                    .find(|activity| activity.summary.is_some())
+            })
+            .and_then(|activity| activity.summary.clone());
         let mut triggers = Vec::new();
         let mut details = Vec::new();
         for activity in activities {
@@ -176,15 +224,19 @@ impl Chat {
                 .into_any_element(),
             );
             if !open && !motion::moving(&key, open, cx) {
+                if let ActivityId::Extension(id) = activity.id {
+                    if let Some(contribution) = self.extension_activities.get_mut(id) {
+                        contribution.details(false, window, cx);
+                    }
+                }
                 continue;
             }
             let content = match activity.id {
-                ActivityId::Plan => plan.as_ref().map(|plan| {
-                    div()
-                        .p_3()
-                        .child(plan_list(&plan.steps, cx))
-                        .into_any_element()
-                }),
+                ActivityId::Extension(id) => self
+                    .extension_activities
+                    .get_mut(id)
+                    .and_then(|contribution| contribution.details(true, window, cx))
+                    .map(|surface| div().p_3().child(surface.view).into_any_element()),
                 ref id => self.render_request(id, window, cx),
             };
             if let Some(content) = content {
@@ -207,40 +259,41 @@ impl Chat {
         }
         let start = (self.extras)(cx.entity_id(), ComposerSlot::Start, cx);
         let end = (self.extras)(cx.entity_id(), ComposerSlot::End, cx);
+        if !self.activity_dock.present(start.is_some(), end.is_some()) {
+            return None;
+        }
         // Keep the strip's own geometry independent of selection. The
         // composer is bottom-anchored: details grow above this stable row.
-        let summary = plan
-            .as_ref()
-            .and_then(|plan| plan.current())
-            .map(str::to_owned);
-        v_flex()
-            .w_full()
-            .children(details)
-            .child(
-                h_flex()
-                    .id("composer-activity-strip")
-                    .w_full()
-                    .min_w_0()
-                    .flex_wrap()
-                    .max_h(prefs::scaled(96.))
-                    .overflow_y_scroll()
-                    .gap_1()
-                    .px_2()
-                    .py_1()
-                    .children(start)
-                    .children(triggers)
-                    .children(summary.map(|summary| {
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .max_w(prefs::scaled(320.))
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .child(fade::faded(summary))
-                    }))
-                    .child(h_flex().ml_auto().gap_1().children(end)),
-            )
-            .into_any_element()
+        Some(
+            v_flex()
+                .w_full()
+                .children(details)
+                .child(
+                    h_flex()
+                        .id("composer-activity-strip")
+                        .w_full()
+                        .min_w_0()
+                        .flex_wrap()
+                        .max_h(prefs::scaled(96.))
+                        .overflow_y_scroll()
+                        .gap_1()
+                        .px_2()
+                        .py_1()
+                        .children(start)
+                        .children(triggers)
+                        .children(summary.map(|summary| {
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .max_w(prefs::scaled(320.))
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child(fade::faded(summary))
+                        }))
+                        .child(h_flex().ml_auto().gap_1().children(end)),
+                )
+                .into_any_element(),
+        )
     }
 
     fn animate_dock_change(&self, previous: Option<ActivityId>, cx: &mut Context<Self>) {
@@ -252,6 +305,14 @@ impl Chat {
         }
         if let Some(selected) = &self.activity_dock.selected {
             motion::toggled(selected.key(cx.entity_id()), true, cx);
+        }
+    }
+
+    /// Tabs outside the rendered layout have no active contribution probes.
+    pub(in crate::ui) fn release_extension_activities(&mut self, cx: &mut Context<Self>) {
+        if !self.extension_activities.is_empty() {
+            self.extension_activities.clear();
+            cx.notify();
         }
     }
 
@@ -281,26 +342,33 @@ mod tests {
     fn question(id: &str) -> ActivityId {
         ActivityId::Question(id.into())
     }
+    fn extension(id: &'static str) -> ActivityId {
+        ActivityId::Extension(id)
+    }
 
     #[::core::prelude::v1::test]
     fn pending_arrival_selection_and_completion_preserve_the_answer_being_edited() {
         let mut state = DockState::default();
-        state.sync(vec![ActivityId::Plan]);
+        state.sync(vec![extension("contribution")]);
         assert_eq!(state.selected(), None);
-        state.toggle(ActivityId::Plan);
-        state.sync(vec![approval("a"), question("q"), ActivityId::Plan]);
+        state.toggle(extension("contribution"));
+        state.sync(vec![
+            approval("a"),
+            question("q"),
+            extension("contribution"),
+        ]);
         assert_eq!(state.selected(), Some(&approval("a")));
         state.toggle(question("q"));
         state.sync(vec![
             approval("a"),
             approval("b"),
             question("q"),
-            ActivityId::Plan,
+            extension("contribution"),
         ]);
         assert_eq!(state.selected(), Some(&question("q")));
-        state.sync(vec![approval("b"), ActivityId::Plan]);
+        state.sync(vec![approval("b"), extension("contribution")]);
         assert_eq!(state.selected(), Some(&approval("b")));
-        state.sync(vec![ActivityId::Plan]);
+        state.sync(vec![extension("contribution")]);
         assert_eq!(state.selected(), None);
     }
 
@@ -316,5 +384,54 @@ mod tests {
         assert_eq!(state.pending_target(), Some(approval("a")));
         state.sync(vec![approval("b"), approval("c")]);
         assert_eq!(state.selected(), Some(&approval("c")));
+    }
+
+    #[::core::prelude::v1::test]
+    fn extension_arrival_and_disable_never_replace_a_pending_answer() {
+        let mut state = DockState::default();
+        state.sync(vec![question("editing")]);
+        state.sync(vec![
+            question("editing"),
+            extension("one"),
+            extension("two"),
+        ]);
+        assert_eq!(state.selected(), Some(&question("editing")));
+        assert_eq!(state.pending_target(), Some(question("editing")));
+        state.sync(vec![question("editing"), extension("two")]);
+        assert_eq!(state.selected(), Some(&question("editing")));
+        state.toggle(extension("two"));
+        assert_eq!(state.pending_target(), Some(question("editing")));
+        state.sync(vec![question("editing")]);
+        assert_eq!(state.selected(), Some(&question("editing")));
+    }
+
+    #[::core::prelude::v1::test]
+    fn disappearing_extension_does_not_open_another_extension_or_become_a_keyboard_target() {
+        let mut state = DockState::default();
+        state.sync(vec![extension("one"), extension("two")]);
+        assert_eq!(state.selected(), None);
+        assert_eq!(state.pending_target(), None);
+        state.toggle(extension("one"));
+        state.sync(vec![extension("two")]);
+        assert_eq!(state.selected(), None);
+        assert_eq!(state.pending_target(), None);
+        state.sync(vec![extension("two"), approval("new")]);
+        assert_eq!(state.selected(), Some(&approval("new")));
+    }
+
+    #[::core::prelude::v1::test]
+    fn hiding_the_last_contribution_removes_an_empty_dock_but_keeps_host_widgets() {
+        let mut state = DockState::default();
+        assert!(!state.present(false, false));
+        state.sync(vec![extension("contribution")]);
+        assert!(state.present(false, false));
+        state.toggle(extension("contribution"));
+        state.sync(Vec::new());
+        assert_eq!(state.selected(), None);
+        assert!(!state.present(false, false));
+        assert!(state.present(true, false));
+        assert!(state.present(false, true));
+        state.sync(vec![approval("pending")]);
+        assert!(state.present(false, false));
     }
 }

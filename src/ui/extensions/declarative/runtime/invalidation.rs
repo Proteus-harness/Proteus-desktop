@@ -25,7 +25,15 @@ fn targets<'a, I: Eq + Hash, T>(
 }
 
 pub(super) fn broadcast(extension: &str, cx: &mut App) {
-    let runtimes = cx
+    broadcast_kind(extension, false, cx);
+}
+
+pub(super) fn broadcast_surfaces(extension: &str, cx: &mut App) {
+    broadcast_kind(extension, true, cx);
+}
+
+fn broadcast_kind(extension: &str, all: bool, cx: &mut App) {
+    let mut runtimes = cx
         .try_global::<super::super::Runtimes>()
         .map(|runtimes| {
             targets(
@@ -37,13 +45,52 @@ pub(super) fn broadcast(extension: &str, cx: &mut App) {
             )
         })
         .unwrap_or_default();
+    if let Some(owned) = cx.try_global::<super::super::ViewRuntimes>() {
+        runtimes.extend(
+            owned
+                .0
+                .values()
+                .filter_map(WeakEntity::upgrade)
+                .filter(|runtime| runtime.read(cx).extension_id() == extension),
+        );
+    }
     for runtime in runtimes {
-        runtime.update(cx, |runtime, cx| runtime.invalidate_content(cx));
+        runtime.update(cx, |runtime, cx| {
+            if all {
+                runtime.invalidate_surfaces(cx)
+            } else {
+                runtime.invalidate_content(cx)
+            }
+        });
     }
 }
 
 impl Runtime {
     pub(super) fn invalidate_content(&mut self, cx: &App) {
+        self.invalidate_matching(|surface| surface == SurfaceKind::Content, cx);
+    }
+
+    pub(super) fn invalidate_surfaces(&mut self, cx: &App) {
+        self.invalidate_matching(
+            |surface| {
+                matches!(
+                    surface,
+                    SurfaceKind::Content
+                        | SurfaceKind::Preview
+                        | SurfaceKind::Badge
+                        | SurfaceKind::Popup
+                        | SurfaceKind::Panel
+                )
+            },
+            cx,
+        );
+    }
+
+    pub(super) fn invalidate_preview(&mut self, cx: &App) {
+        self.invalidate_matching(|surface| surface == SurfaceKind::Preview, cx);
+    }
+
+    fn invalidate_matching(&mut self, include: impl Fn(SurfaceKind) -> bool, cx: &App) {
         // Startup already renders every attached surface. Do not occupy a
         // source queue before a process exists to acknowledge the request.
         if self.process.is_none() {
@@ -52,7 +99,7 @@ impl Runtime {
         let views: Vec<_> = self
             .views
             .iter()
-            .filter(|(_, view)| view.surface == SurfaceKind::Content)
+            .filter(|(_, view)| include(view.surface))
             .map(|(id, _)| id.clone())
             .collect();
         for view in views {

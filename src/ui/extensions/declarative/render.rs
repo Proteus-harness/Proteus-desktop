@@ -410,7 +410,7 @@ impl DeclarativeView {
                 .children(self.fields.terminals.get(id).cloned())
                 .into_any_element(),
             Node::Tree { id, .. } => div()
-                .flex_1()
+                .when(!self.embedded, |view| view.flex_1())
                 .min_h_0()
                 .children(self.fields.trees.get(id).cloned())
                 .into_any_element(),

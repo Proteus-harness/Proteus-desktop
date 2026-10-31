@@ -178,10 +178,10 @@ pub(super) const APPEARANCE_ROWS: [&RowText; 11] = [
     &SCALE,
     &SURFACE_RADIUS,
     &MOTION,
+    &TRUNCATION,
     &HINT_TITLE,
     &HINT_DESCRIPTION,
     &HINT_SHORTCUT,
-    &TRUNCATION,
 ];
 pub(super) const CHAT_ROWS: [&RowText; 7] = [
     &SEND,
@@ -247,7 +247,7 @@ impl SettingsView {
     }
     pub(super) fn appearance_page(&self, cx: &Context<Self>) -> Vec<AnyElement> {
         let current = prefs::current(cx);
-        let rows = [
+        let themes = [
             self.text_row(
                 &THEME,
                 choice("pref-theme", &THEMES, current.theme, |prefs, value| {
@@ -280,6 +280,10 @@ impl SettingsView {
                 cx,
             )
             .into_any_element(),
+        ];
+        let typography = [
+            self.text_row(&INTERFACE_FONT, self.fonts.interface(), cx)
+                .into_any_element(),
             self.text_row(
                 &SCALE,
                 choice("pref-scale", &SCALES, current.view.scale, |prefs, value| {
@@ -288,8 +292,8 @@ impl SettingsView {
                 cx,
             )
             .into_any_element(),
-            self.text_row(&INTERFACE_FONT, self.fonts.interface(), cx)
-                .into_any_element(),
+        ];
+        let interface = [
             self.text_row(
                 &SURFACE_RADIUS,
                 slider(&self.sizes.surface_radius, "px", cx),
@@ -304,6 +308,19 @@ impl SettingsView {
                 cx,
             )
             .into_any_element(),
+            self.text_row(
+                &TRUNCATION,
+                choice(
+                    "pref-truncation",
+                    &TRUNCATIONS,
+                    current.label_truncation,
+                    |prefs, value| prefs.label_truncation = value,
+                ),
+                cx,
+            )
+            .into_any_element(),
+        ];
+        let hints = [
             self.text_row(
                 &HINT_TITLE,
                 choice(
@@ -337,17 +354,6 @@ impl SettingsView {
                 cx,
             )
             .into_any_element(),
-            self.text_row(
-                &TRUNCATION,
-                choice(
-                    "pref-truncation",
-                    &TRUNCATIONS,
-                    current.label_truncation,
-                    |prefs, value| prefs.label_truncation = value,
-                ),
-                cx,
-            )
-            .into_any_element(),
         ];
         let mut parts = self.preferences_problem(cx);
         parts.extend(cx.global::<ThemeProblems>().0.iter().map(|problem| {
@@ -357,7 +363,12 @@ impl SettingsView {
                 .child(format!("Тема не прочитана: {problem}"))
                 .into_any_element()
         }));
-        parts.push(section("Интерфейс", None, None, card(rows, cx), cx).into_any_element());
+        parts.extend([
+            section("Тема", None, None, card(themes, cx), cx).into_any_element(),
+            section("Шрифт и масштаб", None, None, card(typography, cx), cx).into_any_element(),
+            section("Интерфейс", None, None, card(interface, cx), cx).into_any_element(),
+            section("Подсказки", None, None, card(hints, cx), cx).into_any_element(),
+        ]);
         parts
     }
 

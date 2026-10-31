@@ -28,6 +28,7 @@ impl Workspace {
             },
         ));
         self.settings = Some(view);
+        self.release_hidden_chat_activities(&self.layout, cx);
         cx.notify();
     }
 

@@ -35,12 +35,20 @@ impl Chat {
     ) -> impl IntoElement {
         let theme = cx.theme().clone();
         let dock = self.render_activity_dock(window, cx);
+        let dock_present = dock.is_some();
+        if !dock_present {
+            self.composer_strip_bounds.set(Bounds::default());
+        }
         h_flex().w_full().justify_center().px_6().pb_4().child(
             v_flex()
-                .on_children_prepainted(kit::record_first_child(self.composer_strip_bounds.clone()))
+                .when(dock_present, |composer| {
+                    composer.on_children_prepainted(kit::record_first_child(
+                        self.composer_strip_bounds.clone(),
+                    ))
+                })
                 .w_full()
                 .max_w(prefs::chat_width(cx))
-                .child(
+                .children(dock.map(|dock| {
                     div()
                         .mx_3()
                         .pb_2()
@@ -48,8 +56,8 @@ impl Chat {
                         .surface_frame(cx)
                         .rounded_b(px(0.))
                         .bg(theme.group_box)
-                        .child(dock),
-                )
+                        .child(dock)
+                }))
                 .child(
                     div()
                         .relative()

@@ -216,7 +216,7 @@ impl Chat {
                 }
                 live
             }
-            ActivityId::Plan => false,
+            ActivityId::Extension(_) => false,
         }
     }
 

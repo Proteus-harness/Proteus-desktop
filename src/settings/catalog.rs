@@ -81,7 +81,7 @@ pub fn slot_text(slot: &str) -> Option<(&'static str, &'static str)> {
         TOOL_SLOT => ("Tools", "Инструменты, которые профиль разрешает агенту."),
         HOOK_SLOT => (
             "Hooks",
-            "Обработчики дополняют шаги агента: готовят историю и сжимают её, отбирают видимые модели инструменты, проверяют вызовы и завершение. Вызываются по порядку списка.",
+            "Hooks дополняют шаги агента: готовят историю и сжимают её, отбирают видимые модели инструменты, проверяют вызовы и завершение. Вызываются по порядку списка.",
         ),
         _ => return None,
     })
@@ -180,7 +180,7 @@ pub fn page_description(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId)
         PageId::Tools => slot_text(TOOL_SLOT).map(|(_, text)| text).unwrap_or(""),
         PageId::Hooks => slot_text(HOOK_SLOT).map(|(_, text)| text).unwrap_or(""),
         PageId::Modules => {
-            "Процессные модули профиля. Один модуль может давать пакеты инструментов, обработчики и реализации слотов."
+            "Процессные модули профиля. Один модуль может давать пакеты инструментов, hooks и реализации слотов."
         }
         PageId::Catalog => {
             "Расширения клиента, Agent Plugins, skills и MCP из git-репозиториев. Процессные модули устанавливаются отдельно."
@@ -197,14 +197,10 @@ pub fn page_description(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId)
         PageId::History => {
             "Каждое сохранение настроек агента запоминает состояние профиля, которое оно заменило. «Вернуть как было» загружает это состояние в черновик: проверьте изменения внизу и сохраните. Откат тоже попадает в историю."
         }
-        PageId::Appearance => "Тема и анимации интерфейса. Сохраняются на этом устройстве.",
-        PageId::Chat => "Отправка сообщений. Сохраняется на этом устройстве.",
-        PageId::Shortcuts => {
-            "Клавиши команд окна. Применяются сразу и сохраняются на этом устройстве."
-        }
-        PageId::Extensions => {
-            "Виджеты, визуализации, панели, вкладки и страницы. Включение, порядок и установка применяются сразу и сохраняются на этом устройстве."
-        }
+        PageId::Appearance => "Тема, шрифты, размеры, анимации и подсказки интерфейса.",
+        PageId::Chat => "Вид сообщений и поведение чата.",
+        PageId::Shortcuts => "Сочетания клавиш команд приложения.",
+        PageId::Extensions => "Виджеты, визуализации, панели, вкладки и их параметры.",
         PageId::Extension(_) => "",
     };
     text.to_string()
@@ -233,7 +229,7 @@ pub fn area_page(area: &Area) -> PageId {
         Area::Skills => PageId::Skills,
         Area::Packages => PageId::Packages,
         // Tool pack parameters are edited with their packs.
-        Area::Slot(slot) if slot == TOOL_SLOT => PageId::Modules,
+        Area::Slot(slot) if slot == TOOL_SLOT => PageId::Tools,
         Area::Slot(slot) => slot_page(slot),
     }
 }
@@ -409,6 +405,25 @@ pub fn find_tool<'a>(
     name: &str,
 ) -> Option<&'a ConfigBuilderTool> {
     snapshot.tools.iter().find(|tool| tool.name == name)
+}
+
+/// The single pack that actually displays a known tool. Explicit ownership
+/// wins over declarations; a stale owner remains visible in the residual groups.
+/// Snapshot order breaks ties for tools declared in more than one pack.
+pub fn tool_pack<'a>(
+    snapshot: &'a ConfigBuilderSnapshot,
+    name: &str,
+) -> Option<(&'a ConfigBuilderPlugin, &'a ConfigBuilderToolPack)> {
+    let tool = find_tool(snapshot, name)?;
+    snapshot.plugins.iter().find_map(|plugin| {
+        plugin.tool_packs.iter().find_map(|pack| {
+            let owner_matches = tool
+                .owner
+                .as_ref()
+                .is_none_or(|owner| owner.component_id == plugin.id && owner.module_id == pack.id);
+            (owner_matches && pack.tools.iter().any(|tool| tool == name)).then_some((plugin, pack))
+        })
+    })
 }
 
 pub fn tool_matches(tool: &ConfigBuilderTool, query: &str) -> bool {

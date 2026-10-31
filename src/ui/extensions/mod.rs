@@ -16,6 +16,7 @@ use std::path::Path;
 
 pub(super) use badge::DraggedBadge;
 pub(in crate::ui) use declarative::content;
+pub(in crate::ui) use declarative::{ActivityContribution, ActivitySummary};
 pub(super) use host::{Host, HostEvent, OpenDocument};
 
 use super::prefs;
@@ -87,6 +88,12 @@ pub(super) struct Manifest {
     pub icon: Lucide,
     /// Read-only analytics page among the extension pages of the settings.
     pub page: Option<BuildFocused>,
+    pub page_embedded: bool,
+    /// User-triggered synthetic preview; never opened by catalog enumeration.
+    pub preview: Option<BuildFocused>,
+    /// A fixed composer contribution, distinct from a movable widget.
+    pub activity: bool,
+    pub tool_dependencies: &'static [String],
     pub panel: Option<PanelSurface>,
     pub document: Option<DocumentSurface>,
     /// Borrowed language/media registrations; settings display these without a runtime.

@@ -10,6 +10,9 @@ use crate::ui::chat::{Chat, Session};
 use crate::ui::motion::PopupPanel;
 use crate::ui::workspace::Workspace;
 
+mod scope;
+pub(in crate::ui) use scope::{Lifetime, RuntimeScope, ViewOwner};
+
 /// What an extension gets from the client: read access to the active chat's
 /// session,
 /// the server API, host events and navigation. It holds no strong reference,
@@ -27,6 +30,7 @@ pub(in crate::ui) struct Host {
     /// A document-only detached window keeps its originating session until
     /// the destination explicitly chooses a chat. This is weak, never a pump.
     inherited: Option<(WeakEntity<Chat>, PathBuf)>,
+    runtime_scope: RuntimeScope,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -42,6 +46,9 @@ impl EventEmitter<HostEvent> for Workspace {}
 
 impl Host {
     pub(in crate::ui) fn document_title(&self, argument: &str, title: String, cx: &mut App) {
+        if !self.runtime_scope.lifetime.session() {
+            return;
+        }
         let id = crate::tabs::document(self.extension, argument);
         let _ = self.workspace.update(cx, |workspace, cx| {
             if workspace
@@ -55,7 +62,7 @@ impl Host {
         });
     }
     pub(in crate::ui) fn retain_process(&self, process: AnyEntity, cx: &mut App) {
-        if self.bound.is_some() {
+        if !self.retains_process() {
             return;
         }
         let _ = self.workspace.update(cx, |workspace, _| {
@@ -94,6 +101,9 @@ impl Host {
         cx: &mut Context<T>,
         mut on_event: impl FnMut(&mut T, &super::session::SessionChanged, &mut Context<T>) + 'static,
     ) -> Option<Subscription> {
+        if !self.runtime_scope.lifetime.session() {
+            return None;
+        }
         let session = self.bound.as_ref().map(|(_, session)| session.clone());
         Some(cx.subscribe(
             &self.workspace.upgrade()?,
@@ -115,7 +125,26 @@ impl Host {
     /// Window-scoped protocol context. Bound content has a separate runtime
     /// per chat, while retaining the chat's own session across tab changes.
     pub(in crate::ui) fn scope(&self) -> String {
-        self.workspace.entity_id().to_string()
+        self.runtime_scope
+            .context()
+            .unwrap_or_else(|| self.workspace.entity_id().to_string())
+    }
+
+    pub(in crate::ui) fn runtime_scope(&self) -> RuntimeScope {
+        self.runtime_scope
+    }
+
+    fn retains_process(&self) -> bool {
+        self.runtime_scope.lifetime.session() && self.bound.is_none()
+    }
+
+    /// Root settings/preview scope. Clones and with_extension preserve this
+    /// owner, so every nested renderer stays outside production runtimes.
+    pub(in crate::ui) fn isolated(mut self, lifetime: Lifetime) -> Self {
+        self.runtime_scope = RuntimeScope::isolated(lifetime);
+        self.bound = None;
+        self.inherited = None;
+        self
     }
 
     pub(in crate::ui) fn rehost(&self, workspace: WeakEntity<Workspace>) -> Self {
@@ -140,6 +169,7 @@ impl Host {
             extension,
             bound: None,
             inherited: None,
+            runtime_scope: RuntimeScope::default(),
         }
     }
 
@@ -166,6 +196,9 @@ impl Host {
     }
 
     pub(in crate::ui) fn read<R>(&self, cx: &App, read: impl FnOnce(&HostView) -> R) -> Option<R> {
+        if !self.runtime_scope.lifetime.session() {
+            return None;
+        }
         let workspace = self.workspace.upgrade()?.read(cx);
         let bound_chat = self.bound.as_ref().and_then(|(chat, _)| chat.upgrade());
         let inherited_chat = self.inherited.as_ref().and_then(|(chat, _)| chat.upgrade());
@@ -219,6 +252,9 @@ impl Host {
 
     /// The active chat, for extensions that change its session settings.
     pub(in crate::ui) fn chat(&self, cx: &App) -> Option<Entity<Chat>> {
+        if !self.runtime_scope.lifetime.session() {
+            return None;
+        }
         if let Some((chat, _)) = &self.bound {
             return chat.upgrade();
         }
@@ -235,6 +271,9 @@ impl Host {
     }
 
     pub(in crate::ui) fn session_dir(&self, cx: &App) -> Option<PathBuf> {
+        if !self.runtime_scope.lifetime.session() {
+            return None;
+        }
         if let Some((_, session)) = &self.bound {
             return Some(session.clone());
         }
@@ -256,7 +295,7 @@ impl Host {
     ) -> Option<Subscription> {
         // A content source is immutable and bound to its chat. Switching the
         // active tab must neither repaint it nor change its session context.
-        if self.bound.is_some() {
+        if !self.runtime_scope.lifetime.session() || self.bound.is_some() {
             return None;
         }
         let workspace = self.workspace.upgrade()?;
@@ -277,6 +316,9 @@ impl Host {
         window: &mut Window,
         cx: &mut App,
     ) -> Option<AnyView> {
+        if !self.runtime_scope.lifetime.session() {
+            return None;
+        }
         let id = crate::tabs::document(extension, argument);
         self.workspace
             .update(cx, |workspace, cx| {
@@ -288,11 +330,49 @@ impl Host {
 
     /// Brings an extension forward: opens or shows its panel.
     pub(in crate::ui) fn activate(&self, id: &'static str, window: &mut Window, cx: &mut App) {
+        if !self.runtime_scope.lifetime.session() {
+            return;
+        }
         self.workspace
             .update(cx, |workspace, cx| {
                 workspace.activate_extension(id, window, cx)
             })
             .ok();
+    }
+}
+
+#[cfg(test)]
+mod isolated_tests {
+    use super::{Host, Lifetime};
+    use gpui_kit::WeakEntity;
+
+    #[test]
+    fn content_inline_and_rehost_clones_cannot_escape_the_view_owner() {
+        for lifetime in [Lifetime::Settings, Lifetime::Preview] {
+            let production = Host::new(WeakEntity::new_invalid(), "renderer");
+            assert!(production.retains_process());
+            let parent = production.clone().isolated(lifetime);
+            let child = parent.with_extension("nested-renderer");
+            let inline = child
+                .clone()
+                .with_extension("inline-renderer")
+                .rehost(WeakEntity::new_invalid());
+            for host in [&parent, &child, &inline] {
+                assert_eq!(host.runtime_scope(), parent.runtime_scope());
+                assert_eq!(host.scope(), parent.scope());
+                assert!(
+                    !host.retains_process(),
+                    "nested runtime entered Workspace.extension_processes"
+                );
+                assert!(host.runtime_scope().lifetime.allowed(false));
+                host.runtime_scope()
+                    .connection(|| panic!("nested host accessed production server"));
+            }
+            assert_ne!(
+                parent.runtime_scope().owner,
+                production.isolated(lifetime).runtime_scope().owner
+            );
+        }
     }
 }
 

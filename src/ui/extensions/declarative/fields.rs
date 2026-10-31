@@ -489,7 +489,9 @@ impl DeclarativeView {
                 } else {
                     let send = self.row_sender(action, cx);
                     let view = cx.weak_entity();
-                    let tree = cx.new(|cx| Tree::new(rows.clone(), layout, view, cx, send));
+                    let natural = self.embedded;
+                    let tree =
+                        cx.new(|cx| Tree::new(rows.clone(), layout, natural, view, cx, send));
                     self.fields.trees.insert(id.clone(), tree);
                 }
             }

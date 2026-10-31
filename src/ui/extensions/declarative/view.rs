@@ -30,6 +30,8 @@ pub(super) struct DeclarativeView {
     runtime: Entity<Runtime>,
     view: String,
     surface: SurfaceKind,
+    /// Natural height inside the single host settings scroller.
+    pub(super) embedded: bool,
     root: Option<Rc<Node>>,
     preparation: Preparation,
     failure: Option<String>,
@@ -104,6 +106,7 @@ impl DeclarativeView {
             runtime,
             view,
             surface,
+            embedded: false,
             root: None,
             preparation: Preparation::default(),
             failure: None,
@@ -496,7 +499,8 @@ impl Render for DeclarativeView {
             }))
             .w_full()
             .when(
-                !matches!(self.surface, SurfaceKind::Popup | SurfaceKind::Content),
+                !self.embedded
+                    && !matches!(self.surface, SurfaceKind::Popup | SurfaceKind::Content),
                 |view| view.h_full(),
             )
             .p_3()
@@ -516,6 +520,8 @@ impl Render for DeclarativeView {
             });
         if self.surface == SurfaceKind::Content {
             view.p_0().gap_2().min_w_0().into_any_element()
+        } else if self.embedded {
+            view.p_0().min_w_0().into_any_element()
         } else if fill {
             view.overflow_hidden().into_any_element()
         } else {

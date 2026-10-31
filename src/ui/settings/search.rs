@@ -17,8 +17,8 @@ use crate::settings::FieldPath;
 use crate::settings::addons;
 use crate::settings::catalog::{
     CONTEXT_PROVIDER_SLOT, CONTEXT_SLOT, HOOK_SLOT, MODEL_SLOT, PageId, TOOL_SLOT, agent_pages,
-    editable_field, exports, find_slot, model_module, module_info, page_description, page_title,
-    selected_module,
+    editable_field, exports, find_slot, missing_tools, model_module, module_info, page_description,
+    page_title, selected_module,
 };
 use crate::shortcuts::Command;
 use crate::ui::extensions;
@@ -29,11 +29,7 @@ const LIMIT: usize = 60;
 pub(super) struct Hit {
     pub(super) title: String,
     pub(super) place: String,
-    pub(super) page: PageId,
-    /// Disclosures to unfold on the way to the row.
-    pub(super) open: Vec<String>,
-    /// Row to scroll to and mark.
-    pub(super) spot: Option<String>,
+    pub(super) target: spot::Destination,
 }
 
 impl Hit {
@@ -41,19 +37,17 @@ impl Hit {
         Self {
             title: title.into(),
             place: place.into(),
-            page,
-            open: Vec::new(),
-            spot: None,
+            target: spot::Destination::new(page),
         }
     }
 
     fn spot(mut self, key: String) -> Self {
-        self.spot = Some(key);
+        self.target.spot = Some(key);
         self
     }
 
     fn open(mut self, keys: Vec<String>) -> Self {
-        self.open = keys;
+        self.target.open = keys;
         self
     }
 }
@@ -239,24 +233,13 @@ impl SettingsView {
                 );
             }
         }
-        let tools = page_title(None, &PageId::Tools);
-        for tool in &snapshot.tools {
-            finder.add(
-                Hit::new(&tool.name, tools.clone(), PageId::Tools).spot(spot::tool(&tool.name)),
-                &[&tool.description, &tool.source],
-            );
-        }
+        search_tools(snapshot, &self.draft, finder);
         for module in &snapshot.hook_modules {
             finder.add(
                 Hit::new(&module.id, "Hooks", PageId::Hooks).spot(spot::hook(&module.id)),
                 &[module.description.as_deref().unwrap_or_default()],
             );
-            // Parameters of a hook outside the chain live on its module card.
-            let page = if self.draft.hooks.contains(&module.id) {
-                PageId::Hooks
-            } else {
-                PageId::Modules
-            };
+            let page = PageId::Hooks;
             let place = format!("{} · {}", page_title(None, &page), module.id);
             let open = [format!("params:{HOOK_SLOT}:{}", module.id)];
             self.search_params(
@@ -289,14 +272,14 @@ impl SettingsView {
                     .spot(key.clone()),
                     &[about],
                 );
-                let place = format!("Modules · {}", pack.id);
-                let open = [key, format!("params:{TOOL_SLOT}:{}", pack.id)];
+                let place = format!("Tools · {}", pack.id);
+                let open = [format!("params:{TOOL_SLOT}:{}", pack.id)];
                 self.search_params(
                     snapshot,
                     finder,
                     TOOL_SLOT,
                     &pack.id,
-                    &PageId::Modules,
+                    &PageId::Tools,
                     &place,
                     &open,
                 );
@@ -360,6 +343,25 @@ impl SettingsView {
     }
 }
 
+/// All editable tool rows, including stale enabled names, share Tools.
+fn search_tools(
+    snapshot: &ConfigBuilderSnapshot,
+    draft: &crate::settings::Draft,
+    finder: &mut Finder,
+) {
+    for tool in &snapshot.tools {
+        let mut hit = Hit::new(&tool.name, "Tools · инструмент", PageId::Tools);
+        hit.target = super::tools::tool_target(&tool.name);
+        finder.add(hit, &[&tool.description, &tool.source]);
+    }
+    for name in missing_tools(snapshot, draft) {
+        finder.add(
+            Hit::new(name, "Tools · недоступный инструмент", PageId::Tools).spot(spot::tool(name)),
+            &["недоступный не найден"],
+        );
+    }
+}
+
 /// Parameters of one module on one page.
 struct Scope<'a> {
     slot: &'a str,
@@ -409,6 +411,80 @@ impl Scope<'_> {
                 let place = format!("{place} · {}", field.title);
                 self.fields(finder, nested, Some(&path), &place, &way);
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proteus_contracts::app_protocol::config_builder::{
+        ConfigBuilderPlugin, ConfigBuilderTool, ConfigBuilderToolPack,
+    };
+    use proteus_contracts::contracts::ProcessToolOwner;
+
+    #[::core::prelude::v1::test]
+    fn tool_search_targets_exact_rows_and_indexes_stale_names() {
+        let snapshot = ConfigBuilderSnapshot {
+            plugins: vec![ConfigBuilderPlugin {
+                id: "process".into(),
+                command: "host".into(),
+                description: None,
+                exports: Vec::new(),
+                tool_packs: vec![ConfigBuilderToolPack {
+                    id: "planner".into(),
+                    tools: vec!["update_plan".into(), "stale_owner".into()],
+                }],
+            }],
+            tools: vec![
+                ConfigBuilderTool {
+                    name: "update_plan".into(),
+                    source: "process".into(),
+                    owner: Some(ProcessToolOwner {
+                        component_id: "process".into(),
+                        module_id: "planner".into(),
+                    }),
+                    safety: "ReadOnly".into(),
+                    description: "Edit plan".into(),
+                    enabled: true,
+                    runtime_managed: false,
+                    registered: true,
+                },
+                ConfigBuilderTool {
+                    name: "stale_owner".into(),
+                    source: "process".into(),
+                    owner: Some(ProcessToolOwner {
+                        component_id: "gone".into(),
+                        module_id: "planner".into(),
+                    }),
+                    safety: "ReadOnly".into(),
+                    description: String::new(),
+                    enabled: true,
+                    runtime_managed: false,
+                    registered: true,
+                },
+            ],
+            ..ConfigBuilderSnapshot::default()
+        };
+        let mut draft = crate::settings::Draft::default();
+        draft.set_tool("missing_tool", true);
+        let mut finder = Finder::new("plan");
+        search_tools(&snapshot, &draft, &mut finder);
+        let hits = finder.finish();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(
+            hits[0].target,
+            spot::Destination::new(PageId::Tools).spot(spot::tool("update_plan"))
+        );
+        for name in ["stale_owner", "missing_tool"] {
+            let mut finder = Finder::new(name);
+            search_tools(&snapshot, &draft, &mut finder);
+            let hits = finder.finish();
+            assert_eq!(hits.len(), 1);
+            assert_eq!(
+                hits[0].target,
+                spot::Destination::new(PageId::Tools).spot(spot::tool(name))
+            );
         }
     }
 }

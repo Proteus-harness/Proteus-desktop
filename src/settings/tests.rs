@@ -2,8 +2,8 @@ use std::path::Path;
 
 use proteus_contracts::app_protocol::addons::AppAddonsSnapshot;
 use proteus_contracts::app_protocol::config_builder::{
-    ConfigBuilderModule, ConfigBuilderModuleSelection, ConfigBuilderSlot, ConfigBuilderSnapshot,
-    ConfigBuilderState, ConfigBuilderTool, ConfigBuilderToolPack,
+    ConfigBuilderModule, ConfigBuilderModuleSelection, ConfigBuilderPlugin, ConfigBuilderSlot,
+    ConfigBuilderSnapshot, ConfigBuilderState, ConfigBuilderTool, ConfigBuilderToolPack,
 };
 use proteus_contracts::domain::{ConfigField, ConfigValueSchema, ModuleConfigSchema};
 use serde_json::json;
@@ -12,8 +12,8 @@ use super::addons::{
     mcp_servers, missing_skills, normalized, package_contents, package_state, tool_server,
 };
 use super::catalog::{
-    CONNECTION_PAGES, CONTEXT_PROVIDER_SLOT, PackState, PageId, agent_pages, module_info,
-    pack_summary, page_title, plural, slot_page,
+    CONNECTION_PAGES, CONTEXT_PROVIDER_SLOT, PackState, PageId, agent_pages, area_page,
+    missing_tools, module_info, pack_summary, page_title, plural, slot_page, tool_pack,
 };
 use super::draft::Area;
 use super::history::describe_changes;
@@ -460,4 +460,59 @@ fn nested_values_create_and_prune_their_objects() {
     );
     draft.set_value(&group, None);
     assert_eq!(draft.module_config("hook", "dcp"), Some(&json!({})));
+}
+
+#[test]
+fn tool_edits_and_pack_parameters_share_the_tools_page() {
+    assert_eq!(area_page(&Area::Tools), PageId::Tools);
+    assert_eq!(slot_page("tool"), PageId::Tools);
+    assert_eq!(area_page(&Area::Slot("tool".into())), PageId::Tools);
+}
+
+#[test]
+fn canonical_pack_uses_the_owner_and_keeps_unplaced_and_missing_tools() {
+    use proteus_contracts::contracts::ProcessToolOwner;
+
+    let plugin = |id: &str, names: &[&str]| ConfigBuilderPlugin {
+        id: id.into(),
+        command: "module-host".into(),
+        description: None,
+        exports: Vec::new(),
+        tool_packs: vec![ConfigBuilderToolPack {
+            id: "tools".into(),
+            tools: names.iter().map(|name| (*name).into()).collect(),
+        }],
+    };
+    let mut owned = tool("owned", false);
+    owned.owner = Some(ProcessToolOwner {
+        component_id: "second".into(),
+        module_id: "tools".into(),
+    });
+    let mut stale = tool("stale_owner", false);
+    stale.owner = Some(ProcessToolOwner {
+        component_id: "gone".into(),
+        module_id: "tools".into(),
+    });
+    let snapshot = ConfigBuilderSnapshot {
+        plugins: vec![
+            plugin("first", &["ordinary", "owned", "stale_owner", "missing"]),
+            plugin("second", &["ordinary", "owned"]),
+        ],
+        tools: vec![tool("ordinary", false), owned, stale, tool("loose", false)],
+        ..ConfigBuilderSnapshot::default()
+    };
+    assert_eq!(
+        tool_pack(&snapshot, "ordinary").map(|(plugin, _)| plugin.id.as_str()),
+        Some("first")
+    );
+    assert_eq!(
+        tool_pack(&snapshot, "owned").map(|(plugin, _)| plugin.id.as_str()),
+        Some("second")
+    );
+    assert!(tool_pack(&snapshot, "stale_owner").is_none());
+    assert!(tool_pack(&snapshot, "loose").is_none());
+    assert!(tool_pack(&snapshot, "missing").is_none());
+    let mut draft = Draft::default();
+    draft.set_tool("missing", true);
+    assert_eq!(missing_tools(&snapshot, &draft), ["missing"]);
 }

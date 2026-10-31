@@ -107,6 +107,8 @@ pub struct SettingsView {
     catalogs: catalog::State,
     workspace: WeakEntity<crate::ui::workspace::Workspace>,
     extension_view: Option<(String, crate::ui::extensions::SurfaceView)>,
+    /// On-demand, synthetic preview; dropped after collapse or navigation.
+    extension_preview: Option<(String, crate::ui::extensions::SurfaceView)>,
     /// Result of the last extension install or removal.
     extension_notice: Option<Feedback>,
     /// Installed extension whose removal waits for confirmation.
@@ -150,7 +152,7 @@ impl SettingsView {
                     }
                     InputEvent::PressEnter { .. } => {
                         if let Some(hit) = this.search(&this.query, cx).into_iter().next() {
-                            this.go_to(&hit, window, cx);
+                            this.go_to(&hit.target, window, cx);
                         }
                     }
                     _ => {}
@@ -197,6 +199,7 @@ impl SettingsView {
             catalogs,
             workspace,
             extension_view: None,
+            extension_preview: None,
             extension_notice: None,
             removing: None,
             recording: None,
@@ -487,9 +490,10 @@ impl SettingsView {
 impl Render for SettingsView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let extension = match &self.page {
-            PageId::Extension(id) if crate::ui::extensions::is_enabled(id, cx) => {
-                crate::ui::extensions::find(id).filter(|manifest| manifest.page.is_some())
-            }
+            PageId::Extension(id) => crate::ui::extensions::find(id).filter(|manifest| {
+                manifest.page.is_some()
+                    && (manifest.page_embedded || crate::ui::extensions::is_enabled(id, cx))
+            }),
             _ => None,
         };
         if let Some(extension) = extension {
@@ -506,6 +510,35 @@ impl Render for SettingsView {
             }
         } else {
             self.extension_view = None;
+        }
+        let preview = match &self.page {
+            PageId::Extension(id) => crate::ui::extensions::find(id).filter(|manifest| {
+                let key = extension::preview_key(id);
+                let open = self.is_open(&key);
+                manifest.preview.is_some()
+                    && (open
+                        || (self
+                            .extension_preview
+                            .as_ref()
+                            .is_some_and(|(old, _)| old == id)
+                            && crate::ui::motion::moving(&reveal_key(&key), open, cx)))
+            }),
+            _ => None,
+        };
+        if let Some(extension) = preview {
+            if self
+                .extension_preview
+                .as_ref()
+                .is_none_or(|(id, _)| id != extension.id)
+            {
+                let host = crate::ui::extensions::Host::new(self.workspace.clone(), extension.id);
+                self.extension_preview = Some((
+                    extension.id.to_owned(),
+                    (extension.preview.unwrap())(host, window, cx),
+                ));
+            }
+        } else {
+            self.extension_preview = None;
         }
         self.prepare_editors(window, cx);
         self.scrolls.entry(spot::page_key(&self.page)).or_default();
