@@ -98,7 +98,7 @@ impl SettingsView {
             FieldKind::Choice(options) => choice_menu(&spec, options),
             FieldKind::MultiChoice(options) => multi_choice(&spec, options),
             FieldKind::Group(fields) => return self.render_group(path, field, fields, cx),
-            FieldKind::Text(_) => match text.map(|text| &text.input) {
+            FieldKind::Text(format) => match text.map(|text| &text.input) {
                 Some(TextInput::Line(state)) => kit::input(state)
                     .small()
                     .map(|input| {
@@ -109,6 +109,9 @@ impl SettingsView {
                         }
                     })
                     .into_any_element(),
+                Some(TextInput::Area(state)) if format == TextFormat::Lines => {
+                    Self::string_list(state, cx)
+                }
                 Some(TextInput::Area(state)) => self.text_area(state, cx),
                 None => div().into_any_element(),
             },

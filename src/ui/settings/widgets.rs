@@ -74,24 +74,12 @@ pub(super) fn section(
 
 /// Rounded card with quiet, inset hairline dividers between rows.
 pub(super) fn card(rows: impl IntoIterator<Item = AnyElement>, cx: &App) -> AnyElement {
-    card_with_tail(rows, || None, cx)
-}
-
-/// A disclosed tail shares the original card frame. The prefix remains
-/// mounted while the common reveal animates the remaining rows.
-pub(super) fn card_with_tail(
-    rows: impl IntoIterator<Item = AnyElement>,
-    tail: impl FnOnce() -> Option<AnyElement>,
-    cx: &App,
-) -> AnyElement {
     kit::surface(
-        group_box(cx)
-            .children(
-                rows.into_iter()
-                    .enumerate()
-                    .map(|(ix, row)| card_cell(row, ix > 0, cx)),
-            )
-            .children(tail()),
+        group_box(cx).children(
+            rows.into_iter()
+                .enumerate()
+                .map(|(ix, row)| card_cell(row, ix > 0, cx)),
+        ),
         cx,
     )
 }

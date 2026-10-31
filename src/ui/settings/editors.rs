@@ -100,6 +100,30 @@ pub(super) fn module_key(slot: &str, module: &str) -> ModuleKey {
 }
 
 impl SettingsView {
+    /// Rule and other string lists stay open at their natural height. Reuse
+    /// the chat code surface, with the native editor retaining input/selection.
+    pub(super) fn string_list(input: &Entity<TextareaState>, cx: &Context<Self>) -> AnyElement {
+        let theme = cx.theme();
+        Self::text_keys(
+            kit::code_surface(cx)
+                // Small textarea contributes 8px/2px itself, completing the
+                // shared code surface's 12px/8px content insets.
+                .px_1()
+                .py_1p5()
+                .child(
+                    kit::textarea(input, cx)
+                        .small()
+                        .w_full()
+                        .appearance(false)
+                        .border_0()
+                        .rounded(theme.radius_lg)
+                        .bg(theme.muted)
+                        .font_family(theme.mono_font_family.clone())
+                        .text_xs(),
+                ),
+        )
+    }
+
     /// Short values remain directly editable. Long values have a bounded
     /// preview and the common animated disclosure; the same editor entity
     /// retains selection, invalid edits and focus across toggles.

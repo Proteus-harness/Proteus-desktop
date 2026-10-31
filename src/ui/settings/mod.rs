@@ -114,7 +114,7 @@ pub struct SettingsView {
     /// Command whose new shortcut is being recorded.
     recording: Option<(crate::shortcuts::Command, Subscription)>,
     focus_handle: FocusHandle,
-    /// The page list, a single stop for Tab walked with the arrows.
+    /// The selected navigation row, a single stop for Tab walked with arrows.
     nav_focus: FocusHandle,
     /// The open page, holding focus between its controls.
     page_focus: FocusHandle,

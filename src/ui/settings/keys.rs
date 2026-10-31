@@ -9,7 +9,7 @@ use super::SettingsView;
 use crate::settings::catalog::PageId;
 use crate::ui::kit;
 
-/// The page list, which holds focus as one control.
+/// The page list, whose selected row owns the single roving Tab stop.
 const NAV_CONTEXT: &str = "ProteusSettingsNav";
 const SEARCH_CONTEXT: &str = "ProteusSettingsSearch";
 /// Search hits, each of them a control of its own.
@@ -114,7 +114,7 @@ impl SettingsView {
     }
 
     pub(super) fn nav_keys(&self, list: Stateful<Div>) -> Stateful<Div> {
-        list.key_context(NAV_CONTEXT).track_focus(&self.nav_focus)
+        list.key_context(NAV_CONTEXT)
     }
 
     pub(super) fn search_keys(search: Div) -> Div {

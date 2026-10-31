@@ -1,6 +1,7 @@
+// Адаптировано из Zed: crates/settings_ui/src/settings_ui.rs (render_toggle_button).
 //! Hooks page: the ordered hook chain and the hooks still available.
 
-use crate::ui::kit::ButtonLabel as _;
+use crate::ui::kit::Hint as _;
 use gpui_kit::component::*;
 use gpui_kit::*;
 
@@ -72,12 +73,12 @@ impl SettingsView {
                         None,
                         cx,
                     ),
-                    [kit::button(hashed_id("hook-on", &module.id))
-                        .faded_label("Включить")
-                        .outline()
-                        .xsmall()
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.update_draft(cx, |draft| draft.set_hook(&id, true))
+                    [kit::switch(hashed_id("hook-switch", &module.id))
+                        .checked(false)
+                        .hint("Включить обработчик", cx)
+                        .on_click(cx.listener(move |this, checked: &bool, _, cx| {
+                            let checked = *checked;
+                            this.update_draft(cx, |draft| draft.set_hook(&id, checked))
                         }))
                         .into_any_element()],
                 );
@@ -109,7 +110,7 @@ impl SettingsView {
             .unwrap_or_else(|| "Модуль не найден в текущей сборке".to_string());
         let key = format!("params:{HOOK_SLOT}:{id}");
         let open = self.is_open(&key);
-        let off = id.to_string();
+        let target = id.to_string();
         let title = h_flex()
             .min_w_0()
             .gap_3()
@@ -131,12 +132,12 @@ impl SettingsView {
         let header = item_row(
             title,
             [reorder::controls(
-                kit::button(hashed_id("hook-off", &id))
-                    .faded_label("Отключить")
-                    .quiet(cx)
-                    .xsmall()
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.update_draft(cx, |draft| draft.set_hook(&off, false))
+                kit::switch(hashed_id("hook-switch", &id))
+                    .checked(true)
+                    .hint("Отключить обработчик", cx)
+                    .on_click(cx.listener(move |this, checked: &bool, _, cx| {
+                        let checked = *checked;
+                        this.update_draft(cx, |draft| draft.set_hook(&target, checked))
                     })),
             )
             .into_any_element()],

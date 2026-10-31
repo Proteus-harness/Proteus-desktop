@@ -1,3 +1,4 @@
+// Адаптировано из Zed: crates/settings_ui/src/settings_ui.rs (render_nav).
 //! Settings navigation: the catalog, agent pages, client pages, then a page
 //! for every enabled extension.
 
@@ -14,7 +15,7 @@ use proteus_contracts::app_protocol::config_builder::ConfigBuilderSnapshot;
 use super::widgets::changed_dot;
 use super::{SettingsEvent, SettingsView};
 use crate::settings::catalog::{
-    CLIENT_PAGES, CONNECTION_PAGES, PageId, agent_pages, area_page, page_title,
+    CLIENT_PAGES, CONNECTION_PAGES, PageId, agent_pages, area_page, page_description, page_title,
 };
 use crate::shortcuts::Command;
 use crate::tabs::Axis;
@@ -108,7 +109,7 @@ impl SettingsView {
 
     pub(super) fn render_nav(
         &self,
-        window: &Window,
+        _window: &Window,
         cx: &Context<Self>,
     ) -> impl IntoElement + use<> {
         let width = self
@@ -130,8 +131,6 @@ impl SettingsView {
                 }
             }));
         let theme = cx.theme();
-        // The list holds focus as a whole; its selected page shows it.
-        let marked = self.nav_focus.is_focused(window) && kit::keyboard();
         let snapshot = self.snapshot();
         let agent = self.agent_page_list();
         let installed = self.extension_page_list(cx);
@@ -144,10 +143,23 @@ impl SettingsView {
         let item = |page: PageId, cx: &Context<Self>| {
             let selected = self.page == page;
             let title = nav_title(snapshot, &page);
+            let description = match &page {
+                PageId::Extension(id) => extensions::find(id)
+                    .map_or("", |manifest| manifest.description)
+                    .to_string(),
+                page => page_description(snapshot, page),
+            };
             let dot = changed.contains(&page);
             let target = page.clone();
-            h_flex()
-                .id(ElementId::Name(format!("settings-nav-{page:?}").into()))
+            kit::button(ElementId::Name(format!("settings-nav-{page:?}").into()))
+                .faded_label(title)
+                .quiet(cx)
+                .selected(selected)
+                // A roving Tab stop preserves the existing arrow-navigation
+                // contract: the focused row is always the selected page.
+                .tab_stop(selected)
+                .when(selected, |item| item.track_focus(&self.nav_focus))
+                .w_full()
                 .h_8()
                 .flex_none()
                 .px_2()
@@ -155,29 +167,40 @@ impl SettingsView {
                 .items_center()
                 .rounded(theme.radius)
                 .border_1()
-                .border_color(if selected && marked {
-                    theme.ring
-                } else {
-                    gpui_kit::transparent_black()
-                })
+                .border_color(gpui_kit::transparent_black())
                 .text_sm()
                 .cursor_pointer()
-                .map(|item| {
-                    if selected {
-                        item.bg(theme.sidebar_accent)
-                            .text_color(theme.sidebar_accent_foreground)
-                    } else {
-                        item.text_color(theme.sidebar_foreground)
-                            .hover(|item| item.bg(theme.list_hover))
-                    }
-                })
-                .child(page_icon(&page).small().text_color(if selected {
+                .text_color(if selected {
                     theme.sidebar_accent_foreground
                 } else {
-                    theme.muted_foreground
-                }))
-                .child(div().flex_1().min_w_0().child(faded(title)))
-                .when(dot, |item| item.child(changed_dot(cx)))
+                    theme.sidebar_foreground
+                })
+                .render_label(move |title, clipped, _, cx| {
+                    h_flex()
+                        .w_full()
+                        .min_w_0()
+                        .gap_2()
+                        .items_center()
+                        .child(
+                            page_icon(&page)
+                                .small()
+                                .flex_none()
+                                .text_color(if selected {
+                                    cx.theme().sidebar_accent_foreground
+                                } else {
+                                    cx.theme().muted_foreground
+                                }),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .child(faded(title).report_clipping(clipped)),
+                        )
+                        .when(dot, |item| item.child(changed_dot(cx)))
+                        .into_any_element()
+                })
+                .hint(&description, cx)
                 .on_click(cx.listener(move |this, _, window, cx| {
                     this.select_page(target.clone(), window, cx)
                 }))
