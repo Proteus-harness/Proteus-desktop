@@ -3,6 +3,8 @@ use gpui_kit::component::scroll::ScrollbarHandle as _;
 use gpui_kit::{ListOffset, point, px};
 use std::time::{Duration, Instant};
 
+use super::jump::JumpStatus;
+
 fn folded_tail(autoscroll: bool) -> ChatScroller {
     let state = ChatScroller::new(autoscroll);
     state.list.splice(0..0, 50);
@@ -180,4 +182,103 @@ fn footer_state_changes_cannot_consume_the_floor_using_a_stale_measurement() {
     // is shorter than the retained minimum and still needs the reservation.
     assert!(state.measure_footer(px(16.)));
     assert_eq!(state.tail.height(), px(32.));
+}
+
+#[test]
+fn jump_status_starts_active_on_first_scroll_during_an_existing_run() {
+    let at_tail = JumpStatus::new(true, false, false);
+    let first_scroll = JumpStatus::new(true, false, true);
+    assert!(!at_tail.wave());
+    assert!(first_scroll.wave());
+    assert_ne!(at_tail, first_scroll);
+}
+
+#[test]
+fn returning_to_tail_and_back_renews_the_jump_animation_without_new_text() {
+    let before = JumpStatus::new(true, false, true);
+    let hidden = JumpStatus::new(true, false, false);
+    let remounted = JumpStatus::new(true, false, true);
+    // Both changes must invalidate the retained control even though neither
+    // execution status nor transcript content changed in the meantime.
+    assert_ne!(before, hidden);
+    assert_ne!(hidden, remounted);
+    assert!(before.wave());
+    assert!(!hidden.wave());
+    assert!(remounted.wave());
+    assert_eq!(before, remounted);
+}
+
+#[test]
+fn thinking_footer_drives_jump_status_without_execution_or_assistant_deltas() {
+    let mut state = folded_tail(true);
+    let rows = state.row_count();
+    state.update_footer(FooterState {
+        thinking: true,
+        receipt: None,
+    });
+    assert!(JumpStatus::new(false, state.footer.thinking, true).wave());
+    assert_eq!(state.row_count(), rows);
+    state.dirty = false;
+    // Sampling the animated control does not invalidate list measurements.
+    assert!(JumpStatus::new(false, state.footer.thinking, true).wave());
+    assert!(!state.dirty);
+}
+
+#[test]
+fn finishing_while_jump_is_hidden_does_not_revive_old_activity_on_remount() {
+    let running = JumpStatus::new(true, false, true);
+    let finished_hidden = JumpStatus::new(false, false, false);
+    let finished_visible = JumpStatus::new(false, false, true);
+    assert_ne!(running, finished_hidden);
+    assert_ne!(finished_hidden, finished_visible);
+    assert!(!finished_visible.wave());
+    // An ordinary receipt is not a running/thinking signal.
+    let mut state = folded_tail(true);
+    state.update_footer(FooterState {
+        thinking: false,
+        receipt: Some(("send-1".into(), "Отправлено", 0)),
+    });
+    assert!(!JumpStatus::new(false, state.footer.thinking, true).wave());
+}
+
+#[test]
+fn reading_space_shares_the_tail_floor_and_does_not_count_as_status() {
+    let mut state = folded_tail(true);
+    let count = state.list.item_count();
+    assert!(state.set_reading_gap(px(24.)));
+    assert!(!state.set_reading_gap(px(24.)));
+    assert_eq!(state.footer_height, px(0.));
+    assert_eq!(state.trailing_blank(), px(24.));
+    state.tail.hold(px(24.));
+    state.following = false;
+    state.wheel_up = false;
+    // Natural reading space consumes this whole reservation: it must not
+    // create a second 24px empty tail or keep following paused.
+    assert!(state.measure_footer(px(0.)));
+    assert_eq!(state.tail.height(), px(0.));
+    state.step(Instant::now());
+    assert!(state.following);
+    assert_eq!(state.list.item_count(), count);
+}
+
+#[test]
+fn visible_footer_and_reading_space_consume_one_minimum_without_hiding_status() {
+    let mut state = folded_tail(true);
+    state.set_reading_gap(px(24.));
+    state.update_footer(FooterState {
+        thinking: true,
+        receipt: None,
+    });
+    state.measure_footer(px(32.));
+    state.tail.hold(px(80.));
+    // The fallback sees 32px of real status, not an 80px blank reservation.
+    assert_eq!(state.trailing_blank(), px(48.));
+    assert!(!state.measure_footer(px(32.)));
+    assert_eq!(state.tail.height(), px(80.));
+    state.tail.clear();
+    state.tail.hold(px(56.));
+    assert!(state.measure_footer(px(32.)));
+    assert_eq!(state.tail.height(), px(0.));
+    assert_eq!(state.footer_height, px(32.));
+    assert_eq!(state.trailing_blank(), px(24.));
 }

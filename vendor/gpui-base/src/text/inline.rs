@@ -339,6 +339,13 @@ pub(super) struct Inline {
     state: Arc<Mutex<InlineState>>,
 }
 
+pub(super) struct InlinePrepaint {
+    // Keep the complete row available to selection endpoint routing. Cursor
+    // feedback has its own hitboxes and must not narrow the draggable document.
+    selection_hitbox: Hitbox,
+    text_hitboxes: smallvec::SmallVec<[Hitbox; 1]>,
+}
+
 /// The inline text state, used RefCell to keep the selection state.
 #[derive(Debug, Default)]
 pub(crate) struct InlineState {
@@ -1111,7 +1118,7 @@ impl IntoElement for Inline {
 
 impl Element for Inline {
     type RequestLayoutState = ();
-    type PrepaintState = Hitbox;
+    type PrepaintState = InlinePrepaint;
 
     fn id(&self) -> Option<ElementId> {
         None
@@ -1186,8 +1193,25 @@ impl Element for Inline {
         self.request_reveal(window);
 
         let hitbox = window.insert_hitbox(bounds, HitboxBehavior::Normal);
+        let mut text_hitboxes = smallvec::SmallVec::new();
+        if GlobalState::global(cx)
+            .text_view_state()
+            .is_some_and(|view| view.read(cx).is_selectable())
+        {
+            text_hitboxes = text_cursor_bounds(
+                self.styled_text.layout(),
+                window.text_style().text_align,
+                window.content_mask().bounds,
+            )
+            .into_iter()
+            .map(|bounds| window.insert_hitbox(bounds, HitboxBehavior::Normal))
+            .collect();
+        }
         self.retain_styled_text(cx);
-        hitbox
+        InlinePrepaint {
+            selection_hitbox: hitbox,
+            text_hitboxes,
+        }
     }
 
     fn paint(
@@ -1202,7 +1226,7 @@ impl Element for Inline {
     ) {
         let bounds = Bounds::new(self.paint_origin.unwrap_or(bounds.origin), bounds.size);
         let current_view = window.current_view();
-        let hitbox = prepaint;
+        let hitbox = &prepaint.selection_hitbox;
         if !self.reclaim_styled_text() {
             // Cannot happen (only this element takes what it handed over,
             // and a live state is never swept); skip the frame rather than
@@ -1238,7 +1262,11 @@ impl Element for Inline {
         }
 
         if is_selection || is_selectable {
-            window.set_cursor_style(CursorStyle::IBeam, &hitbox);
+            // Register cursor geometry rather than reading the pointer here:
+            // retained paragraphs need not repaint as it crosses plain text.
+            for text_hitbox in &prepaint.text_hitboxes {
+                window.set_cursor_style(CursorStyle::IBeam, text_hitbox);
+            }
         }
 
         // link cursor pointer. Only text under the pointer reads where the pointer
@@ -1457,6 +1485,45 @@ impl Element for Inline {
         drop(state);
         self.retain_styled_text(cx);
     }
+}
+
+/// Actual painted row extents for cursor feedback. Unlike selection geometry,
+/// these boxes never extend through a newline or into the blank row margin.
+/// Wrapped glyph boundaries are already shaped by GPUI, so this is O(rows),
+/// with no source clone or second shaping pass.
+fn text_cursor_bounds(
+    text_layout: &TextLayout,
+    align: TextAlign,
+    mask: Bounds<Pixels>,
+) -> smallvec::SmallVec<[Bounds<Pixels>; 1]> {
+    let bounds = text_layout.bounds();
+    let line_height = text_layout.line_height();
+    let mut result = smallvec::SmallVec::new();
+    let mut y = bounds.top();
+    for line in text_layout.line_layouts() {
+        let layout = &line.unwrapped_layout;
+        let mut start_x = Pixels::ZERO;
+        let row_ends = line
+            .wrap_boundaries
+            .iter()
+            .map(|boundary| {
+                layout.runs[boundary.run_ix].glyphs[boundary.glyph_ix]
+                    .position
+                    .x
+            })
+            .chain([layout.width]);
+        for end_x in row_ends {
+            let width = end_x - start_x;
+            let left = bounds.left() + aligned_row_left(align, bounds.size.width, width);
+            let row = Bounds::new(point(left, y), size(width, line_height)).intersect(&mask);
+            if row.size.width > Pixels::ZERO && row.size.height > Pixels::ZERO {
+                result.push(row);
+            }
+            y += line_height;
+            start_x = end_x;
+        }
+    }
+    result
 }
 
 /// Where one glyph of laid-out text paints: its row, and its horizontal
@@ -1869,7 +1936,130 @@ mod line_bounds_tests {
         test_draw::in_prepaint,
         test_fonts::{BODY, WideMonoTextSystem},
     };
-    use gpui::{AvailableSpace, TestApp, size};
+    use gpui::{AvailableSpace, Refineable as _, TestApp, size};
+
+    fn cursor_rows(
+        text: &'static str,
+        wrap_width: f32,
+        align: TextAlign,
+        mask: Bounds<Pixels>,
+    ) -> smallvec::SmallVec<[Bounds<Pixels>; 1]> {
+        let mut app = TestApp::with_text_system(Arc::new(WideMonoTextSystem));
+        in_prepaint(&mut app, move |window, cx| {
+            let style = TextStyle {
+                font_family: BODY.into(),
+                font_size: px(16.).into(),
+                text_align: align,
+                ..Default::default()
+            };
+            let styled = StyledText::new(text).with_runs(text_runs(text.len(), &style, &[]));
+            let layout = styled.layout().clone();
+            let mut element = styled.into_any_element();
+            window.with_text_style(Some(style.subtract(&Default::default())), |window| {
+                element.layout_as_root(
+                    size(
+                        AvailableSpace::Definite(px(wrap_width)),
+                        AvailableSpace::MinContent,
+                    ),
+                    window,
+                    cx,
+                );
+                element.prepaint_at(point(px(7.), px(11.)), window, cx);
+            });
+            text_cursor_bounds(&layout, align, mask)
+        })
+    }
+
+    #[test]
+    fn text_cursor_bounds_skip_blank_rows_and_empty_margins_after_wraps() {
+        let mask = Bounds::new(point(px(0.), px(0.)), size(px(1000.), px(1000.)));
+        let rows = cursor_rows("abcdefghij\n\nxy", 40., TextAlign::Left, mask);
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].left(), px(7.));
+        assert_eq!(rows[0].size.width, px(40.));
+        assert_eq!(rows[1].size.width, px(40.));
+        assert_eq!(rows[2].size.width, px(16.));
+        let line_height = rows[0].size.height;
+        assert_eq!(rows[1].top(), rows[0].top() + line_height);
+        assert_eq!(rows[2].top(), rows[0].top() + line_height * 3.);
+        assert!(
+            rows.iter()
+                .all(|row| !row.contains(&point(px(100.), row.center().y)))
+        );
+        assert!(
+            rows.iter()
+                .all(|row| { !row.contains(&point(px(8.), rows[0].top() + line_height * 2.5)) })
+        );
+        assert!(cursor_rows("\n", 40., TextAlign::Left, mask).is_empty());
+    }
+
+    #[test]
+    fn text_cursor_bounds_follow_alignment_and_clip_to_visible_rows() {
+        let mask = Bounds::new(point(px(0.), px(0.)), size(px(1000.), px(1000.)));
+        for (align, long_left, short_left) in
+            [(TextAlign::Center, 33., 49.), (TextAlign::Right, 59., 91.)]
+        {
+            let rows = cursor_rows("abcdef\nxy", 100., align, mask);
+            assert_eq!(rows.len(), 2);
+            assert_eq!(rows[0].left(), px(long_left));
+            assert_eq!(rows[0].right(), px(long_left + 48.));
+            assert_eq!(rows[1].left(), px(short_left));
+            assert_eq!(rows[1].size.width, px(16.));
+            let clipped = Bounds::from_corners(
+                point(rows[1].left() + px(2.), rows[1].top() + px(1.)),
+                point(rows[1].right() - px(2.), rows[1].bottom() - px(1.)),
+            );
+            assert_eq!(
+                cursor_rows("abcdef\nxy", 100., align, clipped).as_slice(),
+                &[clipped]
+            );
+        }
+    }
+
+    #[test]
+    fn text_cursor_bounds_match_native_painted_row_edges() {
+        let mask = Bounds::new(point(px(0.), px(0.)), size(px(1000.), px(1000.)));
+        for align in [TextAlign::Left, TextAlign::Center, TextAlign::Right] {
+            for (source, width, physical_rows) in [
+                ("abcdef\nxy", 100., ["abcdef", "xy"]),
+                ("abcdefghij", 40., ["abcde", "fghij"]),
+            ] {
+                let rows = cursor_rows(source, width, align, mask);
+                let mut app = TestApp::with_text_system(Arc::new(WideMonoTextSystem));
+                super::test_draw::in_paint(&mut app, move |window, cx| {
+                    let style = TextStyle {
+                        font_family: BODY.into(),
+                        font_size: px(16.).into(),
+                        text_align: align,
+                        underline: Some(gpui::UnderlineStyle::default()),
+                        ..Default::default()
+                    };
+                    for (text, expected) in physical_rows.into_iter().zip(rows) {
+                        let line = window.text_system().shape_line(
+                            text.into(),
+                            px(16.),
+                            &[style.to_run(text.len())],
+                            None,
+                        );
+                        let mut painted_edges = Vec::new();
+                        line.paint_with_underline_handler(
+                            point(px(7.), expected.top()),
+                            expected.size.height,
+                            align,
+                            Some(px(width)),
+                            window,
+                            cx,
+                            |_, origin, width, _, _| {
+                                painted_edges.push((origin.x, origin.x + width))
+                            },
+                        )
+                        .unwrap();
+                        assert_eq!(painted_edges, [(expected.left(), expected.right())]);
+                    }
+                });
+            }
+        }
+    }
 
     /// The character walk this replaced, kept as the oracle: one box per
     /// character from `position_for_index`, unioned per row.
@@ -2219,6 +2409,33 @@ pub(super) mod test_draw {
         window.draw();
         let value = slot.borrow_mut().take();
         value.expect("prepaint probe did not run")
+    }
+
+    struct PaintProbe {
+        body: Option<Box<dyn FnOnce(&mut Window, &mut App)>>,
+    }
+
+    impl Render for PaintProbe {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let body = self.body.take();
+            canvas(
+                |_, _, _| {},
+                move |_, _, window, cx| {
+                    if let Some(body) = body {
+                        body(window, cx);
+                    }
+                },
+            )
+            .w(px(1000.))
+            .h(px(1000.))
+        }
+    }
+
+    pub(crate) fn in_paint(app: &mut TestApp, f: impl FnOnce(&mut Window, &mut App) + 'static) {
+        let mut window = app.open_window(|_, _| PaintProbe {
+            body: Some(Box::new(f)),
+        });
+        window.draw();
     }
 }
 
@@ -2780,6 +2997,58 @@ mod tests {
             end,
             line_height
         ));
+    }
+}
+
+#[cfg(test)]
+mod cursor_drag_tests {
+    use gpui::{
+        AppContext as _, Context, Entity, IntoElement, Modifiers, MouseButton, ParentElement as _,
+        Render, Styled as _, TestAppContext, Window, div, point, px,
+    };
+
+    use crate::text::{TextView, TextViewState};
+
+    struct Root {
+        text: Entity<TextViewState>,
+    }
+
+    impl Render for Root {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .w(px(300.))
+                .child(crate::TextSelectionLayer)
+                .child(TextView::new(&self.text))
+        }
+    }
+
+    #[gpui::test]
+    fn text_cursor_hitboxes_preserve_dragging_into_blank_margins(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let (view, cx) = cx.add_window_view(|_, cx| Root {
+            text: cx.new(|cx| TextViewState::markdown("alpha beta\n\nomega", cx)),
+        });
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let rows = view.read_with(cx, |root, cx| {
+            root.text.read(cx).selection_adapter.text_bounds()
+        });
+        let first = rows.first().expect("first paragraph must paint");
+        let last = rows.last().expect("last paragraph must paint");
+        let start = point(first.left(), first.center().y);
+        let end = point(px(290.), last.center().y);
+        assert!(
+            end.x > last.right() + px(30.),
+            "drag must end in blank space"
+        );
+        cx.simulate_mouse_down(start, MouseButton::Left, Modifiers::default());
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.simulate_mouse_move(end, Some(MouseButton::Left), Modifiers::default());
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.simulate_mouse_up(end, MouseButton::Left, Modifiers::default());
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let selected = view.read_with(cx, |root, cx| root.text.read(cx).selected_text());
+        assert_eq!(selected, "alpha beta\nomega\n");
     }
 }
 

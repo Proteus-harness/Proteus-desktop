@@ -1,17 +1,10 @@
-//! The Proteus pixel logo drawn cell by cell; while the agent works its
-//! columns ripple.
+//! The static Proteus pixel logo, drawn in native cells.
 
-use std::f32::consts::TAU;
-use std::time::Duration;
-
+use crate::ui::prefs;
 use gpui_kit::*;
-
-use crate::ui::{motion, prefs};
 
 const COLUMNS: f32 = 12.;
 const ROWS: f32 = 10.;
-/// Time for the ripple to cross the logo.
-const PERIOD: Duration = Duration::from_millis(1400);
 
 /// Runs of one color: column, row, width in cells.
 const CELLS: [(u8, u8, u8, u32); 33] = [
@@ -50,46 +43,19 @@ const CELLS: [(u8, u8, u8, u32); 33] = [
     (8, 9, 2, 0xffc20e),
 ];
 
-/// The logo `cell` wide per pixel; `busy` sets it rippling.
-pub(super) fn logo(cell: f32, busy: bool) -> impl IntoElement {
-    let ripple = busy && motion::plays();
-    let lift = motion::moves();
+/// The logo `cell` wide per pixel. Activity belongs to chat status controls,
+/// rather than an unrelated animation on the application's menu button.
+pub(super) fn logo(cell: f32) -> impl IntoElement {
     canvas(
         |_, _, _| {},
-        move |bounds, _, window, cx| {
+        move |bounds, _, window, _| {
             let unit = bounds.size.width / COLUMNS;
-            let phase = if ripple {
-                motion::ticker::phase(PERIOD)
-            } else {
-                0.
-            };
             for &(x, y, width, color) in &CELLS {
-                let color = rgb(color);
-                if !ripple {
-                    let origin = bounds.origin + point(unit * f32::from(x), unit * f32::from(y));
-                    window.paint_quad(fill(
-                        Bounds::new(origin, size(unit * f32::from(width), unit)),
-                        color,
-                    ));
-                    continue;
-                }
-                for column in x..x + width {
-                    let wave = (TAU * (phase - f32::from(column) / COLUMNS)).sin().max(0.);
-                    let (offset, alpha) = if lift {
-                        (wave, 1.)
-                    } else {
-                        (0., 1. - 0.45 * wave)
-                    };
-                    let origin = bounds.origin
-                        + point(unit * f32::from(column), unit * (f32::from(y) - offset));
-                    window.paint_quad(fill(
-                        Bounds::new(origin, size(unit, unit)),
-                        Rgba { a: alpha, ..color },
-                    ));
-                }
-            }
-            if ripple {
-                motion::ticker::next_tick(window, cx);
+                let origin = bounds.origin + point(unit * f32::from(x), unit * f32::from(y));
+                window.paint_quad(fill(
+                    Bounds::new(origin, size(unit * f32::from(width), unit)),
+                    rgb(color),
+                ));
             }
         },
     )

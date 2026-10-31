@@ -18,6 +18,10 @@ use crate::ui::kit::Hint as _;
 use crate::ui::motion::Spinner;
 use crate::ui::{format, prefs};
 
+/// Reading space at the natural end of the conversation. Keeping it in the
+/// tail row lets scrolled text and its fade reach the actual input edge.
+pub(super) const INPUT_GAP: f32 = 24.;
+
 impl Chat {
     /// The whole framed strip, including padding and expanded activity details.
     pub(in crate::ui) fn composer_strip_bounds(&self) -> Bounds<Pixels> {
@@ -32,39 +36,29 @@ impl Chat {
     ) -> impl IntoElement {
         let theme = cx.theme().clone();
         let dock = self.render_activity_dock(window, cx);
-        h_flex()
-            .w_full()
-            .justify_center()
-            .px_6()
-            .pb_4()
-            // This gap is outside the scroll viewport: it never becomes
-            // extra scrollable room below the last message.
-            .pt_6()
-            .child(
-                v_flex()
-                    .on_children_prepainted(kit::record_first_child(
-                        self.composer_strip_bounds.clone(),
-                    ))
-                    .w_full()
-                    .max_w(prefs::chat_width(cx))
-                    .child(
-                        div()
-                            .mx_3()
-                            .pb_2()
-                            .mb_neg_2()
-                            .surface_frame(cx)
-                            .rounded_b(px(0.))
-                            .bg(theme.group_box)
-                            .child(dock),
-                    )
-                    .child(
-                        div()
-                            .relative()
-                            .surface_frame(cx)
-                            .bg(theme.secondary)
-                            .child(self.render_input_box(cx)),
-                    ),
-            )
+        h_flex().w_full().justify_center().px_6().pb_4().child(
+            v_flex()
+                .on_children_prepainted(kit::record_first_child(self.composer_strip_bounds.clone()))
+                .w_full()
+                .max_w(prefs::chat_width(cx))
+                .child(
+                    div()
+                        .mx_3()
+                        .pb_2()
+                        .mb_neg_2()
+                        .surface_frame(cx)
+                        .rounded_b(px(0.))
+                        .bg(theme.group_box)
+                        .child(dock),
+                )
+                .child(
+                    div()
+                        .relative()
+                        .surface_frame(cx)
+                        .bg(theme.secondary)
+                        .child(self.render_input_box(cx)),
+                ),
+        )
     }
 
     fn render_input_box(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -81,7 +75,7 @@ impl Chat {
             crate::preferences::SendMode::Enter => "Enter",
             crate::preferences::SendMode::CtrlEnter => "Ctrl+Enter",
         };
-        let send = kit::button("send")
+        let send = kit::icon_button("send")
             .icon(IconName::ArrowUp)
             .hint_keys(if running { "В очередь" } else { "Send" }, Some(keys), cx)
             .primary()
@@ -109,7 +103,7 @@ impl Chat {
             .on_click(cx.listener(|this, _, window, cx| this.choose_images(window, cx)));
         let chat = cx.entity().downgrade();
         let stop = running.then(|| {
-            kit::button("stop")
+            kit::icon_button("stop")
                 .icon(IconName::Square)
                 .hint("Остановить", cx)
                 .danger()

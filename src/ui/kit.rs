@@ -80,6 +80,15 @@ pub(crate) fn button(id: impl Into<ElementId>) -> Button {
     Button::new(id).focus_ring(KEYBOARD.get())
 }
 
+/// A square icon action, including controls with custom icon children and
+/// tooltip measurement decorations. Those children must not opt the native
+/// Button into caption padding. Equivalent to Zed's IconButtonShape::Square;
+/// native focus, disabled state and activation remain unchanged.
+pub(crate) fn icon_button(id: impl Into<ElementId>) -> Button {
+    use gpui_kit::component::Sizable as _;
+    button(id).small().size_6().p_0()
+}
+
 pub(crate) fn switch(id: impl Into<ElementId>) -> Switch {
     Switch::new(id).focus_ring(KEYBOARD.get())
 }

@@ -71,6 +71,7 @@ pub(super) struct ChatScroller {
     archived: bool,
     footer: FooterState,
     footer_height: Pixels,
+    reading_gap: Pixels,
     jump: Option<Entity<jump::JumpButton>>,
 }
 
@@ -114,6 +115,7 @@ impl ChatScroller {
             archived: false,
             footer: FooterState::default(),
             footer_height: px(0.),
+            reading_gap: px(0.),
             jump: None,
         }
     }
@@ -338,7 +340,7 @@ impl ChatScroller {
             || !self.following
                 && if self.footer.visible() {
                     self.list.bounds_for_item(self.row_count()).map_or_else(
-                        || self.gap() > self.tail.height() + SETTLED,
+                        || self.gap() > self.trailing_blank() + SETTLED,
                         |bounds| {
                             bounds.top() + self.footer_height + EDGE
                                 > self.list.viewport_bounds().bottom() + SETTLED
@@ -347,7 +349,7 @@ impl ChatScroller {
                 } else {
                     self.row_count().checked_sub(1).is_some_and(|last| {
                         self.list.bounds_for_item(last).map_or_else(
-                            || self.gap() > self.tail.height() + SETTLED,
+                            || self.gap() > self.trailing_blank() + SETTLED,
                             |bounds| {
                                 // Item bounds omit the list's top padding. Prefer
                                 // actual row geometry to the frozen scrollbar range.
@@ -529,8 +531,11 @@ impl RenderOnce for ChatList {
             Some((state, render)) => (state, Some(render)),
             None => (FooterState::default(), None),
         };
+        let reading_gap =
+            crate::ui::prefs::scaled(super::composer::INPUT_GAP).to_pixels(window.rem_size());
         let (running, middle_active) = self.state.update(cx, |state, cx| {
-            if state.update_footer(footer_state) {
+            let gap_changed = state.set_reading_gap(reading_gap);
+            if state.update_footer(footer_state) || gap_changed {
                 cx.notify();
             }
             if let Some(target) = state.scrollbar.take_target() {
@@ -581,16 +586,18 @@ impl RenderOnce for ChatList {
                     .w_full()
                     .min_h(tail_height)
                     .child(
-                        div()
-                            .w_full()
-                            .on_prepaint(move |bounds, _, cx| {
-                                measured.update(cx, |state, cx| {
-                                    if state.measure_footer(bounds.size.height) {
-                                        cx.notify();
-                                    }
-                                });
-                            })
-                            .children(render_footer.as_mut().map(|render| render(window, cx))),
+                        div().w_full().pb(reading_gap).child(
+                            div()
+                                .w_full()
+                                .on_prepaint(move |bounds, _, cx| {
+                                    measured.update(cx, |state, cx| {
+                                        if state.measure_footer(bounds.size.height) {
+                                            cx.notify();
+                                        }
+                                    });
+                                })
+                                .children(render_footer.as_mut().map(|render| render(window, cx))),
+                        ),
                     )
                     .into_any_element();
             }
@@ -608,16 +615,18 @@ impl RenderOnce for ChatList {
         let press = self.state.clone();
         let laid_out = list_state.clone();
         let viewport_origin = list_state.viewport_bounds().origin;
-        let jump = scrolled_up.then(|| {
-            self.state.update(cx, |state, cx| {
+        let jump = self.state.update(cx, |state, cx| {
+            let status = jump::JumpStatus::new(self.running, state.footer.thinking, scrolled_up);
+            if scrolled_up && state.jump.is_none() {
                 let weak = cx.entity().downgrade();
-                let button = state
-                    .jump
-                    .get_or_insert_with(|| cx.new(|_| jump::JumpButton::new(weak)))
-                    .clone();
-                button.update(cx, |button, cx| button.set_running(self.running, cx));
-                button
-            })
+                state.jump = Some(cx.new(|_| jump::JumpButton::new(weak, status)));
+            }
+            if let Some(button) = &state.jump {
+                // Update hidden controls as well. In particular, mounting it
+                // again invalidates its cached render and renews ticker work.
+                button.update(cx, |button, cx| button.set_status(status, cx));
+            }
+            scrolled_up.then(|| state.jump.clone()).flatten()
         });
         div()
             .id(self.id.clone())

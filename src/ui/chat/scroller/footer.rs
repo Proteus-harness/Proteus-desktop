@@ -21,6 +21,30 @@ impl FooterState {
 }
 
 impl ChatScroller {
+    pub(super) fn set_reading_gap(&mut self, gap: Pixels) -> bool {
+        if self.reading_gap == gap {
+            return false;
+        }
+        self.reading_gap = gap;
+        self.wheel.invalidate(&self.list);
+        self.remeasure_tail();
+        self.last_offset = None;
+        self.dirty = true;
+        true
+    }
+
+    /// Blank room shares the tail's minimum with real status content. It
+    /// never warrants a jump button by itself, even before exact row bounds
+    /// are available during a history seek or the first layout.
+    pub(super) fn trailing_blank(&self) -> Pixels {
+        let status = if self.footer.visible() {
+            self.footer_height
+        } else {
+            px(0.)
+        };
+        self.tail.height().max(status + self.reading_gap) - status
+    }
+
     pub(super) fn update_footer(&mut self, footer: FooterState) -> bool {
         if self.footer == footer {
             return false;
@@ -38,7 +62,7 @@ impl ChatScroller {
         // entire minimum even when its own height has not changed. Clearing
         // it changes no row geometry, so no list mutation is needed during
         // prepaint; it only releases the guard against resuming following.
-        let consumed_floor = height >= self.tail.height() && self.tail.clear();
+        let consumed_floor = height + self.reading_gap >= self.tail.height() && self.tail.clear();
         let resized = (self.footer_height - height).abs() > SETTLED;
         if !resized && !consumed_floor {
             return false;
@@ -56,6 +80,8 @@ impl ChatScroller {
 
 /// Only drawn when content continues below the viewport. At the natural end
 /// there is no mask over the final line, timestamp or thinking caption.
+/// The scroll viewport reaches the input. Reading space lives in its final
+/// row, so the full gradient remains at the input edge when browsing history.
 pub(super) fn edge_fade(background: Hsla) -> Div {
     div()
         .absolute()

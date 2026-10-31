@@ -19,7 +19,7 @@ use crate::ui::tip::Tip as _;
 use crate::ui::workspace::{Status, Workspace};
 
 /// Logo cell size before zoom.
-const LOGO_CELL: f32 = 2.;
+const LOGO_CELL: f32 = 1.75;
 
 impl Workspace {
     pub(in crate::ui) fn render_top_bar(
@@ -71,15 +71,17 @@ where
 {
     crate::ui::context::menu_button(
         "top-logo-menu",
-        kit::button("top-logo")
+        kit::icon_button("top-logo")
+            // Match the rail's 32px square: its centre stays on the same
+            // vertical axis instead of inheriting caption padding.
+            .size_8()
             .quiet(cx)
-            .small()
             .tip_text(if busy {
                 "Proteus · агент работает"
             } else {
                 "Proteus"
             })
-            .child(logo(LOGO_CELL, busy)),
+            .child(logo(LOGO_CELL)),
         false,
         menu,
     )

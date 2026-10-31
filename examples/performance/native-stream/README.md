@@ -228,3 +228,12 @@ Wire/source smoke без GUI и сборки:
 python3 examples/performance/native-stream/code_blocks.py --check-fixture \
   --output build/verification/native-code-blocks-smoke-new
 ```
+
+Для проверки I-beam над форматированным текстом `status_demo.py` также принимает
+`--extensions ABS_SELECTED_DIR`. Передавайте только каталог уже готовых нужных
+рендереров (например, приватный `renderer-extensions` стенда code_blocks), чтобы
+постоянные badges не требовали настоящего backend. По умолчанию каталог пустой.
+Это не включает сборку расширений. При активном «Думаю» проверьте два цикла:
+колесо вверх → точки → наведение (стрелка) → вниз → снова вверх → точки,
+затем `control/finish` → стрелка. Наведение в пустом поле справа от текста
+не должно включать I-beam; drag можно закончить за строкой.

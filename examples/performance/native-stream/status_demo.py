@@ -117,6 +117,7 @@ def run(args):
     state = {"status": "starting", "stage": "connecting", "rows": 21,
              "origin": fixture.origin, "timeout_s": args.timeout,
              "launcher": str(args.native), "launcher_sha256": digest(args.native),
+             "extensions": str(args.extensions) if args.extensions else None,
              "source_sha256": {name: digest(Path(__file__).with_name(name)) for name in
                                ("status_demo.py", "fixture_server.py", "run.py")}}
 
@@ -131,6 +132,8 @@ def run(args):
             ("HOME", "home"), ("PROTEUS_HOME", "runtime"), ("PROTEUS_CONFIG_HOME", "config"),
             ("XDG_CONFIG_HOME", "xdg-config"), ("XDG_DATA_HOME", "xdg-data"),
             ("XDG_CACHE_HOME", "xdg-cache"), ("PROTEUS_EXTENSIONS_DIR", "empty-extensions"))})
+        if args.extensions is not None:
+            env["PROTEUS_EXTENSIONS_DIR"] = str(args.extensions)
         with (args.output / "native.log").open("w") as log:
             process = subprocess.Popen([str(args.native), str(args.output / "workspace"),
                                         "--origin", fixture.origin, "--token", fixture.token],
@@ -182,6 +185,8 @@ def run(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--native", type=Path)
+    parser.add_argument("--extensions", type=Path,
+                        help="Optional selected ready-renderer directory; defaults to no extensions")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--timeout", type=float, default=600)
     parser.add_argument("--check-fixture", action="store_true")
@@ -194,6 +199,10 @@ def main():
         args.native = args.native.resolve(strict=True)
         if not os.access(args.native, os.X_OK):
             parser.error("--native must be an already-built executable")
+    if args.extensions is not None:
+        args.extensions = args.extensions.resolve(strict=True)
+        if not args.extensions.is_dir():
+            parser.error("--extensions must be an already prepared extension directory")
     args.output = args.output.resolve()
     args.output.mkdir(mode=0o700, parents=True, exist_ok=False)
     for directory in DIRECTORIES:

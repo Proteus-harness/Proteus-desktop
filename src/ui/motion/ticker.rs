@@ -1,4 +1,4 @@
-//! One clock for the looping animations — spinners and the logo ripple. Each
+//! One clock for looping animations — spinners, status dots and shimmer. Each
 //! of them asking for frames on its own cadence would add up to a redraw on
 //! nearly every display frame; on a shared tick they all advance in the same
 //! frame, at a rate that still reads as motion.
