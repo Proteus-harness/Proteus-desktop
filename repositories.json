@@ -1,7 +1,7 @@
 {
   "harness": {
     "url": "https://github.com/Proteus-harness/Proteus-core.git",
-    "rev": "fd0e6008d092c74c64583e174906f3cb908317ef",
+    "rev": "25913957829edbc45cee610aa01c8662a7b6a1c3",
     "env": "PROTEUS_HARNESS_SOURCE",
     "local": "../Proteus-core",
     "marker": "crates/proteus-core/Cargo.toml"
