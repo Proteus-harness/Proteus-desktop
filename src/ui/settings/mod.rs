@@ -328,6 +328,11 @@ impl SettingsView {
     }
 
     fn select_page(&mut self, page: PageId, window: &mut Window, cx: &mut Context<Self>) {
+        let keep_nav = self.nav_focus.contains_focused(window, cx)
+            || self.search.read(cx).focus_handle(cx).is_focused(window);
+        // A retained font control must not keep an open popup or focus on
+        // the page that navigation is about to unmount.
+        self.fonts.close(window, cx);
         if page == PageId::Catalog {
             self.open_catalogs(cx);
             window.focus(&self.catalogs.focus, cx);
@@ -336,11 +341,13 @@ impl SettingsView {
             self.load_history(cx);
         }
         self.set_page(page, cx);
-        if matches!(self.page, PageId::Extension(_)) {
+        if matches!(self.page, PageId::Extension(_)) || (self.page != PageId::Catalog && !keep_nav)
+        {
             // Адаптировано из Zed: crates/settings_ui/src/settings_ui.rs
             // (pop_sub_page). Navigation hands focus to a surviving page
-            // container. The activating card is about to unmount; leaving
-            // its focus behind removes ProteusSettings from the key path.
+            // container when a card or old page is about to unmount;
+            // leaving its focus behind removes ProteusSettings from the
+            // key path. Navigation and its search keep their own focus.
             self.page_focus.focus(window, cx);
         }
     }

@@ -131,7 +131,7 @@ impl SettingsView {
             }));
         let theme = cx.theme();
         // The list holds focus as a whole; its selected page shows it.
-        let marked = self.nav_focus.is_focused(window) && window.last_input_was_keyboard();
+        let marked = self.nav_focus.is_focused(window) && kit::keyboard();
         let snapshot = self.snapshot();
         let agent = self.agent_page_list();
         let installed = self.extension_page_list(cx);
@@ -241,6 +241,7 @@ impl SettingsView {
                     .flex_1()
                     .min_h_0()
                     .px_2()
+                    .pr_4()
                     .pb_3()
                     .gap_0p5()
                     .child(div().pt_2().child(item(PageId::Catalog, cx)))
@@ -311,6 +312,7 @@ impl SettingsView {
             .flex_1()
             .min_h_0()
             .px_2()
+            .pr_4()
             .pt_1()
             .pb_3()
             .gap_0p5()

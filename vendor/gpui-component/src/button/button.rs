@@ -191,7 +191,11 @@ impl ButtonVariant {
 #[derive(Clone)]
 pub struct ButtonRenderContext {
     pub label: Option<SharedString>,
+    /// Explicit accessible name for controls without a visible text label.
+    pub accessibility_label: Option<SharedString>,
     pub label_clipped: Rc<Cell<bool>>,
+    /// The existing native focus target, shared for focus-triggered help.
+    pub focus_handle: FocusHandle,
     /// Native hover observer, filtered by the control's enabled/loading state.
     /// A decorator that owns hover must forward it from its single listener.
     pub on_hover: Option<Rc<dyn Fn(&bool, &mut Window, &mut App)>>,
@@ -673,11 +677,6 @@ impl RenderOnce for Button {
         let hoverable = self.hoverable();
         let on_hover = self.on_hover.clone().filter(|_| hoverable);
         let decorated = self.render_decorator.is_some();
-        let render_context = ButtonRenderContext {
-            label: self.label.clone(),
-            label_clipped: Rc::new(Cell::new(false)),
-            on_hover: decorated.then(|| on_hover.clone()).flatten(),
-        };
         let disabled = self.disabled;
         let selected = self.shows_selected_style();
         let loading = self.loading;
@@ -712,6 +711,13 @@ impl RenderOnce for Button {
                 .clone()
         });
         let is_focused = focus_handle.is_focused(window);
+        let render_context = ButtonRenderContext {
+            label: self.label.clone(),
+            accessibility_label: self.accessibility_label.clone(),
+            label_clipped: Rc::new(Cell::new(false)),
+            focus_handle: focus_handle.clone(),
+            on_hover: decorated.then(|| on_hover.clone()).flatten(),
+        };
 
         let rounding = match self.rounded {
             ButtonRounded::Small => cx.theme().radius * 0.5,

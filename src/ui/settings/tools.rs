@@ -1,3 +1,5 @@
+// Адаптировано из Zed: crates/agent_ui/src/conversation_view/thread_view.rs
+// (bounded previews); uses the existing chat/settings disclosure primitives.
 //! Tools page: which tools the profile allows.
 
 use std::collections::BTreeMap;
@@ -10,12 +12,18 @@ use proteus_contracts::app_protocol::config_builder::ConfigBuilderTool;
 
 use super::SettingsView;
 use super::mcp::mcp_key;
-use super::widgets::{Tone, card, changed_dot, chip, hashed_id, item_row, named, note, section};
+use super::widgets::{
+    Tone, card_cell, card_with_tail, changed_dot, chip, disclosure, hashed_id, item_row, named,
+    note, section,
+};
 use crate::settings::addons::{ToolOrigin, tool_origin, tool_server};
 use crate::settings::catalog::{PageId, missing_tools, tool_matches};
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
-use crate::ui::prefs;
+use crate::ui::{motion, prefs};
+
+/// As in settings text previews, show a useful prefix without another scroller.
+const PREVIEW_TOOLS: usize = 8;
 
 pub(super) fn pack_key(component: &str, module: &str) -> String {
     format!("pack:{component}:{module}")
@@ -45,7 +53,6 @@ impl SettingsView {
         let missing: Vec<_> = missing_tools(snapshot, &self.draft)
             .into_iter()
             .filter(|name| name.contains(self.tool_query.as_str()))
-            .map(|name| self.missing_tool_row(name, cx))
             .collect();
         let mut bodies: Vec<AnyElement> = groups
             .into_iter()
@@ -54,7 +61,12 @@ impl SettingsView {
                     origin_title(origin),
                     None,
                     self.tool_source_action(origin, cx),
-                    card(tools.into_iter().map(|tool| self.tool_row(tool, cx)), cx),
+                    self.tool_group(
+                        &format!("tool-group:{origin:?}"),
+                        tools.len(),
+                        |ix| self.tool_row(tools[ix], cx),
+                        cx,
+                    ),
                     cx,
                 )
                 .into_any_element()
@@ -62,8 +74,19 @@ impl SettingsView {
             .collect();
         if !missing.is_empty() {
             bodies.push(
-                section("Недоступные инструменты", None, None, card(missing, cx), cx)
-                    .into_any_element(),
+                section(
+                    "Недоступные инструменты",
+                    None,
+                    None,
+                    self.tool_group(
+                        "tool-group:missing",
+                        missing.len(),
+                        |ix| self.missing_tool_row(missing[ix], cx),
+                        cx,
+                    ),
+                    cx,
+                )
+                .into_any_element(),
             );
         }
         if bodies.is_empty() {
@@ -86,6 +109,67 @@ impl SettingsView {
             )
             .into_any_element(),
         ]
+    }
+
+    /// A long source uses the same disclosure and height animation as chat
+    /// blocks. Only the tail mounts on expansion; visible switches retain
+    /// their ancestry, IDs and focus rather than appearing in two branches.
+    fn tool_group(
+        &self,
+        key: &str,
+        count: usize,
+        row: impl Fn(usize) -> AnyElement,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        // Search hits must never land in an unmounted tail. Searching this
+        // page also shows every matching result immediately.
+        let searching = !self.tool_query.is_empty() || self.spot.is_some();
+        let prefix = if searching {
+            count
+        } else {
+            count.min(PREVIEW_TOOLS)
+        };
+        let long = count > prefix;
+        let open = self.is_open(key);
+        let body = card_with_tail(
+            (0..prefix).map(&row),
+            || {
+                long.then(|| {
+                    motion::reveal(super::reveal_key(key), open, cx, || {
+                        v_flex()
+                            .children((prefix..count).map(|ix| card_cell(row(ix), true, cx)))
+                            .into_any_element()
+                    })
+                })
+                .flatten()
+            },
+            cx,
+        );
+        if !long {
+            return body;
+        }
+        let view = cx.weak_entity();
+        let key = key.to_owned();
+        v_flex()
+            .w_full()
+            .min_w_0()
+            .gap_1()
+            .child(disclosure(
+                hashed_id("tool-group-toggle", &key),
+                open,
+                if open {
+                    "Свернуть".to_owned()
+                } else {
+                    format!("Показать больше · ещё: {}", count - prefix)
+                },
+                false,
+                move |cx| {
+                    let _ = view.update(cx, |this, cx| this.toggle_open(&key, cx));
+                },
+                cx,
+            ))
+            .child(body)
+            .into_any_element()
     }
 
     /// One source shortcut belongs to the group, rather than every tool switch.

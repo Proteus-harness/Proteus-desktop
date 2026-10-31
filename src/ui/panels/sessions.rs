@@ -195,6 +195,7 @@ impl Workspace {
             .overflow_y_scroll()
             .track_scroll(&self.session_list.scroll)
             .px_2()
+            .pr_4()
             .pb_2()
             .gap_0p5()
             .children(items);

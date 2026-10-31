@@ -26,6 +26,7 @@ pub(super) fn enforce(cx: &mut App) {
         && theme.tokens.table_active.background == selected.into()
         && theme.input == theme.border
         && theme.tokens.input == theme.tokens.border
+        && !theme.focus_ring
     {
         return;
     }
@@ -42,6 +43,9 @@ fn project(theme: &mut Theme) {
     // Project both token paths so System and custom themes cannot diverge.
     theme.colors.input = theme.border;
     theme.tokens.input = theme.tokens.border;
+    // Native controls keep their existing thin border on keyboard focus,
+    // without an outer ring that ancestor clipping would cut into fragments.
+    theme.focus_ring = false;
 }
 
 /// Normalize the selected theme configuration before installing either
@@ -116,6 +120,21 @@ mod tests {
                 theme.sidebar_accent.into()
             );
         }
+    }
+
+    #[::core::prelude::v1::test]
+    fn projection_disables_native_outer_focus_rings_after_theme_changes() {
+        let mut theme = Theme::default();
+        theme.focus_ring = true;
+        project(&mut theme);
+        assert!(!theme.focus_ring);
+        let colors = theme.colors.clone();
+        // A later System/custom theme can restore the native default. The
+        // projection must still run when the color tokens already match.
+        theme.focus_ring = true;
+        project(&mut theme);
+        assert!(!theme.focus_ring);
+        assert_eq!(theme.colors, colors);
     }
 
     #[::core::prelude::v1::test]

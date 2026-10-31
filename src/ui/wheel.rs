@@ -47,6 +47,9 @@ pub(super) fn layer() -> impl IntoElement {
             window.on_mouse_event(|_: &MouseDownEvent, phase, window, cx| {
                 if phase == DispatchPhase::Capture {
                     fling::stop();
+                    if super::kit::keyboard_input(false) {
+                        cx.refresh_windows();
+                    }
                     super::tip::dismiss(window, cx);
                 }
             });

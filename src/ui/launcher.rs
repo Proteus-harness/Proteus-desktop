@@ -304,7 +304,6 @@ impl Focusable for Launcher {
 
 impl Render for Launcher {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        super::kit::track_input(window);
         match &self.stage {
             Stage::Ready(workspace) => div()
                 .relative()

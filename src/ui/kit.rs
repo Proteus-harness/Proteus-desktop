@@ -77,12 +77,11 @@ thread_local! {
     static KEYBOARD: Cell<bool> = const { Cell::new(false) };
 }
 
-/// Remembers whether the keyboard drives the window, for the controls built
-/// in this frame. The window's root view calls it first in its render; a
-/// switch between keyboard and mouse redraws every view, so no control is
-/// built with a stale answer.
-pub(crate) fn track_input(window: &gpui_kit::Window) {
-    KEYBOARD.set(window.last_input_was_keyboard());
+/// Any keystroke enables keyboard presentation until a pointer press.
+/// Pointer movement deliberately has no hook here. Return whether retained
+/// windows need redrawing; native focus and input routing are unchanged.
+pub(crate) fn keyboard_input(keyboard: bool) -> bool {
+    KEYBOARD.replace(keyboard) != keyboard
 }
 
 pub(crate) fn keyboard() -> bool {
@@ -190,21 +189,20 @@ pub(crate) trait Pressable: StatefulInteractiveElement + Styled {
     fn pressable(self, cx: &App) -> Self {
         let theme = cx.theme();
         let ring = theme.ring;
-        let width = gpui_kit::px(prefs::scale(cx));
-        self.focusable()
-            .tab_stop(true)
-            .focus_visible(move |style| {
-                // Focus must not overwrite the committed selection fill.
-                // A zero-blur outer band also avoids changing layout.
-                style.border_color(ring).shadow(vec![gpui_kit::BoxShadow {
-                    color: ring,
-                    offset: gpui_kit::point(gpui_kit::px(0.), gpui_kit::px(0.)),
-                    blur_radius: gpui_kit::px(0.),
-                    spread_radius: width,
-                    inset: false,
-                }])
+        let hover = theme.list_hover;
+        let foreground = theme.foreground;
+        let row = self.focusable().tab_stop(true);
+        let row = if keyboard() {
+            row.focus(move |style| {
+                // Zed ButtonLike uses the existing hover treatment for focus.
+                // This remains visible on borderless rows without adding
+                // outside shadows, changing corners or shifting their layout.
+                style.border_color(ring).bg(hover).text_color(foreground)
             })
-            .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
+        } else {
+            row
+        };
+        row.on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
     }
 }
 
@@ -307,7 +305,19 @@ pub(crate) fn hint_text(text: &str, keys: Option<&str>, cx: &App) -> Option<Shar
     tooltip_text(prefs::current(cx).hints, None, Some(text), keys)
 }
 
-fn button_hints(
+fn button_title<'a>(
+    visible: Option<&'a str>,
+    clipped: bool,
+    accessible: Option<&'a str>,
+) -> Option<(&'a str, bool)> {
+    visible
+        .map(|label| (label, clipped))
+        // An icon-only name is absent from the visible caption, so the
+        // default clipped-title policy must still make it discoverable.
+        .or_else(|| accessible.map(|name| (name, true)))
+}
+
+pub(super) fn button_hints(
     button: Button,
     description: Option<SharedString>,
     keys: Option<SharedString>,
@@ -315,17 +325,22 @@ fn button_hints(
     button.render_with(move |button, context, _, _| {
         let description = description.clone();
         let keys = keys.clone();
-        button.tip_text_observing(context.on_hover.clone(), move |cx| {
-            tooltip_text(
-                prefs::current(cx).hints,
-                context
-                    .label
-                    .as_deref()
-                    .map(|label| (label, context.label_clipped.get())),
-                description.as_deref(),
-                keys.as_deref(),
-            )
-        })
+        button.tip_text_observing_focus(
+            context.on_hover.clone(),
+            Some(context.focus_handle.clone()),
+            move |cx| {
+                tooltip_text(
+                    prefs::current(cx).hints,
+                    button_title(
+                        context.label.as_deref(),
+                        context.label_clipped.get(),
+                        context.accessibility_label.as_deref(),
+                    ),
+                    description.as_deref(),
+                    keys.as_deref(),
+                )
+            },
+        )
     })
 }
 
@@ -375,7 +390,7 @@ impl Hint for Clipboard {
 
 #[cfg(test)]
 mod hint_tests {
-    use super::{caption_hint_text, tooltip_text};
+    use super::{button_title, caption_hint_text, tooltip_text};
     use crate::preferences::{Hints, TitleHint};
 
     #[test]
@@ -411,6 +426,32 @@ mod hint_tests {
             );
             assert_eq!(text.as_deref(), expected);
         }
+    }
+
+    #[test]
+    fn icon_names_remain_discoverable_without_overriding_visible_labels() {
+        let name = button_title(None, false, Some("Новый чат"));
+        assert_eq!(
+            tooltip_text(Hints::default(), name, None, None).as_deref(),
+            Some("Новый чат")
+        );
+        assert_eq!(
+            tooltip_text(
+                Hints {
+                    title: TitleHint::Never,
+                    ..Hints::default()
+                },
+                name,
+                None,
+                None
+            ),
+            None
+        );
+        assert_eq!(
+            button_title(Some("Сохранить"), false, Some("Сохранить изменения")),
+            Some(("Сохранить", false))
+        );
+        assert_eq!(button_title(None, false, None), None);
     }
 
     #[test]
