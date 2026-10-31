@@ -293,7 +293,8 @@ impl Workspace {
                 ComposerSlot::End => BadgePlace::ComposerEnd,
             };
             (workspace.active_chat_view()?.entity_id() == chat)
-                .then(|| workspace.render_badge_strip(place, cx).into_any_element())
+                .then(|| workspace.render_badge_strip(place, cx))
+                .flatten()
         })
     }
 

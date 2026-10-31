@@ -43,17 +43,18 @@ impl Workspace {
 
     /// Row of extension icons. While an icon is dragged the row parts
     /// where it would land, and a drop puts it there.
-    pub(super) fn render_badge_strip(
-        &self,
-        place: BadgePlace,
-        cx: &App,
-    ) -> impl IntoElement + use<> {
+    pub(super) fn render_badge_strip(&self, place: BadgePlace, cx: &App) -> Option<AnyElement> {
         let ids: Vec<&'static str> = extensions::visible_badges(place, cx)
             .into_iter()
             .map(|manifest| manifest.id)
             .filter(|id| self.badges.contains_key(id))
             .collect();
         let frame = arrange::frame(place, &ids, cx);
+        // Keep an empty destination while dragging, but do not reserve a row
+        // when this place has neither a widget nor an active drop target.
+        if ids.is_empty() && frame.dragging.is_none() {
+            return None;
+        }
         let others: Vec<&'static str> = ids
             .iter()
             .copied()
@@ -118,31 +119,34 @@ impl Workspace {
         } else {
             h_flex().h_7()
         };
-        strip
-            .id(SharedString::from(format!("badge-strip-{tag}")))
-            .relative()
-            .flex_none()
-            .items_center()
-            // An empty row offers room for exactly one icon.
-            .when(dragging && others.is_empty(), |strip| {
-                if vertical {
-                    strip.min_h(frame.gap_length)
-                } else {
-                    strip.min_w(frame.gap_length)
-                }
-            })
-            .children(zone)
-            .children(row)
-            .on_drag_move::<DraggedBadge>(move |event, window, _| {
-                arrange::hover(
-                    place,
-                    &hover_others,
-                    event.bounds,
-                    event.event.position,
-                    window,
-                )
-            })
-            .when(dragging, |strip| strip.child(drop_catcher(place, others)))
+        Some(
+            strip
+                .id(SharedString::from(format!("badge-strip-{tag}")))
+                .relative()
+                .flex_none()
+                .items_center()
+                // An empty row offers room for exactly one icon.
+                .when(dragging && others.is_empty(), |strip| {
+                    if vertical {
+                        strip.min_h(frame.gap_length)
+                    } else {
+                        strip.min_w(frame.gap_length)
+                    }
+                })
+                .children(zone)
+                .children(row)
+                .on_drag_move::<DraggedBadge>(move |event, window, _| {
+                    arrange::hover(
+                        place,
+                        &hover_others,
+                        event.bounds,
+                        event.event.position,
+                        window,
+                    )
+                })
+                .when(dragging, |strip| strip.child(drop_catcher(place, others)))
+                .into_any_element(),
+        )
     }
 }
 

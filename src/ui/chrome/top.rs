@@ -42,10 +42,10 @@ impl Workspace {
                 cx,
             ))
             .when(ready, |left| {
-                left.child(self.render_badge_strip(BadgePlace::HeaderStart, cx))
+                left.children(self.render_badge_strip(BadgePlace::HeaderStart, cx))
             });
         let right = h_flex().gap_1().items_center().when(ready, |right| {
-            right.child(self.render_badge_strip(BadgePlace::HeaderEnd, cx))
+            right.children(self.render_badge_strip(BadgePlace::HeaderEnd, cx))
         });
         title_bar(left, right, window, cx)
     }

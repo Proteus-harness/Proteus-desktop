@@ -33,9 +33,9 @@ impl Workspace {
             .border_color(theme.status_bar_border)
             .text_color(theme.muted_foreground)
             .child(self.render_panel_buttons(cx))
-            .child(self.render_badge_strip(BadgePlace::RailStart, cx))
+            .children(self.render_badge_strip(BadgePlace::RailStart, cx))
             .child(div().flex_1())
-            .child(self.render_badge_strip(BadgePlace::RailEnd, cx))
+            .children(self.render_badge_strip(BadgePlace::RailEnd, cx))
             .child(self.render_settings_button(cx))
     }
 
