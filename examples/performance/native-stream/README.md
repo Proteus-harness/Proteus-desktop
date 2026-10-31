@@ -275,6 +275,39 @@ python3 examples/performance/native-stream/code_blocks.py --check-fixture \
 скачок в последний кадр раскрытия/сворачивания цепочки; точные UTF-8 байты без
 финального LF сохранены в `expected/tools/after-group-marker.txt`.
 
+Для воспроизводимой геометрии доступны `--scale` (75, 80, 90, 100, 110, 125,
+150, 175, 200; по умолчанию 100) и `--surface-radius` (0–32 px при 100%,
+по умолчанию 16). Например, `--tool-previews --scale 125 --surface-radius 32`
+проверяет увеличенные промежутки и хорошо заметные углы. До запуска Native
+стенд всегда записывает только `view.scale` и `view.surface_radius` в частный
+`OUTPUT/xdg-config/dev.proteus.native/preferences.json`; остальные значения
+наследуют serde defaults. Host preferences не читаются и не меняются.
+`state.json` сохраняет заданные значения, путь и SHA256 этого файла; тот же
+receipt создаётся при `--check-fixture`, который не подтверждает GUI-геометрию.
+
+Для сохранения кадров до и после раскрытия используйте постоянный скрипт
+`capture_motion.py` в уже запущенной private background-gui session. Выберите
+координаты по свежему кадру; output должен быть новым каталогом:
+
+```sh
+python3 examples/performance/native-stream/capture_motion.py \
+  --helper /home/qweasd123tg/.codex/skills/background-gui/scripts/bgui.py \
+  --session SESSION --output build/verification/finish-anchor-20261031/motion-new \
+  --click X Y --frames 12 --interval .08
+```
+
+`frame-000.png` — baseline до клика. Затем один helper click выполняется
+параллельно циклу screenshot. Промежуточные кадры короткого перехода могут
+не попасть в захват из-за сериализации helper; сравнивайте также endpoints.
+PNGs сохраняются как получены, без обработки; stdout/stderr каждой команды —
+в отдельном `.log`. `capture.json` содержит monotonic_ns начала/конца команд,
+exit status клика и screenshots, ошибки и пути PNG. Это границы исполнения
+команд, **не точное время display capture**: helper сериализует операции
+session, а его overhead может увеличить реальный интервал. Статус
+`commands-completed` подтверждает только успешные команды, не правильность UI.
+Скрипт не меняет production-анимации, не использует host input и не закрывает
+session; при ошибке сохраняет уже полученные кадры и metadata.
+
 После `READY` прокрутите до конца. Если включены «Компактные цепочки
 инструментов» в настройках чата, нажмите строку **«Инструменты · 3»** со
 стрелкой справа: откроются три названия. Для обычного раскрытия нажмите строку

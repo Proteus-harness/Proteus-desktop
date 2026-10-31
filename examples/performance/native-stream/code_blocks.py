@@ -13,7 +13,7 @@ from urllib.parse import urlencode
 from urllib.request import ProxyHandler, Request, build_opener
 
 from fixture_server import Fixture, MESSAGE_ID, SESSION_ID, THREAD_ID, TURN_ID, message
-from run import digest, launched_executable, stop_native
+from run import digest, launched_executable, save, stop_native
 from status_demo import DIRECTORIES, delivered, record
 
 SOURCES = {
@@ -38,6 +38,26 @@ TOOL_SOURCES = (
      "synthetic/short.txt:1:SHORT TOOL RESULT\n"),
 )
 TOOL_MARKER = "AFTER TOOL GROUP · неподвижный маркер"
+# Match ViewPreferences validation in src/preferences.rs.
+SCALES = (75, 80, 90, 100, 110, 125, 150, 175, 200)
+
+
+def validate_view(scale, surface_radius):
+    if scale not in SCALES:
+        raise ValueError(f"--scale must be one of {SCALES}")
+    if not 0 <= surface_radius <= 32:
+        raise ValueError("--surface-radius must be between 0 and 32")
+
+
+def prepare_preferences(output, scale=100, surface_radius=16):
+    validate_view(scale, surface_radius)
+    path = output / "xdg-config/dev.proteus.native/preferences.json"
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    view = {"scale": scale, "surface_radius": surface_radius}
+    # Private XDG_CONFIG_HOME only; serde fills every omitted preference.
+    save(path, {"view": view})
+    return {"view_preferences": view, "preferences_path": str(path),
+            "preferences_sha256": digest(path)}
 
 
 def sources(stage):
@@ -128,8 +148,9 @@ def select_renderer(output, installed):
             "renderer_executable_sha256": digest(executable)}
 
 
-def check_fixture(output, *, tool_previews=False):
+def check_fixture(output, *, tool_previews=False, scale=100, surface_radius=16):
     """Wire/source oracle only; never launches Native or claims GUI acceptance."""
+    preferences = prepare_preferences(output, scale, surface_radius)
     fixture = Fixture(output / "workspace", output / "session",
                       secrets.token_hex(24), transcript(tool_previews=tool_previews)).start()
     try:
@@ -198,6 +219,7 @@ def check_fixture(output, *, tool_previews=False):
         assert len(SOURCES["long"][0].rstrip("\n")) > 180
         record(output, fixture, {"status": "fixture-smoke-passed", "rows": len(rows),
                                  "tool_previews": tool_previews,
+                                 **preferences,
                                  "stages": ["initial", "updated"], "native_verified": False})
         print(f"PASS fixture: {len(rows)} rows, five fences, explicit revision; no GUI checked", flush=True)
     finally:
@@ -205,6 +227,7 @@ def check_fixture(output, *, tool_previews=False):
 
 
 def run(args):
+    preferences = prepare_preferences(args.output, args.scale, args.surface_radius)
     fixture = Fixture(args.output / "workspace", args.output / "session",
                       secrets.token_hex(24), transcript(tool_previews=args.tool_previews)).start()
     process = None
@@ -212,6 +235,7 @@ def run(args):
     interrupted = False
     state = {"status": "starting", "stage": "connecting", "rows": len(fixture.transcript),
              "tool_previews": args.tool_previews,
+             **preferences,
              "origin": fixture.origin, "timeout_s": args.timeout,
              "launcher": str(args.native), "launcher_sha256": digest(args.native),
              "extensions": str(args.extensions), "expected_dir": str(args.output / "expected"),
@@ -287,7 +311,15 @@ def main():
     parser.add_argument("--check-fixture", action="store_true")
     parser.add_argument("--tool-previews", action="store_true",
                         help="Append three synthetic completed tools for reveal/preview/chain checks")
+    parser.add_argument("--scale", type=int, default=100, choices=SCALES,
+                        help="Private interface scale in percent (default: 100)")
+    parser.add_argument("--surface-radius", type=int, default=16,
+                        help="Private large-surface radius at 100%%, 0–32 px (default: 16)")
     args = parser.parse_args()
+    try:
+        validate_view(args.scale, args.surface_radius)
+    except ValueError as exc:
+        parser.error(str(exc))
     if not 10 <= args.timeout <= 600:
         parser.error("--timeout must be between 10 and 600 seconds")
     if not args.check_fixture:
@@ -305,7 +337,8 @@ def main():
         (args.output / directory).mkdir(mode=0o700)
     expected(args.output, tool_previews=args.tool_previews)
     if args.check_fixture:
-        check_fixture(args.output, tool_previews=args.tool_previews)
+        check_fixture(args.output, tool_previews=args.tool_previews,
+                      scale=args.scale, surface_radius=args.surface_radius)
     else:
         args.renderer = select_renderer(args.output, args.extensions)
         run(args)

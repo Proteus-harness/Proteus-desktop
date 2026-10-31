@@ -101,6 +101,31 @@ class TransportTests(unittest.TestCase):
 
 
 class ControlTests(unittest.TestCase):
+    def test_code_block_geometry_preferences_are_private_and_validated(self):
+        from code_blocks import prepare_preferences
+        with TemporaryDirectory() as directory:
+            output = Path(directory)
+            for scale, radius in ((100, 16), (125, 32), (75, 0), (200, 32)):
+                receipt = prepare_preferences(output, scale, radius)
+                path = Path(receipt["preferences_path"])
+                self.assertEqual(path, output / "xdg-config/dev.proteus.native/preferences.json")
+                self.assertEqual(json.loads(path.read_text()), {
+                    "view": {"scale": scale, "surface_radius": radius}})
+                self.assertEqual(receipt["view_preferences"], {"scale": scale, "surface_radius": radius})
+                self.assertEqual(receipt["preferences_sha256"], digest(path))
+            before = path.read_bytes()
+            for scale, radius in ((101, 16), (125, -1), (125, 33)):
+                with self.subTest(scale=scale, radius=radius), self.assertRaises(ValueError):
+                    prepare_preferences(output, scale, radius)
+                self.assertEqual(path.read_bytes(), before)
+            for option, value in (("--scale", "101"), ("--surface-radius", "33")):
+                invalid_output = output / "invalid-cli"
+                result = subprocess.run([sys.executable, str(Path(__file__).with_name("code_blocks.py")),
+                                         "--check-fixture", "--output", str(invalid_output), option, value],
+                                        capture_output=True, text=True, timeout=3)
+                self.assertEqual(result.returncode, 2)
+                self.assertFalse(invalid_output.exists(), "Invalid CLI must fail before creating output")
+
     def test_code_block_wire_keeps_copy_oracle_and_optional_tool_sources(self):
         from code_blocks import check_fixture, expected, transcript
         for tool_previews in (False, True):
@@ -111,6 +136,8 @@ class ControlTests(unittest.TestCase):
                 state = json.loads((output / "state.json").read_text())
                 self.assertEqual(state["rows"], 5 if tool_previews else 1)
                 self.assertEqual(state["tool_previews"], tool_previews)
+                self.assertEqual(state["view_preferences"], {"scale": 100, "surface_radius": 16})
+                self.assertEqual(state["preferences_sha256"], digest(Path(state["preferences_path"])))
                 self.assertEqual((output / "expected/initial/rust.txt").read_bytes(),
                                  'let emoji = "☕ 🚀";\nprintln!("{emoji}");\n'.encode())
                 self.assertEqual((output / "expected/updated/rust.txt").read_bytes(),
