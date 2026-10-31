@@ -433,3 +433,240 @@ fn reconnect_patch_source_replaces_effective_args_without_replacing_the_row_key(
         assert_eq!(displayed_patch(&session, &history), Some(effective));
     }
 }
+
+fn execution_snapshot(
+    root: Option<ThreadId>,
+    stream: &str,
+    seq: u64,
+    active: Option<proteus_contracts::app_protocol::AppRun>,
+    last: Option<proteus_contracts::app_protocol::AppRun>,
+) -> AppServerEvent {
+    let AppServerEvent::SessionSnapshot { mut snapshot } =
+        snapshot(root, stream, seq, Vec::new(), None)
+    else {
+        unreachable!();
+    };
+    snapshot.execution = proteus_contracts::app_protocol::AppExecutionState { active, last };
+    AppServerEvent::SessionSnapshot { snapshot }
+}
+
+fn app_run(
+    run_id: &str,
+    status: proteus_contracts::app_protocol::AppRunStatus,
+) -> proteus_contracts::app_protocol::AppRun {
+    proteus_contracts::app_protocol::AppRun {
+        run_id: run_id.into(),
+        options: Default::default(),
+        status,
+        error: None,
+    }
+}
+
+/// Same accepted-baseline decision and ordering as the pump; no GPUI required.
+fn deliver_settlement(session: &mut Session, history: &mut History, event: AppServerEvent) -> bool {
+    if !session.cursor.accept(&event) {
+        return false;
+    }
+    let AppServerEvent::SessionSnapshot { snapshot } = event else {
+        unreachable!();
+    };
+    let settled = session.snapshot_settles_run(&snapshot);
+    session.apply_snapshot(*snapshot, history);
+    settled
+}
+
+#[test]
+fn resync_confirms_known_terminal_run_once_without_requiring_stale_root() {
+    use proteus_contracts::app_protocol::AppRunStatus;
+    for status in [
+        AppRunStatus::Success,
+        AppRunStatus::Error,
+        AppRunStatus::Canceled,
+        AppRunStatus::Timeout,
+    ] {
+        let (mut session, mut history) = session();
+        assert!(!deliver_settlement(
+            &mut session,
+            &mut history,
+            execution_snapshot(
+                Some(id(10)),
+                "first",
+                1,
+                Some(app_run("known", AppRunStatus::Running)),
+                None,
+            ),
+        ));
+        assert!(
+            session
+                .cursor
+                .accept(&AppServerEvent::EventStreamLagged { count: 5 })
+        );
+        assert!(deliver_settlement(
+            &mut session,
+            &mut history,
+            execution_snapshot(None, "first", 7, None, Some(app_run("known", status))),
+        ));
+        assert!(!session.running());
+        assert_eq!(session.root_thread, None);
+        assert!(!deliver_settlement(
+            &mut session,
+            &mut history,
+            execution_snapshot(
+                None,
+                "first",
+                8,
+                None,
+                Some(app_run("known", AppRunStatus::Success))
+            ),
+        ));
+    }
+}
+
+#[test]
+fn reconnect_confirms_same_generation_but_never_a_restarted_generation() {
+    use proteus_contracts::app_protocol::AppRunStatus;
+    for (stream, expected) in [("first", true), ("restarted", false)] {
+        let (mut session, mut history) = session();
+        deliver_settlement(
+            &mut session,
+            &mut history,
+            execution_snapshot(
+                Some(id(10)),
+                "first",
+                1,
+                Some(app_run("known", AppRunStatus::Running)),
+                None,
+            ),
+        );
+        session.cursor.begin_connection();
+        assert_eq!(
+            deliver_settlement(
+                &mut session,
+                &mut history,
+                execution_snapshot(
+                    Some(id(20)),
+                    stream,
+                    2,
+                    None,
+                    Some(app_run("known", AppRunStatus::Canceled))
+                ),
+            ),
+            expected
+        );
+    }
+}
+
+#[test]
+fn snapshot_does_not_invent_unknown_unrelated_or_still_active_settlement() {
+    use proteus_contracts::app_protocol::AppRunStatus;
+    for (known, last_id, last_status, next_active) in [
+        (false, "known", AppRunStatus::Success, None),
+        (true, "other", AppRunStatus::Success, None),
+        (true, "known", AppRunStatus::Running, None),
+        (true, "known", AppRunStatus::CancelRequested, None),
+        (true, "known", AppRunStatus::Success, Some("next")),
+        (true, "known", AppRunStatus::Success, Some("known")),
+    ] {
+        let (mut session, mut history) = session();
+        deliver_settlement(
+            &mut session,
+            &mut history,
+            execution_snapshot(
+                None,
+                "first",
+                1,
+                known.then(|| app_run("known", AppRunStatus::Running)),
+                None,
+            ),
+        );
+        assert!(!deliver_settlement(
+            &mut session,
+            &mut history,
+            execution_snapshot(
+                None,
+                "first",
+                2,
+                next_active.map(|run| app_run(run, AppRunStatus::Running)),
+                Some(app_run(last_id, last_status))
+            ),
+        ));
+    }
+}
+
+#[test]
+fn stale_foreign_or_already_delivered_execution_cannot_emit_settlement() {
+    use proteus_contracts::app_protocol::AppRunStatus;
+    let (mut session, mut history) = session();
+    deliver_settlement(
+        &mut session,
+        &mut history,
+        execution_snapshot(
+            None,
+            "first",
+            3,
+            Some(app_run("known", AppRunStatus::Running)),
+            None,
+        ),
+    );
+    for (stream, seq) in [("first", 2), ("other", 4), ("first", 3)] {
+        assert!(!deliver_settlement(
+            &mut session,
+            &mut history,
+            execution_snapshot(
+                None,
+                stream,
+                seq,
+                None,
+                Some(app_run("known", AppRunStatus::Success))
+            ),
+        ));
+        assert!(session.running());
+    }
+    // A terminal ExecutionUpdated already consumed the observed transition.
+    session.execution.active = None;
+    session.execution.last = Some(app_run("known", AppRunStatus::Success));
+    assert!(!deliver_settlement(
+        &mut session,
+        &mut history,
+        execution_snapshot(
+            None,
+            "first",
+            4,
+            None,
+            Some(app_run("known", AppRunStatus::Success))
+        ),
+    ));
+}
+
+#[test]
+fn same_run_id_from_another_session_is_not_a_settlement() {
+    use proteus_contracts::app_protocol::AppRunStatus;
+    let (mut session, mut history) = session();
+    deliver_settlement(
+        &mut session,
+        &mut history,
+        execution_snapshot(
+            None,
+            "first",
+            1,
+            Some(app_run("known", AppRunStatus::Running)),
+            None,
+        ),
+    );
+    session.cursor.begin_connection();
+    let AppServerEvent::SessionSnapshot { mut snapshot } = execution_snapshot(
+        None,
+        "first",
+        2,
+        None,
+        Some(app_run("known", AppRunStatus::Success)),
+    ) else {
+        unreachable!();
+    };
+    snapshot.session_id = id(99);
+    assert!(!deliver_settlement(
+        &mut session,
+        &mut history,
+        AppServerEvent::SessionSnapshot { snapshot },
+    ));
+}

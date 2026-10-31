@@ -7,7 +7,7 @@ use proteus_contracts::domain::Event as RuntimeEvent;
 
 use super::context_usage::ContextUsage;
 use super::row_layout::{reconciles_rows, row_layout};
-use super::stream_batch::{BatchItem, batches};
+use super::stream_batch::{BatchItem, batches, ready_batch, yield_after_batch};
 use super::{Chat, ChatEvent};
 use crate::connection::PumpItem;
 use crate::transcript::Change;
@@ -17,10 +17,7 @@ use crate::transcript::Change;
 pub(super) fn start(events: async_channel::Receiver<PumpItem>, cx: &mut Context<Chat>) -> Task<()> {
     cx.spawn(async move |this, cx| {
         while let Ok(first) = events.recv().await {
-            let mut batch = vec![first];
-            while let Ok(item) = events.try_recv() {
-                batch.push(item);
-            }
+            let batch = ready_batch(first, &events);
             let applied = this.update(cx, |this, cx| {
                 let shown = this.apply_batch(batch, cx);
                 // Copies of other sessions' activity and runtime events
@@ -32,6 +29,7 @@ pub(super) fn start(events: async_channel::Receiver<PumpItem>, cx: &mut Context<
             if applied.is_err() {
                 break;
             }
+            yield_after_batch().await;
         }
     })
 }
@@ -68,11 +66,17 @@ impl Chat {
         let session = &mut self.session;
         match item {
             PumpItem::Connected => {
+                // A reconnect baseline does not carry profile/config state.
+                // Initial setup already starts its own config request.
+                let reconnecting = session.link_error.is_some();
                 self.context_requests.invalidate();
                 session.cursor.begin_connection();
                 session.pending_cursor.begin_connection();
                 session.connected = true;
                 session.link_error = None;
+                if reconnecting {
+                    self.load_config(cx);
+                }
                 cx.emit(ChatEvent::SessionStateChanged);
                 true
             }
@@ -119,11 +123,15 @@ impl Chat {
         let change = match event {
             AppServerEvent::SessionSnapshot { snapshot } => {
                 crate::startup_trace::first("chat.snapshot.applied");
+                let settled = session.snapshot_settles_run(&snapshot);
                 let cancelled = self.history.request_pending();
                 let (change, display) = session.apply_snapshot(*snapshot, &mut self.history);
                 if cancelled {
                     self.scroller
                         .update(cx, |state, cx| state.history_ready(cx));
+                }
+                if settled {
+                    cx.emit(ChatEvent::RunSettled);
                 }
                 display_changes = Some(display);
                 change
@@ -188,7 +196,8 @@ impl Chat {
                 }
                 Change::None
             }
-            AppServerEvent::ModulesReloaded { .. }
+            AppServerEvent::EventStreamLagged { .. }
+            | AppServerEvent::ModulesReloaded { .. }
             | AppServerEvent::ProfileReloadStatus { error: None } => {
                 self.load_config(cx);
                 Change::None

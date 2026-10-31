@@ -89,4 +89,51 @@ mod tests {
         assert_eq!(affected_rows(&rows, 6), 4..7);
         assert_eq!(affected_rows(&rows, 3), 3..4);
     }
+    /// The preparation walk asks once per group, not once per tool member.
+    fn preparation_groups(rows: &[Entry], compact: bool) -> Vec<Range<usize>> {
+        let mut groups = Vec::new();
+        let mut row = 0;
+        while row < rows.len() {
+            let group = compact
+                .then(|| tool_chain(rows, row))
+                .flatten()
+                .unwrap_or(row..row + 1);
+            row = group.end;
+            groups.push(group);
+        }
+        groups
+    }
+
+    #[test]
+    fn forward_groups_keep_short_runs_and_separators_independent() {
+        let rows: Vec<_> = [false, true, true, false, true, true, true, false, true]
+            .into_iter()
+            .enumerate()
+            .map(|(key, tool)| entry(key as u64, tool))
+            .collect();
+        assert_eq!(
+            preparation_groups(&rows, true),
+            vec![0..1, 1..2, 2..3, 3..4, 4..7, 7..8, 8..9]
+        );
+        assert_eq!(
+            preparation_groups(&rows, false),
+            (0..rows.len()).map(|row| row..row + 1).collect::<Vec<_>>()
+        );
+        assert!(preparation_groups(&[], true).is_empty());
+    }
+
+    #[test]
+    fn forward_groups_visit_a_long_chain_once_and_recompute_after_growth() {
+        let mut rows = vec![entry(0, true), entry(1, true)];
+        assert_eq!(preparation_groups(&rows, true), vec![0..1, 1..2]);
+        rows.push(entry(2, true));
+        assert_eq!(preparation_groups(&rows, true), vec![0..3]);
+        rows.extend((3..4096).map(|key| entry(key, true)));
+        assert_eq!(preparation_groups(&rows, true), vec![0..4096]);
+        rows[2048] = entry(2048, false);
+        assert_eq!(
+            preparation_groups(&rows, true),
+            vec![0..2048, 2048..2049, 2049..4096]
+        );
+    }
 }

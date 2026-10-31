@@ -7,7 +7,7 @@ use proteus_contracts::app_protocol::config::ConfigSummary;
 use proteus_contracts::app_protocol::{
     AppExecutionState, AppPendingRequests, AppRunStatus, AppServerEvent, AppSessionSnapshot,
 };
-use proteus_contracts::domain::ThreadId;
+use proteus_contracts::domain::{SessionId, ThreadId};
 
 use super::context_usage::ContextUsage;
 use super::history::History;
@@ -26,6 +26,7 @@ pub(in crate::ui) struct Session {
     pub config: Option<ConfigSummary>,
     pub context: Option<ContextUsage>,
     pub(super) root_thread: Option<ThreadId>,
+    snapshot_identity: Option<(SessionId, String)>,
     pub(super) feedback: super::feedback::Feedback,
 }
 
@@ -51,12 +52,37 @@ impl Session {
             config: None,
             context: None,
             root_thread: None,
+            snapshot_identity: None,
             feedback: super::feedback::Feedback::default(),
         }
     }
 
     pub fn running(&self) -> bool {
         self.execution.active.is_some()
+    }
+
+    /// A baseline can confirm settlement of a run this chat actually observed.
+    /// Keep generation identity across reconnect, but never infer a completion
+    /// from another server generation or an unrelated historical last run.
+    pub(super) fn snapshot_settles_run(&self, snapshot: &AppSessionSnapshot) -> bool {
+        self.snapshot_identity
+            .as_ref()
+            .is_some_and(|(session, stream)| {
+                *session == snapshot.session_id && stream == &snapshot.stream_id
+            })
+            && snapshot.execution.active.is_none()
+            && self.execution.active.as_ref().is_some_and(|active| {
+                snapshot.execution.last.as_ref().is_some_and(|last| {
+                    last.run_id == active.run_id
+                        && matches!(
+                            last.status,
+                            AppRunStatus::Success
+                                | AppRunStatus::Error
+                                | AppRunStatus::Canceled
+                                | AppRunStatus::Timeout
+                        )
+                })
+            })
     }
 
     /// Keep snapshot routing, transient feedback and bounded history atomic.
@@ -78,6 +104,7 @@ impl Session {
             .collect();
         self.feedback
             .snapshot(&snapshot.execution, tools_running, &message_ids);
+        self.snapshot_identity = Some((snapshot.session_id, snapshot.stream_id));
         self.execution = snapshot.execution;
         self.root_thread = snapshot.root_thread_id;
         self.transcript.set_root_thread(snapshot.root_thread_id);

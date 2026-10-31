@@ -229,8 +229,24 @@ impl Chat {
         if self.expanded.is_empty() {
             return;
         }
-        for entry in self.history.displayed(&self.session.transcript).entries() {
-            if !self.expanded.contains(&entry.key) {
+        let compact = prefs::current(cx).view.compact_tools;
+        let entries = self.history.displayed(&self.session.transcript).entries();
+        let mut group_end = 0;
+        let mut group_visible = true;
+        for (row, entry) in entries.iter().enumerate() {
+            // Inspect each folded run once: asking chain_at for every member would
+            // repeatedly scan the same long run. Closing motion still draws
+            // the bodies through render_run, so only settled chains skip work.
+            if row >= group_end {
+                let chain = self.chain_at(row, compact);
+                group_end = chain.as_ref().map_or(row + 1, |chain| chain.end);
+                group_visible = chain.is_none_or(|chain| {
+                    let head = entries[chain.start].key;
+                    let open = self.chain_open(head);
+                    open || motion::moving(&chain_reveal_key(cx.entity_id(), head), open, cx)
+                });
+            }
+            if !group_visible || !self.expanded.contains(&entry.key) {
                 continue;
             }
             let Some(tool) = &entry.tool else {

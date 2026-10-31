@@ -618,3 +618,4 @@ fn child_turn_started_cannot_hijack_a_snapshot_root_or_colliding_message() {
 }
 
 mod layout;
+mod scheduling;
