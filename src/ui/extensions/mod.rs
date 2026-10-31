@@ -48,6 +48,8 @@ pub(super) struct DocumentSurface {
 
 /// Compact icon and where it goes until the user moves it.
 pub(super) struct BadgeSurface {
+    /// Hide the icon until the package supplies a presentation.
+    pub initially_hidden: bool,
     pub build: BuildView,
     pub place: BadgePlace,
     /// No wider than a plain icon, so it fits the rail.
@@ -76,6 +78,8 @@ impl SurfaceView {
 }
 
 pub(super) struct Manifest {
+    /// Human-readable metadata; never used for permissions or dispatch.
+    pub tags: Vec<&'static str>,
     pub id: &'static str,
     pub title: &'static str,
     pub author: &'static str,

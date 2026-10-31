@@ -8,6 +8,50 @@ fn parse(value: Value) -> Result<Node> {
 }
 
 #[test]
+fn settings_rows_visit_and_validate_their_one_control() {
+    let row = json!({"type":"setting_row", "id":"radius-row", "label":"Радиус",
+        "description":"Enter сохраняет значение",
+        "control":{"type":"input", "id":"radius", "value":"8", "placeholder":"0", "action":"radius"}});
+    let node = parse(row.clone()).unwrap();
+    assert!(matches!(&node, Node::SettingRow { below: false, .. }));
+    let mut ids = Vec::new();
+    node.visit(&mut |node| {
+        if let Node::Input { id, .. } = node {
+            ids.push(id.clone())
+        }
+    });
+    assert_eq!(ids, ["radius"]);
+    let mut content_row = row.clone();
+    content_row["below"] = json!(true);
+    content_row["control"] = json!({"type":"content", "id":"diagram", "language":"mermaid", "source":"flowchart LR\n A --> B"});
+    let content_row = parse(content_row).unwrap();
+    let mut contents = 0;
+    content_row.visit(&mut |node| contents += matches!(node, Node::Content { .. }) as usize);
+    assert_eq!(contents, 1);
+    let mut bad = row.clone();
+    bad["unknown"] = json!(true);
+    assert!(parse(bad).is_err());
+    let mut bad = row.clone();
+    bad["control"]["unknown"] = json!(true);
+    assert!(parse(bad).is_err());
+    let mut bad = row.clone();
+    bad["control"]["lines"] = json!(0);
+    assert!(parse(bad).is_err());
+    let mut bad = row.clone();
+    bad["id"] = json!("");
+    assert!(parse(bad).is_err());
+    let mut deep = row.clone();
+    for _ in 0..MAX_DEPTH {
+        deep = json!({"type":"setting_row", "id":"nested", "label":"L", "control":deep});
+    }
+    assert!(parse(deep).is_err());
+    let mut many = row;
+    many["control"] =
+        json!({"type":"stack", "children":vec![json!({"type":"divider"}); MAX_NODES]});
+    assert!(parse(many).is_err());
+}
+
+#[test]
 fn reads_a_nested_tree_with_defaults() {
     let node = parse(json!({
         "type": "stack",

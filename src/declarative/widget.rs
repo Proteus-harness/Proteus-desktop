@@ -58,6 +58,17 @@ pub enum Node {
     Fill {
         children: Vec<Node>,
     },
+    /// One ordinary settings parameter: a native caption and one control.
+    SettingRow {
+        id: String,
+        label: String,
+        #[serde(default)]
+        description: Option<String>,
+        control: Box<Node>,
+        /// Multiline controls are explicitly placed below their caption.
+        #[serde(default)]
+        below: bool,
+    },
     /// Native animated disclosure; open is the initial state, remembered by id.
     Disclosure {
         id: String,
@@ -515,6 +526,7 @@ impl Node {
     pub fn visit(&self, each: &mut impl FnMut(&Node)) {
         each(self);
         match self {
+            Node::SettingRow { control, .. } => control.visit(each),
             Node::Stack { children, .. }
             | Node::Card { children, .. }
             | Node::Fill { children }
@@ -559,6 +571,12 @@ impl Node {
             bail!("widget tree has more than {MAX_NODES} nodes");
         }
         let children: &[Node] = match self {
+            Node::SettingRow { id, control, .. } => {
+                if id.is_empty() {
+                    bail!("setting_row requires a non-empty id");
+                }
+                std::slice::from_ref(control.as_ref())
+            }
             Node::RichText { inlines, .. } => {
                 let ids: std::collections::HashSet<_> =
                     inlines.iter().map(|slot| &slot.id).collect();

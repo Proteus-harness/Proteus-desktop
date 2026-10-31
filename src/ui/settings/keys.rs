@@ -103,7 +103,12 @@ impl SettingsView {
 
     /// A multi-line field, which keeps Up and Down for its own lines.
     pub(super) fn text_keys(area: impl IntoElement) -> AnyElement {
-        kit::contain_scroll(area)
+        // Settings have one vertical scroller. A fully grown editor must let
+        // the wheel reach that page, including over static text.
+        div()
+            .w_full()
+            .min_w_0()
+            .child(area)
             .key_context(TEXT_CONTEXT)
             .into_any_element()
     }

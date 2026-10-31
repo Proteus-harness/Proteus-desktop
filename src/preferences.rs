@@ -64,6 +64,15 @@ pub enum Hints {
     Off,
 }
 
+/// How single-line captions indicate that their text does not fit.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LabelTruncation {
+    #[default]
+    Fade,
+    Ellipsis,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SendMode {
@@ -89,6 +98,7 @@ pub struct Preferences {
     pub fonts: FontPreferences,
     pub motion: MotionPreference,
     pub hints: Hints,
+    pub label_truncation: LabelTruncation,
     pub send: SendMode,
     pub notifications: Notifications,
     pub view: ViewPreferences,
@@ -99,6 +109,33 @@ pub struct Preferences {
     pub sessions: SessionMarks,
     pub recent: RecentWorkspaces,
     pub shortcuts: Shortcuts,
+}
+
+impl Preferences {
+    /// Reset only the controls on the Appearance page.
+    pub fn reset_appearance(&mut self) {
+        let defaults = Self::default();
+        self.theme = defaults.theme;
+        self.themes = defaults.themes;
+        self.fonts.interface = defaults.fonts.interface;
+        self.view.scale = defaults.view.scale;
+        self.view.surface_radius = defaults.view.surface_radius;
+        self.motion = defaults.motion;
+        self.hints = defaults.hints;
+        self.label_truncation = defaults.label_truncation;
+    }
+
+    /// Reset only the controls on the Chat page, preserving interface sizes.
+    pub fn reset_chat(&mut self) {
+        let defaults = Self::default();
+        self.fonts.chat = defaults.fonts.chat;
+        self.send = defaults.send;
+        self.notifications = defaults.notifications;
+        self.view.chat_text = defaults.view.chat_text;
+        self.view.chat_width = defaults.view.chat_width;
+        self.view.compact_tools = defaults.view.compact_tools;
+        self.view.autoscroll = defaults.view.autoscroll;
+    }
 }
 
 /// Optional installed families; `None` inherits the theme/interface family.
@@ -274,7 +311,7 @@ impl BadgePlace {
 }
 
 /// Which client extensions are on, and where their icons are.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ExtensionPreferences {
     /// Extension order in the settings list and their pages.
@@ -285,6 +322,18 @@ pub struct ExtensionPreferences {
     pub badge_order: Vec<String>,
     /// Icons fixed in place: they cannot be dragged.
     pub pinned: Vec<String>,
+}
+
+impl Default for ExtensionPreferences {
+    fn default() -> Self {
+        Self {
+            order: Vec::new(),
+            disabled: vec!["analysis".into()],
+            badges: BTreeMap::new(),
+            badge_order: Vec::new(),
+            pinned: Vec::new(),
+        }
+    }
 }
 
 impl ExtensionPreferences {
@@ -473,6 +522,82 @@ mod tests {
     const KNOWN: [&str; 3] = ["context", "plan", "files"];
 
     #[test]
+    fn analysis_starts_disabled_but_explicit_enable_survives_reopen() {
+        let mut prefs: Preferences = serde_json::from_str("{}").unwrap();
+        assert!(!prefs.extensions.is_enabled("analysis"));
+        assert!(prefs.extensions.is_enabled("plan"));
+        prefs.extensions.set_enabled("analysis", true);
+        let reopened: Preferences =
+            serde_json::from_str(&serde_json::to_string(&prefs).unwrap()).unwrap();
+        assert!(reopened.extensions.is_enabled("analysis"));
+        let explicit: Preferences =
+            serde_json::from_str(r#"{"extensions":{"disabled":[]}}"#).unwrap();
+        assert!(explicit.extensions.is_enabled("analysis"));
+    }
+
+    #[test]
+    fn truncation_defaults_for_old_files_and_roundtrips() {
+        let legacy = super::parse("{}", std::path::Path::new("fixture.json")).unwrap();
+        assert_eq!(legacy.label_truncation, super::LabelTruncation::Fade);
+        let mut value = legacy;
+        value.label_truncation = super::LabelTruncation::Ellipsis;
+        let reopened = super::parse(
+            &serde_json::to_string(&value).unwrap(),
+            std::path::Path::new("fixture.json"),
+        )
+        .unwrap();
+        assert_eq!(reopened.label_truncation, super::LabelTruncation::Ellipsis);
+    }
+
+    #[test]
+    fn page_resets_preserve_other_pages_and_workspace_state() {
+        let mut value = Preferences::default();
+        value.fonts.interface = Some("Interface".into());
+        value.fonts.chat = Some("Chat".into());
+        value.theme = super::ThemePreference::Light;
+        value.label_truncation = super::LabelTruncation::Ellipsis;
+        value.view.scale = 150;
+        value.view.surface_radius = 4;
+        value.view.chat_text = 20;
+        value.view.chat_width = 1200;
+        value.view.compact_tools = false;
+        value.view.autoscroll = false;
+        value.send = super::SendMode::CtrlEnter;
+        value.notifications = super::Notifications::Off;
+        value.sidebar.width = 320.;
+        value.extensions.set_enabled("plan", false);
+        let changed = value.clone();
+        value.reset_appearance();
+        assert_eq!(value.fonts.interface, None);
+        assert_eq!(value.view.scale, 100);
+        assert_eq!(value.view.surface_radius, 16);
+        assert_eq!(value.label_truncation, super::LabelTruncation::Fade);
+        let mut expected = Preferences::default();
+        expected.fonts.chat = changed.fonts.chat.clone();
+        expected.view.chat_text = changed.view.chat_text;
+        expected.view.chat_width = changed.view.chat_width;
+        expected.view.compact_tools = changed.view.compact_tools;
+        expected.view.autoscroll = changed.view.autoscroll;
+        expected.send = changed.send;
+        expected.notifications = changed.notifications;
+        expected.sidebar = changed.sidebar.clone();
+        expected.extensions = changed.extensions.clone();
+        assert_eq!(value, expected);
+        value = changed.clone();
+        value.reset_chat();
+        expected = changed;
+        let defaults = Preferences::default();
+        expected.fonts.chat = defaults.fonts.chat;
+        expected.view.chat_text = defaults.view.chat_text;
+        expected.view.chat_width = defaults.view.chat_width;
+        expected.view.compact_tools = defaults.view.compact_tools;
+        expected.view.autoscroll = defaults.view.autoscroll;
+        expected.send = defaults.send;
+        expected.notifications = defaults.notifications;
+        assert_eq!(value, expected);
+    }
+
+    #[test]
     fn old_preferences_inherit_fonts_and_independent_choices_roundtrip() {
         let legacy = super::parse(
             r#"{"view":{"chat_text":18}}"#,
@@ -542,7 +667,8 @@ mod tests {
         extensions.set_enabled("files", false);
         assert!(!extensions.is_enabled("files"));
         extensions.set_enabled("files", true);
-        assert!(extensions.is_enabled("files") && extensions.disabled.is_empty());
+        assert!(extensions.is_enabled("files"));
+        assert_eq!(extensions.disabled, ["analysis"]);
         extensions.set_pinned("plan", true);
         extensions.set_pinned("plan", true);
         assert!(extensions.is_pinned("plan") && extensions.pinned.len() == 1);

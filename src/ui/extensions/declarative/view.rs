@@ -51,6 +51,11 @@ pub(super) struct DeclarativeView {
 }
 
 impl DeclarativeView {
+    /// Settings pages share their outer scroll area with growing text fields.
+    pub(super) fn settings_page(&self) -> bool {
+        self.surface == SurfaceKind::Page
+    }
+
     pub(super) fn new(
         runtime: Entity<Runtime>,
         host: crate::ui::extensions::Host,
@@ -634,6 +639,14 @@ impl DeclarativeView {
             return focus;
         }
         let children = match node {
+            Node::SettingRow { control, id, .. } => {
+                return self.first_control(
+                    control,
+                    &format!("{path}.setting({}:{id})", id.len()),
+                    priority,
+                    cx,
+                );
+            }
             Node::Sortable { items, .. } => {
                 return items.iter().find_map(|item| {
                     let path = format!("{path}.sort({}:{})", item.id.len(), item.id);

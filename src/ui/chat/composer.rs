@@ -18,9 +18,8 @@ use crate::ui::kit::Hint as _;
 use crate::ui::motion::Spinner;
 use crate::ui::{format, prefs};
 
-/// Reading space at the natural end of the conversation. Keeping it in the
-/// tail row lets scrolled text and its fade reach the actual input edge.
-pub(super) const INPUT_GAP: f32 = 24.;
+mod gap;
+pub(super) use gap::INPUT_GAP;
 
 impl Chat {
     /// The whole framed strip, including padding and expanded activity details.

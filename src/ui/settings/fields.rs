@@ -109,9 +109,7 @@ impl SettingsView {
                         }
                     })
                     .into_any_element(),
-                Some(TextInput::Area(state)) => {
-                    Self::text_keys(kit::textarea(state, cx).small().w_full())
-                }
+                Some(TextInput::Area(state)) => self.text_area(state, cx),
                 None => div().into_any_element(),
             },
         };

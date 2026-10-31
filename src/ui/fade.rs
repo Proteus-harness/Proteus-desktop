@@ -219,7 +219,7 @@ impl Element for Faded {
         bounds: Bounds<Pixels>,
         _: &mut Self::RequestLayoutState,
         window: &mut Window,
-        _: &mut App,
+        cx: &mut App,
     ) -> Self::PrepaintState {
         let Metrics {
             font_size,
@@ -231,6 +231,36 @@ impl Element for Faded {
         let line = system.shape_line(text.clone(), font_size, &[style.to_run(text.len())], None);
         let room = bounds.size.width;
         if line.width() <= room + px(0.5) {
+            return Some((line, line_height, px(0.)));
+        }
+        let ellipsis = cx
+            .try_global::<crate::ui::prefs::ClientPreferences>()
+            .is_some_and(|prefs| {
+                prefs.value.label_truncation == crate::preferences::LabelTruncation::Ellipsis
+            });
+        if ellipsis {
+            let mark: SharedString = "…".into();
+            let mark_width = system
+                .shape_line(mark, font_size, &[style.to_run("…".len())], None)
+                .width();
+            let available = (room - mark_width).max(px(0.));
+            let clipped: SharedString = if self.start {
+                let at = line
+                    .index_for_x(line.width() - available)
+                    .unwrap_or(text.len());
+                let at = text.ceil_char_boundary(at);
+                format!("…{}", &text[at..]).into()
+            } else {
+                let at = line.index_for_x(available).unwrap_or(0);
+                let at = text.floor_char_boundary(at);
+                format!("{}…", &text[..at]).into()
+            };
+            let line = system.shape_line(
+                clipped.clone(),
+                font_size,
+                &[style.to_run(clipped.len())],
+                None,
+            );
             return Some((line, line_height, px(0.)));
         }
         let fade = (font_size * FADE).min(room * 0.25);

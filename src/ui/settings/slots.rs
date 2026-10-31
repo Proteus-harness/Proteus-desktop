@@ -3,7 +3,7 @@
 use gpui_kit::component::*;
 use gpui_kit::*;
 
-use super::widgets::{Tone, card, chip, hashed_id, mono, note, radio_card, section};
+use super::widgets::{Tone, card, chip, hashed_id, mono, note, radio_card, row, section};
 use super::{SettingsView, spot};
 use crate::settings::catalog::{
     CONTEXT_PROVIDER_SLOT, CONTEXT_SLOT, MODEL_SLOT, POLICY_SLOT, exports, find_slot, model_module,
@@ -21,22 +21,16 @@ impl SettingsView {
             .providers
             .iter()
             .map(|provider| {
-                let title = if provider.label.is_empty() {
-                    provider.model.clone()
-                } else {
-                    provider.label.clone()
-                };
-                let hint = (title != provider.model).then(|| provider.model.clone().into());
-                let mut chips = vec![chip(provider.id.clone(), Tone::Muted, cx)];
-                if provider.provider != provider.id {
-                    chips.push(chip(provider.provider.clone(), Tone::Muted, cx));
-                }
+                // This page chooses a provider connection. The configured
+                // model belongs to the chat selector, not this card's title.
+                let title = provider.id.clone();
+                let chips = vec![chip(provider.provider.clone(), Tone::Muted, cx)];
                 let (view, id) = (view.clone(), provider.id.clone());
                 let card = radio_card(
                     hashed_id("provider", &provider.id),
                     self.draft.provider.as_deref() == Some(provider.id.as_str()),
                     title,
-                    hint,
+                    None,
                     chips,
                     move |cx| {
                         let id = id.clone();
@@ -57,7 +51,7 @@ impl SettingsView {
         } else {
             v_flex().gap_2().children(cards).into_any_element()
         };
-        let mut parts = vec![section("Provider", None, None, providers, cx).into_any_element()];
+        let mut parts = vec![section("Подключения", None, None, providers, cx).into_any_element()];
         if let Some(module) = model_module(snapshot, &self.draft) {
             parts.extend(self.params_section(MODEL_SLOT, &module, cx));
         }
@@ -155,6 +149,26 @@ impl SettingsView {
                 if !label.is_empty() && !chips.iter().any(|(text, _)| text == label) {
                     chips.push((label.clone(), chip(label.clone(), Tone::Muted, cx)));
                 }
+            }
+            if info.modules.len() == 1 && selected.as_deref() == Some(module.id.as_str()) {
+                return self.spotted(
+                    &spot::module(slot, &module.id),
+                    card(
+                        [row(
+                            module.id.clone(),
+                            module.description.clone().map(Into::into),
+                            h_flex()
+                                .min_w_0()
+                                .gap_2()
+                                .children(chips.into_iter().map(|(_, chip)| chip)),
+                            false,
+                            cx,
+                        )
+                        .into_any_element()],
+                        cx,
+                    ),
+                    cx,
+                );
             }
             let (view, slot_id, id) = (view.clone(), slot.to_string(), module.id.clone());
             let card = radio_card(

@@ -138,7 +138,7 @@ pub const CLIENT_PAGES: [PageId; 4] = [
 
 pub fn page_title(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId) -> String {
     match page {
-        PageId::Model => "Model".into(),
+        PageId::Model => "Провайдеры".into(),
         PageId::Slot(slot) => match snapshot {
             Some(snapshot) => slot_title(snapshot, slot),
             None => slot_text(slot)
@@ -165,7 +165,7 @@ pub fn page_title(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId) -> St
 pub fn page_description(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId) -> String {
     let text = match page {
         PageId::Model => {
-            "Модель профиля по умолчанию. Модель и уровень рассуждения текущего чата можно сменить в поле ввода."
+            "Подключения к провайдерам и параметры адаптера. Модель и уровень рассуждения выбираются отдельно в чате; последний выбор сохраняется."
         }
         PageId::Slot(slot) => {
             return slot_text(slot)

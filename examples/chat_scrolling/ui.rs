@@ -37,6 +37,11 @@ mod motion {
 }
 
 mod kit {
+    mod icon_button {
+        include!("../../src/ui/kit/icon_button.rs");
+    }
+    pub(crate) use icon_button::icon_button;
+
     use gpui_kit::{App, ElementId, component::button::Button};
     pub fn button(id: impl Into<ElementId>) -> Button {
         Button::new(id)

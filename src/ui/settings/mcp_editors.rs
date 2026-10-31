@@ -9,7 +9,7 @@ use gpui_kit::*;
 use proteus_contracts::domain::mcp_protocol_version;
 
 use super::SettingsView;
-use super::editors::TextInput;
+use super::editors::{TextInput, editor_max_rows};
 use super::mcp::{mcp_advanced_key, mcp_key};
 use crate::settings::mcp::{McpText, mcp_text};
 
@@ -68,7 +68,7 @@ impl SettingsView {
             let (input, subscription) = if field.is_multiline() {
                 let state = cx.new(|cx| {
                     TextareaState::new(window, cx)
-                        .auto_grow(2, 8)
+                        .auto_grow(2, editor_max_rows(&text))
                         .placeholder(hint)
                         .default_value(text)
                 });
@@ -76,6 +76,7 @@ impl SettingsView {
                     cx.subscribe_in(&state, window, move |this, state, event, _, cx| {
                         if matches!(event, InputEvent::Change) {
                             let text = state.read(cx).value();
+                            this.grow_editor(&state, &text, cx);
                             this.mcp_text_changed(ix, field, &text, cx);
                         }
                     });

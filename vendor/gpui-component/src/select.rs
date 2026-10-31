@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use gpui::{
     AnyElement, App, ClickEvent, Context, DismissEvent, Edges, ElementId, Entity, EventEmitter,
     FocusHandle, Focusable, Hsla, InteractiveElement, IntoElement, Length, ParentElement, Render,
@@ -75,6 +77,8 @@ where
     Confirm(Option<<D::Item as SearchableListItem>::Value>),
 }
 
+type TitleRenderer = Rc<dyn Fn(SharedString, &mut Window, &mut App) -> AnyElement>;
+
 // MARK: SelectOptions (builder only — applied to SearchableListState during render)
 
 struct SelectOptions {
@@ -85,6 +89,7 @@ struct SelectOptions {
     placeholder: Option<SharedString>,
     accessibility_label: Option<SharedString>,
     title_prefix: Option<SharedString>,
+    title_renderer: Option<TitleRenderer>,
     search_placeholder: Option<SharedString>,
     menu_width: Length,
     menu_max_h: Length,
@@ -104,6 +109,7 @@ impl Default for SelectOptions {
             placeholder: None,
             accessibility_label: None,
             title_prefix: None,
+            title_renderer: None,
             menu_width: Length::Auto,
             menu_max_h: rems(20.).into(),
             scroll_bounce: None,
@@ -130,6 +136,7 @@ where
     searchable: bool,
     icon: Option<Icon>,
     title_prefix: Option<SharedString>,
+    title_renderer: Option<TitleRenderer>,
     focus_ring_enabled: bool,
 }
 
@@ -295,6 +302,7 @@ where
             searchable: false,
             icon: None,
             title_prefix: None,
+            title_renderer: None,
             focus_ring_enabled: true,
         }
     }
@@ -475,35 +483,48 @@ where
         cx.emit(SelectEvent::Confirm(None));
     }
 
-    fn display_title(&mut self, _: &Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn display_title(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let placeholder = self
+            .state
+            .placeholder
+            .clone()
+            .unwrap_or_else(|| t!("Select.placeholder").into());
         let default_title = div().text_color(cx.theme().muted_foreground).child(
-            self.state
-                .placeholder
-                .clone()
-                .unwrap_or_else(|| t!("Select.placeholder").into()),
+            if let Some(render) = &self.title_renderer {
+                render(placeholder, window, cx)
+            } else {
+                placeholder.into_any_element()
+            },
         );
 
         let Some(selected_index) = self.selected_index(cx) else {
             return default_title;
         };
 
-        let Some(title) = self
+        let item = self
             .state
             .list
             .read(cx)
             .delegate()
             .delegate
             .item(selected_index)
-            .map(|item| {
-                if let Some(el) = item.display_title() {
-                    el
-                } else if let Some(prefix) = self.title_prefix.as_ref() {
-                    format!("{}{}", prefix, item.title()).into_any_element()
+            .cloned();
+        let Some(title) = item.map(|item| {
+            if let Some(render) = &self.title_renderer {
+                let title = if let Some(prefix) = self.title_prefix.as_ref() {
+                    format!("{}{}", prefix, item.title()).into()
                 } else {
-                    item.title().into_any_element()
-                }
-            })
-        else {
+                    item.title()
+                };
+                render(title, window, cx)
+            } else if let Some(el) = item.display_title() {
+                el
+            } else if let Some(prefix) = self.title_prefix.as_ref() {
+                format!("{}{}", prefix, item.title()).into_any_element()
+            } else {
+                item.title().into_any_element()
+            }
+        }) else {
             return default_title;
         };
 
@@ -605,7 +626,9 @@ where
                                         .min_w_0()
                                         .overflow_hidden()
                                         .whitespace_nowrap()
-                                        .truncate()
+                                        .when(self.title_renderer.is_none(), |title| {
+                                            title.truncate()
+                                        })
                                         .child(self.display_title(window, cx)),
                                 )
                                 .when(show_clean, |this| {
@@ -729,6 +752,15 @@ where
     /// e.g. `title_prefix("Country: ")` → "Country: United States"
     pub fn title_prefix(mut self, prefix: impl Into<SharedString>) -> Self {
         self.options.title_prefix = Some(prefix.into());
+        self
+    }
+
+    /// Customize the selected caption and placeholder without changing menu items.
+    pub fn render_title(
+        mut self,
+        render: impl Fn(SharedString, &mut Window, &mut App) -> AnyElement + 'static,
+    ) -> Self {
+        self.options.title_renderer = Some(Rc::new(render));
         self
     }
 
@@ -865,6 +897,7 @@ where
             this.focus_ring_enabled = opts.focus_ring_enabled;
             this.icon = opts.icon;
             this.title_prefix = opts.title_prefix;
+            this.title_renderer = opts.title_renderer;
 
             if let Some(empty) = empty {
                 this.state.empty = Some(empty);

@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use proteus_contracts::app_protocol::addons::{
     AppAddonsSnapshot, AppAddonsUpdate, AppAgentPluginState, AppMcpServerState,
 };
+use proteus_contracts::app_protocol::config_builder::ConfigBuilderTool;
 use proteus_contracts::domain::{AgentPluginConfig, ConfiguredMcpServerConfig, SkillDescriptor};
 
 use super::draft::Draft;
@@ -194,6 +195,129 @@ pub fn tool_server<'a>(addons: &'a AppAddonsSnapshot, tool: &str) -> Option<&'a 
         .iter()
         .find(|server| server.tools.iter().any(|name| name == tool))
         .map(|server| server.name.as_str())
+}
+
+/// Origin reported by the assembly, never inferred from a tool name prefix.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ToolOrigin<'a> {
+    Module {
+        component: &'a str,
+        module: &'a str,
+    },
+    Mcp {
+        package: Option<&'a str>,
+        server: &'a str,
+    },
+    Package(&'a str),
+    Source(&'a str),
+}
+
+pub fn tool_origin<'a>(
+    tool: &'a ConfigBuilderTool,
+    addons: Option<&'a AppAddonsSnapshot>,
+) -> ToolOrigin<'a> {
+    if let Some(owner) = &tool.owner {
+        return ToolOrigin::Module {
+            component: &owner.component_id,
+            module: &owner.module_id,
+        };
+    }
+    if let Some(addons) = addons {
+        if let Some(server) = tool_server(addons, &tool.name) {
+            return ToolOrigin::Mcp {
+                package: package_of(addons, server),
+                server,
+            };
+        }
+        if let Some(package) = package_of(addons, &tool.name) {
+            return ToolOrigin::Package(package);
+        }
+    }
+    ToolOrigin::Source(&tool.source)
+}
+
+#[cfg(test)]
+mod tool_origin_tests {
+    use super::*;
+    use proteus_contracts::contracts::ProcessToolOwner;
+
+    fn snapshot() -> AppAddonsSnapshot {
+        AppAddonsSnapshot {
+            reload_error: None,
+            writable: true,
+            settings: AppAddonsUpdate::default(),
+            catalogs: Vec::new(),
+            mcp_servers: vec![AppMcpServerState {
+                name: "package:server".into(),
+                enabled: true,
+                tools: vec!["ordinary_name".into()],
+                error: None,
+            }],
+            plugins: vec![AppAgentPluginState {
+                path: "package".into(),
+                name: Some("package".into()),
+                version: None,
+                description: None,
+                enabled: true,
+                warnings: Vec::new(),
+                error: None,
+            }],
+        }
+    }
+
+    #[test]
+    fn exact_mcp_membership_and_loaded_packages_supply_provenance() {
+        let addons = snapshot();
+        let mut tool = ConfigBuilderTool {
+            name: "ordinary_name".into(),
+            source: "opaque".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            tool_origin(&tool, Some(&addons)),
+            ToolOrigin::Mcp {
+                package: Some("package"),
+                server: "package:server",
+            }
+        );
+        tool.owner = Some(ProcessToolOwner {
+            component_id: "component".into(),
+            module_id: "module".into(),
+        });
+        assert_eq!(
+            tool_origin(&tool, Some(&addons)),
+            ToolOrigin::Module {
+                component: "component",
+                module: "module",
+            }
+        );
+        tool.owner = None;
+        tool.name = "package:action".into();
+        assert_eq!(
+            tool_origin(&tool, Some(&addons)),
+            ToolOrigin::Package("package")
+        );
+        tool.name = "unknown:action".into();
+        assert_eq!(
+            tool_origin(&tool, Some(&addons)),
+            ToolOrigin::Source("opaque")
+        );
+    }
+
+    #[test]
+    fn familiar_tool_prefixes_do_not_invent_origins() {
+        for name in ["mcp__server__call", "package:action", "builtin_read"] {
+            let tool = ConfigBuilderTool {
+                name: name.into(),
+                source: "declared-source".into(),
+                ..Default::default()
+            };
+            assert_eq!(
+                tool_origin(&tool, None),
+                ToolOrigin::Source("declared-source")
+            );
+        }
+    }
 }
 
 /// Every skill of the providers' catalogs with the provider that found it.

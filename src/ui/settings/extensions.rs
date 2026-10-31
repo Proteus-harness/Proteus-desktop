@@ -459,6 +459,7 @@ fn surface_chips(manifest: &Manifest, cx: &App) -> Vec<Div> {
     if manifest.page.is_some() {
         chips.push(chip("Страница", Tone::Muted, cx));
     }
+    chips.extend(manifest.tags.iter().map(|tag| chip(*tag, Tone::Muted, cx)));
     chips
 }
 

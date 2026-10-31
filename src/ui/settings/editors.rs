@@ -5,17 +5,54 @@
 use std::collections::HashMap;
 
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
+use gpui_kit::component::*;
 use gpui_kit::*;
 use proteus_contracts::domain::ConfigField;
 use serde_json::Value;
 
 use super::SettingsView;
 use super::mcp_editors::McpForm;
+use super::widgets::{disclosure, hashed_id};
 use crate::settings::catalog::{
     self, CONTEXT_PROVIDER_SLOT, CONTEXT_SLOT, HOOK_SLOT, MODEL_SLOT, PageId, TOOL_SLOT,
     editable_field, editable_fields, module_info,
 };
 use crate::settings::{FieldKind, FieldPath, TextFormat, field_kind, format_value, parse_text};
+use crate::ui::{kit, motion};
+
+const PREVIEW_LINES: usize = 8;
+const PREVIEW_CHARS: usize = 2_000;
+
+/// Auto-grow still measures actual wrapped display rows. This is only an
+/// upper bound, derived once from the edited value rather than usize::MAX.
+pub(super) fn editor_max_rows(text: &str) -> usize {
+    text.chars().count().saturating_add(1).max(2)
+}
+
+fn editor_key(input: &Entity<TextareaState>) -> String {
+    format!("text-editor:{:?}", input.entity_id())
+}
+
+/// A bounded preview: never clone the hidden remainder or count its lines.
+fn editor_preview(text: &str) -> Option<String> {
+    editor_preview_chars(text.chars())
+}
+
+fn editor_preview_chars(chars: impl Iterator<Item = char>) -> Option<String> {
+    let mut preview = String::new();
+    let mut lines = 1;
+    for (count, ch) in chars.take(PREVIEW_CHARS + 1).enumerate() {
+        if count == PREVIEW_CHARS || (ch == '\n' && lines == PREVIEW_LINES) {
+            preview.truncate(preview.trim_end().len());
+            return Some(preview);
+        }
+        if ch == '\n' {
+            lines += 1;
+        }
+        preview.push(ch);
+    }
+    None
+}
 
 #[derive(Clone)]
 pub(super) enum TextInput {
@@ -63,6 +100,75 @@ pub(super) fn module_key(slot: &str, module: &str) -> ModuleKey {
 }
 
 impl SettingsView {
+    /// Short values remain directly editable. Long values have a bounded
+    /// preview and the common animated disclosure; the same editor entity
+    /// retains selection, invalid edits and focus across toggles.
+    pub(super) fn text_area(
+        &self,
+        input: &Entity<TextareaState>,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let Some(preview) = editor_preview_chars(input.read(cx).text().chars()) else {
+            return Self::text_keys(kit::textarea(input, cx).small().w_full());
+        };
+        let key = editor_key(input);
+        let open = self.is_open(&key);
+        let motion_key = super::reveal_key(&key);
+        let preview = div()
+            .px_2()
+            .py_1()
+            .text_sm()
+            .text_color(cx.theme().muted_foreground)
+            .child(preview);
+        // Closed fields never mount or lay out a second hidden full editor.
+        let body = if open || motion::moving(&motion_key, open, cx) {
+            motion::preview_reveal(
+                motion_key,
+                open,
+                cx,
+                preview,
+                Self::text_keys(kit::textarea(input, cx).small().w_full()),
+            )
+        } else {
+            preview.into_any_element()
+        };
+        let view = cx.weak_entity();
+        v_flex()
+            .w_full()
+            .min_w_0()
+            .child(disclosure(
+                hashed_id("text-editor-toggle", &key),
+                open,
+                if open {
+                    "Свернуть"
+                } else {
+                    "Развернуть для редактирования"
+                },
+                false,
+                move |cx| {
+                    let _ = view.update(cx, |this, cx| this.toggle_open(&key, cx));
+                },
+                cx,
+            ))
+            .child(body)
+            .into_any_element()
+    }
+
+    /// A growing edit stays mounted when it first crosses the preview limit.
+    pub(super) fn grow_editor(
+        &mut self,
+        input: &Entity<TextareaState>,
+        text: &str,
+        cx: &mut Context<Self>,
+    ) {
+        input.update(cx, |state, cx| {
+            state.set_auto_grow(2, editor_max_rows(text), cx)
+        });
+        if editor_preview(text).is_some() {
+            self.open.insert(editor_key(input));
+        }
+    }
+
     /// Modules whose parameter editors the current page can show.
     fn visible_modules(&self) -> Vec<ModuleKey> {
         let Some(snapshot) = self.snapshot() else {
@@ -158,13 +264,14 @@ impl SettingsView {
         let (input, subscription) = if format.is_multiline() {
             let state = cx.new(|cx| {
                 TextareaState::new(window, cx)
-                    .auto_grow(2, 12)
+                    .auto_grow(2, editor_max_rows(&text))
                     .placeholder(placeholder)
                     .default_value(text)
             });
             let subscription = cx.subscribe_in(&state, window, move |this, state, event, _, cx| {
                 if matches!(event, InputEvent::Change) {
                     let text = state.read(cx).value();
+                    this.grow_editor(&state, &text, cx);
                     this.text_changed(&key, format, default.as_ref(), &text, cx);
                 }
             });
@@ -236,7 +343,7 @@ impl SettingsView {
         let text = serde_json::to_string_pretty(&value).unwrap_or_default();
         let input = cx.new(|cx| {
             TextareaState::new(window, cx)
-                .auto_grow(4, 18)
+                .auto_grow(2, editor_max_rows(&text))
                 .placeholder("{}")
                 .default_value(text)
         });
@@ -244,6 +351,7 @@ impl SettingsView {
         let subscription = cx.subscribe_in(&input, window, move |this, state, event, _, cx| {
             if matches!(event, InputEvent::Change) {
                 let text = state.read(cx).value();
+                this.grow_editor(&state, &text, cx);
                 this.json_changed(&target, &text, cx);
             }
         });
@@ -342,4 +450,51 @@ struct TextLeaf {
     format: TextFormat,
     default: Option<Value>,
     placeholder: String,
+}
+
+#[cfg(test)]
+mod preview_tests {
+    use super::{
+        PREVIEW_CHARS, PREVIEW_LINES, editor_max_rows, editor_preview, editor_preview_chars,
+    };
+
+    #[test]
+    fn short_values_stay_editable_and_long_previews_are_utf8_bounded() {
+        assert_eq!(editor_preview("one\ntwo"), None);
+        assert_eq!(editor_preview(&["line"; PREVIEW_LINES].join("\n")), None);
+        assert_eq!(
+            editor_preview(&["line"; PREVIEW_LINES + 1].join("\n")),
+            Some(["line"; PREVIEW_LINES].join("\n"))
+        );
+        let text = "я".repeat(PREVIEW_CHARS + 100_000);
+        let preview = editor_preview(&text).unwrap();
+        assert_eq!(preview.chars().count(), PREVIEW_CHARS);
+        assert_eq!(editor_max_rows("я\n"), 3);
+    }
+
+    #[test]
+    fn render_preview_stops_before_reading_the_hidden_tail() {
+        let mut read = 0;
+        let chars = std::iter::from_fn(|| {
+            read += 1;
+            assert!(read <= PREVIEW_CHARS + 1, "read the hidden tail");
+            Some('я')
+        });
+        assert_eq!(
+            editor_preview_chars(chars).unwrap().chars().count(),
+            PREVIEW_CHARS
+        );
+        assert_eq!(read, PREVIEW_CHARS + 1);
+        let mut read = 0;
+        let chars = std::iter::from_fn(|| {
+            read += 1;
+            assert!(read <= PREVIEW_LINES * 2, "read beyond the line preview");
+            Some(if read % 2 == 0 { '\n' } else { 'x' })
+        });
+        assert_eq!(
+            editor_preview_chars(chars),
+            Some(["x"; PREVIEW_LINES].join("\n"))
+        );
+        assert_eq!(read, PREVIEW_LINES * 2);
+    }
 }

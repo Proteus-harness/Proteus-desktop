@@ -1,6 +1,6 @@
 //! Esc on the settings screen undoes the nearest thing first: a pending
-//! removal, a search, open forms, focus inside the page, which goes back to
-//! the page list; only then it leaves for the chat. Unsaved changes keep the
+//! removal, a search, an extension subpage, then open forms; finally it
+//! leaves for the chat. Unsaved changes keep the
 //! screen open, since leaving drops them.
 
 use gpui_kit::component::input::InputState;
@@ -39,16 +39,19 @@ impl SettingsView {
             cx.notify();
             return;
         }
+        // Адаптировано из Zed: crates/settings_ui/src/settings_ui.rs
+        // (pop_sub_page). Back leaves the actual subpage in one keypress,
+        // regardless of which control inside it currently holds focus.
+        if matches!(self.page, PageId::Extension(_)) {
+            self.select_page(PageId::Extensions, window, cx);
+            self.page_focus.focus(window, cx);
+            return;
+        }
         if !self.open.is_empty() {
             for key in self.open.drain() {
                 crate::ui::motion::toggled(reveal_key(&key), false, cx);
             }
             // The focused field may have been inside a form just closed.
-            self.nav_focus.focus(window, cx);
-            cx.notify();
-            return;
-        }
-        if !self.nav_focus.is_focused(window) {
             self.nav_focus.focus(window, cx);
             cx.notify();
             return;

@@ -9,6 +9,7 @@ use serde::Deserialize;
 use crate::preferences::BadgePlace;
 
 pub const MANIFEST: &str = "extension.json";
+const TAGS: &str = "org.proteus/tags";
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -35,6 +36,19 @@ pub struct Manifest {
     /// Optional author-namespaced descriptive data; it never enables behavior.
     #[serde(default, rename = "_meta")]
     pub metadata: proteus_contracts::extension_metadata::ExtensionMetadata,
+}
+
+impl Manifest {
+    /// Descriptive labels only: these never grant API access or capabilities.
+    pub fn tags(&self) -> impl Iterator<Item = &str> {
+        self.metadata
+            .0
+            .get(TAGS)
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(serde_json::Value::as_str)
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
@@ -109,6 +123,9 @@ pub struct DocumentSurface {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct BadgeSurface {
+    /// Wait for the extension's first presentation instead of flashing an empty icon.
+    #[serde(default)]
+    pub initially_hidden: bool,
     #[serde(default)]
     pub narrow: bool,
     #[serde(default = "composer_start")]
@@ -284,6 +301,26 @@ pub fn parse(text: &str) -> Result<Manifest> {
     {
         bail!("command is empty");
     }
+    if let Some(tags) = manifest.metadata.0.get(TAGS) {
+        let tags = tags
+            .as_array()
+            .context("org.proteus/tags must be an array of strings")?;
+        let mut seen = std::collections::HashSet::new();
+        for tag in tags {
+            let tag = tag
+                .as_str()
+                .context("org.proteus/tags entries must be strings")?;
+            if tag.is_empty()
+                || tag.trim() != tag
+                || tag.chars().any(char::is_control)
+                || !seen.insert(tag)
+            {
+                bail!(
+                    "org.proteus/tags entries must be unique, non-empty labels without control characters or surrounding whitespace"
+                );
+            }
+        }
+    }
     let surfaces = &manifest.surfaces;
     if surfaces.panel.is_none()
         && surfaces.document.is_none()
@@ -366,6 +403,40 @@ mod tests {
         let dir = root.join(folder);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join(MANIFEST), text).unwrap();
+    }
+
+    #[test]
+    fn initial_badge_visibility_is_opt_in_and_tags_are_descriptive() {
+        let mut value = serde_json::json!({"protocol":4,"id":"demo","title":"Demo","command":["run"],
+            "surfaces":{"badge":{}}, "_meta":{"org.proteus/tags":["Контекстное содержимое"],"org.example/other":{"future":true}}});
+        let parsed = parse(&value.to_string()).unwrap();
+        assert!(!parsed.surfaces.badge.as_ref().unwrap().initially_hidden);
+        assert_eq!(
+            parsed.tags().collect::<Vec<_>>(),
+            ["Контекстное содержимое"]
+        );
+        assert_eq!(parsed.required_features, Vec::<String>::new());
+        value["surfaces"]["badge"]["initially_hidden"] = serde_json::json!(true);
+        value["required_features"] = serde_json::json!(["surfaces.badge.visibility.v1"]);
+        assert!(
+            parse(&value.to_string())
+                .unwrap()
+                .surfaces
+                .badge
+                .unwrap()
+                .initially_hidden
+        );
+        for invalid in [
+            serde_json::json!("tag"),
+            serde_json::json!([1]),
+            serde_json::json!([""]),
+            serde_json::json!([" tag"]),
+            serde_json::json!(["tag\n"]),
+            serde_json::json!(["tag", "tag"]),
+        ] {
+            value["_meta"]["org.proteus/tags"] = invalid;
+            assert!(parse(&value.to_string()).is_err());
+        }
     }
 
     #[test]

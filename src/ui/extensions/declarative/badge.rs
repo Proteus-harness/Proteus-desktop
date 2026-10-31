@@ -59,11 +59,17 @@ impl Render for DeclarativeBadge {
         let manifest = &extension.manifest;
         let icon = super::icon(manifest.icon.as_deref());
         let view = self.view.read(cx);
-        if view
-            .presentation
-            .as_ref()
-            .is_some_and(|presentation| presentation.hidden)
-        {
+        let error = view.error(cx);
+        let initially_hidden = super::super::find(id)
+            .and_then(|extension| extension.badge.as_ref())
+            .is_some_and(|badge| badge.initially_hidden);
+        if should_hide(
+            initially_hidden,
+            view.presentation
+                .as_ref()
+                .map(|presentation| presentation.hidden),
+            error.is_some(),
+        ) {
             self.close_popup(window, cx);
             self.popup.clear();
             return div().into_any_element();
@@ -85,7 +91,7 @@ impl Render for DeclarativeBadge {
                 details = details.line(line.clone());
             }
         }
-        if let Some(error) = view.error(cx) {
+        if let Some(error) = error {
             details = details.line(format!("Ошибка: {error}"));
         }
         // Icons in the rail match the rail's own buttons.
@@ -224,5 +230,26 @@ impl Render for DeclarativeBadge {
             ))
             .children(popup)
             .into_any_element()
+    }
+}
+
+/// Absence is hidden only by explicit manifest policy. Errors always remain
+/// reachable, including a failure after the package previously hid its badge.
+fn should_hide(initially_hidden: bool, presentation_hidden: Option<bool>, error: bool) -> bool {
+    !error && presentation_hidden.unwrap_or(initially_hidden)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_hide;
+
+    #[test]
+    fn empty_context_badges_wait_for_content_but_errors_remain_visible() {
+        assert!(!should_hide(false, None, false));
+        assert!(should_hide(true, None, false));
+        assert!(!should_hide(true, Some(false), false));
+        assert!(should_hide(false, Some(true), false));
+        assert!(!should_hide(true, None, true));
+        assert!(!should_hide(true, Some(true), true));
     }
 }

@@ -121,11 +121,7 @@ impl SettingsView {
                 .then_some("Описание параметров недоступно. Настройки можно изменить в JSON.");
             return v_flex()
                 .gap_1p5()
-                .children(
-                    field.map(|field| {
-                        Self::text_keys(kit::textarea(&field.input, cx).small().w_full())
-                    }),
-                )
+                .children(field.map(|field| self.text_area(&field.input, cx)))
                 .children(
                     field
                         .and_then(|field| field.error.clone())

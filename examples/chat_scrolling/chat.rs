@@ -7,6 +7,8 @@ use std::{
 
 use gpui_kit::{component::*, prelude::FluentBuilder as _, *};
 
+#[path = "../../src/ui/chat/composer/gap.rs"]
+mod composer;
 #[path = "probe.rs"]
 mod probe;
 #[path = "../../src/ui/chat/scroller.rs"]

@@ -58,6 +58,22 @@ impl SizeSliders {
             subscriptions,
         )
     }
+    pub fn reset_appearance(&self, window: &mut Window, cx: &mut Context<SettingsView>) {
+        let value = crate::preferences::ViewPreferences::default();
+        self.surface_radius.update(cx, |state, cx| {
+            state.set_value(f32::from(value.surface_radius), window, cx)
+        });
+    }
+
+    pub fn reset_chat(&self, window: &mut Window, cx: &mut Context<SettingsView>) {
+        let value = crate::preferences::ViewPreferences::default();
+        self.chat_text.update(cx, |state, cx| {
+            state.set_value(f32::from(value.chat_text), window, cx)
+        });
+        self.chat_width.update(cx, |state, cx| {
+            state.set_value(f32::from(value.chat_width), window, cx)
+        });
+    }
 }
 
 fn follow(
@@ -78,11 +94,14 @@ fn follow(
 pub(super) fn slider(state: &Entity<SliderState>, unit: &'static str, cx: &App) -> AnyElement {
     let value = state.read(cx).value().end().round() as u16;
     h_flex()
-        .gap_3()
-        .child(div().w(prefs::scaled(180.)).child(Slider::new(state)))
+        .w(prefs::scaled(240.))
+        .min_w_0()
+        .max_w_full()
+        .gap_2()
+        .child(div().flex_1().min_w_0().child(Slider::new(state)))
         .child(
             div()
-                .w(prefs::scaled(64.))
+                .flex_none()
                 .text_sm()
                 .text_right()
                 .child(format!("{value} {unit}")),

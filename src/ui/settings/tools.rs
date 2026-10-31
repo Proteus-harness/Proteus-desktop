@@ -1,5 +1,7 @@
 //! Tools page: which tools the profile allows.
 
+use std::collections::BTreeMap;
+
 use crate::ui::kit::ButtonLabel as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -9,7 +11,7 @@ use proteus_contracts::app_protocol::config_builder::ConfigBuilderTool;
 use super::SettingsView;
 use super::mcp::mcp_key;
 use super::widgets::{Tone, card, changed_dot, chip, hashed_id, item_row, named, note, section};
-use crate::settings::addons::tool_server;
+use crate::settings::addons::{ToolOrigin, tool_origin, tool_server};
 use crate::settings::catalog::{PageId, missing_tools, tool_matches};
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
@@ -29,20 +31,43 @@ impl SettingsView {
             .iter()
             .filter(|tool| tool.runtime_managed || self.draft.tools.contains(&tool.name))
             .count();
-        let mut rows: Vec<AnyElement> = snapshot
+        let mut groups = BTreeMap::<ToolOrigin<'_>, Vec<&ConfigBuilderTool>>::new();
+        for tool in snapshot
             .tools
             .iter()
             .filter(|tool| tool_matches(tool, &self.tool_query))
-            .map(|tool| self.tool_row(tool, cx))
+        {
+            groups
+                .entry(tool_origin(tool, self.addons()))
+                .or_default()
+                .push(tool);
+        }
+        let missing: Vec<_> = missing_tools(snapshot, &self.draft)
+            .into_iter()
+            .filter(|name| name.contains(self.tool_query.as_str()))
+            .map(|name| self.missing_tool_row(name, cx))
             .collect();
-        rows.extend(
-            missing_tools(snapshot, &self.draft)
-                .into_iter()
-                .filter(|name| name.contains(self.tool_query.as_str()))
-                .map(|name| self.missing_tool_row(name, cx)),
-        );
-        if rows.is_empty() {
-            rows.push(note("Ничего не найдено.", cx).into_any_element());
+        let mut bodies: Vec<AnyElement> = groups
+            .into_iter()
+            .map(|(origin, tools)| {
+                section(
+                    origin_title(origin),
+                    None,
+                    None,
+                    card(tools.into_iter().map(|tool| self.tool_row(tool, cx)), cx),
+                    cx,
+                )
+                .into_any_element()
+            })
+            .collect();
+        if !missing.is_empty() {
+            bodies.push(
+                section("Недоступные инструменты", None, None, card(missing, cx), cx)
+                    .into_any_element(),
+            );
+        }
+        if bodies.is_empty() {
+            bodies.push(note("Ничего не найдено.", cx).into_any_element());
         }
         let search = crate::ui::search::field(&self.tool_search)
             .small()
@@ -56,7 +81,7 @@ impl SettingsView {
                 ),
                 None,
                 Some(search.into_any_element()),
-                card(rows, cx),
+                v_flex().gap_4().children(bodies),
                 cx,
             )
             .into_any_element(),
@@ -172,5 +197,22 @@ impl SettingsView {
             ],
         )
         .into_any_element()
+    }
+}
+
+fn origin_title(origin: ToolOrigin<'_>) -> String {
+    match origin {
+        ToolOrigin::Module { component, module } => format!("Модуль · {component} / {module}"),
+        ToolOrigin::Mcp {
+            package: Some(package),
+            server,
+        } => format!("MCP · {server} · пакет {package}"),
+        ToolOrigin::Mcp {
+            package: None,
+            server,
+        } => format!("MCP · {server}"),
+        ToolOrigin::Package(package) => format!("Пакет · {package}"),
+        ToolOrigin::Source("") => "Источник не указан".to_string(),
+        ToolOrigin::Source(source) => format!("Источник · {source}"),
     }
 }

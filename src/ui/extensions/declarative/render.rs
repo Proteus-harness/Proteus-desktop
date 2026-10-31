@@ -15,6 +15,7 @@ use crate::ui::kit;
 use crate::ui::kit::ButtonLabel as _;
 use crate::ui::kit::Pressable as _;
 use crate::ui::prefs;
+use crate::ui::tip::Tip as _;
 
 pub(super) fn tone_color(tone: Tone, cx: &App) -> Hsla {
     let theme = cx.theme();
@@ -34,6 +35,35 @@ impl DeclarativeView {
     /// selected tab, so they survive a new tree of the same shape.
     pub(super) fn node(&self, node: &Node, path: &str, cx: &mut Context<Self>) -> AnyElement {
         let element = match node {
+            Node::SettingRow {
+                id,
+                label,
+                description,
+                control,
+                below,
+            } => {
+                let title = div()
+                    .id(ElementId::Name(format!("setting-row-title-{id}").into()))
+                    .min_w_0()
+                    .max_w_full()
+                    .child(faded(label.clone()))
+                    .when_some(
+                        description
+                            .as_deref()
+                            .and_then(|text| kit::hint_text(text, None, cx)),
+                        |title, hint| title.tip_text(hint),
+                    );
+                let content = self.node(control, &format!("{path}.setting({}:{id})", id.len()), cx);
+                let content = div()
+                    .min_w_0()
+                    .max_w_full()
+                    .when(
+                        !*below && matches!(control.as_ref(), Node::Input { .. }),
+                        |cell| cell.w(prefs::scaled(160.)),
+                    )
+                    .child(content);
+                kit::settings_row(title, content, *below).into_any_element()
+            }
             Node::Person { name, detail } => v_flex()
                 .w_full()
                 .items_center()
@@ -107,6 +137,8 @@ impl DeclarativeView {
                     ElementId::Name(format!("select-menu-{id}").into()),
                     kit::button(ElementId::Name(format!("select-{id}").into()))
                         .small()
+                        .min_w_0()
+                        .max_w_full()
                         .faded_label(label.clone())
                         .outline(),
                     true,
@@ -245,14 +277,29 @@ impl DeclarativeView {
                 id, flush, mono, ..
             } => {
                 let mono = mono.then(|| cx.theme().mono_font_family.clone());
+                let settings = self
+                    .fields
+                    .inputs
+                    .get(id)
+                    .is_some_and(|input| input.settings);
                 div()
                     .w_full()
-                    .map(|field| if *flush { field.pt_1p5() } else { field.p_2() })
+                    .min_w_0()
+                    .map(|field| {
+                        if *flush {
+                            field.pt_1p5()
+                        } else if settings {
+                            field
+                        } else {
+                            field.p_2()
+                        }
+                    })
                     .when_some(mono, |field, family| field.font_family(family))
                     .children(self.fields.inputs.get(id).map(|input| {
                         match &input.state {
                             super::fields::Text::Line(state) => kit::input(state)
                                 .w_full()
+                                .map(|control| if settings { control.small() } else { control })
                                 .appearance(!*flush)
                                 .into_any_element(),
                             super::fields::Text::Area(state) => {
@@ -261,7 +308,14 @@ impl DeclarativeView {
                                 } else {
                                     kit::textarea(state, cx)
                                 };
-                                kit::contain_scroll(area.small().w_full()).into_any_element()
+                                super::fields::textarea::render(
+                                    self,
+                                    id,
+                                    input.grow,
+                                    state,
+                                    area.small().w_full(),
+                                    cx,
+                                )
                             }
                         }
                     }))

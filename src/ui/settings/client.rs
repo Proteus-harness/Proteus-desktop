@@ -7,9 +7,10 @@ use super::SettingsView;
 use super::sizes::slider;
 use super::widgets::{MenuOption, card, row, section, select_menu};
 use crate::preferences::{
-    Hints, MotionPreference, Notifications, Preferences, SendMode, ThemePreference,
+    Hints, LabelTruncation, MotionPreference, Notifications, Preferences, SendMode, ThemePreference,
 };
 use crate::ui::kit;
+use crate::ui::kit::{ButtonLabel as _, Hint as _};
 use crate::ui::prefs::{self, ClientPreferences};
 use crate::ui::theme::{self, ThemeProblems};
 
@@ -23,6 +24,11 @@ const MOTIONS: [(MotionPreference, &str); 3] = [
     (MotionPreference::Full, "Полные"),
     (MotionPreference::Reduced, "Уменьшенные"),
     (MotionPreference::Off, "Выключены"),
+];
+
+const TRUNCATIONS: [(LabelTruncation, &str); 2] = [
+    (LabelTruncation::Fade, "Плавное затемнение"),
+    (LabelTruncation::Ellipsis, "Многоточие"),
 ];
 
 const HINTS: [(Hints, &str); 4] = [
@@ -90,6 +96,10 @@ const HINTS_ROW: RowText = text(
     "Подсказки к кнопкам",
     Some("Сведения значков и полные названия видны всегда."),
 );
+const TRUNCATION: RowText = text(
+    "Длинные подписи",
+    Some("Как обрезать названия шрифтов и другие подписи, которые не помещаются в строку."),
+);
 const SEND: RowText = text(
     "Отправка сообщения",
     Some(
@@ -126,7 +136,7 @@ const NOTIFICATIONS_ROW: RowText = text(
     Some("Когда окно в фоне: агент закончил, ждёт подтверждения или ответа."),
 );
 
-pub(super) const APPEARANCE_ROWS: [&RowText; 8] = [
+pub(super) const APPEARANCE_ROWS: [&RowText; 9] = [
     &THEME,
     &DARK_PALETTE,
     &LIGHT_PALETTE,
@@ -135,6 +145,7 @@ pub(super) const APPEARANCE_ROWS: [&RowText; 8] = [
     &SURFACE_RADIUS,
     &MOTION,
     &HINTS_ROW,
+    &TRUNCATION,
 ];
 pub(super) const CHAT_ROWS: [&RowText; 7] = [
     &SEND,
@@ -147,6 +158,37 @@ pub(super) const CHAT_ROWS: [&RowText; 7] = [
 ];
 
 impl SettingsView {
+    fn reset_preferences(&self, appearance: bool, cx: &Context<Self>) -> AnyElement {
+        kit::button(if appearance {
+            "reset-appearance"
+        } else {
+            "reset-chat"
+        })
+        .icon(IconName::Undo2)
+        .faded_label("Сбросить")
+        .quiet(cx)
+        .small()
+        .hint("Вернуть настройки этого раздела по умолчанию", cx)
+        .on_click(cx.listener(move |view, _, window, cx| {
+            prefs::update(cx, |prefs| {
+                if appearance {
+                    prefs.reset_appearance();
+                } else {
+                    prefs.reset_chat();
+                }
+            });
+            if appearance {
+                view.fonts.reset_interface(window, cx);
+                view.sizes.reset_appearance(window, cx);
+            } else {
+                view.fonts.reset_chat(window, cx);
+                view.sizes.reset_chat(window, cx);
+            }
+            cx.notify();
+        }))
+        .into_any_element()
+    }
+
     fn text_row(
         &self,
         text: &RowText,
@@ -226,6 +268,17 @@ impl SettingsView {
                 cx,
             )
             .into_any_element(),
+            self.text_row(
+                &TRUNCATION,
+                choice(
+                    "pref-truncation",
+                    &TRUNCATIONS,
+                    current.label_truncation,
+                    |prefs, value| prefs.label_truncation = value,
+                ),
+                cx,
+            )
+            .into_any_element(),
         ];
         let mut parts = self.preferences_problem(cx);
         parts.extend(cx.global::<ThemeProblems>().0.iter().map(|problem| {
@@ -235,7 +288,16 @@ impl SettingsView {
                 .child(format!("Тема не прочитана: {problem}"))
                 .into_any_element()
         }));
-        parts.push(section("Интерфейс", None, None, card(rows, cx), cx).into_any_element());
+        parts.push(
+            section(
+                "Интерфейс",
+                None,
+                Some(self.reset_preferences(true, cx)),
+                card(rows, cx),
+                cx,
+            )
+            .into_any_element(),
+        );
         parts
     }
 
@@ -294,7 +356,16 @@ impl SettingsView {
             .into_any_element(),
         ];
         let mut parts = self.preferences_problem(cx);
-        parts.push(section("Диалог", None, None, card(sizes, cx), cx).into_any_element());
+        parts.push(
+            section(
+                "Диалог",
+                None,
+                Some(self.reset_preferences(false, cx)),
+                card(sizes, cx),
+                cx,
+            )
+            .into_any_element(),
+        );
         parts.push(section("Поле ввода", None, None, card(rows, cx), cx).into_any_element());
         parts
     }

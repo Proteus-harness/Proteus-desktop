@@ -21,16 +21,9 @@ use crate::ui::kit::Pressable as _;
 use crate::ui::prefs;
 use crate::ui::tip::Tip as _;
 
-/// A row title narrower than this gives the line to the control instead;
-/// down to it a long title fades out at its end.
-const TITLE_MIN_WIDTH: f32 = 160.;
-/// Text inputs on a row's line narrow down to this before moving below.
-const INPUT_MIN_WIDTH: f32 = 140.;
-const INPUT_MAX_WIDTH: f32 = 220.;
+const INPUT_MAX_WIDTH: f32 = 320.;
 /// Inputs for numbers and other short values.
 pub(super) const SHORT_INPUT_WIDTH: f32 = 112.;
-/// Controls under the title stop growing here, so lists stay readable.
-const BELOW_MAX_WIDTH: f32 = 560.;
 /// Tooltips with descriptions wrap at this width.
 const ABOUT_WIDTH: f32 = 320.;
 /// Long descriptions get a fading preview, rather than a textual ellipsis.
@@ -132,9 +125,8 @@ pub(super) fn note(text: impl Into<SharedString>, cx: &App) -> Div {
         .child(text.into())
 }
 
-/// Title on the left, the control on the right; wide controls go under the
-/// title, and a narrow window moves the control to its own line instead of
-/// squeezing the title into a column of letters. The description lives in
+/// Title on the left and a shrinking control on the right. Explicit multiline
+/// controls go below; ordinary parameters stay on one line. The description lives in
 /// a tooltip on the title, so rows stay one line high.
 pub(super) fn row(
     title: impl Into<SharedString>,
@@ -156,10 +148,9 @@ pub(super) fn row(
 /// How a row places its control.
 #[derive(Clone, Copy)]
 pub(super) enum Fit {
-    /// At its own width on the right.
+    /// At its content width on the right, shrinking with the available row.
     Fixed,
-    /// On the right, sharing the line with the title: it narrows down to a
-    /// minimum before taking a line of its own.
+    /// A bounded single-line input on the right; it shrinks on narrow windows.
     Shrink,
     /// Under the title at full width.
     Below,
@@ -167,38 +158,15 @@ pub(super) enum Fit {
 
 /// `row` with a title line built by the caller.
 pub(super) fn field_row(title: impl IntoElement, control: impl IntoElement, fit: Fit) -> Div {
-    let title = h_flex()
-        .min_w_0()
-        .gap_x_2()
-        .items_center()
-        .text_sm()
-        .child(title);
-    if let Fit::Below = fit {
-        return v_flex().px_4().py_2p5().gap_2().child(title).child(
-            div()
-                .w_full()
-                .max_w(prefs::scaled(BELOW_MAX_WIDTH))
-                .child(control),
-        );
-    }
-    // Both share the line alike, so a wide line gives the control its full
-    // width and the rest to the title.
-    let cell = match fit {
+    let control = match fit {
         Fit::Shrink => div()
-            .flex_1()
-            .min_w(prefs::scaled(INPUT_MIN_WIDTH))
-            .max_w(prefs::scaled(INPUT_MAX_WIDTH)),
-        _ => div().flex_none(),
+            .w(prefs::scaled(220.))
+            .min_w_0()
+            .max_w_full()
+            .child(control),
+        _ => div().min_w_0().max_w_full().child(control),
     };
-    h_flex()
-        .flex_wrap()
-        .px_4()
-        .py_2p5()
-        .gap_x_6()
-        .gap_y_2()
-        .items_center()
-        .child(title.flex_1().min_w(prefs::scaled(TITLE_MIN_WIDTH)))
-        .child(cell.ml_auto().child(control))
+    kit::settings_row(title, control, matches!(fit, Fit::Below))
 }
 
 /// The title on one line, fading out where it runs out of room, with an
@@ -278,7 +246,7 @@ pub(super) fn named(
 }
 
 /// Row of a listed item: its name on the left, chips and controls on the
-/// right; a narrow window moves them under the name.
+/// right. Controls may wrap their own chips without moving the whole field.
 pub(super) fn item_row(
     title: impl IntoElement,
     trailing: impl IntoIterator<Item = AnyElement>,

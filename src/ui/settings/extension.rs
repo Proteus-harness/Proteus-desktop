@@ -7,7 +7,7 @@ use gpui_kit::component::*;
 use gpui_kit::*;
 
 use super::SettingsView;
-use super::widgets::{MenuOption, card, mono, note, row, section, select_menu};
+use super::widgets::{MenuOption, Tone, card, chip, mono, note, row, section, select_menu};
 use crate::preferences::BadgePlace;
 use crate::settings::catalog::PageId;
 use crate::ui::extensions::{self, Manifest};
@@ -78,6 +78,15 @@ impl SettingsView {
                     cx,
                 )
                 .into_any_element(),
+            );
+        }
+        if !manifest.tags.is_empty() {
+            parts.push(
+                h_flex()
+                    .flex_wrap()
+                    .gap_1()
+                    .children(manifest.tags.iter().map(|tag| chip(*tag, Tone::Muted, cx)))
+                    .into_any_element(),
             );
         }
         parts.push(

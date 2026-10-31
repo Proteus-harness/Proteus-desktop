@@ -30,6 +30,20 @@ impl Fonts {
         (Self { interface, chat }, subscriptions)
     }
 
+    pub fn reset_interface(&self, window: &mut Window, cx: &mut Context<SettingsView>) {
+        self.interface.update(cx, |state, cx| {
+            state.set_selected_index(None, window, cx);
+            cx.notify();
+        });
+    }
+
+    pub fn reset_chat(&self, window: &mut Window, cx: &mut Context<SettingsView>) {
+        self.chat.update(cx, |state, cx| {
+            state.set_selected_index(None, window, cx);
+            cx.notify();
+        });
+    }
+
     pub fn interface(&self) -> AnyElement {
         control(&self.interface, "Из темы", "Шрифт интерфейса")
     }
@@ -81,15 +95,51 @@ fn follow(
     )
 }
 
+#[derive(IntoElement)]
+struct FontControl {
+    state: Entity<FontSelect>,
+    inherited: &'static str,
+    label: &'static str,
+}
+
+impl RenderOnce for FontControl {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let value = self
+            .state
+            .read(cx)
+            .selected_value()
+            .cloned()
+            .unwrap_or_else(|| self.inherited.into());
+        let style = window.text_style();
+        let font_size = prefs::scaled(14.).to_pixels(window.rem_size());
+        let width = window
+            .text_system()
+            .shape_line(value.clone(), font_size, &[style.to_run(value.len())], None)
+            .width();
+        div()
+            .min_w_0()
+            .max_w_full()
+            .w(width + prefs::scaled(56.).to_pixels(window.rem_size()))
+            .child(
+                Select::new(&self.state)
+                    .small()
+                    .cleanable(true)
+                    .placeholder(self.inherited)
+                    .accessibility_label(self.label)
+                    .search_placeholder("Поиск шрифтов…")
+                    .render_title(|title, _, _| crate::ui::fade::faded(title).into_any_element())
+                    .menu_width(prefs::scaled(300.))
+                    .min_w_0()
+                    .w_full(),
+            )
+    }
+}
+
 fn control(state: &Entity<FontSelect>, inherited: &'static str, label: &'static str) -> AnyElement {
-    Select::new(state)
-        .small()
-        .cleanable(true)
-        .placeholder(inherited)
-        .accessibility_label(label)
-        .search_placeholder("Поиск шрифтов…")
-        .menu_width(prefs::scaled(300.))
-        .w(prefs::scaled(240.))
-        .max_w_full()
-        .into_any_element()
+    FontControl {
+        state: state.clone(),
+        inherited,
+        label,
+    }
+    .into_any_element()
 }

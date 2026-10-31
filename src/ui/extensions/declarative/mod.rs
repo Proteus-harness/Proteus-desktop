@@ -97,6 +97,7 @@ fn entry(extension: Installed) -> Entry {
         title: &manifest.title,
         author: &manifest.author,
         description: &manifest.description,
+        tags: manifest.tags().collect(),
         icon: icon(manifest.icon.as_deref()),
         page: surfaces
             .page
@@ -115,6 +116,7 @@ fn entry(extension: Installed) -> Entry {
             build: badge::build,
             place: badge.place,
             narrow: badge.narrow,
+            initially_hidden: badge.initially_hidden,
         }),
     }));
     Entry {

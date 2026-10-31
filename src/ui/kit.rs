@@ -22,11 +22,15 @@ use crate::shortcuts::{self, Command};
 
 mod controls;
 mod frame;
+mod icon_button;
 mod selection;
+mod settings_row;
 mod surface;
 pub(crate) use controls::{Clipboard, Switch};
 pub(crate) use frame::{Frame, RowRule, record_first_child};
+pub(crate) use icon_button::icon_button;
 pub(crate) use selection::SelectionCopyMenu;
+pub(crate) use settings_row::settings_row;
 pub(crate) use surface::{surface, surface_highlight};
 
 /// Shared button captions and quiet surfaces. Icons, sizes, focus and
@@ -78,15 +82,6 @@ pub(crate) fn keyboard() -> bool {
 
 pub(crate) fn button(id: impl Into<ElementId>) -> Button {
     Button::new(id).focus_ring(KEYBOARD.get())
-}
-
-/// A square icon action, including controls with custom icon children and
-/// tooltip measurement decorations. Those children must not opt the native
-/// Button into caption padding. Equivalent to Zed's IconButtonShape::Square;
-/// native focus, disabled state and activation remain unchanged.
-pub(crate) fn icon_button(id: impl Into<ElementId>) -> Button {
-    use gpui_kit::component::Sizable as _;
-    button(id).small().size_6().p_0()
 }
 
 pub(crate) fn switch(id: impl Into<ElementId>) -> Switch {

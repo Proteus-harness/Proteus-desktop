@@ -9,6 +9,8 @@ use gpui_kit::component::input::{EditorState, InputEvent, InputState, TextareaSt
 use gpui_kit::*;
 use std::collections::HashMap;
 
+pub(super) mod textarea;
+
 pub(super) enum Text {
     Line(Entity<InputState>),
     Area(Entity<TextareaState>),
@@ -50,6 +52,8 @@ impl Text {
 
 pub(super) struct TextInput {
     pub state: Text,
+    pub settings: bool,
+    pub grow: bool,
     value: String,
     placeholder: String,
     _subscription: Subscription,
@@ -83,6 +87,7 @@ impl DeclarativeView {
             }
             Node::Input { id, .. } => {
                 ids.insert((0, id.clone()));
+                ids.insert((9, textarea::disclosure_id(id)));
             }
             Node::Code { id, .. } => {
                 ids.insert((1, id.clone()));
@@ -161,7 +166,23 @@ impl DeclarativeView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.prepare_fields_in(node, self.settings_page(), window, cx);
+    }
+
+    fn prepare_fields_in(
+        &mut self,
+        node: &Node,
+        settings: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         match node {
+            Node::SettingRow { control, .. } => self.prepare_fields_in(control, true, window, cx),
+            Node::PanelEditor { children } => {
+                for child in children {
+                    self.prepare_fields_in(child, false, window, cx);
+                }
+            }
             Node::RichText { id, html, inlines } => {
                 self.prepare_rich_text(id, html, inlines, window, cx)
             }
@@ -173,7 +194,7 @@ impl DeclarativeView {
             Node::Sortable { items, .. } => {
                 for item in items {
                     for child in &item.children {
-                        self.prepare_fields(child, window, cx);
+                        self.prepare_fields_in(child, settings, window, cx);
                     }
                 }
             }
@@ -242,7 +263,7 @@ impl DeclarativeView {
             } => {
                 self.fields.disclosures.entry(id.clone()).or_insert(*open);
                 for child in children {
-                    self.prepare_fields(child, window, cx);
+                    self.prepare_fields_in(child, settings, window, cx);
                 }
             }
             Node::Diff {
@@ -287,7 +308,11 @@ impl DeclarativeView {
                 submit,
                 ..
             } => {
+                let grow = settings && *lines > 1;
                 if let Some(input) = self.fields.inputs.get_mut(id) {
+                    let layout_changed = input.grow != grow || input.value != *value;
+                    input.settings = settings;
+                    input.grow = grow;
                     if input.placeholder != *placeholder {
                         input.placeholder = placeholder.clone();
                         input.state.set_placeholder(placeholder.clone(), window, cx);
@@ -297,6 +322,9 @@ impl DeclarativeView {
                         if input.state.value(cx).as_ref() != value {
                             input.state.set_value(value.clone(), window, cx);
                         }
+                    }
+                    if layout_changed && let Text::Area(state) = &input.state {
+                        textarea::resize(state, *lines, grow, cx);
                     }
                 } else {
                     let multi = *lines > 1;
@@ -335,12 +363,26 @@ impl DeclarativeView {
                     let (state, subscription) = if multi {
                         let state = cx.new(|cx| {
                             let mut input = TextareaState::new(window, cx)
-                                .auto_grow(*lines, *lines)
+                                .auto_grow(*lines, textarea::max_rows(value, *lines, grow))
                                 .placeholder(placeholder.clone());
                             input.set_value(value.clone(), window, cx);
                             input
                         });
+                        let (input_id, min_rows) = (id.clone(), *lines);
                         let subscription = cx.subscribe(&state, move |this, state, event, cx| {
+                            if matches!(event, InputEvent::Change) {
+                                let grow = this
+                                    .fields
+                                    .inputs
+                                    .get(&input_id)
+                                    .is_some_and(|input| input.grow);
+                                textarea::resize(&state, min_rows, grow, cx);
+                                if grow && textarea::preview(&state.read(cx).value()).is_some() {
+                                    this.fields
+                                        .disclosures
+                                        .insert(textarea::disclosure_id(&input_id), true);
+                                }
+                            }
                             let text = state.read(cx).value();
                             handle(this, text, event, cx)
                         });
@@ -362,6 +404,8 @@ impl DeclarativeView {
                         id.clone(),
                         TextInput {
                             state,
+                            settings,
+                            grow,
                             value: value.clone(),
                             placeholder: placeholder.clone(),
                             _subscription: subscription,
@@ -485,16 +529,15 @@ impl DeclarativeView {
             | Node::Card { children, .. }
             | Node::Fill { children }
             | Node::Bar { children, .. }
-            | Node::PanelEditor { children }
             | Node::Split { children, .. } => {
                 for child in children {
-                    self.prepare_fields(child, window, cx);
+                    self.prepare_fields_in(child, settings, window, cx);
                 }
             }
             Node::Tabs { tabs, .. } => {
                 for tab in tabs {
                     for child in &tab.children {
-                        self.prepare_fields(child, window, cx);
+                        self.prepare_fields_in(child, settings, window, cx);
                     }
                 }
             }
