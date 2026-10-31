@@ -332,6 +332,55 @@ class PortableSelectionTests(unittest.TestCase):
         self.assertFalse((self.portable.PORTABLE / "bin/old-module").exists())
         self.assertFalse((self.portable.PORTABLE / "share/modules/old").exists())
 
+    def seed_package_updates(self):
+        path = self.base / "share/release-sources.json"
+        record = json.loads(path.read_text())
+        record["package_source_overrides"] = {
+            group: {"old": {"source": {"commit": "old-package-" + group},
+                            "sha256": "old-hash-" + group}}
+            for group in ("modules", "extensions")
+        }
+        record["build_package_updates"] = {
+            group: ["old"] for group in ("modules", "extensions")
+        }
+        record["local_extension_variant"] = {"enabled_additions": ["local-renderer"]}
+        self.write_json(path, record)
+        return record
+
+    def test_whole_group_replacement_clears_only_selected_package_provenance(self):
+        original = self.seed_package_updates()
+        for selected, reused in (("modules", "extensions"), ("extensions", "modules")):
+            with self.subTest(selected=selected):
+                self.invoke("--components", selected)
+                record = self.record()
+                for key in ("package_source_overrides", "build_package_updates"):
+                    self.assertEqual(record[key], {reused: original[key][reused]})
+                self.assertEqual(record["local_extension_variant"], original["local_extension_variant"])
+                self.assertEqual(record["sources"][self.portable.SOURCE_NAMES[reused]],
+                                 original["sources"][self.portable.SOURCE_NAMES[reused]])
+                self.assertEqual(json.loads((self.base / "share/release-sources.json").read_text()), original)
+
+    def test_replacing_both_groups_removes_empty_package_provenance_containers(self):
+        original = self.seed_package_updates()
+        self.invoke("--components", "modules", "extensions")
+        record = self.record()
+        for key in ("package_source_overrides", "build_package_updates"):
+            self.assertNotIn(key, record)
+        self.assertEqual(record["local_extension_variant"], original["local_extension_variant"])
+
+    def test_desktop_update_preserves_reused_package_provenance(self):
+        original = self.seed_package_updates()
+        self.invoke()
+        record = self.record()
+        for key in ("package_source_overrides", "build_package_updates", "local_extension_variant"):
+            self.assertEqual(record[key], original[key])
+
+    def test_reuse_preserves_package_provenance_bytes(self):
+        self.seed_package_updates()
+        self.invoke("--reuse-binaries")
+        self.assertEqual((self.portable.PORTABLE / "share/release-sources.json").read_bytes(),
+                         (self.base / "share/release-sources.json").read_bytes())
+
     def test_reuse_is_exact_copy_no_resolve_build_or_metadata_rewrite(self):
         self.invoke("--reuse-binaries")
         for mock in (self.build_binary, self.run, self.limit, self.resolve, self.source_record):

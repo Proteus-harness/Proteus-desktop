@@ -96,6 +96,15 @@ def assemble(stage, selected, roots, profile, base_record=None):
         record["build_mode"] = "partial"
         record["build_components"] = list(selected)
         record["binary_sha256"] = binary_hashes(stage)
+        # Whole-group replacement supersedes earlier single-package updates.
+        # Reused groups keep their exact shipped source and hash provenance.
+        for key in ("package_source_overrides", "build_package_updates"):
+            if key in record:
+                for component in ("modules", "extensions"):
+                    if component in selected:
+                        record[key].pop(component, None)
+                if not record[key]:
+                    del record[key]
         for component in selected:
             record["sources"][SOURCE_NAMES[component]] = source_record(
                 SOURCE_NAMES[component], roots[component])
