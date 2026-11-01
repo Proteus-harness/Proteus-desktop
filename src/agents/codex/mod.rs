@@ -116,8 +116,12 @@ impl CodexService {
         self.client.is_connected() && self.router.lock().unwrap().is_connected()
     }
     pub fn list(&self, cwd: &Path, cursor: Option<&str>) -> Result<Page<Summary>, Error> {
-        let response=self.client.request("thread/list",json!({"cwd":cwd,"cursor":cursor,"limit":50,
-            "sortKey":"updated_at","sortDirection":"desc","useStateDbOnly":true,"modelProviders":[]}))?;
+        let response = self.client.request(
+            "thread/list",
+            json!({"cwd":cwd,"cursor":cursor,"limit":50,
+            "sortKey":"updated_at","sortDirection":"desc","useStateDbOnly":true,"modelProviders":[],
+            "sourceKinds":["cli","vscode","exec","appServer","subAgentThreadSpawn"]}),
+        )?;
         let data = array(&response, "data")?
             .iter()
             .filter_map(projection::summary)

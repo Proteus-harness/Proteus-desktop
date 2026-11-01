@@ -11,6 +11,7 @@ for line in sys.stdin:
     if method=='initialize': result={}
     elif method=='thread/list':
         assert p['limit']==50 and p['useStateDbOnly'] and p['modelProviders']==[]
+        assert p['sourceKinds']==['cli','vscode','exec','appServer','subAgentThreadSpawn']
         result={'data':[{'id':'opaque:stored','cwd':p['cwd'],'name':'Stored','updatedAt':12,'parentThreadId':'opaque:parent'}],'nextCursor':'next:page'}
     elif method=='model/list':
         print(json.dumps({'id':'server:opaque:request','method':'attestation/generate','params':{'nonce':'synthetic'}}),flush=True)
