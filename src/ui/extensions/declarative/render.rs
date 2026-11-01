@@ -386,6 +386,7 @@ impl DeclarativeView {
                     language,
                     *wrap,
                     state.and_then(super::fields::Code::editor),
+                    state.is_some_and(super::fields::Code::horizontal_overflow),
                     cx,
                 ),
             },

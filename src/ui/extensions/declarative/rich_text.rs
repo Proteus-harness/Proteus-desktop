@@ -145,6 +145,7 @@ pub(super) fn embedded_code(
     language: &str,
     wrap: bool,
     state: Option<&Entity<gpui_kit::component::input::EditorState>>,
+    horizontal_overflow: bool,
     cx: &mut Context<DeclarativeView>,
 ) -> AnyElement {
     use gpui_kit::component::ActiveTheme as _;
@@ -152,7 +153,15 @@ pub(super) fn embedded_code(
     // The compact readonly editor has no vertical input insets. Its height
     // follows the preview rows, with the same mono font and leading. The
     // original source (including its final LF) remains in the editor/copy.
-    let height = cx.theme().mono_font_size * (1.5 * rows as f32);
+    // An actual horizontal overflow reserves its track below the text, so
+    // the scrollbar never overlays the final source row. Short fences keep
+    // precisely their text height, without a fake blank row or overscroll.
+    let height = super::code_geometry::embedded_editor_height(
+        rows,
+        cx.theme().mono_font_size * 1.5,
+        horizontal_overflow,
+        super::code_geometry::horizontal_track_height(cx),
+    );
     // Rope clones share the current revision; materialize only on activation.
     // The fallback similarly shares its one text allocation with the body.
     let source = state.map(|state| state.read(cx).text().clone());

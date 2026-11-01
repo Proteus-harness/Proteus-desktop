@@ -83,6 +83,9 @@ def sources(stage, *, plain_previews=False):
         if plain_previews:
             result["plain-lines"] = (PLAIN_SOURCES["plain-lines"][0]
                                      + "Обновлённая строка: тот же блок и message id.\n", "text")
+            # Same retained programming fence loses its horizontal overflow.
+            # The scrollbar's reserved space must disappear with the track.
+            result["long"] = ('let payload = "updated";\n', "rust")
     return result
 
 

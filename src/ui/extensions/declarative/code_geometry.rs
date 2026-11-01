@@ -1,6 +1,11 @@
+// Адаптировано из Zed: crates/markdown/src/markdown.rs (reserved scrollbar
+// track) and crates/editor/src/split_editor_view.rs (text/track bounds).
 //! Width and overflow presentation for readonly fences. The editor keeps its
 //! own scroll system; these decorations never register a pointer hitbox.
-use gpui_kit::base::{ScrollbarHandle as _, input::EditorScrollbarContext};
+use gpui_kit::base::{
+    ScrollbarAxis, ScrollbarHandle as _,
+    input::{EditorScrollbarContext, EditorScrollbarRenderer},
+};
 use gpui_kit::component::{ActiveTheme as _, input::EditorState, scroll::Scrollbar};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -137,28 +142,121 @@ fn fade(leading: bool, color: Hsla) -> Div {
         ))
 }
 
-/// Called by the editor after its caret scroll, so the fades agree with this
-/// frame's text, including selection-driven scrolling. Gutter stays outside.
-pub(super) fn editor_scrollbar(
-    context: EditorScrollbarContext,
-    _: &mut Window,
-    cx: &mut App,
-) -> AnyElement {
+/// The rendered track and the reserved strip use one size at every UI scale.
+pub(super) fn horizontal_track_height(cx: &App) -> Pixels {
+    Scrollbar::width() * crate::ui::prefs::scale(cx)
+}
+
+pub(super) fn embedded_editor_height(
+    rows: usize,
+    line_height: Pixels,
+    horizontal_overflow: bool,
+    track_height: Pixels,
+) -> Pixels {
+    // GPUI TextStyle::line_height_in_pixels rounds each row before Editor
+    // lays it out. Rounding the aggregate height leaves short fences with a
+    // real one-pixel vertical range (13px mono: 2 × round(19.5) = 40).
+    line_height.round() * rows as f32
+        + if horizontal_overflow {
+            track_height
+        } else {
+            px(0.)
+        }
+}
+
+fn scrollbar_axis(horizontal: bool, vertical: bool) -> Option<ScrollbarAxis> {
+    match (horizontal, vertical) {
+        (true, true) => Some(ScrollbarAxis::Both),
+        (true, false) => Some(ScrollbarAxis::Horizontal),
+        (false, true) => Some(ScrollbarAxis::Vertical),
+        (false, false) => None,
+    }
+}
+
+/// The native editor owns offsets, caret scrolling, hit testing and ranges.
+/// Observe its actual horizontal endpoint after layout, without deriving it
+/// from content_size (which includes an extra presentation margin).
+pub(super) fn embedded_editor_scrollbar(
+    owner: WeakEntity<super::view::DeclarativeView>,
+    id: String,
+    editor_id: EntityId,
+) -> EditorScrollbarRenderer {
+    std::rc::Rc::new(move |context, window, cx| {
+        let horizontal = matches!(
+            context.axis(),
+            ScrollbarAxis::Horizontal | ScrollbarAxis::Both
+        ) && context.horizontal_scroll_range() > px(0.);
+        // Do not allocate a deferred callback on ordinary repaint/scroll. The
+        // entity identity also fences late prepaint from a replaced Code id.
+        let changed = owner.upgrade().is_some_and(|owner| {
+            matches!(
+                owner.read(cx).fields.codes.get(&id),
+                Some(super::fields::Code::Editor { state, horizontal_overflow, .. })
+                    if state.entity_id() == editor_id && *horizontal_overflow != horizontal
+            )
+        });
+        if changed {
+            let (owner, id) = (owner.clone(), id.clone());
+            cx.defer(move |cx| {
+                let _ = owner.update(cx, |owner, cx| {
+                    let changed = match owner.fields.codes.get_mut(&id) {
+                        Some(super::fields::Code::Editor {
+                            state,
+                            horizontal_overflow,
+                            ..
+                        }) if state.entity_id() == editor_id
+                            && *horizontal_overflow != horizontal =>
+                        {
+                            *horizontal_overflow = horizontal;
+                            true
+                        }
+                        _ => false,
+                    };
+                    if changed {
+                        // Automatic geometry follows the ordinary rendered
+                        // observer/row remeasurement. WillResize marks a user
+                        // disclosure gesture and would stop following the chat.
+                        cx.notify();
+                    }
+                });
+            });
+        }
+        editor_scrollbar(context, window, cx)
+    })
+}
+
+/// Called after caret scroll, so fades and the thumb share this frame's text.
+/// Any horizontal track occupies the reserved bottom strip; the gutter stays
+/// outside its viewport, exactly as in the editor's native context.
+fn editor_scrollbar(context: EditorScrollbarContext, _: &mut Window, cx: &mut App) -> AnyElement {
+    let horizontal = matches!(
+        context.axis(),
+        ScrollbarAxis::Horizontal | ScrollbarAxis::Both
+    ) && context.horizontal_scroll_range() > px(0.);
+    let vertical = matches!(
+        context.axis(),
+        ScrollbarAxis::Vertical | ScrollbarAxis::Both
+    ) && context.content_size().height > context.viewport_bounds().size.height;
+    let axis = scrollbar_axis(horizontal, vertical);
     let (left, right) = hidden_edges(
         context.viewport_bounds().size.width,
         context.viewport_bounds().size.width + context.horizontal_scroll_range(),
         context.offset().x,
     );
+    let track_height = horizontal_track_height(cx);
     div()
         .relative()
         .size_full()
         .when(left, |this| this.child(fade(true, cx.theme().muted)))
         .when(right, |this| this.child(fade(false, cx.theme().muted)))
-        .child(
-            Scrollbar::new(&context)
-                .axis(context.axis())
-                .viewport_from_layout(),
-        )
+        .when_some(axis, |this, axis| {
+            this.child(
+                Scrollbar::new(&context)
+                    .axis(axis)
+                    .viewport_from_layout()
+                    .styles(|styles| styles.track(|track| track.width(track_height))),
+            )
+        })
         .into_any_element()
 }
 
@@ -211,8 +309,42 @@ pub(super) fn source_fades(handle: ScrollHandle, cx: &App) -> impl IntoElement {
 
 #[cfg(test)]
 mod tests {
-    use super::hidden_edges;
+    use super::{embedded_editor_height, hidden_edges};
     use gpui_kit::px;
+    #[test]
+    fn actual_horizontal_overflow_reserves_one_track_below_all_source_rows() {
+        for scale in [0.75, 1., 1.5, 2.] {
+            let line = px(19.5 * scale);
+            let track = gpui_kit::component::scroll::Scrollbar::width() * scale;
+            assert_eq!(
+                embedded_editor_height(2, line, false, track),
+                line.round() * 2.
+            );
+            assert_eq!(
+                embedded_editor_height(2, line, true, track),
+                line.round() * 2. + track
+            );
+            assert_eq!(
+                embedded_editor_height(1, line, true, track),
+                line.round() + track
+            );
+        }
+    }
+
+    #[test]
+    fn editor_height_rounds_each_row_like_gpui_before_multiplying() {
+        for (raw_line, two_rows) in [(19.5, 40.), (23.4, 46.), (23.6, 48.)] {
+            assert_eq!(
+                embedded_editor_height(2, px(raw_line), false, px(16.)),
+                px(two_rows)
+            );
+            assert_eq!(
+                embedded_editor_height(2, px(raw_line), true, px(16.)),
+                px(two_rows + 16.)
+            );
+        }
+    }
+
     #[test]
     fn edges_follow_real_scroll_range_and_endpoints() {
         assert_eq!(hidden_edges(px(300.), px(300.), px(0.)), (false, false));

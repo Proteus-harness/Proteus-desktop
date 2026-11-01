@@ -61,18 +61,34 @@ pub(super) struct TextInput {
 
 /// Embedded prose keeps only its source and disclosure state, without an
 /// editor, highlighter or private scroll handle. Replacing the variant drops
-/// the previous kind immediately, including same-id language changes.
+/// the previous kind immediately, including same-id language changes. Editor
+/// embedding mode changes also replace the entity: folding, wrap and scrollbar
+/// policies belong to that mode, and stale callbacks cannot cross it.
 pub(super) enum Code {
-    Editor(Entity<EditorState>),
+    Editor {
+        state: Entity<EditorState>,
+        embedded: bool,
+        horizontal_overflow: bool,
+    },
     Plain(super::plain_code::Plain),
 }
 
 impl Code {
     pub(super) fn editor(&self) -> Option<&Entity<EditorState>> {
         match self {
-            Self::Editor(editor) => Some(editor),
+            Self::Editor { state, .. } => Some(state),
             Self::Plain(_) => None,
         }
+    }
+
+    pub(super) fn horizontal_overflow(&self) -> bool {
+        matches!(
+            self,
+            Self::Editor {
+                horizontal_overflow: true,
+                ..
+            }
+        )
     }
 }
 
@@ -451,9 +467,13 @@ impl DeclarativeView {
                     return;
                 }
                 let line_numbers = super::code_block::line_numbers(language, *wrap);
-                let editor = match self.fields.codes.get(id).and_then(Code::editor) {
-                    Some(editor) => editor.clone(),
-                    None => {
+                let editor = match self.fields.codes.get(id) {
+                    Some(Code::Editor {
+                        state,
+                        embedded: mode,
+                        ..
+                    }) if mode == embedded => state.clone(),
+                    _ => {
                         let editor = cx.new(|cx| {
                             let mut editor = EditorState::new(window, cx)
                                 .language(language.clone())
@@ -467,13 +487,26 @@ impl DeclarativeView {
                             editor.set_readonly(true, cx);
                             editor
                         });
-                        self.fields
-                            .codes
-                            .insert(id.clone(), Code::Editor(editor.clone()));
+                        self.fields.codes.insert(
+                            id.clone(),
+                            Code::Editor {
+                                state: editor.clone(),
+                                embedded: *embedded,
+                                horizontal_overflow: false,
+                            },
+                        );
                         editor
                     }
                 };
+                let scrollbar_renderer = embedded.then(|| {
+                    super::code_geometry::embedded_editor_scrollbar(
+                        cx.weak_entity(),
+                        id.clone(),
+                        editor.entity_id(),
+                    )
+                });
                 editor.update(cx, |editor, cx| {
+                    editor.set_scrollbar_renderer(scrollbar_renderer);
                     editor.set_highlighter(language.clone(), cx);
                     editor.set_line_number(line_numbers, window, cx);
                     editor.set_min_line_number_digits(if *embedded { 1 } else { 3 }, cx);
@@ -485,9 +518,6 @@ impl DeclarativeView {
                     );
                     if *embedded {
                         editor.set_scroll_bounce(false, cx);
-                        editor.set_scrollbar_renderer(Some(std::rc::Rc::new(
-                            super::code_geometry::editor_scrollbar,
-                        )));
                     }
                     if editor.value().as_ref() != text {
                         editor.set_value(text.clone(), window, cx);

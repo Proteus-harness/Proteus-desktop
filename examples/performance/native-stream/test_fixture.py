@@ -158,6 +158,8 @@ class ControlTests(unittest.TestCase):
                     self.assertGreater(len(paragraph), 1000)
                     self.assertIn("кириллицей и пробелами", paragraph)
                     self.assertIn(" ", paragraph)
+                    self.assertGreater(len((initial / "long.txt").read_text().splitlines()[0]), 180)
+                    self.assertEqual((updated / "long.txt").read_bytes(), b'let payload = "updated";\n')
                     lines = (initial / "plain-lines.txt").read_bytes()
                     self.assertEqual(len(lines.splitlines()), 80, "Must exceed the tool preview line limit")
                     self.assertEqual((updated / "plain-lines.txt").read_bytes(),
