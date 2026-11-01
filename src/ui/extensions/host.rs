@@ -73,6 +73,7 @@ impl Host {
     }
     pub(in crate::ui) fn session_snapshot(
         &self,
+        include_entries: bool,
         cx: &App,
     ) -> crate::declarative::protocol::Outgoing {
         let (state, entries) = self
@@ -80,7 +81,11 @@ impl Host {
                 host.session().map(|session| {
                     (
                         Box::new(super::session::state(session, host.activity().cloned())),
-                        super::session::entries(session, 0..session.transcript.entries().len()),
+                        if include_entries {
+                            super::session::entries(session, 0..session.transcript.entries().len())
+                        } else {
+                            Vec::new()
+                        },
                     )
                 })
             })

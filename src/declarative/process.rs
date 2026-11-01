@@ -209,6 +209,7 @@ mod tests {
                 icon: None,
                 command: vec!["sh".into(), "-c".into(), script.into()],
                 session_events: false,
+                session_entries: true,
                 surfaces: Surfaces::default(),
                 dependencies: Default::default(),
                 agent_instructions: Vec::new(),

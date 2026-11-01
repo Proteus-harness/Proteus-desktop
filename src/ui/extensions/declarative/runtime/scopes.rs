@@ -62,7 +62,11 @@ impl Runtime {
             .session()
             .then(|| {
                 host.subscribe_session(cx, move |this: &mut Self, event, _| {
-                    if this.extension.manifest.session_events {
+                    if this
+                        .extension
+                        .manifest
+                        .accepts_session_update(&event.update)
+                    {
                         this.send(&Outgoing::SessionUpdate {
                             context: session_context.clone(),
                             session_dir: event.session_dir.clone(),
@@ -119,7 +123,7 @@ impl Runtime {
             session_dir: session.clone(),
         });
         if self.lifetime.session() && self.extension.manifest.session_events && !snapshot_known {
-            self.send(&host.session_snapshot(cx));
+            self.send(&host.session_snapshot(self.extension.manifest.session_entries, cx));
         }
         if let Some(scope) = self.scopes.get_mut(context) {
             scope.session = session;

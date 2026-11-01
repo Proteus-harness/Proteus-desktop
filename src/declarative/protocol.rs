@@ -15,6 +15,7 @@ use super::widget::Node;
 
 pub const PROTOCOL: u32 = 4;
 pub const FEATURES: &[&str] = &[
+    "session.state_only.v1",
     "session.settings.v1",
     "session.tool_state.v1",
     "widgets.controls.v1",

@@ -29,9 +29,12 @@ pub struct Manifest {
     pub icon: Option<String>,
     /// Program and arguments, started in the extension folder.
     pub command: Vec<String>,
-    /// Subscribe to the active session's state and transcript metadata.
+    /// Subscribe to the active session's state and optional transcript projection.
     #[serde(default)]
     pub session_events: bool,
+    /// State-only widgets can opt out before tool payloads are copied/encoded.
+    #[serde(default = "session_entries_default")]
+    pub session_entries: bool,
     #[serde(default)]
     pub dependencies: Dependencies,
     /// Packaged skill directories linked from settings. They do not install
@@ -45,6 +48,10 @@ pub struct Manifest {
 }
 
 impl Manifest {
+    pub fn accepts_session_update(&self, update: &super::session::Update) -> bool {
+        self.session_events
+            && (self.session_entries || matches!(update, super::session::Update::State { .. }))
+    }
     /// Descriptive labels only: these never grant API access or capabilities.
     pub fn tags(&self) -> impl Iterator<Item = &str> {
         self.metadata
@@ -55,6 +62,10 @@ impl Manifest {
             .flatten()
             .filter_map(serde_json::Value::as_str)
     }
+}
+
+fn session_entries_default() -> bool {
+    true
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
@@ -521,6 +532,40 @@ mod agent_instructions_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn state_only_subscription_keeps_state_but_rejects_tool_projection() {
+        let mut value = serde_json::json!({"protocol":4,"id":"demo","title":"Demo","command":["run"],
+            "session_events":true, "surfaces":{"badge":{}}});
+        let entries = super::super::session::Update::Entries {
+            start: 0,
+            removed: 0,
+            entries: Vec::new(),
+        };
+        let state = super::super::session::Update::State {
+            state: Box::new(super::super::session::State {
+                connected: true,
+                config: None,
+                context: None,
+                execution: Default::default(),
+                pending: None,
+                activity: None,
+            }),
+        };
+        let manifest = parse(&value.to_string()).unwrap();
+        assert!(manifest.accepts_session_update(&entries));
+        assert!(manifest.accepts_session_update(&state));
+        value["session_entries"] = serde_json::json!(false);
+        let manifest = parse(&value.to_string()).unwrap();
+        assert!(!manifest.accepts_session_update(&entries));
+        assert!(manifest.accepts_session_update(&state));
+        value["session_events"] = serde_json::json!(false);
+        assert!(
+            !parse(&value.to_string())
+                .unwrap()
+                .accepts_session_update(&state)
+        );
+    }
 
     fn write(root: &Path, folder: &str, text: &str) {
         let dir = root.join(folder);

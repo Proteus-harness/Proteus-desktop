@@ -4,15 +4,14 @@
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use proteus_contracts::domain::ConfigField;
+use proteus_contracts::domain::{ConfigField, ConfigSection};
 use serde_json::Value;
 
 use super::SettingsView;
 use super::widgets::{
     changed_dot, described, disclosure, hashed_id, nested, nested_group, note, reset_mark,
 };
-use crate::settings::FieldPath;
-use crate::settings::catalog::editable_field;
+use crate::settings::{FieldPath, field_sections, section_scope};
 use crate::ui::kit::{Pressable as _, RowRule as _};
 
 impl SettingsView {
@@ -26,16 +25,71 @@ impl SettingsView {
         scope: &str,
         cx: &Context<Self>,
     ) -> Vec<AnyElement> {
-        let field_row = |field: &ConfigField| self.render_field(&path_of(&field.key), field, cx);
+        let mut rows = Vec::new();
+        for section in field_sections(fields) {
+            let section_scope = section_scope(scope, section.fields[0]);
+            if let Some(metadata) = section.metadata
+                && section.fields.iter().any(|field| !field.advanced)
+            {
+                rows.push(
+                    div()
+                        .px_4()
+                        .pt_4()
+                        .pb_2()
+                        .text_sm()
+                        .font_semibold()
+                        .child(described(
+                            hashed_id("params-section", &section_scope),
+                            metadata.title.clone().into(),
+                            Some(metadata.description.clone().into()),
+                            None,
+                            cx,
+                        ))
+                        .into_any_element(),
+                );
+            }
+            rows.extend(self.section_rows(
+                &section.fields,
+                &path_of,
+                &section_scope,
+                section.metadata,
+                cx,
+            ));
+        }
+        let extra: Vec<&str> = object
+            .and_then(Value::as_object)
+            .map(|object| {
+                object
+                    .keys()
+                    .filter(|key| !fields.iter().any(|field| &field.key == *key))
+                    .map(String::as_str)
+                    .collect()
+            })
+            .unwrap_or_default();
+        if !extra.is_empty() {
+            rows.push(note(format!(
+                "Дополнительные параметры: {}. Они сохраняются вместе с профилем; изменить их можно в JSON.",
+                extra.join(", ")
+            ), cx).into_any_element());
+        }
+        rows
+    }
+
+    fn section_rows(
+        &self,
+        fields: &[&ConfigField],
+        path_of: &impl Fn(&str) -> FieldPath,
+        scope: &str,
+        metadata: Option<&ConfigSection>,
+        cx: &Context<Self>,
+    ) -> Vec<AnyElement> {
+        let field_row = |field: &&ConfigField| self.render_field(&path_of(&field.key), field, cx);
         let mut rows: Vec<AnyElement> = fields
             .iter()
-            .filter(|field| !field.advanced && editable_field(field))
+            .filter(|field| !field.advanced)
             .map(field_row)
             .collect();
-        let advanced: Vec<_> = fields
-            .iter()
-            .filter(|field| field.advanced && editable_field(field))
-            .collect();
+        let advanced: Vec<_> = fields.iter().filter(|field| field.advanced).collect();
         if !advanced.is_empty() {
             let key = format!("advanced:{scope}");
             let open = self.is_open(&key);
@@ -63,7 +117,22 @@ impl SettingsView {
                     disclosure(
                         hashed_id("params-advanced", &key),
                         open,
-                        format!("Дополнительно · {}", advanced_count),
+                        described(
+                            hashed_id("params-advanced-title", &key),
+                            if advanced_count == fields.len() {
+                                metadata
+                                    .map(|metadata| metadata.title.clone())
+                                    .unwrap_or_else(|| format!("Дополнительно · {advanced_count}"))
+                            } else {
+                                format!("Дополнительно · {advanced_count}")
+                            }
+                            .into(),
+                            metadata
+                                .filter(|_| advanced_count == fields.len())
+                                .map(|metadata| metadata.description.clone().into()),
+                            None,
+                            cx,
+                        ),
                         changed,
                         move |cx| {
                             let _ = view.update(cx, |this, cx| this.toggle_open(&toggle_key, cx));
@@ -71,28 +140,6 @@ impl SettingsView {
                         cx,
                     ),
                     content,
-                    cx,
-                )
-                .into_any_element(),
-            );
-        }
-        let extra: Vec<&str> = object
-            .and_then(Value::as_object)
-            .map(|object| {
-                object
-                    .keys()
-                    .filter(|key| !fields.iter().any(|field| &field.key == *key))
-                    .map(String::as_str)
-                    .collect()
-            })
-            .unwrap_or_default();
-        if !extra.is_empty() {
-            rows.push(
-                note(
-                    format!(
-                        "Дополнительные параметры: {}. Они сохраняются вместе с профилем; изменить их можно в JSON.",
-                        extra.join(", ")
-                    ),
                     cx,
                 )
                 .into_any_element(),

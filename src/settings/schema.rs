@@ -1,6 +1,42 @@
 use proteus_contracts::domain::{ConfigChoice, ConfigField, ConfigValueSchema};
 use serde_json::Value;
 
+/// Presentation sections preserve both the first occurrence order and real
+/// configuration paths. They do not introduce JSON objects or copy values.
+pub struct FieldSection<'a> {
+    pub metadata: Option<&'a proteus_contracts::domain::ConfigSection>,
+    pub fields: Vec<&'a ConfigField>,
+}
+
+pub fn field_sections(fields: &[ConfigField]) -> Vec<FieldSection<'_>> {
+    let mut sections: Vec<FieldSection<'_>> = Vec::new();
+    for field in fields
+        .iter()
+        .filter(|field| super::catalog::editable_field(field))
+    {
+        let id = field.section.as_ref().map(|section| section.id.as_str());
+        if let Some(section) = sections
+            .iter_mut()
+            .find(|section| section.metadata.map(|metadata| metadata.id.as_str()) == id)
+        {
+            section.fields.push(field);
+        } else {
+            sections.push(FieldSection {
+                metadata: field.section.as_ref(),
+                fields: vec![field],
+            });
+        }
+    }
+    sections
+}
+
+pub fn section_scope(scope: &str, field: &ConfigField) -> String {
+    field.section.as_ref().map_or_else(
+        || scope.to_owned(),
+        |section| format!("{scope}:section:{}", section.id),
+    )
+}
+
 /// How a text control reads and writes one module config value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TextFormat {

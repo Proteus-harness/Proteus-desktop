@@ -391,13 +391,27 @@ impl Scope<'_> {
             };
             let mut way = open.to_vec();
             if field.advanced {
-                way.push(format!("advanced:{scope}"));
+                way.push(format!(
+                    "advanced:{}",
+                    crate::settings::section_scope(&scope, field)
+                ));
             }
             finder.add(
                 Hit::new(&field.title, place, self.page.clone())
                     .open(way.clone())
                     .spot(spot::field(&path)),
-                &[&field.key, &field.description],
+                &[
+                    &field.key,
+                    &field.description,
+                    field
+                        .section
+                        .as_ref()
+                        .map_or("", |section| section.title.as_str()),
+                    field
+                        .section
+                        .as_ref()
+                        .map_or("", |section| section.description.as_str()),
+                ],
             );
             if let ConfigValueSchema::Object { fields: nested } = &field.value
                 && !nested.is_empty()
@@ -422,6 +436,30 @@ mod tests {
         ConfigBuilderPlugin, ConfigBuilderTool, ConfigBuilderToolPack,
     };
     use proteus_contracts::contracts::ProcessToolOwner;
+
+    #[::core::prelude::v1::test]
+    fn section_search_opens_the_correct_advanced_group_without_changing_field_path() {
+        let field = ConfigField::new("timeout", "Таймаут", "", ConfigValueSchema::integer(1))
+            .advanced()
+            .section("network", "Сеть", "Параметры транспорта");
+        let mut finder = Finder::new("транспорта");
+        Scope {
+            slot: "model",
+            module: "example",
+            page: &PageId::Model,
+        }
+        .fields(&mut finder, &[field], None, "Провайдеры", &[]);
+        let hits = finder.finish();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(
+            hits[0].target.open,
+            ["advanced:model:example:section:network"]
+        );
+        assert_eq!(
+            hits[0].target.spot,
+            Some(spot::field(&FieldPath::new("model", "example", "timeout")))
+        );
+    }
 
     #[::core::prelude::v1::test]
     fn tool_search_targets_exact_rows_and_indexes_stale_names() {

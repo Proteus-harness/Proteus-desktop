@@ -2,6 +2,41 @@ use proteus_contracts::domain::{ConfigField, ConfigValueSchema, ModuleConfigSche
 use serde_json::json;
 
 use crate::settings::catalog::{editable_field, editable_params};
+use crate::settings::{FieldPath, field_sections, section_scope};
+
+#[test]
+fn presentation_sections_preserve_paths_and_first_occurrence_order() {
+    let field = |key| ConfigField::new(key, key, "", ConfigValueSchema::Boolean {});
+    let fields = vec![
+        field("url").section("connection", "Подключение", "Адрес сервера"),
+        field("enabled").section("cache", "Кэширование", "Подсказки серверу"),
+        field("retries")
+            .section("connection", "Подключение", "Адрес сервера")
+            .advanced(),
+        field("ungrouped"),
+    ];
+    let sections = field_sections(&fields);
+    assert_eq!(sections.len(), 3);
+    assert_eq!(
+        sections[0]
+            .fields
+            .iter()
+            .map(|field| field.key.as_str())
+            .collect::<Vec<_>>(),
+        ["url", "retries"]
+    );
+    assert_eq!(sections[1].metadata.unwrap().id, "cache");
+    assert!(sections[2].metadata.is_none());
+    assert_eq!(
+        section_scope("model:example", &fields[2]),
+        "model:example:section:connection"
+    );
+    assert_eq!(
+        FieldPath::new("model", "example", &sections[0].fields[1].key).dotted(),
+        "retries"
+    );
+    assert_eq!(section_scope("model:example", &fields[3]), "model:example");
+}
 
 fn object(fields: Vec<ConfigField>) -> ConfigField {
     ConfigField::new("group", "Group", "", ConfigValueSchema::Object { fields })

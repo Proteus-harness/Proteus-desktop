@@ -1,0 +1,97 @@
+{
+  "date": "2026-11-01",
+  "version": "codex-cli 0.166.0",
+  "source_tag": "rust-v0.166.0",
+  "source_commit": "6ff1e1ca3b30fc8b914720681fcf5fe62e95f856",
+  "archive_sha256": "a0bf572d2f93f056c6712a6da348e96078dc84f3885fd7be67807ef389cb3978",
+  "binary_sha256": "b8a11fedf24b2dfb59a70c9e52b030f9a508dcd49cd2dd0d41956f4c785156b8",
+  "scope": "Isolated offline empty-thread lifecycle; no model turn and no real auth/history.",
+  "cycles": 20,
+  "warmup_cycles": 3,
+  "idle_seconds_each": 3,
+  "sampler": "Proteus-core/examples/performance/common/proc_sampler.py",
+  "sample_interval_seconds": 0.1,
+  "samples": 153,
+  "incomplete_memory_samples": 0,
+  "whole_tree_includes": "Codex app-server + bubblewrap supervisor processes; excludes Python probe/sampler.",
+  "post_warmup_idle": {
+    "pss_kib": 139174,
+    "rss_kib": 142780,
+    "swap_pss_kib": 0,
+    "process_count": 3
+  },
+  "final_idle": {
+    "pss_kib": 145058,
+    "rss_kib": 148664,
+    "swap_pss_kib": 0,
+    "process_count": 3
+  },
+  "backend_only": {
+    "post_warmup_idle_end": {
+      "rss_kib": 138904,
+      "pss_kib": 138892,
+      "swap_pss_kib": 0,
+      "process_count": 1
+    },
+    "final_idle_end": {
+      "rss_kib": 144788,
+      "pss_kib": 144776,
+      "swap_pss_kib": 0,
+      "process_count": 1
+    },
+    "clean_eof": {
+      "rss_kib": 0,
+      "pss_kib": 0,
+      "swap_pss_kib": 0,
+      "process_count": 0
+    }
+  },
+  "whole_tree_clean_eof": {
+    "rss_kib": 0,
+    "pss_kib": 0,
+    "swap_pss_kib": 0,
+    "process_count": 0
+  },
+  "whole_tree_sampled_peaks_kib": {
+    "pss_kib": 145342,
+    "pss_swap_kib": 145342,
+    "rss_kib": 148948
+  },
+  "observed_cpu_seconds": 0.3,
+  "unloaded_pss_series_kib": [
+    139362,
+    140238,
+    141438,
+    141522,
+    141646,
+    142090,
+    142598,
+    143102,
+    143182,
+    143670,
+    143694,
+    143798,
+    144882,
+    144710,
+    144906,
+    144942,
+    145026,
+    144954,
+    145002,
+    145054
+  ],
+  "last_five_unloaded_pss_range_kib": [
+    144942,
+    145054
+  ],
+  "checks": {
+    "initialize": true,
+    "synthetic_skill_discovered": true,
+    "plugin_list_local_only": true,
+    "all_23_loaded_then_unloaded": true,
+    "all_second_unsubscribe_notLoaded": true,
+    "eof_exit_code": 0
+  },
+  "limits": "Empty ephemeral threads, unload delay forced to zero, one run. Does not test model turns, tool output, durable resume, real plugin/MCP servers, default 60s unload delay, or absence of leaks.",
+  "raw_evidence": "build/reference/codex-internals-probe-20261101-ram/{report.json,samples.jsonl,stderr.log}"
+}

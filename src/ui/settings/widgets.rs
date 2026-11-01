@@ -376,7 +376,7 @@ pub(super) fn radio_card(
 pub(super) fn disclosure(
     id: ElementId,
     open: bool,
-    label: impl Into<SharedString>,
+    label: impl IntoElement,
     changed: bool,
     toggle: impl Fn(&mut App) + 'static,
     cx: &App,
@@ -396,7 +396,7 @@ pub(super) fn disclosure(
             open,
             theme.muted_foreground,
         ))
-        .child(label.into())
+        .child(label)
         .when(changed && !open, |row| row.child(changed_dot(cx)))
         .on_click(move |_, _, cx| toggle(cx))
 }
