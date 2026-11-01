@@ -93,5 +93,6 @@
     "eof_exit_code": 0
   },
   "limits": "Empty ephemeral threads, unload delay forced to zero, one run. Does not test model turns, tool output, durable resume, real plugin/MCP servers, default 60s unload delay, or absence of leaks.",
-  "raw_evidence": "build/reference/codex-internals-probe-20261101-ram/{report.json,samples.jsonl,stderr.log}"
+  "raw_evidence": "build/reference/codex-internals-probe-20261101-ram/{report.json,samples.jsonl,stderr.log}",
+  "harness_provenance_note": "Binary/version/EOF assertions in the current probe were strengthened after the recorded run. EOF is evidenced by original samples.jsonl; memory was not remeasured after assertion edits. No executed-script SHA is claimed."
 }
