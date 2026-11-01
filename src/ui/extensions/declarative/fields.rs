@@ -59,13 +59,30 @@ pub(super) struct TextInput {
     _subscription: Subscription,
 }
 
+/// Embedded prose keeps only its source and disclosure state, without an
+/// editor, highlighter or private scroll handle. Replacing the variant drops
+/// the previous kind immediately, including same-id language changes.
+pub(super) enum Code {
+    Editor(Entity<EditorState>),
+    Plain(super::plain_code::Plain),
+}
+
+impl Code {
+    pub(super) fn editor(&self) -> Option<&Entity<EditorState>> {
+        match self {
+            Self::Editor(editor) => Some(editor),
+            Self::Plain(_) => None,
+        }
+    }
+}
+
 #[derive(Default)]
 pub(super) struct Fields {
     pub rich_text: HashMap<String, super::rich_text::RichText>,
     pub contents: HashMap<String, super::rich_text::Content>,
     pub disclosures: HashMap<String, bool>,
     pub inputs: HashMap<String, TextInput>,
-    pub codes: HashMap<String, Entity<EditorState>>,
+    pub codes: HashMap<String, Code>,
     pub terminals: HashMap<String, Entity<TerminalView>>,
     pub graphs: HashMap<String, Entity<super::graph::Graph>>,
     pub trees: HashMap<String, Entity<Tree>>,
@@ -421,22 +438,41 @@ impl DeclarativeView {
                 embedded,
                 ..
             } => {
+                if *embedded && super::code_block::plain_language(language) {
+                    match self.fields.codes.get_mut(id) {
+                        Some(Code::Plain(plain)) => plain.set_source(text),
+                        _ => {
+                            self.fields.codes.insert(
+                                id.clone(),
+                                Code::Plain(super::plain_code::Plain::new(text)),
+                            );
+                        }
+                    }
+                    return;
+                }
                 let line_numbers = super::code_block::line_numbers(language, *wrap);
-                let editor = self.fields.codes.entry(id.clone()).or_insert_with(|| {
-                    cx.new(|cx| {
-                        let mut editor = EditorState::new(window, cx)
-                            .language(language.clone())
-                            .rows(1)
-                            .line_number(line_numbers)
-                            .min_line_number_digits(if *embedded { 1 } else { 3 })
-                            .show_trailing_empty_line(!*embedded)
-                            .folding(!*embedded)
-                            .soft_wrap(*wrap && !*embedded)
-                            .scroll_beyond_last_line(if *embedded { Some(0) } else { None });
-                        editor.set_readonly(true, cx);
+                let editor = match self.fields.codes.get(id).and_then(Code::editor) {
+                    Some(editor) => editor.clone(),
+                    None => {
+                        let editor = cx.new(|cx| {
+                            let mut editor = EditorState::new(window, cx)
+                                .language(language.clone())
+                                .rows(1)
+                                .line_number(line_numbers)
+                                .min_line_number_digits(if *embedded { 1 } else { 3 })
+                                .show_trailing_empty_line(!*embedded)
+                                .folding(!*embedded)
+                                .soft_wrap(*wrap && !*embedded)
+                                .scroll_beyond_last_line(if *embedded { Some(0) } else { None });
+                            editor.set_readonly(true, cx);
+                            editor
+                        });
+                        self.fields
+                            .codes
+                            .insert(id.clone(), Code::Editor(editor.clone()));
                         editor
-                    })
-                });
+                    }
+                };
                 editor.update(cx, |editor, cx| {
                     editor.set_highlighter(language.clone(), cx);
                     editor.set_line_number(line_numbers, window, cx);

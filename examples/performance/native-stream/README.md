@@ -262,6 +262,38 @@ python3 examples/performance/native-stream/code_blocks.py --check-fixture \
   --output build/verification/native-code-blocks-smoke-new
 ```
 
+Для проверки текстовых previews в узком окне добавьте `--plain-previews` к тому
+же запуску. Исходные пять fences и их Copy-файлы сохраняются; добавляются ещё
+четыре: `plain-paragraph` (`text`, один длинный абзац с кириллицей и пробелами),
+`plain-lines` (`text`, 80 строк — больше preview результата инструмента),
+`plain-short-lines` (`text`, 80 однобуквенных строк `x`),
+`plain-markdown` (`md`, литеральный пример с таблицей, ссылкой и checkbox).
+Их точные байты находятся в `expected/{initial,updated}/plain-*.txt`.
+Сожмите окно примерно до 680 px и проверьте поведение как у текстового
+результата тула: строки переносятся по доступной ширине, длинный блок
+раскрывается/сворачивается без внутренней прокрутки, вертикальное колесо над
+ним продолжает листать общий чат. В `md` должны оставаться видны исходные
+символы `**`, `|` и `- [ ]`, без второго Markdown-документа внутри блока.
+Copy свёрнутого и раскрытого блока должен возвращать один и тот же полный
+исходник, включая финальный LF.
+У узкого `plain-short-lines` целиком видны «Показать больше» и число скрытых
+строк: короткий исходник не должен сжимать и обрезать заголовок раскрытия.
+
+После `control/update` в тот же message id добавляется 81-я строка
+`plain-lines`, помимо прежнего обновления Rust; сверяйте уже с
+`expected/updated/plain-lines.txt`. Три других новых блока неизменны.
+Флаг совместим с `--tool-previews`, чтобы сравнить текстовые блоки чата с
+результатом `exec_command` в одном окне. Проверка транспорта и Copy oracle:
+
+```sh
+python3 examples/performance/native-stream/code_blocks.py --check-fixture \
+  --plain-previews --tool-previews \
+  --output build/verification/native-plain-previews-smoke-new
+```
+
+Smoke подтверждает содержимое, идентичность сообщения и порядок событий;
+перенос, раскрытие и отсутствие внутренней прокрутки проверяются в Native.
+
 Для проверки углов раскрываемых tool-блоков добавьте к запуску `code_blocks.py`
 флаг `--tool-previews`. После пяти fences snapshot содержит три смежные
 завершённые system tool-строки: `read_file` (`preview-short`, короткий result),

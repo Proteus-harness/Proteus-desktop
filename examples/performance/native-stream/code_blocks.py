@@ -26,6 +26,20 @@ SOURCES = {
                 + '\n\t\tlet emoji = "☕ 🚀";\n', "rust"),
     "long": ('let payload = "' + "0123456789" * 20 + '";\n', "rust"),
 }
+PLAIN_SOURCES = {
+    # One logical line must wrap in a narrow chat instead of gaining an inner
+    # horizontal scrollbar. Spaces and Cyrillic exercise actual text layout.
+    "plain-paragraph": (("Длинный абзац с кириллицей и пробелами: текст должен "
+                         "переноситься по ширине узкого окна. " * 24).rstrip() + "\n", "text"),
+    "plain-lines": ("\n".join(f"Строка {index:02d}: синтетический текст для раскрытия блока."
+                               for index in range(1, 81)) + "\n", "text"),
+    # Narrow content must still leave room for the preview/reveal header.
+    "plain-short-lines": ("x\n" * 80, "text"),
+    # The fence is a literal example, not a second rendered Markdown document.
+    "plain-markdown": ("# Литеральный Markdown\n\n**жирный исходник**, `код` и [ссылка](https://example.com).\n\n"
+                       "| Поле | Значение |\n| --- | --- |\n| Пример | Синтетический текст |\n\n"
+                       "- [ ] Не превращать пример в виджет\n", "md"),
+}
 TOOL_SOURCES = (
     ("preview-short", "read_file", {"path": "synthetic/short.txt"},
      "SHORT TOOL RESULT\nsecond synthetic line\n"),
@@ -60,21 +74,26 @@ def prepare_preferences(output, scale=100, surface_radius=16):
             "preferences_sha256": digest(path)}
 
 
-def sources(stage):
+def sources(stage, *, plain_previews=False):
     result = dict(SOURCES)
+    if plain_previews:
+        result.update(PLAIN_SOURCES)
     if stage == "updated":
         result["rust"] = (SOURCES["rust"][0] + 'println!("updated");\n', "rust")
+        if plain_previews:
+            result["plain-lines"] = (PLAIN_SOURCES["plain-lines"][0]
+                                     + "Обновлённая строка: тот же блок и message id.\n", "text")
     return result
 
 
-def text(stage):
+def text(stage, *, plain_previews=False):
     return "CODE BLOCK FIXTURE · " + stage + "\n\n" + "\n".join(
         "```" + language + "\n" + source + "```\n"
-        for source, language in sources(stage).values())
+        for source, language in sources(stage, plain_previews=plain_previews).values())
 
 
-def transcript(*, tool_previews=False):
-    row = message(text("initial"), int(MESSAGE_ID.replace("-", ""), 16))
+def transcript(*, tool_previews=False, plain_previews=False):
+    row = message(text("initial", plain_previews=plain_previews), int(MESSAGE_ID.replace("-", ""), 16))
     row["timestamp_ms"] = 1793059200000
     assert row["message_id"] == MESSAGE_ID
     rows = [row]
@@ -94,25 +113,25 @@ def transcript(*, tool_previews=False):
     return rows
 
 
-def update(fixture):
+def update(fixture, *, plain_previews=False):
     fixture.run_id = "run-synthetic-code-blocks"
     fixture.execution("running")
     fixture.runtime("TurnStarted", {"session_id": SESSION_ID,
                                    "thread_id": THREAD_ID, "turn_id": TURN_ID})
     # Replace the same message explicitly, with closed fences on both sides.
     # A tool barrier exposes Copy without a second snapshot or completion.
-    fixture.delta(0, text("updated"))
+    fixture.delta(0, text("updated", plain_previews=plain_previews))
     fixture.tool("codeblockfreeze")
     fixture.execution("success", terminal=True)
 
 
-def expected(output, *, tool_previews=False):
+def expected(output, *, tool_previews=False, plain_previews=False):
     for stage in ("initial", "updated"):
         directory = output / "expected" / stage
         directory.mkdir(parents=True, mode=0o700)
-        for name, (source, _language) in sources(stage).items():
+        for name, (source, _language) in sources(stage, plain_previews=plain_previews).items():
             (directory / (name + ".txt")).write_bytes(source.encode())
-        (directory / "message.txt").write_bytes(text(stage).encode())
+        (directory / "message.txt").write_bytes(text(stage, plain_previews=plain_previews).encode())
     if tool_previews:
         directory = output / "expected/tools"
         directory.mkdir(mode=0o700)
@@ -148,11 +167,12 @@ def select_renderer(output, installed):
             "renderer_executable_sha256": digest(executable)}
 
 
-def check_fixture(output, *, tool_previews=False, scale=100, surface_radius=16):
+def check_fixture(output, *, tool_previews=False, plain_previews=False, scale=100, surface_radius=16):
     """Wire/source oracle only; never launches Native or claims GUI acceptance."""
     preferences = prepare_preferences(output, scale, surface_radius)
     fixture = Fixture(output / "workspace", output / "session",
-                      secrets.token_hex(24), transcript(tool_previews=tool_previews)).start()
+                      secrets.token_hex(24), transcript(tool_previews=tool_previews,
+                                                       plain_previews=plain_previews)).start()
     try:
         client = build_opener(ProxyHandler({}))
         request = Request(fixture.origin + "/events?" + urlencode({"session_dir": fixture.session}),
@@ -168,7 +188,7 @@ def check_fixture(output, *, tool_previews=False, scale=100, surface_radius=16):
 
             snapshot = read()["snapshot"]
             rows = snapshot["transcript"]
-            assert rows == transcript(tool_previews=tool_previews)
+            assert rows == transcript(tool_previews=tool_previews, plain_previews=plain_previews)
             assert len(rows) == (5 if tool_previews else 1)
             assert rows[0]["message_id"] == MESSAGE_ID
             assert snapshot["transcript"][0]["streaming"] is False
@@ -194,7 +214,7 @@ def check_fixture(output, *, tool_previews=False, scale=100, surface_radius=16):
                 assert rows[-1]["timestamp_ms"] == 1793059200004
                 assert rows[-1]["text"].encode() == (output / "expected/tools/after-group-marker.txt").read_bytes()
                 assert rows[-1]["text"] == TOOL_MARKER
-            update(fixture)
+            update(fixture, plain_previews=plain_previews)
             running, turn, delta, barrier, done = (read() for _ in range(5))
             assert running["execution"]["active"]["status"] == "running"
             assert turn["envelope"]["event"]["TurnStarted"]["thread_id"] == THREAD_ID
@@ -212,16 +232,18 @@ def check_fixture(output, *, tool_previews=False, scale=100, surface_radius=16):
             delivered(fixture)
             fixture.stopping.set()
         for stage in ("initial", "updated"):
-            for name, (source, _language) in sources(stage).items():
+            for name, (source, _language) in sources(stage, plain_previews=plain_previews).items():
                 assert (output / "expected" / stage / (name + ".txt")).read_bytes() == source.encode()
         unicode_rows = SOURCES["unicode"][0].splitlines()
         assert len(unicode_rows[1].encode()) > len(unicode_rows[0].encode())
         assert len(SOURCES["long"][0].rstrip("\n")) > 180
         record(output, fixture, {"status": "fixture-smoke-passed", "rows": len(rows),
                                  "tool_previews": tool_previews,
+                                 "plain_previews": plain_previews,
                                  **preferences,
                                  "stages": ["initial", "updated"], "native_verified": False})
-        print(f"PASS fixture: {len(rows)} rows, five fences, explicit revision; no GUI checked", flush=True)
+        fences = len(sources("initial", plain_previews=plain_previews))
+        print(f"PASS fixture: {len(rows)} rows, {fences} fences, explicit revision; no GUI checked", flush=True)
     finally:
         fixture.close()
 
@@ -229,12 +251,14 @@ def check_fixture(output, *, tool_previews=False, scale=100, surface_radius=16):
 def run(args):
     preferences = prepare_preferences(args.output, args.scale, args.surface_radius)
     fixture = Fixture(args.output / "workspace", args.output / "session",
-                      secrets.token_hex(24), transcript(tool_previews=args.tool_previews)).start()
+                      secrets.token_hex(24), transcript(tool_previews=args.tool_previews,
+                                                       plain_previews=args.plain_previews)).start()
     process = None
     started = time.monotonic()
     interrupted = False
     state = {"status": "starting", "stage": "connecting", "rows": len(fixture.transcript),
              "tool_previews": args.tool_previews,
+             "plain_previews": args.plain_previews,
              **preferences,
              "origin": fixture.origin, "timeout_s": args.timeout,
              "launcher": str(args.native), "launcher_sha256": digest(args.native),
@@ -277,7 +301,7 @@ def run(args):
                     record(args.output, fixture, state)
                     print("READY " + json.dumps(state), flush=True)
                 if state["stage"] == "initial" and (args.output / "control/update").exists():
-                    update(fixture)
+                    update(fixture, plain_previews=args.plain_previews)
                     delivered(fixture)
                     state["stage"] = "updated"
                     record(args.output, fixture, state)
@@ -311,6 +335,8 @@ def main():
     parser.add_argument("--check-fixture", action="store_true")
     parser.add_argument("--tool-previews", action="store_true",
                         help="Append three synthetic completed tools for reveal/preview/chain checks")
+    parser.add_argument("--plain-previews", action="store_true",
+                        help="Append wrapping text, long text and literal Markdown fences for narrow-window checks")
     parser.add_argument("--scale", type=int, default=100, choices=SCALES,
                         help="Private interface scale in percent (default: 100)")
     parser.add_argument("--surface-radius", type=int, default=16,
@@ -335,9 +361,9 @@ def main():
     args.output.mkdir(mode=0o700, parents=True, exist_ok=False)
     for directory in DIRECTORIES:
         (args.output / directory).mkdir(mode=0o700)
-    expected(args.output, tool_previews=args.tool_previews)
+    expected(args.output, tool_previews=args.tool_previews, plain_previews=args.plain_previews)
     if args.check_fixture:
-        check_fixture(args.output, tool_previews=args.tool_previews,
+        check_fixture(args.output, tool_previews=args.tool_previews, plain_previews=args.plain_previews,
                       scale=args.scale, surface_radius=args.surface_radius)
     else:
         args.renderer = select_renderer(args.output, args.extensions)

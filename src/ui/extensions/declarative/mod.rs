@@ -22,6 +22,7 @@ mod layout;
 mod list;
 mod menu;
 mod person;
+mod plain_code;
 mod popup;
 mod prompt;
 mod render;

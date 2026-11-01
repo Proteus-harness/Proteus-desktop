@@ -14,20 +14,23 @@ use gpui_kit::*;
 /// Plain prose fences have no gutter; programming languages keep the
 /// existing unwrapped editor presentation. This policy also applies when a
 /// retained Code node changes its language without changing its id.
+pub(super) fn plain_language(language: &str) -> bool {
+    [
+        "",
+        "md",
+        "markdown",
+        "text",
+        "plaintext",
+        "txt",
+        "text/plain",
+        "text/markdown",
+    ]
+    .iter()
+    .any(|plain| language.trim().eq_ignore_ascii_case(plain))
+}
+
 pub(super) fn line_numbers(language: &str, wrap: bool) -> bool {
-    !wrap
-        && ![
-            "",
-            "md",
-            "markdown",
-            "text",
-            "plaintext",
-            "txt",
-            "text/plain",
-            "text/markdown",
-        ]
-        .iter()
-        .any(|plain| language.trim().eq_ignore_ascii_case(plain))
+    !wrap && !plain_language(language)
 }
 
 /// A final LF terminates the preceding source row; it does not add a blank
@@ -66,6 +69,7 @@ pub(super) fn shell<F: Fn(&mut Window, &mut App) -> SharedString + 'static>(
         controls,
         body,
         width: None,
+        minimum_disclosure_label: None,
     }
 }
 
@@ -77,11 +81,19 @@ pub(super) struct Shell<F: Fn(&mut Window, &mut App) -> SharedString + 'static> 
     controls: Option<AnyElement>,
     body: AnyElement,
     width: Option<Width>,
+    minimum_disclosure_label: Option<SharedString>,
 }
 
 impl<F: Fn(&mut Window, &mut App) -> SharedString + 'static> Shell<F> {
     pub(super) fn fit(mut self, width: Width) -> Self {
         self.width = Some(width);
+        self
+    }
+
+    /// Keep a body disclosure readable even when its source rows are short.
+    /// It uses text_xs, one xsmall chevron (size_3) and gap_1, like Tools.
+    pub(super) fn minimum_disclosure_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.minimum_disclosure_label = Some(label.into());
         self
     }
 }
@@ -93,22 +105,30 @@ impl<F: Fn(&mut Window, &mut App) -> SharedString + 'static> RenderOnce for Shel
         let width = self.width.as_ref().map(|width| {
             let font = window.text_style().font();
             let font_size = rems(0.75).to_pixels(window.rem_size());
-            let run = TextRun {
-                len: self.language.len(),
-                font,
-                color: black(),
-                background_color: None,
-                underline: None,
-                strikethrough: None,
+            let measure_label = |label: &str| {
+                let run = TextRun {
+                    len: label.len(),
+                    font: font.clone(),
+                    color: black(),
+                    background_color: None,
+                    underline: None,
+                    strikethrough: None,
+                };
+                window
+                    .text_system()
+                    .shape_line(label.to_owned().into(), font_size, &[run], None)
+                    .width()
             };
-            let label = window
-                .text_system()
-                .shape_line(self.language.clone().into(), font_size, &[run], None)
-                .width();
+            let label = measure_label(&self.language);
+            let disclosure = self
+                .minimum_disclosure_label
+                .as_ref()
+                .map(|label| measure_label(label) + rems(0.75 + 0.25).to_pixels(window.rem_size()));
             let actions = if self.controls.is_some() { 52. } else { 28. };
             let insets = rems(0.75).to_pixels(window.rem_size()) + px(2.);
             (width.measure(&self.copy_id, window, cx) + insets)
                 .max(label + rems(actions / 16.).to_pixels(window.rem_size()) + insets)
+                .max(disclosure.unwrap_or(px(0.)) + insets)
                 .ceil()
         });
         v_flex()
@@ -277,7 +297,29 @@ impl Render for SourceBlock {
 
 #[cfg(test)]
 mod tests {
-    use super::preview_rows;
+    use super::{line_numbers, plain_language, preview_rows};
+
+    #[test]
+    fn prose_fence_languages_share_the_plain_body_policy() {
+        for language in [
+            "",
+            "md",
+            "MARKDOWN",
+            " text ",
+            "PlainText",
+            "TXT",
+            "text/plain",
+            "Text/Markdown",
+        ] {
+            assert!(plain_language(language), "{language:?}");
+            assert!(!line_numbers(language, false), "{language:?}");
+        }
+        for language in ["rust", "python", "json", "mermaid", "latex", "textile"] {
+            assert!(!plain_language(language), "{language:?}");
+            assert!(line_numbers(language, false), "{language:?}");
+            assert!(!line_numbers(language, true), "{language:?}");
+        }
+    }
 
     #[test]
     fn preview_rows_omit_only_the_terminal_cursor_row() {

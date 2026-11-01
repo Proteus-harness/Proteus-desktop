@@ -378,14 +378,17 @@ impl DeclarativeView {
                 wrap,
                 embedded: true,
                 ..
-            } => super::rich_text::embedded_code(
-                id,
-                text,
-                language,
-                *wrap,
-                self.fields.codes.get(id),
-                cx,
-            ),
+            } => match self.fields.codes.get(id) {
+                Some(super::fields::Code::Plain(plain)) => plain.render(id, language, cx),
+                state => super::rich_text::embedded_code(
+                    id,
+                    text,
+                    language,
+                    *wrap,
+                    state.and_then(super::fields::Code::editor),
+                    cx,
+                ),
+            },
             Node::Code { id, height, .. } => div()
                 .when(height.is_none(), |node| node.flex_1())
                 .when_some(*height, |node, height| node.h(prefs::scaled(height)))
@@ -394,6 +397,7 @@ impl DeclarativeView {
                     self.fields
                         .codes
                         .get(id)
+                        .and_then(super::fields::Code::editor)
                         .map(|editor| super::code_block::readonly_editor(editor, cx).h_full()),
                 )
                 .into_any_element(),

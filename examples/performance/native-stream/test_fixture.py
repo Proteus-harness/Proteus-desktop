@@ -128,22 +128,50 @@ class ControlTests(unittest.TestCase):
 
     def test_code_block_wire_keeps_copy_oracle_and_optional_tool_sources(self):
         from code_blocks import check_fixture, expected, transcript
-        for tool_previews in (False, True):
-            with self.subTest(tool_previews=tool_previews), TemporaryDirectory() as directory:
+        for tool_previews, plain_previews in ((False, False), (True, False), (False, True), (True, True)):
+            with self.subTest(tool_previews=tool_previews, plain_previews=plain_previews), TemporaryDirectory() as directory:
                 output = Path(directory)
-                expected(output, tool_previews=tool_previews)
-                check_fixture(output, tool_previews=tool_previews)
+                expected(output, tool_previews=tool_previews, plain_previews=plain_previews)
+                check_fixture(output, tool_previews=tool_previews, plain_previews=plain_previews)
                 state = json.loads((output / "state.json").read_text())
                 self.assertEqual(state["rows"], 5 if tool_previews else 1)
                 self.assertEqual(state["tool_previews"], tool_previews)
+                self.assertEqual(state["plain_previews"], plain_previews)
                 self.assertEqual(state["view_preferences"], {"scale": 100, "surface_radius": 16})
                 self.assertEqual(state["preferences_sha256"], digest(Path(state["preferences_path"])))
                 self.assertEqual((output / "expected/initial/rust.txt").read_bytes(),
                                  'let emoji = "☕ 🚀";\nprintln!("{emoji}");\n'.encode())
                 self.assertEqual((output / "expected/updated/rust.txt").read_bytes(),
                                  'let emoji = "☕ 🚀";\nprintln!("{emoji}");\nprintln!("updated");\n'.encode())
-                rows = transcript(tool_previews=tool_previews)
+                rows = transcript(tool_previews=tool_previews, plain_previews=plain_previews)
                 self.assertEqual(rows[0]["message_id"], MESSAGE_ID)
+                self.assertEqual(rows[0]["text"].splitlines().count("```"), 9 if plain_previews else 5)
+                initial = output / "expected/initial"
+                updated = output / "expected/updated"
+                names = {path.stem for path in initial.iterdir()}
+                base_names = {"message", "rust", "text", "markdown", "unicode", "long"}
+                self.assertEqual(names, base_names | ({"plain-paragraph", "plain-lines", "plain-short-lines", "plain-markdown"}
+                                                      if plain_previews else set()))
+                if plain_previews:
+                    paragraph = (initial / "plain-paragraph.txt").read_text()
+                    self.assertEqual(len(paragraph.splitlines()), 1, "Wrapping needs one long logical line")
+                    self.assertGreater(len(paragraph), 1000)
+                    self.assertIn("кириллицей и пробелами", paragraph)
+                    self.assertIn(" ", paragraph)
+                    lines = (initial / "plain-lines.txt").read_bytes()
+                    self.assertEqual(len(lines.splitlines()), 80, "Must exceed the tool preview line limit")
+                    self.assertEqual((updated / "plain-lines.txt").read_bytes(),
+                                     lines + "Обновлённая строка: тот же блок и message id.\n".encode())
+                    self.assertEqual((initial / "plain-short-lines.txt").read_bytes(), b"x\n" * 80,
+                                     "Narrow source must retain room for the full reveal header")
+                    literal = (initial / "plain-markdown.txt").read_text()
+                    self.assertIn("**жирный исходник**", literal)
+                    self.assertIn("| --- | --- |", literal)
+                    self.assertIn("- [ ]", literal)
+                    self.assertIn("```md\n" + literal + "```", rows[0]["text"])
+                    for name in ("plain-paragraph", "plain-short-lines", "plain-markdown"):
+                        self.assertEqual((initial / (name + ".txt")).read_bytes(),
+                                         (updated / (name + ".txt")).read_bytes())
                 tools = [row for row in rows if row["role"] == "system"]
                 self.assertEqual([row["tool"]["call_id"] for row in tools],
                                  ["preview-short", "preview-long", "preview-search"]

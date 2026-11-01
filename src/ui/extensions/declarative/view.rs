@@ -638,6 +638,7 @@ impl DeclarativeView {
                 .fields
                 .codes
                 .get(id)
+                .and_then(super::fields::Code::editor)
                 .map(|code| code.read(cx).focus_handle(cx)),
             Node::Input {
                 id, search: true, ..
@@ -731,6 +732,7 @@ impl DeclarativeView {
                 self.fields
                     .codes
                     .get(id)
+                    .and_then(super::fields::Code::editor)
                     .map(|editor| editor.read(cx).focus_handle(cx))
             })
             .or_else(|| {
