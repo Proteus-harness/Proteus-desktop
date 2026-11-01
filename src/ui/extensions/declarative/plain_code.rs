@@ -7,7 +7,7 @@ use super::{code_block, code_geometry::Width, fields::Code, view::DeclarativeVie
 use crate::ui::kit::Pressable as _;
 use crate::ui::{fade, format, kit, motion};
 use gpui_kit::base::SelectableText;
-use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme as _, h_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
@@ -65,9 +65,38 @@ impl Plain {
                     text,
                 ))
         };
-        let content = if long {
+        let disclosure = long.then(|| {
             let toggle_id = id.to_owned();
             let toggle_key = key.clone();
+            h_flex()
+                .id(ElementId::Name(key.clone()))
+                .w_full()
+                .flex_none()
+                .gap_1()
+                .text_xs()
+                .disclosure(cx)
+                .child(motion::chevron(
+                    ElementId::Name(key.clone()),
+                    self.open,
+                    cx.theme().muted_foreground,
+                ))
+                .child(fade::faded(if self.open {
+                    "Свернуть"
+                } else {
+                    "Показать больше"
+                }))
+                .on_click(cx.listener(move |view, _, _, cx| {
+                    cx.stop_propagation();
+                    if let Some(Code::Plain(plain)) = view.fields.codes.get_mut(&toggle_id) {
+                        cx.emit(super::view::WillResize);
+                        plain.open = !plain.open;
+                        motion::toggled(toggle_key.clone(), plain.open, cx);
+                        cx.notify();
+                    }
+                }))
+                .into_any_element()
+        });
+        let content = if long {
             let preview = div()
                 .relative()
                 .w_full()
@@ -78,45 +107,11 @@ impl Plain {
                     fade::bottom(cx.theme().muted, crate::ui::prefs::scaled(56.))
                         .max_h(relative(1.)),
                 );
-            let content = if expanded {
+            if expanded {
                 motion::preview_reveal(key.clone(), self.open, cx, preview, body(shown.clone()))
             } else {
                 preview.into_any_element()
-            };
-            v_flex()
-                .w_full()
-                .min_w_0()
-                .gap_1()
-                .child(
-                    h_flex()
-                        .id(ElementId::Name(key.clone()))
-                        .min_w_0()
-                        .gap_1()
-                        .text_xs()
-                        .disclosure(cx)
-                        .child(motion::chevron(
-                            ElementId::Name(key),
-                            self.open,
-                            cx.theme().muted_foreground,
-                        ))
-                        .child(fade::faded(if self.open {
-                            "Свернуть"
-                        } else {
-                            "Показать больше"
-                        }))
-                        .on_click(cx.listener(move |view, _, _, cx| {
-                            cx.stop_propagation();
-                            if let Some(Code::Plain(plain)) = view.fields.codes.get_mut(&toggle_id)
-                            {
-                                cx.emit(super::view::WillResize);
-                                plain.open = !plain.open;
-                                motion::toggled(toggle_key.clone(), plain.open, cx);
-                                cx.notify();
-                            }
-                        })),
-                )
-                .child(content)
-                .into_any_element()
+            }
         } else {
             body(shown.clone()).into_any_element()
         };
@@ -133,8 +128,8 @@ impl Plain {
         )
         // Measuring a closed fence must also avoid shaping the hidden source.
         .fit(Width::Source(shown))
-        .when(long, |shell| {
-            shell.minimum_disclosure_label("Показать больше")
+        .when_some(disclosure, |shell, disclosure| {
+            shell.disclosure(disclosure, "Показать больше")
         })
         .into_any_element()
     }

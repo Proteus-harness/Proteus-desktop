@@ -69,6 +69,7 @@ pub(super) fn shell<F: Fn(&mut Window, &mut App) -> SharedString + 'static>(
         controls,
         body,
         width: None,
+        disclosure: None,
         minimum_disclosure_label: None,
     }
 }
@@ -81,6 +82,7 @@ pub(super) struct Shell<F: Fn(&mut Window, &mut App) -> SharedString + 'static> 
     controls: Option<AnyElement>,
     body: AnyElement,
     width: Option<Width>,
+    disclosure: Option<AnyElement>,
     minimum_disclosure_label: Option<SharedString>,
 }
 
@@ -90,9 +92,14 @@ impl<F: Fn(&mut Window, &mut App) -> SharedString + 'static> Shell<F> {
         self
     }
 
-    /// Keep a body disclosure readable even when its source rows are short.
-    /// It uses text_xs, one xsmall chevron (size_3) and gap_1, like Tools.
-    pub(super) fn minimum_disclosure_label(mut self, label: impl Into<SharedString>) -> Self {
+    /// A disclosure shares the language/copy row. Reserve its longest label
+    /// so short source rows and opening/closing never clip or shift actions.
+    pub(super) fn disclosure(
+        mut self,
+        disclosure: AnyElement,
+        label: impl Into<SharedString>,
+    ) -> Self {
+        self.disclosure = Some(disclosure);
         self.minimum_disclosure_label = Some(label.into());
         self
     }
@@ -102,33 +109,43 @@ impl<F: Fn(&mut Window, &mut App) -> SharedString + 'static> RenderOnce for Shel
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         // Keep the language and action slots readable even for an empty fence.
         // These are the same text_xs and xsmall icon sizes as the header below.
-        let width = self.width.as_ref().map(|width| {
-            let font = window.text_style().font();
-            let font_size = rems(0.75).to_pixels(window.rem_size());
-            let measure_label = |label: &str| {
-                let run = TextRun {
-                    len: label.len(),
-                    font: font.clone(),
-                    color: black(),
-                    background_color: None,
-                    underline: None,
-                    strikethrough: None,
-                };
-                window
-                    .text_system()
-                    .shape_line(label.to_owned().into(), font_size, &[run], None)
-                    .width()
+        let font = window.text_style().font();
+        let font_size = rems(0.75).to_pixels(window.rem_size());
+        let measure_label = |label: &str| {
+            let run = TextRun {
+                len: label.len(),
+                font: font.clone(),
+                color: black(),
+                background_color: None,
+                underline: None,
+                strikethrough: None,
             };
-            let label = measure_label(&self.language);
-            let disclosure = self
-                .minimum_disclosure_label
-                .as_ref()
-                .map(|label| measure_label(label) + rems(0.75 + 0.25).to_pixels(window.rem_size()));
+            window
+                .text_system()
+                .shape_line(label.to_owned().into(), font_size, &[run], None)
+                .width()
+        };
+        let disclosure_width = self
+            .minimum_disclosure_label
+            .as_ref()
+            .map(|label| measure_label(label) + rems(0.75 + 0.25).to_pixels(window.rem_size()));
+        let label = if self.width.is_some() {
+            measure_label(&self.language)
+        } else {
+            px(0.)
+        };
+        let width = self.width.as_ref().map(|width| {
+            let disclosure =
+                disclosure_width.map(|width| width + rems(0.25).to_pixels(window.rem_size()));
             let actions = if self.controls.is_some() { 52. } else { 28. };
             let insets = rems(0.75).to_pixels(window.rem_size()) + px(2.);
             (width.measure(&self.copy_id, window, cx) + insets)
-                .max(label + rems(actions / 16.).to_pixels(window.rem_size()) + insets)
-                .max(disclosure.unwrap_or(px(0.)) + insets)
+                .max(
+                    label
+                        + rems(actions / 16.).to_pixels(window.rem_size())
+                        + disclosure.unwrap_or(px(0.))
+                        + insets,
+                )
                 .ceil()
         });
         v_flex()
@@ -159,6 +176,12 @@ impl<F: Fn(&mut Window, &mut App) -> SharedString + 'static> RenderOnce for Shel
                             .child(crate::ui::fade::faded(self.language)),
                     )
                     .child(div().flex_1())
+                    .children(self.disclosure.map(|disclosure| {
+                        div()
+                            .flex_none()
+                            .when_some(disclosure_width, |slot, width| slot.w(width))
+                            .child(disclosure)
+                    }))
                     .child(HoverCopy {
                         id: self.copy_id,
                         copy_source: self.copy_source,
