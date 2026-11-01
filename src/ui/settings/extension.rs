@@ -123,6 +123,9 @@ impl SettingsView {
                     .into_any_element(),
             );
         }
+        if !manifest.agent_instructions.is_empty() {
+            parts.push(self.extension_instructions_section(manifest, cx));
+        }
         if manifest.preview.is_some() {
             let key = preview_key(id);
             let open = self.is_open(&key);

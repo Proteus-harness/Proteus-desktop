@@ -37,6 +37,7 @@ pub const FEATURES: &[&str] = &[
     "surfaces.invalidate.v1",
     "surfaces.page.embedded.v1",
     "manifest.dependencies.tools.v1",
+    "manifest.agent_instructions.v1",
     "widgets.person.v1",
     "documents.title.v1",
     "surfaces.content.v1",

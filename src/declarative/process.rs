@@ -211,6 +211,7 @@ mod tests {
                 session_events: false,
                 surfaces: Surfaces::default(),
                 dependencies: Default::default(),
+                agent_instructions: Vec::new(),
             },
         };
         let (process, signals) = Process::spawn(&extension).unwrap();

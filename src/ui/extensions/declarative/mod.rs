@@ -114,6 +114,8 @@ fn entry(extension: Installed) -> Entry {
             .map(|_| preview as super::BuildFocused),
         activity: surfaces.activity.is_some(),
         tool_dependencies: manifest.dependencies.tools.as_slice(),
+        agent_instructions: &manifest.agent_instructions,
+        package_dir: &installed.dir,
         panel: surfaces.panel.as_ref().map(|panel| PanelSurface {
             title: &panel.title,
             build: build_panel,

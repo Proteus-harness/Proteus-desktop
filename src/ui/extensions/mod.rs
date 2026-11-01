@@ -94,6 +94,10 @@ pub(super) struct Manifest {
     /// A fixed composer contribution, distinct from a movable widget.
     pub activity: bool,
     pub tool_dependencies: &'static [String],
+    /// Packaged instructions for people to connect separately to their agent.
+    pub agent_instructions: &'static [crate::declarative::manifest::AgentInstruction],
+    /// Source of both bundled and user-installed package resources.
+    pub package_dir: &'static Path,
     pub panel: Option<PanelSurface>,
     pub document: Option<DocumentSurface>,
     /// Borrowed language/media registrations; settings display these without a runtime.

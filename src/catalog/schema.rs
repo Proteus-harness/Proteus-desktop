@@ -3,6 +3,7 @@
 
 use std::{
     collections::{BTreeMap, HashSet},
+    io::Read,
     path::{Component, Path, PathBuf},
 };
 
@@ -10,6 +11,7 @@ use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 
 pub const INDEX: &str = "proteus-catalog.json";
+const MAX_DOCUMENT_BYTES: u64 = 512 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -181,19 +183,97 @@ pub fn readme(catalog: &Catalog, entry: &Entry) -> Result<Option<String>> {
     if !path.exists() {
         return Ok(None);
     }
-    let resolved = path.canonicalize()?;
-    ensure!(
-        resolved.starts_with(catalog.root.canonicalize()?),
-        "README выходит за пределы каталога"
-    );
-    ensure!(
-        std::fs::metadata(&resolved)?.len() <= 512 * 1024,
-        "README больше 512 КиБ"
-    );
-    let text = std::fs::read_to_string(resolved)?;
+    let text = read_document(&catalog.root, &path)?;
     Ok(Some(if skill {
         super::skills::body(&text).to_owned()
     } else {
         text
     }))
+}
+
+/// Packaged agent instructions, using the same bounded reader and Markdown
+/// body as a skill shown in the catalog. Merely viewing it installs nothing.
+pub fn read_skill(package: &Path, directory: &Path) -> Result<String> {
+    relative(directory)?;
+    let text = read_document(package, &package.join(directory).join("SKILL.md"))?;
+    Ok(super::skills::body(&text).to_owned())
+}
+
+fn read_document(root: &Path, path: &Path) -> Result<String> {
+    let resolved = path.canonicalize()?;
+    ensure!(
+        resolved.starts_with(root.canonicalize()?),
+        "Файл выходит за пределы каталога"
+    );
+    let file = std::fs::File::open(resolved)?;
+    let metadata = file.metadata()?;
+    ensure!(metadata.is_file(), "Нужен обычный файл");
+    ensure!(metadata.len() <= MAX_DOCUMENT_BYTES, "Файл больше 512 КиБ");
+    // A replacement or a concurrent write after metadata cannot grow the read
+    // beyond the same budget.
+    let mut bytes = Vec::new();
+    file.take(MAX_DOCUMENT_BYTES + 1).read_to_end(&mut bytes)?;
+    ensure!(
+        bytes.len() as u64 <= MAX_DOCUMENT_BYTES,
+        "Файл больше 512 КиБ"
+    );
+    String::from_utf8(bytes).context("Файл не в UTF-8")
+}
+
+#[cfg(test)]
+mod skill_document_tests {
+    use super::*;
+
+    struct Fixture(PathBuf);
+
+    impl Fixture {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!("proteus-skill-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(path.join("skills/example")).unwrap();
+            Self(path)
+        }
+
+        fn write(&self, bytes: impl AsRef<[u8]>) {
+            std::fs::write(self.0.join("skills/example/SKILL.md"), bytes).unwrap();
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn packaged_skill_uses_catalog_frontmatter_and_document_budget() {
+        let fixture = Fixture::new();
+        let path = Path::new("skills/example");
+        assert!(read_skill(&fixture.0, path).is_err());
+        fixture.write("---\r\nname: example\r\ndescription: test\r\n---\r\n# Instructions\n");
+        assert_eq!(read_skill(&fixture.0, path).unwrap(), "# Instructions");
+        fixture.write(vec![b'x'; MAX_DOCUMENT_BYTES as usize]);
+        assert_eq!(
+            read_skill(&fixture.0, path).unwrap().len(),
+            MAX_DOCUMENT_BYTES as usize
+        );
+        fixture.write(vec![b'x'; MAX_DOCUMENT_BYTES as usize + 1]);
+        assert!(read_skill(&fixture.0, path).is_err());
+        fixture.write([0xff]);
+        assert!(read_skill(&fixture.0, path).is_err());
+        assert!(read_skill(&fixture.0, Path::new("../example")).is_err());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn packaged_skill_does_not_follow_a_document_outside_its_package() {
+        let fixture = Fixture::new();
+        let external = Fixture::new();
+        external.write("# Outside");
+        std::os::unix::fs::symlink(
+            external.0.join("skills/example/SKILL.md"),
+            fixture.0.join("skills/example/SKILL.md"),
+        )
+        .unwrap();
+        assert!(read_skill(&fixture.0, Path::new("skills/example")).is_err());
+    }
 }

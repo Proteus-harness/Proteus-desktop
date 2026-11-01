@@ -455,8 +455,20 @@ pub(super) fn hint_text(text: impl Into<String>, cx: &App) -> Option<Div> {
 }
 
 // Адаптировано из Zed: crates/settings_ui/src/settings_ui.rs (SubPageLink).
-// A shared text action with an end chevron, using the ordinary button's focus
-// and accessibility behavior. Every link follows the same exact destination.
+// The same text action opens a settings destination or its local instructions.
+pub(super) fn settings_action(
+    id: ElementId,
+    label: impl Into<SharedString>,
+    cx: &App,
+) -> gpui_kit::component::button::Button {
+    kit::button(id).faded_label(label).quiet(cx).xsmall().child(
+        Icon::new(Lucide::ChevronRight)
+            .xsmall()
+            .text_color(cx.theme().muted_foreground),
+    )
+}
+
+// Every internal link follows the same exact destination.
 impl super::SettingsView {
     pub(super) fn settings_link(
         &self,
@@ -465,16 +477,7 @@ impl super::SettingsView {
         target: super::spot::Destination,
         cx: &Context<Self>,
     ) -> AnyElement {
-        let label: SharedString = label.into();
-        kit::button(id)
-            .faded_label(label)
-            .quiet(cx)
-            .xsmall()
-            .child(
-                Icon::new(Lucide::ChevronRight)
-                    .xsmall()
-                    .text_color(cx.theme().muted_foreground),
-            )
+        settings_action(id, label, cx)
             .on_click(cx.listener(move |this, _, window, cx| this.go_to(&target, window, cx)))
             .into_any_element()
     }

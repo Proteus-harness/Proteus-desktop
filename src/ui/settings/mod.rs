@@ -7,6 +7,7 @@ mod client;
 mod dismiss;
 mod editors;
 mod extension;
+mod extension_instructions;
 mod extensions;
 mod fields;
 mod fonts;
@@ -109,6 +110,8 @@ pub struct SettingsView {
     extension_view: Option<(String, crate::ui::extensions::SurfaceView)>,
     /// On-demand, synthetic preview; dropped after collapse or navigation.
     extension_preview: Option<(String, crate::ui::extensions::SurfaceView)>,
+    /// One packaged skill, read only after an explicit settings action.
+    extension_instructions: Option<extension_instructions::Instructions>,
     /// Result of the last extension install or removal.
     extension_notice: Option<Feedback>,
     /// Installed extension whose removal waits for confirmation.
@@ -200,6 +203,7 @@ impl SettingsView {
             workspace,
             extension_view: None,
             extension_preview: None,
+            extension_instructions: None,
             extension_notice: None,
             removing: None,
             recording: None,
@@ -356,6 +360,9 @@ impl SettingsView {
     }
 
     fn set_page(&mut self, page: PageId, cx: &mut Context<Self>) {
+        if self.page != page {
+            self.extension_instructions = None;
+        }
         self.page = page;
         cx.emit(SettingsEvent::NavigationChanged);
         self.removing = None;
@@ -489,6 +496,7 @@ impl SettingsView {
 
 impl Render for SettingsView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.release_closed_instructions(cx);
         let extension = match &self.page {
             PageId::Extension(id) => crate::ui::extensions::find(id).filter(|manifest| {
                 manifest.page.is_some()

@@ -34,6 +34,10 @@ pub struct Manifest {
     pub session_events: bool,
     #[serde(default)]
     pub dependencies: Dependencies,
+    /// Packaged skill directories linked from settings. They do not install
+    /// skills, change the agent prompt, or create runtime dependencies.
+    #[serde(default)]
+    pub agent_instructions: Vec<AgentInstruction>,
     pub surfaces: Surfaces,
     /// Optional author-namespaced descriptive data; it never enables behavior.
     #[serde(default, rename = "_meta")]
@@ -123,6 +127,15 @@ pub struct Dependencies {
     /// reading saved content; the settings shell links to their controls.
     #[serde(default)]
     pub tools: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AgentInstruction {
+    /// Skill identifier, including a namespace when one is used.
+    pub skill: String,
+    /// Package-relative directory containing SKILL.md.
+    pub path: PathBuf,
 }
 
 fn popup_width() -> f32 {
@@ -294,6 +307,35 @@ fn load(dir: &Path) -> Result<Manifest> {
     if manifest.id != folder {
         bail!("id `{}` must equal the folder name `{folder}`", manifest.id);
     }
+    if !manifest.agent_instructions.is_empty() {
+        let package = dir.canonicalize()?;
+        let mut seen = std::collections::HashSet::new();
+        for instruction in &manifest.agent_instructions {
+            let skill_dir = dir
+                .join(&instruction.path)
+                .canonicalize()
+                .with_context(|| {
+                    format!(
+                        "cannot resolve packaged skill {}",
+                        instruction.path.display()
+                    )
+                })?;
+            let skill_file = skill_dir
+                .join("SKILL.md")
+                .canonicalize()
+                .with_context(|| format!("cannot resolve SKILL.md for {}", instruction.skill))?;
+            if !skill_dir.starts_with(&package)
+                || !skill_dir.is_dir()
+                || !skill_file.starts_with(&package)
+                || !skill_file.is_file()
+                || !seen.insert(skill_dir)
+            {
+                bail!(
+                    "agent instructions must reference distinct skill directories with regular SKILL.md files inside the package"
+                );
+            }
+        }
+    }
     Ok(manifest)
 }
 
@@ -318,6 +360,39 @@ pub fn parse(text: &str) -> Result<Manifest> {
     }
     if manifest.title.trim().is_empty() {
         bail!("title is empty");
+    }
+    let mut skills = std::collections::HashSet::new();
+    let mut paths = std::collections::HashSet::new();
+    for instruction in &manifest.agent_instructions {
+        if instruction.skill.is_empty()
+            || instruction
+                .skill
+                .chars()
+                .any(|ch| ch.is_whitespace() || ch.is_control())
+            || !skills.insert(&instruction.skill)
+        {
+            bail!(
+                "agent instruction skill identifiers must be unique and contain no whitespace or control characters"
+            );
+        }
+        let Some(path) = instruction.path.to_str() else {
+            bail!("agent instruction paths must be UTF-8 package-relative directories");
+        };
+        if path.is_empty()
+            || path.contains('\\')
+            || path.contains(':')
+            || path.chars().any(char::is_control)
+            || path.split('/').any(|part| matches!(part, "" | "." | ".."))
+            || !instruction
+                .path
+                .components()
+                .all(|part| matches!(part, std::path::Component::Normal(_)))
+            || !paths.insert(&instruction.path)
+        {
+            bail!(
+                "agent instruction paths must be unique package-relative directories without empty, dot, or parent components"
+            );
+        }
     }
     if let Some(icon) = &manifest.icon
         && super::icons::lucide(icon).is_none()
@@ -438,6 +513,10 @@ fn valid_id(id: &str) -> bool {
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
         && !id.starts_with('-')
 }
+
+#[cfg(test)]
+#[path = "manifest_agent_instructions_tests.rs"]
+mod agent_instructions_tests;
 
 #[cfg(test)]
 mod tests {
