@@ -78,7 +78,12 @@ impl Chat {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let entries = self.history.displayed(&self.session.transcript).entries();
+        let entries = self
+            .codex
+            .as_ref()
+            .and_then(|binding| binding.archive.as_ref())
+            .unwrap_or_else(|| self.history.displayed(&self.session.transcript))
+            .entries();
         let Some(entry) = entries.get(ix) else {
             return div().into_any_element();
         };
@@ -129,7 +134,7 @@ impl Chat {
                     entry.key,
                     &entry.text,
                     self.workspace.clone(),
-                    self.session.dir.clone(),
+                    self.session.key.clone(),
                     window,
                     cx,
                 );
@@ -212,7 +217,12 @@ impl Chat {
     /// Every call of a run as one block, spaced as their rows are at rest,
     /// so the block ends exactly where the rows will.
     fn render_run(&self, run: Range<usize>, cx: &mut Context<Self>) -> AnyElement {
-        let entries = self.history.displayed(&self.session.transcript).entries();
+        let entries = self
+            .codex
+            .as_ref()
+            .and_then(|binding| binding.archive.as_ref())
+            .unwrap_or_else(|| self.history.displayed(&self.session.transcript))
+            .entries();
         let gap = prefs::scaled((TOOL_SPACING.bottom + TOOL_SPACING.top) * 4.);
         let mut block = v_flex();
         for (n, entry) in entries[run].iter().enumerate() {
@@ -241,7 +251,12 @@ impl Chat {
             return;
         }
         let compact = prefs::current(cx).view.compact_tools;
-        let entries = self.history.displayed(&self.session.transcript).entries();
+        let entries = self
+            .codex
+            .as_ref()
+            .and_then(|binding| binding.archive.as_ref())
+            .unwrap_or_else(|| self.history.displayed(&self.session.transcript))
+            .entries();
         let mut group_end = 0;
         let mut group_visible = true;
         for (row, entry) in entries.iter().enumerate() {

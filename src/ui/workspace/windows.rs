@@ -2,8 +2,12 @@
 //! crates/gpui/examples/move_entity_between_windows.rs (entity transfer).
 //! Windows share one server lease, but own independent layouts and focus.
 
+use super::drivers::CoreConnection;
+use crate::agents::codex::CodexService;
+use crate::api::Api;
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 use gpui_kit::*;
 
@@ -19,7 +23,8 @@ pub(in crate::ui) struct WindowGroup(Rc<RefCell<Group>>);
 #[derive(Default)]
 struct Group {
     owner: Option<TabWorkspace>,
-    backend: Option<BackendGuard>,
+    core: Arc<Mutex<Option<CoreConnection>>>,
+    codex: Arc<Mutex<Option<CodexService>>>,
     windows: Vec<(WeakEntity<Workspace>, TabLayout)>,
     quitting: bool,
 }
@@ -36,14 +41,38 @@ impl WindowGroup {
         self.0.borrow_mut().windows.push((view, layout));
     }
 
-    pub(super) fn set_backend(&self, backend: Option<BackendGuard>) {
-        self.0.borrow_mut().backend = backend;
+    pub(super) fn set_core(&self, api: Api, backend: Option<BackendGuard>) {
+        *self.0.borrow().core.lock().unwrap() = Some(CoreConnection { api, backend });
+    }
+
+    pub(super) fn has_core_connection(&self, connection: u64) -> bool {
+        self.0.borrow().core.try_lock().ok().is_some_and(|core| {
+            core.as_ref()
+                .is_some_and(|core| core.api.connection_id() == connection)
+        })
+    }
+
+    pub(super) fn core_slot(&self) -> Arc<Mutex<Option<CoreConnection>>> {
+        self.0.borrow().core.clone()
+    }
+
+    pub(in crate::ui) fn codex_slot(&self) -> Arc<Mutex<Option<CodexService>>> {
+        self.0.borrow().codex.clone()
+    }
+
+    pub(super) fn set_codex(&self, service: CodexService) {
+        *self.0.borrow().codex.lock().unwrap() = Some(service);
     }
 
     pub(super) fn take_backend(&self) -> Option<BackendGuard> {
         let mut group = self.0.borrow_mut();
         group.quitting = true;
-        group.backend.take()
+        group
+            .core
+            .lock()
+            .unwrap()
+            .take()
+            .and_then(|core| core.backend)
     }
 
     pub(in crate::ui) fn all_tabs(&self) -> TabLayout {
@@ -52,6 +81,7 @@ impl WindowGroup {
 
     pub(super) fn watch_backend(
         &self,
+        connection: u64,
         exited: async_channel::Receiver<String>,
         cx: &mut Context<Workspace>,
     ) {
@@ -63,7 +93,7 @@ impl WindowGroup {
                 return;
             };
             if let Some(group) = weak.upgrade() {
-                cx.update(|cx| WindowGroup(group).server_stopped(&report, cx));
+                cx.update(|cx| WindowGroup(group).server_stopped(connection, &report, cx));
             }
         })
         .detach();
@@ -78,7 +108,20 @@ impl WindowGroup {
             .map(|(view, _)| view.clone())
     }
 
-    pub(super) fn server_stopped(&self, report: &str, cx: &mut App) {
+    pub(in crate::ui) fn server_stopped(&self, connection: u64, report: &str, cx: &mut App) {
+        let core = self.0.borrow().core.clone();
+        {
+            let Ok(mut current) = core.try_lock() else {
+                return;
+            };
+            if current
+                .as_ref()
+                .is_none_or(|core| core.api.connection_id() != connection)
+            {
+                return;
+            }
+            current.take();
+        }
         let views: Vec<_> = self
             .0
             .borrow()
@@ -88,7 +131,17 @@ impl WindowGroup {
             .collect();
         for view in views {
             view.update(cx, |this, cx| {
-                this.status = Status::Failed(report.to_owned().into());
+                if this
+                    .api
+                    .as_ref()
+                    .is_none_or(|api| api.connection_id() != connection)
+                {
+                    return;
+                }
+                this.api = None;
+                this.notice = Some(report.to_owned().into());
+                // A Core failure cannot hide another driver's running turn or Stop.
+                this.status = Status::Ready;
                 cx.notify();
             })
             .ok();
@@ -175,19 +228,20 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.layout.contains(id) || self.api.is_none() {
+        if !self.layout.contains(id) {
             return;
         }
         if !tabs::is_chat(id) && self.ensure_document(id, window, cx).is_none() {
             return;
         }
-        let (path, api, target, group, sessions, session_projects) = (
+        let (path, api, target, group, sessions, session_projects, codex_models) = (
             self.workspace_path.clone(),
             self.api.clone(),
             self.target.clone(),
             self.windows.clone(),
             self.sessions.clone(),
             self.session_projects.clone(),
+            self.codex_models.clone(),
         );
         let root_target = target.clone();
         let opened = gpui_kit::open_window(crate::window_options(cx), cx, move |window, cx| {
@@ -197,6 +251,7 @@ impl Workspace {
                 workspace.api = api;
                 workspace.sessions = sessions;
                 workspace.session_projects = session_projects;
+                workspace.codex_models = codex_models;
                 workspace.status = Status::Ready;
                 workspace
             });
@@ -243,10 +298,10 @@ impl Workspace {
                             layout.keep(id);
                             layout.set_pinned(id, pinned);
                         });
-                        if let Some(dir) = tabs::chat_dir(id)
+                        if let Some(key) = tabs::chat_key(id)
                             && !this.chats.contains_key(id)
                         {
-                            this.ensure_chat(dir.to_path_buf(), window, cx);
+                            this.ensure_chat(key, window, cx);
                         }
                         this.focus_active(window, cx);
                         window.activate_window();

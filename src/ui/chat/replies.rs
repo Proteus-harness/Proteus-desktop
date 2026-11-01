@@ -1,8 +1,8 @@
 //! Retained generic reply surfaces. Format policy and parsing belong to the
 //! contributing process; the chat only supplies source and native lifetime.
 
+use crate::tabs::ChatKey;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use gpui_kit::*;
@@ -36,7 +36,7 @@ impl Replies {
         key: u64,
         text: &Arc<str>,
         workspace: WeakEntity<Workspace>,
-        session: PathBuf,
+        session: ChatKey,
         window: &mut Window,
         cx: &mut Context<Chat>,
     ) -> Vec<Part> {

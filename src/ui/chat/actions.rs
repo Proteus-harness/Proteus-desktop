@@ -13,6 +13,9 @@ use super::{Chat, ChatEvent};
 
 impl Chat {
     pub fn load_config(&mut self, cx: &mut Context<Self>) {
+        if !self.supports_core() {
+            return;
+        }
         self.config_generation = self.config_generation.wrapping_add(1);
         let generation = self.config_generation;
         let dir = self.session.dir.clone();
@@ -40,6 +43,9 @@ impl Chat {
     }
 
     pub(super) fn load_context(&mut self, cx: &mut Context<Self>) {
+        if !self.supports_core() {
+            return;
+        }
         if let Some(generation) = self.context_requests.request() {
             self.fetch_context(generation, cx);
         }
@@ -47,7 +53,9 @@ impl Chat {
 
     fn fetch_context(&mut self, generation: u64, cx: &mut Context<Self>) {
         let dir = self.session.dir.clone();
-        let api = self.api.clone();
+        let Some(api) = self.api.clone() else {
+            return;
+        };
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
@@ -80,6 +88,10 @@ impl Chat {
     /// Sends the composer text and images; the server queues them while a
     /// run is active. A refused message returns to an empty composer.
     pub(super) fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.codex.is_some() {
+            self.send_codex(window, cx);
+            return;
+        }
         let draft_text = self.composer.read(cx).value().to_string();
         let text = draft_text.trim().to_owned();
         if (text.is_empty() && self.attachments.is_empty())
@@ -115,7 +127,9 @@ impl Chat {
         self.show_latest(cx);
         cx.emit(ChatEvent::Sent);
         cx.notify();
-        let api = self.api.clone();
+        let Some(api) = self.api.clone() else {
+            return;
+        };
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
@@ -163,6 +177,10 @@ impl Chat {
     }
 
     pub(super) fn stop(&mut self, cx: &mut Context<Self>) {
+        if self.codex.is_some() {
+            self.stop_codex(cx);
+            return;
+        }
         let Some(run) = &self.session.execution.active else {
             return;
         };

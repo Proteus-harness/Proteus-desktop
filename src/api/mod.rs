@@ -25,12 +25,17 @@ use serde_json::Value;
 /// Blocking HTTP client for the app server; call it off the UI thread.
 #[derive(Clone)]
 pub struct Api {
+    connection_id: u64,
     agent: ureq::Agent,
     origin: Arc<str>,
     token: Arc<str>,
 }
 
 impl Api {
+    pub fn connection_id(&self) -> u64 {
+        self.connection_id
+    }
+
     pub fn origin(&self) -> &str {
         &self.origin
     }
@@ -45,7 +50,9 @@ impl Api {
             .timeout_connect(Some(Duration::from_secs(10)))
             .build()
             .into();
+        static NEXT_CONNECTION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         Self {
+            connection_id: NEXT_CONNECTION.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             agent,
             origin: origin.into(),
             token: token.into(),
@@ -391,5 +398,17 @@ fn parse_output(data: &str) -> Result<Box<AppServerEvent>> {
             error: Some(error), ..
         } => Err(anyhow!("event stream failed: {error}")),
         StdioOutput::Response { .. } => Err(anyhow!("unexpected response on the event stream")),
+    }
+}
+
+#[cfg(test)]
+mod connection_identity_tests {
+    use super::Api;
+    #[test]
+    fn clones_keep_identity_and_replacement_at_same_origin_has_new_identity() {
+        let first = Api::new("http://localhost:1", "synthetic");
+        let second = Api::new("http://localhost:1", "synthetic");
+        assert_eq!(first.connection_id(), first.clone().connection_id());
+        assert_ne!(first.connection_id(), second.connection_id());
     }
 }

@@ -4,9 +4,9 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Instant;
 
+use crate::conversations::ConversationSummary;
 use anyhow::Result;
 use gpui_kit::*;
-use proteus_contracts::app_protocol::AppSessionSummary;
 
 use super::chats::OpenChat;
 use super::chrome::WorkspaceRequest;
@@ -19,6 +19,7 @@ use crate::attention::Tracker;
 use crate::launch::{LaunchOptions, Target};
 use crate::tabs::{PaneId, TabLayout};
 
+mod drivers;
 pub(super) mod startup;
 mod windows;
 use startup::{Boot, boot};
@@ -37,9 +38,11 @@ pub struct Workspace {
     pub(super) status: Status,
     api: Option<Api>,
     target: Target,
+    pub(super) codex_catalog_loading: bool,
+    pub(super) codex_models: Vec<crate::agents::codex::Model>,
     pub(super) layout: TabLayout,
     pub(super) windows: WindowGroup,
-    pub(super) sessions: Vec<AppSessionSummary>,
+    pub(super) sessions: Vec<ConversationSummary>,
     /// Exact lifecycle acknowledgements, available before catalog discovery.
     /// Entries leave this map once the summary catalog knows their workspace.
     pub(super) session_projects: HashMap<PathBuf, PathBuf>,
@@ -199,6 +202,8 @@ impl Workspace {
             status: Status::Starting,
             api: None,
             target,
+            codex_catalog_loading: false,
+            codex_models: Vec::new(),
             layout,
             windows,
             sessions: Vec::new(),
@@ -250,23 +255,45 @@ impl Workspace {
         crate::startup_trace::mark("workspace.boot.applied");
         match result {
             Ok(boot) => {
-                self.api = Some(boot.api);
+                self.api = boot.api.clone();
                 if let Some(exited) = boot.backend.as_ref().map(|guard| guard.exited.clone()) {
-                    self.windows.watch_backend(exited, cx);
+                    self.windows.watch_backend(
+                        self.api.as_ref().unwrap().connection_id(),
+                        exited,
+                        cx,
+                    );
                 }
-                self.windows.set_backend(boot.backend);
+                if let Some(api) = boot.api {
+                    self.windows.set_core(api, boot.backend);
+                }
+                if let Some(service) = boot.codex {
+                    self.windows.set_codex(service);
+                }
+                self.codex_models = boot.codex_models;
                 self.startup_streams = boot.streams;
                 self.sessions = boot.sessions;
                 self.session_projects = boot.projects;
                 self.sessions_arrived = (!self.sessions.is_empty()).then(Instant::now);
                 self.status = Status::Ready;
                 self.restore_chats(boot.restored, boot.resumed, window, cx);
+                for opened in boot.codex_opened {
+                    let is_new = !self
+                        .layout
+                        .contains(&crate::tabs::codex(opened.handle.thread_id()));
+                    let id = self.insert_codex_chat(opened, is_new, window, cx);
+                    if !self.layout.contains(&id) {
+                        self.show_tab_in(&id, None, window, cx);
+                    }
+                }
+                let layout = self.tab_layout(cx);
+                self.sync_chats(&layout, cx);
                 if let Some(dir) = boot.startup {
                     self.add_chat(dir, None, window, cx);
                 } else {
                     self.focus_active_chat(window, cx);
                 }
                 self.refresh_sessions(cx);
+                self.refresh_codex_sessions(cx);
             }
             Err(error) => self.status = Status::Failed(format!("{error:#}").into()),
         }
@@ -292,18 +319,42 @@ impl Workspace {
         job: impl FnOnce(&Api) -> Result<R> + Send + 'static,
         done: impl FnOnce(&mut Self, R, &mut Context<Self>) + 'static,
     ) {
-        let Some(api) = self.api.clone() else {
-            return;
-        };
+        let core = self.windows.core_slot();
+        let options = self.core_options();
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { job(&api) })
+                .spawn(async move {
+                    let (api, exited) = drivers::core(&core, &options)?;
+                    Ok::<_, anyhow::Error>((api.clone(), exited, job(&api)))
+                })
                 .await;
             this.update(cx, |this, cx| {
                 match result {
-                    Ok(value) => done(this, value, cx),
-                    Err(error) => this.report(format!("{error:#}"), cx),
+                    Ok((api, exited, value)) => {
+                        if !this.windows.has_core_connection(api.connection_id()) {
+                            return;
+                        }
+                        this.api = Some(api);
+                        if let Some(exited) = exited {
+                            this.windows.watch_backend(
+                                this.api.as_ref().unwrap().connection_id(),
+                                exited,
+                                cx,
+                            );
+                        }
+                        match value {
+                            Ok(value) => done(this, value, cx),
+                            Err(error) => {
+                                this.fail_openings(crate::conversations::AgentKind::Proteus, cx);
+                                this.report(format!("{error:#}"), cx);
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        this.fail_openings(crate::conversations::AgentKind::Proteus, cx);
+                        this.report(format!("{error:#}"), cx);
+                    }
                 }
                 cx.notify();
             })
@@ -320,18 +371,42 @@ impl Workspace {
         job: impl FnOnce(&Api) -> Result<R> + Send + 'static,
         done: impl FnOnce(&mut Self, R, &mut Window, &mut Context<Self>) + 'static,
     ) {
-        let Some(api) = self.api.clone() else {
-            return;
-        };
+        let core = self.windows.core_slot();
+        let options = self.core_options();
         cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { job(&api) })
+                .spawn(async move {
+                    let (api, exited) = drivers::core(&core, &options)?;
+                    Ok::<_, anyhow::Error>((api.clone(), exited, job(&api)))
+                })
                 .await;
             this.update_in(cx, |this, window, cx| {
                 match result {
-                    Ok(value) => done(this, value, window, cx),
-                    Err(error) => this.report(format!("{error:#}"), cx),
+                    Ok((api, exited, value)) => {
+                        if !this.windows.has_core_connection(api.connection_id()) {
+                            return;
+                        }
+                        this.api = Some(api);
+                        if let Some(exited) = exited {
+                            this.windows.watch_backend(
+                                this.api.as_ref().unwrap().connection_id(),
+                                exited,
+                                cx,
+                            );
+                        }
+                        match value {
+                            Ok(value) => done(this, value, window, cx),
+                            Err(error) => {
+                                this.fail_openings(crate::conversations::AgentKind::Proteus, cx);
+                                this.report(format!("{error:#}"), cx);
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        this.fail_openings(crate::conversations::AgentKind::Proteus, cx);
+                        this.report(format!("{error:#}"), cx);
+                    }
                 }
                 cx.notify();
             })

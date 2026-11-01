@@ -84,10 +84,23 @@ impl Chat {
         };
         let send = kit::icon_button("send")
             .icon(IconName::ArrowUp)
-            .hint_keys(if running { "В очередь" } else { "Send" }, Some(keys), cx)
+            .hint_keys(
+                if running && self.supports_core() {
+                    "В очередь"
+                } else {
+                    "Send"
+                },
+                Some(keys),
+                cx,
+            )
             .primary()
             .small()
-            .disabled(!ready || !self.has_draft(cx) || self.attachments_loading)
+            .disabled(
+                !ready
+                    || !self.has_draft(cx)
+                    || self.attachments_loading
+                    || (self.codex.is_some() && running),
+            )
             .on_click(cx.listener(|this, _, window, cx| this.send(window, cx)));
         let attach = kit::button("attach")
             .when(!self.attachments_loading, |button| {
@@ -154,7 +167,7 @@ impl Chat {
                     .flex_wrap()
                     .gap_x_2()
                     .gap_y_1()
-                    .child(attach)
+                    .children(self.supports_core().then_some(attach))
                     .child(h_flex().ml_auto().gap_2().children(stop).child(send)),
             )
     }

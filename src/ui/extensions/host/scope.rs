@@ -30,6 +30,8 @@ pub(in crate::ui) struct ViewOwner(u64);
 pub(in crate::ui) struct RuntimeScope {
     pub lifetime: Lifetime,
     pub owner: Option<ViewOwner>,
+    /// Content in another driver has no Proteus server capability.
+    pub content_only: bool,
 }
 
 impl RuntimeScope {
@@ -39,6 +41,7 @@ impl RuntimeScope {
         Self {
             lifetime,
             owner: Some(ViewOwner(NEXT.fetch_add(1, Ordering::Relaxed))),
+            content_only: true,
         }
     }
 
@@ -52,23 +55,41 @@ impl RuntimeScope {
         self,
         production: impl FnOnce() -> (Option<Server>, Option<PathBuf>),
     ) -> (Option<Server>, Option<PathBuf>) {
-        if self.lifetime.session() {
+        if self.lifetime.session() && !self.content_only {
             production()
+        } else if self.lifetime.session() {
+            // The wire already supports credential-free content processes.
+            // Preserve the folder, without even asking for a production API.
+            let (_, workspace) = production();
+            (Some(empty_server()), workspace)
         } else {
-            (
-                Some(Server {
-                    origin: String::new(),
-                    token: String::new(),
-                }),
-                Some(PathBuf::new()),
-            )
+            (Some(empty_server()), Some(PathBuf::new()))
         }
+    }
+}
+
+fn empty_server() -> Server {
+    Server {
+        origin: String::new(),
+        token: String::new(),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn external_content_preserves_folder_but_discards_server_credentials() {
+        let scope = RuntimeScope {
+            content_only: true,
+            ..Default::default()
+        };
+        let (server, workspace) = scope.connection(|| (None, Some("/project".into())));
+        assert_eq!(server, Some(empty_server()));
+        assert_eq!(workspace, Some("/project".into()));
+        assert!(scope.lifetime.session());
+    }
 
     #[test]
     fn nested_renderers_inherit_unique_sessionless_owner_and_empty_hello() {

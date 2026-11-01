@@ -69,6 +69,9 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<SurfaceView> {
+        if !self.core_context() {
+            return None;
+        }
         let manifest = extensions::panel(name, cx)?;
         if let Some(view) = self.panels.get(manifest.id) {
             return Some(view.clone());
@@ -90,7 +93,7 @@ impl Workspace {
         } else {
             match self.ensure_panel(panel.name, window, cx) {
                 Some(view) => view.view.into_any_element(),
-                None => div().into_any_element(),
+                None => div().p_4().text_sm().text_color(cx.theme().muted_foreground).child("Это расширение использует Proteus Core. Для Codex пока доступен общий чат.").into_any_element(),
             }
         };
         let header = self.render_panel_header(panel, cx).into_any_element();

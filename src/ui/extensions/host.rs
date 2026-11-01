@@ -6,6 +6,7 @@ use proteus_contracts::app_protocol::AppSessionActivity;
 
 use crate::api::Api;
 use crate::preferences::BadgePlace;
+use crate::tabs::ChatKey;
 use crate::ui::chat::{Chat, Session};
 use crate::ui::motion::PopupPanel;
 use crate::ui::workspace::Workspace;
@@ -26,10 +27,10 @@ pub(in crate::ui) struct Host {
     workspace: WeakEntity<Workspace>,
     extension: &'static str,
     /// A retained content view belongs to its original chat, even in a background tab.
-    bound: Option<(WeakEntity<Chat>, PathBuf)>,
+    bound: Option<(WeakEntity<Chat>, ChatKey)>,
     /// A document-only detached window keeps its originating session until
     /// the destination explicitly chooses a chat. This is weak, never a pump.
-    inherited: Option<(WeakEntity<Chat>, PathBuf)>,
+    inherited: Option<(WeakEntity<Chat>, ChatKey)>,
     runtime_scope: RuntimeScope,
 }
 
@@ -79,23 +80,30 @@ impl Host {
         include_entries: bool,
         cx: &App,
     ) -> crate::declarative::protocol::Outgoing {
-        let (state, entries) = self
-            .read(cx, |host| {
-                host.session().map(|session| {
-                    (
-                        Box::new(super::session::state(session, host.activity().cloned())),
-                        if include_entries {
-                            super::session::entries(session, 0..session.transcript.entries().len())
-                        } else {
-                            Vec::new()
-                        },
-                    )
+        let projection = self
+            .supports_core(cx)
+            .then(|| {
+                self.read(cx, |host| {
+                    host.session().map(|session| {
+                        (
+                            Box::new(super::session::state(session, host.activity().cloned())),
+                            if include_entries {
+                                super::session::entries(
+                                    session,
+                                    0..session.transcript.entries().len(),
+                                )
+                            } else {
+                                Vec::new()
+                            },
+                        )
+                    })
                 })
+                .flatten()
             })
-            .flatten()
-            .map_or((None, Vec::new()), |(state, entries)| {
-                (Some(state), entries)
-            });
+            .flatten();
+        let (state, entries) = projection.map_or((None, Vec::new()), |(state, entries)| {
+            (Some(state), entries)
+        });
         crate::declarative::protocol::Outgoing::SessionSnapshot {
             context: self.scope(),
             session_dir: self.session_dir(cx),
@@ -109,16 +117,21 @@ impl Host {
         cx: &mut Context<T>,
         mut on_event: impl FnMut(&mut T, &super::session::SessionChanged, &mut Context<T>) + 'static,
     ) -> Option<Subscription> {
-        if !self.runtime_scope.lifetime.session() {
+        if !self.runtime_scope.lifetime.session() || !self.supports_core(cx) {
             return None;
         }
-        let session = self.bound.as_ref().map(|(_, session)| session.clone());
+        let session = self
+            .bound
+            .as_ref()
+            .and_then(|(_, key)| key.proteus_dir().map(std::path::Path::to_path_buf));
+        let host = self.clone();
         Some(cx.subscribe(
             &self.workspace.upgrade()?,
             move |this, _, event: &super::session::SessionChanged, cx| {
-                if session
-                    .as_ref()
-                    .is_none_or(|session| *session == event.session_dir)
+                if host.supports_core(cx)
+                    && session
+                        .as_ref()
+                        .is_none_or(|session| *session == event.session_dir)
                 {
                     on_event(this, event, cx)
                 }
@@ -162,14 +175,26 @@ impl Host {
         }
     }
 
-    pub(in crate::ui) fn inherit(&mut self, source: Option<(WeakEntity<Chat>, PathBuf)>) {
+    pub(in crate::ui) fn inherit(&mut self, source: Option<(WeakEntity<Chat>, ChatKey)>) {
         if self.bound.is_none() {
             self.inherited = source;
         }
     }
 
-    pub(in crate::ui) fn session_source(&self, cx: &App) -> Option<(WeakEntity<Chat>, PathBuf)> {
-        Some((self.chat(cx)?.downgrade(), self.session_dir(cx)?))
+    pub(in crate::ui) fn session_source(&self, cx: &App) -> Option<(WeakEntity<Chat>, ChatKey)> {
+        if !self.runtime_scope.lifetime.session() {
+            return None;
+        }
+        if let Some(source) = &self.bound {
+            return Some(source.clone());
+        }
+        let workspace = self.workspace.upgrade()?;
+        let workspace = workspace.read(cx);
+        if let (Some(chat), Some(key)) = (workspace.active_chat_view(), workspace.active_chat_key())
+        {
+            return Some((chat.downgrade(), key));
+        }
+        self.inherited.clone()
     }
     pub(in crate::ui) fn new(workspace: WeakEntity<Workspace>, extension: &'static str) -> Self {
         Self {
@@ -181,8 +206,9 @@ impl Host {
         }
     }
 
-    pub(in crate::ui) fn for_chat(mut self, chat: WeakEntity<Chat>, session: PathBuf) -> Self {
-        self.bound = Some((chat, session));
+    pub(in crate::ui) fn for_chat(mut self, chat: WeakEntity<Chat>, key: ChatKey) -> Self {
+        self.runtime_scope.content_only = key.proteus_dir().is_none();
+        self.bound = Some((chat, key));
         self
     }
 
@@ -203,14 +229,15 @@ impl Host {
         if !self.runtime_scope.lifetime.session() {
             return None;
         }
-        let session = self.session_dir(cx);
         let workspace = self.workspace.upgrade()?;
-        Some(
-            workspace
-                .read(cx)
-                .project_for_session(session.as_deref())
-                .to_path_buf(),
-        )
+        let workspace = workspace.read(cx);
+        let key = self
+            .bound
+            .as_ref()
+            .map(|(_, key)| key.clone())
+            .or_else(|| workspace.active_chat_key())
+            .or_else(|| self.inherited.as_ref().map(|(_, key)| key.clone()));
+        Some(workspace.project_for_key(key.as_ref()).to_path_buf())
     }
 
     pub(in crate::ui) fn read<R>(&self, cx: &App, read: impl FnOnce(&HostView) -> R) -> Option<R> {
@@ -284,31 +311,60 @@ impl Host {
             .or_else(|| self.inherited.as_ref()?.0.upgrade())
     }
 
-    pub(in crate::ui) fn api(&self, cx: &App) -> Option<Api> {
-        self.read(cx, |host| host.workspace.api()).flatten()
+    /// Core capability is attached to the addressed conversation, not the
+    /// existence of a Core process elsewhere in this window group.
+    pub(in crate::ui) fn supports_core(&self, cx: &App) -> bool {
+        self.session_dir(cx).is_some()
     }
 
+    pub(in crate::ui) fn api(&self, cx: &App) -> Option<Api> {
+        if !self.supports_core(cx) {
+            return None;
+        }
+        self.workspace.upgrade()?.read(cx).api()
+    }
+
+    /// Immutable host identity is safe to inspect while its Chat is rendering.
+    /// Do not route metadata reads through Host::read: that leases the Chat again.
     pub(in crate::ui) fn session_dir(&self, cx: &App) -> Option<PathBuf> {
+        self.context_session(|| self.workspace.upgrade()?.read(cx).active_chat_key())
+    }
+
+    fn context_session(&self, active: impl FnOnce() -> Option<ChatKey>) -> Option<PathBuf> {
         if !self.runtime_scope.lifetime.session() {
             return None;
         }
-        let active = self
-            .read(cx, |host| host.session().map(|session| session.dir.clone()))
-            .flatten();
-        self.context_session(active)
-    }
-
-    fn context_session(&self, active: Option<PathBuf>) -> Option<PathBuf> {
-        self.bound
-            .as_ref()
-            .map(|(_, session)| session.clone())
-            .or(active)
-            .or_else(|| self.inherited.as_ref().map(|(_, session)| session.clone()))
+        if let Some((_, key)) = &self.bound {
+            return key
+                .proteus_dir()
+                .map(std::path::Path::to_path_buf)
+                .and_then(nonempty_session);
+        }
+        if self.runtime_scope.content_only {
+            return None;
+        }
+        match active() {
+            Some(key) => key
+                .proteus_dir()
+                .map(std::path::Path::to_path_buf)
+                .and_then(nonempty_session),
+            None => self
+                .inherited
+                .as_ref()
+                .and_then(|(_, key)| key.proteus_dir())
+                .map(std::path::Path::to_path_buf)
+                .and_then(nonempty_session),
+        }
     }
 
     pub(in crate::ui) fn active_document(&self, cx: &App) -> Option<String> {
-        self.read(cx, |host| host.active_document(self.extension, cx))
-            .flatten()
+        if !self.runtime_scope.lifetime.session() {
+            return None;
+        }
+        let workspace = self.workspace.upgrade()?;
+        let layout = workspace.read(cx).tab_layout(cx);
+        let (owner, argument) = crate::tabs::split_document(layout.active(layout.focused)?)?;
+        (owner == self.extension).then(|| argument.to_string())
     }
 
     /// Calls `on_event` for every host event while `cx`'s entity lives.
@@ -368,25 +424,67 @@ impl Host {
     }
 }
 
+fn nonempty_session(session: PathBuf) -> Option<PathBuf> {
+    (!session.as_os_str().is_empty()).then_some(session)
+}
+
 #[cfg(test)]
 mod isolated_tests {
     use super::{Host, Lifetime};
+    use crate::tabs::ChatKey;
     use gpui_kit::WeakEntity;
+
+    #[test]
+    fn external_bound_context_cannot_fall_back_to_a_core_directory() {
+        let host = Host::new(WeakEntity::new_invalid(), "renderer").for_chat(
+            WeakEntity::new_invalid(),
+            ChatKey::Codex("opaque:codex".into()),
+        );
+        assert!(host.runtime_scope().content_only);
+        assert_eq!(
+            host.context_session(|| panic!("bound Codex metadata read workspace/chat")),
+            None
+        );
+        let (server, _) = host
+            .runtime_scope()
+            .connection(|| (None, Some("/project".into())));
+        let server = server.unwrap();
+        assert!(server.token.is_empty());
+        assert!(server.origin.is_empty());
+    }
 
     #[test]
     fn retained_bound_and_inherited_directories_survive_the_chat_entity() {
         let mut inherited = Host::new(WeakEntity::new_invalid(), "files");
-        inherited.inherit(Some((WeakEntity::new_invalid(), "/sessions/b".into())));
-        assert_eq!(inherited.context_session(None), Some("/sessions/b".into()));
+        inherited.inherit(Some((
+            WeakEntity::new_invalid(),
+            ChatKey::Proteus("/sessions/b".into()),
+        )));
         assert_eq!(
-            inherited.context_session(Some("/sessions/a".into())),
+            inherited.context_session(|| None),
+            Some("/sessions/b".into())
+        );
+        assert_eq!(
+            inherited.context_session(|| Some(ChatKey::Proteus("/sessions/a".into()))),
             Some("/sessions/a".into())
         );
 
-        let bound = inherited.for_chat(WeakEntity::new_invalid(), "/sessions/bound".into());
-        assert_eq!(bound.context_session(None), Some("/sessions/bound".into()));
         assert_eq!(
-            bound.context_session(Some("/sessions/a".into())),
+            inherited.context_session(|| Some(ChatKey::Codex("active:external".into()))),
+            None,
+            "active external driver must suppress an inherited Core directory"
+        );
+
+        let bound = inherited.for_chat(
+            WeakEntity::new_invalid(),
+            ChatKey::Proteus("/sessions/bound".into()),
+        );
+        assert_eq!(
+            bound.context_session(|| panic!("bound Core metadata read workspace/chat")),
+            Some("/sessions/bound".into())
+        );
+        assert_eq!(
+            bound.context_session(|| Some(ChatKey::Proteus("/sessions/a".into()))),
             Some("/sessions/bound".into())
         );
     }
@@ -439,7 +537,9 @@ pub(in crate::ui) struct HostView<'a> {
 impl HostView<'_> {
     /// Session of the active chat.
     pub(in crate::ui) fn session(&self) -> Option<&Session> {
-        self.chat.map(|chat| &chat.session)
+        self.chat
+            .filter(|chat| chat.supports_core())
+            .map(|chat| &chat.session)
     }
 
     /// Server-side activity of the active chat's session.
@@ -448,16 +548,8 @@ impl HostView<'_> {
         self.workspace
             .sessions
             .iter()
-            .find(|summary| summary.session_dir == session.dir)?
+            .find(|summary| summary.key == session.key)?
             .activity
             .as_ref()
-    }
-
-    /// Argument of the document tab active in the focused pane, when the
-    /// tab belongs to `extension`.
-    pub(in crate::ui) fn active_document(&self, extension: &str, cx: &App) -> Option<String> {
-        let layout = self.workspace.tab_layout(cx);
-        let (owner, argument) = crate::tabs::split_document(layout.active(layout.focused)?)?;
-        (owner == extension).then(|| argument.to_string())
     }
 }

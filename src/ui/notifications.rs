@@ -26,7 +26,7 @@ impl Workspace {
         if !wanted || cx.active_window().is_some() {
             return;
         }
-        let title = self.session_title(dir, cx);
+        let title = self.session_title(&crate::tabs::ChatKey::Proteus(dir.to_path_buf()), cx);
         let opened = notify::show(&title, attention.body());
         let dir = dir.to_path_buf();
         let handle = self.window_handle;
@@ -47,5 +47,5 @@ fn show_chat(this: &mut Workspace, dir: PathBuf, window: &mut Window, cx: &mut C
         preview: false,
         focus: true,
     };
-    this.open_chat(dir, open, window, cx);
+    this.open_chat(crate::tabs::ChatKey::Proteus(dir), open, window, cx);
 }

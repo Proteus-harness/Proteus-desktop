@@ -1,9 +1,9 @@
 use chrono::{Datelike, Local, TimeZone, Timelike};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use proteus_contracts::app_protocol::AppSessionSummary;
+use crate::conversations::ConversationSummary;
 
-pub fn session_title(session: &AppSessionSummary) -> String {
+pub fn session_title(session: &ConversationSummary) -> String {
     session
         .preview
         .as_deref()

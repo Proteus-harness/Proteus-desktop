@@ -7,6 +7,7 @@ mod actions;
 mod activity_dock;
 mod attachment_io;
 mod attachments;
+mod codex;
 mod composer;
 mod context_requests;
 pub(super) mod context_usage;
@@ -84,11 +85,14 @@ pub(super) enum ChatEvent {
     /// The user sent a message, so the chat is worth keeping open.
     Sent,
     /// The app server shut down.
-    ServerStopped,
+    ServerStopped {
+        connection: u64,
+    },
 }
 
 pub(super) struct Chat {
-    api: Api,
+    api: Option<Api>,
+    codex: Option<codex::Binding>,
     workspace: WeakEntity<crate::ui::workspace::Workspace>,
     pub session: Session,
     /// Invalidates a delayed catalog when another config snapshot was applied.
@@ -132,7 +136,7 @@ pub(super) struct Chat {
     /// Sizes the row heights were measured with.
     view: ViewPreferences,
     chat_font: SharedString,
-    _pump: Task<()>,
+    _pump: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -144,6 +148,31 @@ impl Chat {
         workspace: WeakEntity<crate::ui::workspace::Workspace>,
         session_dir: PathBuf,
         prepared_stream: Option<async_channel::Receiver<crate::connection::PumpItem>>,
+        extras: ComposerExtras,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let events = prepared_stream
+            .unwrap_or_else(|| crate::connection::spawn_pump(api.clone(), session_dir.clone()));
+        let initial = crate::connection::take_initial_events(&events);
+        let mut chat = Self::base(
+            Some(api),
+            workspace,
+            Session::new(session_dir),
+            extras,
+            window,
+            cx,
+        );
+        chat._pump = Some(pump::start(events, cx));
+        chat.apply_batch(initial, cx);
+        chat.load_config(cx);
+        chat
+    }
+
+    fn base(
+        api: Option<Api>,
+        workspace: WeakEntity<crate::ui::workspace::Workspace>,
+        session: Session,
         extras: ComposerExtras,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -196,15 +225,12 @@ impl Chat {
                 }
             }),
         ];
-        let events = prepared_stream
-            .unwrap_or_else(|| crate::connection::spawn_pump(api.clone(), session_dir.clone()));
-        let initial = crate::connection::take_initial_events(&events);
-        let pump = pump::start(events, cx);
         let composer_events = Self::subscribe_composer(&composer, window, cx);
-        let mut chat = Self {
+        Self {
             api,
             workspace,
-            session: Session::new(session_dir),
+            codex: None,
+            session,
             config_generation: 0,
             context_requests: context_requests::ContextRequests::default(),
             history: history::History::default(),
@@ -233,12 +259,9 @@ impl Chat {
             _composer_events: composer_events,
             view: prefs::current(cx).view,
             chat_font: prefs::chat_font(cx),
-            _pump: pump,
+            _pump: None,
             _subscriptions: subscriptions,
-        };
-        chat.apply_batch(initial, cx);
-        chat.load_config(cx);
-        chat
+        }
     }
 
     /// Retain the session stream, transcript, input and native content while
@@ -258,6 +281,11 @@ impl Chat {
             .update(cx, |composer, cx| composer.rehost(window, cx));
         self._composer_events = Self::subscribe_composer(&self.composer, window, cx);
         self.replies.rehost(workspace, window, cx);
+        if let Some(binding) = &mut self.codex {
+            for input in binding.answers.values() {
+                input.update(cx, |state, cx| state.rehost(window, cx));
+            }
+        }
         self.scroller
             .update(cx, |scroller, cx| scroller.remeasure(cx));
         cx.notify();
@@ -295,6 +323,17 @@ impl Chat {
         )
     }
 
+    pub(in crate::ui) fn supports_core(&self) -> bool {
+        self.api.is_some()
+    }
+
+    fn archived(&self) -> bool {
+        self.codex.as_ref().map_or_else(
+            || self.history.archived(),
+            |binding| binding.archive.is_some(),
+        )
+    }
+
     /// Nothing was said or typed here yet, so the chat can go unnoticed.
     pub fn is_blank(&self, cx: &App) -> bool {
         self.session.transcript.entries().is_empty()
@@ -319,7 +358,9 @@ impl Chat {
         job: impl FnOnce(&Api) -> anyhow::Result<R> + Send + 'static,
         done: impl FnOnce(&mut Self, R, &mut Context<Self>) + 'static,
     ) {
-        let api = self.api.clone();
+        let Some(api) = self.api.clone() else {
+            return;
+        };
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()

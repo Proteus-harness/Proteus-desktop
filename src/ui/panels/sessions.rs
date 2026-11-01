@@ -1,6 +1,7 @@
 //! The session list panel: pinned chats, then every project's chats in a
 //! folder of its own, with a filter by title.
 
+use proteus_tabs::ChatKey;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -29,7 +30,7 @@ const ARCHIVE: &str = "sessions-archive";
 
 impl Workspace {
     pub(super) fn render_sessions(&mut self, window: &Window, cx: &mut Context<Self>) -> Div {
-        let current = self.active_chat_dir().map(Path::to_path_buf);
+        let current = self.active_chat_key();
         let cursor = (self.session_list.focus.is_focused(window))
             .then(|| self.session_cursor())
             .flatten();
@@ -54,8 +55,8 @@ impl Workspace {
                     self.render_session_branch(
                         row,
                         usize::from(indent),
-                        current.as_deref(),
-                        cursor.as_deref(),
+                        current.as_ref(),
+                        cursor.as_ref(),
                         searching,
                         entering,
                         items,
@@ -103,7 +104,7 @@ impl Workspace {
                 &mut items
             };
             let short = |ix: usize, row: &Row| {
-                ix < PROJECT_ROWS || current.as_deref().is_some_and(|dir| row.contains(dir))
+                ix < PROJECT_ROWS || current.as_ref().is_some_and(|dir| row.contains(dir))
             };
             let (first, rest): (Vec<_>, Vec<_>) = project
                 .rows
@@ -205,16 +206,16 @@ impl Workspace {
         &self,
         row: &Row,
         depth: usize,
-        current: Option<&Path>,
-        cursor: Option<&Path>,
+        current: Option<&ChatKey>,
+        cursor: Option<&ChatKey>,
         searching: bool,
         entering: bool,
         items: &mut Vec<AnyElement>,
         slot: Option<usize>,
-        shown: &mut Vec<(PathBuf, usize)>,
+        shown: &mut Vec<(ChatKey, usize)>,
         cx: &Context<Self>,
     ) {
-        let dir = &row.summary.session_dir;
+        let dir = &row.summary.key;
         let open = searching
             || self.session_list.branches.contains(dir)
             || current.is_some_and(|current| current != dir && row.contains(current));
@@ -231,7 +232,7 @@ impl Workspace {
         };
         let item = motion::stagger_in(
             div().child(self.render_session_item(index, row, look, cx)),
-            ElementId::Name(format!("session-enter-{}", dir.display()).into()),
+            ElementId::Name(format!("session-enter-{}", dir).into()),
             index,
             entering,
         )
@@ -444,8 +445,8 @@ impl Workspace {
     }
 }
 
-pub(super) fn branch_key(path: &Path) -> SharedString {
-    format!("session-branch-{}", path.display()).into()
+pub(super) fn branch_key(path: &ChatKey) -> SharedString {
+    format!("session-branch-{path}").into()
 }
 
 /// Motion keys of a project folder's chats and of its chats past the first.

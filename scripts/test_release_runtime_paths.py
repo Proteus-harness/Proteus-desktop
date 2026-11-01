@@ -119,6 +119,13 @@ class RunTests(unittest.TestCase):
         self.runtime.require_extensions.assert_called_once()
         self.assertEqual(self.call.call_args.args[0][-4:], ["--origin", "http://localhost:1", "--token", "fixture"])
 
+    def test_codex_does_not_require_core_or_modules(self):
+        self.runner.main(["/workspace", "--agent", "codex"])
+        self.runtime.executable.assert_not_called()
+        self.runtime.require_modules.assert_not_called()
+        self.runtime.require_extensions.assert_called_once()
+        self.assertEqual(self.call.call_args.args[0][-2:], ["--agent", "codex"])
+
     def test_overrides_and_explicit_extension_build(self):
         os.environ.update(PROTEUS_BIN="/custom/proteus", PROTEUS_EXTENSIONS_DIR="/custom/extensions")
         self.runner.main(["--base", "/ready"])

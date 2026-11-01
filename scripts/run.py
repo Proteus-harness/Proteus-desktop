@@ -33,7 +33,8 @@ def main(args):
     env["PATH"] = str(base / "bin") + os.pathsep + env.get("PATH", "")
     hint = "Provide an existing portable with --base PATH or set PROTEUS_BIN to a ready backend."
     # An attached client does not launch a local backend or its modules.
-    if "--origin" not in application:
+    codex_only = any(application[index:index + 2] == ["--agent", "codex"] for index in range(len(application)))
+    if "--origin" not in application and not codex_only:
         backend = executable(env.get("PROTEUS_BIN", str(base / "bin/proteus")), path=env["PATH"])
         if backend is None:
             raise SystemExit(f"Ready Proteus backend not found. {hint}")
@@ -47,7 +48,7 @@ def main(args):
         directory = Path(env.get("PROTEUS_EXTENSIONS_DIR", str(base / "share/extensions"))).expanduser().resolve()
     require_extensions(directory, hint="Use --base PATH with ready extensions, set PROTEUS_EXTENSIONS_DIR, or explicitly pass --build-extensions.", path=env["PATH"], native=ROOT)
     env["PROTEUS_EXTENSIONS_DIR"] = str(directory)
-    print("Building/running Desktop only; using ready backend, modules and extensions.", file=sys.stderr)
+    print("Building/running Desktop only; using installed Codex or ready Proteus runtime and extensions.", file=sys.stderr)
     return subprocess.call(["cargo", "run", "--locked", "-p", "proteus-native", "--", *application], cwd=ROOT, env=env)
 
 

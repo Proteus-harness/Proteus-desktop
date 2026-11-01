@@ -124,3 +124,31 @@ fn validation_rejects_a_missing_or_non_chat_command_target() {
     layout.last_chat = Some(FILE.into());
     assert!(layout.validate().is_err());
 }
+
+#[test]
+fn codex_threads_keep_native_identity_and_survive_document_focus_restore() {
+    use crate::{ChatKey, chat_dir, chat_key, codex, is_chat, split_document};
+    let thread = "opaque:thread/123";
+    let id = codex(thread);
+    let key = ChatKey::Codex(thread.into());
+    assert_eq!(chat_key(&id), Some(key.clone()));
+    assert_eq!(key.tab_id(), id);
+    assert_eq!(key.to_string(), id);
+    assert_eq!(key.proteus_dir(), None);
+    assert_eq!(chat_dir(&id), None);
+    assert!(is_chat(&id));
+    assert_eq!(split_document(&id), None);
+    assert_eq!(chat_key(FILE), None);
+    let back: ChatKey = serde_json::from_str(&serde_json::to_string(&key).unwrap()).unwrap();
+    assert_eq!(back, key);
+
+    let mut layout = blank();
+    layout.open(A, |_| false);
+    layout.open(&id, |_| false);
+    layout.open(FILE, |_| false);
+    let mut layout = restored(&layout);
+    assert_eq!(layout.active_chat(None), Some(id.clone()));
+    assert_eq!(layout.chats().collect::<Vec<_>>(), [A, id.as_str()]);
+    layout.close(&id);
+    assert_eq!(restored(&layout).active_chat(None).as_deref(), Some(A));
+}

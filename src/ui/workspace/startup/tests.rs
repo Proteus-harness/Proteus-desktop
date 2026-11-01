@@ -7,6 +7,7 @@ use std::sync::{
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+use proteus_contracts::app_protocol::AppSessionSummary;
 use serde_json::{Value, json};
 
 use super::*;
@@ -116,6 +117,124 @@ fn restored_document_knows_command_targets_workspace_before_catalog_discovery() 
     );
     assert_eq!(boot.resumed, paths(&["/sessions/b"]));
     assert_eq!(server.calls(), [("/resume".into(), json!("/sessions/b"))]);
+}
+
+#[test]
+fn codex_only_restore_keeps_hidden_core_tabs_without_starting_core_or_reading_catalog() {
+    let mut saved = TabLayout::default();
+    saved.open("chat:/sessions/hidden-core", |_| false);
+    saved.open("codex:opaque:hidden", |_| false);
+    saved.open("codex:opaque:target", |_| false);
+    saved.open("files:src/main.rs", |_| false);
+    let required = required_chats(&saved);
+    assert_eq!(required, [ChatKey::Codex("opaque:target".into())]);
+    let options = codex_options();
+    let boot = boot_with(
+        &options,
+        saved,
+        |_| panic!("Codex restore must not launch Core"),
+        |_, _| Ok(codex_peer("opaque:target", false)),
+    )
+    .unwrap();
+    assert!(boot.api.is_none());
+    assert!(boot.backend.is_none());
+    assert!(boot.streams.is_empty());
+    assert_eq!(boot.restored, paths(&["/sessions/hidden-core"]));
+    assert_eq!(boot.codex_opened.len(), 1);
+    assert_eq!(boot.codex_opened[0].metadata.id, "opaque:target");
+    assert!(boot.codex_opened[0].history.data.is_empty());
+}
+
+#[test]
+fn fresh_codex_launch_creates_own_thread_without_choosing_other_clients_history() {
+    let boot = boot_with(
+        &codex_options(),
+        TabLayout::default(),
+        |_| panic!("Fresh Codex launch must not start Core"),
+        |_, _| Ok(codex_peer("", false)),
+    )
+    .unwrap();
+    assert!(boot.api.is_none());
+    assert_eq!(boot.codex_opened[0].metadata.id, "opaque:own-new");
+    assert!(boot.codex.is_some());
+}
+
+#[test]
+fn failed_codex_restore_is_visible_instead_of_creating_a_replacement_thread() {
+    let mut saved = TabLayout::default();
+    saved.open("codex:opaque:missing", |_| false);
+    let result = boot_with(
+        &codex_options(),
+        saved,
+        |_| panic!("Missing Codex thread must not start Core"),
+        |_, _| Ok(codex_peer("opaque:missing", true)),
+    );
+    let error = match result {
+        Err(error) => error,
+        Ok(_) => panic!("restore must fail"),
+    };
+    assert!(format!("{error:#}").contains("Restoring Codex thread opaque:missing"));
+}
+
+#[test]
+fn visible_driver_keys_determine_connections_independently_of_preference() {
+    assert!(needs_core(AgentKind::Proteus, &[]));
+    assert!(!needs_core(AgentKind::Codex, &[]));
+    assert!(!needs_core(
+        AgentKind::Proteus,
+        &[ChatKey::Codex("opaque".into())]
+    ));
+    assert!(needs_core(
+        AgentKind::Codex,
+        &[ChatKey::Proteus("/sessions/live".into())]
+    ));
+}
+
+fn codex_options() -> LaunchOptions {
+    LaunchOptions {
+        workspace: PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+        target: crate::launch::Target::Spawn { profile: None },
+        agent: AgentKind::Codex,
+    }
+}
+
+/// This peer rejects catalog discovery and any unexpected history expansion.
+fn codex_peer(expected_resume: &str, fail: bool) -> CodexService {
+    const PEER: &str = r#"
+import json,sys
+expected,fail=sys.argv[1],sys.argv[2]=='true'
+for line in sys.stdin:
+    msg=json.loads(line)
+    if 'id' not in msg: continue
+    method=msg.get('method'); p=msg.get('params',{})
+    if method=='initialize': result={}
+    elif method=='thread/start':
+        assert expected=='' and p['historyMode']=='paginated'
+        result={'thread':{'id':'opaque:own-new','cwd':p['cwd'],'status':{'type':'idle'}}}
+    elif method=='thread/resume':
+        assert expected and p['threadId']==expected and p['excludeTurns']
+        if fail:
+            print(json.dumps({'id':msg['id'],'error':{'code':404,'message':'synthetic missing thread'}}),flush=True)
+            continue
+        result={'thread':{'id':expected,'cwd':'/synthetic','status':{'type':'idle'}}}
+    elif method=='thread/items/list':
+        assert expected and p['threadId']==expected and p['limit']==50 and p['sortDirection']=='desc'
+        result={'data':[],'nextCursor':None}
+    elif method=='model/list': result={'data':[],'nextCursor':None}
+    elif method=='thread/unsubscribe': result={}
+    else: raise AssertionError('Unexpected startup method: '+method)
+    print(json.dumps({'id':msg['id'],'result':result}),flush=True)
+"#;
+    let mut launch =
+        proteus_codex_client::Launch::codex("python3".into(), std::env::current_dir().unwrap());
+    launch.args = vec![
+        "-u".into(),
+        "-c".into(),
+        PEER.into(),
+        expected_resume.into(),
+        fail.to_string(),
+    ];
+    CodexService::launch(launch).unwrap()
 }
 
 fn paths(dirs: &[&str]) -> Vec<PathBuf> {

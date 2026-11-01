@@ -16,6 +16,8 @@ use crate::transcript::{Change, TextRun, TextRunOutcome, Transcript};
 /// What the client knows about one open session.
 pub(in crate::ui) struct Session {
     pub dir: PathBuf,
+    pub key: proteus_tabs::ChatKey,
+    pub(super) external: Option<super::codex::RunState>,
     pub(super) cursor: SessionCursor,
     pub(super) pending_cursor: PendingCursor,
     pub transcript: Transcript,
@@ -41,7 +43,9 @@ pub(in crate::ui) enum ChatState {
 impl Session {
     pub(super) fn new(dir: PathBuf) -> Self {
         Self {
+            key: proteus_tabs::ChatKey::Proteus(dir.clone()),
             dir,
+            external: None,
             cursor: SessionCursor::default(),
             pending_cursor: PendingCursor::default(),
             transcript: Transcript::default(),
@@ -58,7 +62,9 @@ impl Session {
     }
 
     pub fn running(&self) -> bool {
-        self.execution.active.is_some()
+        self.external
+            .as_ref()
+            .map_or_else(|| self.execution.active.is_some(), |state| state.running())
     }
 
     /// A baseline can confirm settlement of a run this chat actually observed.
@@ -133,6 +139,9 @@ impl Session {
     }
 
     pub(super) fn thinking(&self) -> bool {
+        if let Some(external) = &self.external {
+            return self.connected && external.thinking();
+        }
         let waiting = !self.connected
             || self.pending.as_ref().is_some_and(|pending| {
                 !pending.approvals.is_empty() || !pending.user_inputs.is_empty()
@@ -148,9 +157,23 @@ impl Session {
 
     pub fn state(&self) -> ChatState {
         if !self.connected {
+            if self.external.is_some() {
+                return ChatState::Trouble("Codex отключён");
+            }
             return match self.link_error {
                 Some(_) => ChatState::Trouble("Переподключение…"),
                 None => ChatState::Busy("Подключение…"),
+            };
+        }
+        if let Some(external) = &self.external {
+            return if external.running() {
+                ChatState::Busy(if external.canceling {
+                    "Остановка…"
+                } else {
+                    "Работает…"
+                })
+            } else {
+                ChatState::Idle
             };
         }
         match self.execution.active.as_ref().map(|run| &run.status) {

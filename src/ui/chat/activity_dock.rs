@@ -96,6 +96,9 @@ impl Chat {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
+        if self.codex.is_some() {
+            return self.render_codex_dock(window, cx);
+        }
         let theme = cx.theme().clone();
         let max_details = prefs::scaled(360.)
             .to_pixels(window.rem_size())
@@ -109,7 +112,7 @@ impl Chat {
         for manifest in &contributions {
             if !self.extension_activities.contains_key(manifest.id) {
                 let host = Host::new(self.workspace.clone(), manifest.id)
-                    .for_chat(cx.weak_entity(), self.session.dir.clone());
+                    .for_chat(cx.weak_entity(), self.session.key.clone());
                 self.extension_activities
                     .insert(manifest.id, ActivityContribution::new(host, window, cx));
             }

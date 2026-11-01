@@ -1,8 +1,9 @@
 # Proteus Desktop
 
 Основной клиент Proteus — нативное приложение на GPUI (`gpui-kit`). Работает
-с HTTP/SSE app-server через DTO из `proteus-contracts::app_protocol`; общие
-правила подключения и сессий — в `crates/client-common`.
+с Proteus HTTP/SSE app-server через DTO из `proteus-contracts::app_protocol`
+и напрямую с Codex app-server через отдельный Rust-клиент. Общие правила
+Proteus-подключения — в `crates/client-common`.
 
 Клиент использует GPUI Kit 0.8.1 со штатным feature `gpui-fast`
 (GPUI Fast 0.1.12): ядро, платформы и компоненты выбирают один backend
@@ -119,8 +120,8 @@ cargo build --release
 ./target/release/proteus-native [workspace] --origin <url> --token <token>
 ```
 
-Без `--origin` клиент сам запускает `proteus server http` для workspace
-(по умолчанию — текущий каталог). Бинарь сервера берётся из `PROTEUS_BIN`,
+Для чатов Proteus без `--origin` клиент сам запускает `proteus server http`
+для выбранного workspace. Бинарь сервера берётся из `PROTEUS_BIN`,
 затем рядом с клиентом, затем из `PATH`; без `--config` сервер загружает
 основной `config.toml`. Сервер получает `PR_SET_PDEATHSIG` и
 завершается вместе с клиентом. Если сервер не поднялся или упал позже,
@@ -221,7 +222,32 @@ assets. Это ориентир для разделения затрат rendere
 видны проект и активный чат; нажатие названия чата возвращает к нему из файла
 или Git. Старые сессии без сведений о родителе остаются обычными строками.
 
-Исследование дальнейшей унификации: [подключение агентов, терминалы и Ghostty](docs/agent-drivers.md).
+### Codex в общем чате
+
+Codex подключается напрямую через `codex app-server`, без Node/ACP adapter.
+Нужен отдельно установленный Codex с настроенным входом; используются его
+обычные настройки и авторизация. Desktop не устанавливает Codex и не переносит
+в него ключи Proteus.
+
+```bash
+./build/Proteus/proteus-native /path/to/project --agent codex
+# При необходимости — другой установленный binary или локальный wrapper:
+PROTEUS_CODEX_EXECUTABLE=/path/to/codex ./build/Proteus/proteus-native /path/to/project --agent codex
+```
+
+Выбор агента новых чатов сохраняется; `--agent proteus` возвращает Proteus.
+Сохранённые чаты восстанавливают своего агента. В общей ленте работают streaming,
+остановка хода, восстановление, запросы разрешений и вопросы; модели и effort
+приходят от Codex. История загружается страницами по 50 элементов. Один
+принадлежащий Desktop app-server разделяется между чатами и отделёнными окнами;
+при Codex-only запуске Core и модули не стартуют.
+
+Core-настройки профиля, modules/hooks/policy и связанные с Core панели файлов,
+Git и терминала в Codex MVP недоступны. Рендереры сообщений остаются общими.
+Claude Code, ACP client, открытие терминала самого агента и Ghostty пока
+отложены. Границы реализации и планы — в
+[подключении агентов, терминалах и Ghostty](docs/agent-drivers.md).
+Для проверки без аккаунта есть [синтетический app-server](examples/codex/README.md).
 
 Над вкладками — верхняя полоса (`ui/chrome`), своя, а не из gpui-kit: за
 пустое место на ней перетаскивается окно, а нажатие на кнопку или значок

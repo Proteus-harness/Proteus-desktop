@@ -104,20 +104,36 @@ pub(super) fn new_tab_menu(
             }
         }
     };
-    menu.item(
-        PopupMenuItem::new("Новая сессия")
-            .icon(Icon::new(Lucide::MessageSquarePlus))
-            .on_click(open(|this, pane, window, cx| {
-                this.new_session(Some(pane), window, cx)
-            })),
-    )
-    .item(
+    new_chat_menu(menu, Some(pane), workspace).item(
         PopupMenuItem::new("Terminal")
             .icon(Icon::new(Lucide::SquareTerminal))
             .on_click(open(|this, pane, window, cx| {
                 this.open_terminal(Some(pane), window, cx)
             })),
     )
+}
+
+pub(in crate::ui) fn new_chat_menu(
+    mut menu: PopupMenu,
+    pane: Option<PaneId>,
+    workspace: &WeakEntity<Workspace>,
+) -> PopupMenu {
+    for agent in [
+        crate::conversations::AgentKind::Codex,
+        crate::conversations::AgentKind::Proteus,
+    ] {
+        let workspace = workspace.clone();
+        menu = menu.item(
+            PopupMenuItem::new(format!("Новый чат · {}", agent.title()))
+                .icon(Icon::new(Lucide::MessageSquarePlus))
+                .on_click(move |_, window, cx| {
+                    workspace
+                        .update(cx, |this, cx| this.new_session_for(agent, pane, window, cx))
+                        .ok();
+                }),
+        );
+    }
+    menu
 }
 
 impl Workspace {

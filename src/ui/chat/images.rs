@@ -48,9 +48,12 @@ impl SentImages {
 
 impl Chat {
     pub(super) fn fetch_images(&mut self, ids: Vec<String>, cx: &mut Context<Self>) {
+        let Some(api) = self.api.clone() else {
+            return;
+        };
         for id in ids {
             self.sent_images.by_id.insert(id.clone(), Stored::Loading);
-            let (api, dir) = (self.api.clone(), self.session.dir.clone());
+            let (api, dir) = (api.clone(), self.session.dir.clone());
             cx.spawn(async move |this, cx| {
                 let request = id.clone();
                 let fetched = cx

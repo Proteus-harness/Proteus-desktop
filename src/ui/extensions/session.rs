@@ -37,6 +37,9 @@ pub(in crate::ui) fn entries(
     session: &Session,
     range: std::ops::Range<usize>,
 ) -> Vec<session::Entry> {
+    if session.key.proteus_dir().is_none() {
+        return Vec::new();
+    }
     session.transcript.entries()[range]
         .iter()
         .map(|entry| session::Entry {
@@ -52,6 +55,9 @@ pub(in crate::ui) fn entries(
 }
 
 pub(in crate::ui) fn changed(session: &Session, change: Change) -> Option<Update> {
+    if session.key.proteus_dir().is_none() {
+        return None;
+    }
     let length = session.transcript.entries().len();
     let (start, removed, inserted) = match change {
         Change::None => return None,

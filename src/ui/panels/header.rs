@@ -61,7 +61,8 @@ impl Workspace {
                                 cx.emit(crate::ui::chrome::WorkspaceRequest::ChooseFolder);
                             })),
                     )
-                    .child(
+                    .child(crate::ui::context::menu_button(
+                        "new-session-menu",
                         kit::button("new-session")
                             .icon(IconName::Plus)
                             .quiet(cx)
@@ -70,11 +71,15 @@ impl Workspace {
                                 "Новая сессия",
                                 kit::command_keys(Command::NewSession, cx).as_deref(),
                                 cx,
-                            )
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.new_session(None, window, cx)
-                            })),
-                    )
+                            ),
+                        false,
+                        {
+                            let workspace = cx.weak_entity();
+                            move |menu, _, _| {
+                                crate::ui::tabs::menu::new_chat_menu(menu, None, &workspace)
+                            }
+                        },
+                    ))
             })
             .child(
                 kit::button("panel-hide")

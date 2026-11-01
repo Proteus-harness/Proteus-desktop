@@ -53,6 +53,7 @@ pub enum Change {
 #[derive(Default, Clone)]
 pub struct Transcript {
     entries: Vec<Entry>,
+    external_ids: HashMap<(String, String), u64>,
     turn_thread: Option<ThreadId>,
     /// A known snapshot root remains authoritative over child TurnStarted events.
     snapshot_root_known: bool,
@@ -563,6 +564,7 @@ fn same_tool(a: &AppTranscriptTool, b: &AppTranscriptTool) -> bool {
 
 mod cache;
 mod chains;
+mod external;
 mod text_run;
 
 pub(crate) use text_run::{TextRun, TextRunOutcome};

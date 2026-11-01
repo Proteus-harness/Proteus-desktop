@@ -119,6 +119,8 @@ pub enum Notifications {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Preferences {
+    pub preferred_agent: crate::conversations::AgentKind,
+    pub codex_selection: crate::conversations::CodexSelections,
     pub theme: ThemePreference,
     pub themes: ThemeNames,
     pub fonts: FontPreferences,

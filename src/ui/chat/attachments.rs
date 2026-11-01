@@ -85,6 +85,13 @@ impl Attachments {
 
 impl Chat {
     pub(super) fn attach_files(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
+        if !self.supports_core() {
+            self.show_notice(
+                "В этом подключении Codex пока поддерживается только текст",
+                cx,
+            );
+            return;
+        }
         self.load_attachments(
             paths.iter().cloned().map(Source::File).collect(),
             vec![],
@@ -99,6 +106,9 @@ impl Chat {
         item: &ClipboardItem,
         cx: &mut Context<Self>,
     ) -> bool {
+        if !self.supports_core() {
+            return false;
+        }
         if item.text().is_some_and(|text| !text.is_empty()) {
             return false;
         }

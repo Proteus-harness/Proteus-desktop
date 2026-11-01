@@ -7,7 +7,7 @@ mod arrange;
 mod bar;
 mod controls;
 mod drop;
-mod menu;
+pub(super) mod menu;
 mod motion;
 mod split;
 mod tab;
@@ -64,6 +64,9 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<SurfaceView> {
+        if !self.core_context() {
+            return None;
+        }
         if let Some(view) = self.documents.get(id) {
             return Some(view.clone());
         }
@@ -219,11 +222,8 @@ impl Workspace {
             .closed_ids()
             .filter(|id| {
                 tab_available(id, cx)
-                    && tabs::chat_dir(id).is_none_or(|dir| {
-                        self.sessions
-                            .iter()
-                            .any(|session| session.session_dir == dir)
-                    })
+                    && tabs::chat_key(id)
+                        .is_none_or(|key| self.sessions.iter().any(|session| session.key == key))
             })
             .map(str::to_string)
             .collect();

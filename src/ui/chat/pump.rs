@@ -213,7 +213,11 @@ impl Chat {
             }
             AppServerEvent::Shutdown => {
                 session.feedback.clear_activity();
-                cx.emit(ChatEvent::ServerStopped);
+                if let Some(api) = &self.api {
+                    cx.emit(ChatEvent::ServerStopped {
+                        connection: api.connection_id(),
+                    });
+                }
                 Change::None
             }
             _ => Change::None,
@@ -239,7 +243,12 @@ impl Chat {
 
     pub(super) fn apply_change(&mut self, change: Change, cx: &mut Context<Self>) {
         if reconciles_rows(change) {
-            let entries = self.history.displayed(&self.session.transcript).entries();
+            let entries = self
+                .codex
+                .as_ref()
+                .and_then(|binding| binding.archive.as_ref())
+                .unwrap_or_else(|| self.history.displayed(&self.session.transcript))
+                .entries();
             let keys = entries.iter().map(|entry| entry.key).collect();
             self.replies.retain(&keys);
             self.tool_diffs.retain(|key, _| keys.contains(key));

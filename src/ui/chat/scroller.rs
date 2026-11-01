@@ -195,6 +195,10 @@ impl ChatScroller {
         }
     }
 
+    pub(super) fn reading_paused(&self) -> bool {
+        !self.following
+    }
+
     pub(super) fn visible_rows(&self) -> Range<usize> {
         let start = self.list.logical_scroll_top().item_ix.min(self.row_count());
         let bottom = self.list.viewport_bounds().bottom();

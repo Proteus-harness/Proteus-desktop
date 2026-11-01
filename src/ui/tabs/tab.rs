@@ -105,14 +105,14 @@ impl Workspace {
     }
 
     fn tab_label(&self, id: &str, cx: &App) -> TabLabel {
-        if let Some(dir) = tabs::chat_dir(id) {
+        if let Some(key) = tabs::chat_key(id) {
             let tooltip = match self.chat_state(id, cx) {
                 Some(ChatState::Busy(text) | ChatState::Trouble(text)) => Some(text.into()),
                 _ => None,
             };
             return TabLabel {
                 icon: Icon::new(Lucide::MessageSquare),
-                title: self.session_title(dir, cx).into(),
+                title: self.session_title(&key, cx).into(),
                 tooltip,
             };
         }

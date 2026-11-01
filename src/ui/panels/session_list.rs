@@ -2,6 +2,7 @@
 //! by title, arrows move the cursor, Enter opens the session under it and
 //! F2 renames it. Esc clears the filter, then gives the keys back to the chat.
 
+use proteus_tabs::ChatKey;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
@@ -47,10 +48,10 @@ pub(in crate::ui) struct SessionList {
     /// What the filter holds, trimmed.
     pub search: String,
     /// The row the arrows are on, when they moved.
-    pub cursor: Option<PathBuf>,
+    pub cursor: Option<ChatKey>,
     /// Rows as last shown, with the index of each among the list's
     /// children, so the cursor follows what is on screen.
-    pub shown: Vec<(PathBuf, usize)>,
+    pub shown: Vec<(ChatKey, usize)>,
     pub scroll: ScrollHandle,
     pub focus: FocusHandle,
     /// Project folders folded shut.
@@ -58,7 +59,7 @@ pub(in crate::ui) struct SessionList {
     /// Project folders showing all their chats, not only the latest.
     pub expanded: HashSet<PathBuf>,
     /// Parent sessions whose child-session branch is open.
-    pub branches: HashSet<PathBuf>,
+    pub branches: HashSet<ChatKey>,
 }
 
 impl SessionList {
@@ -143,13 +144,14 @@ impl Workspace {
 
     /// The row under the cursor: where the arrows left it, or the open
     /// session.
-    pub(super) fn session_cursor(&self) -> Option<PathBuf> {
+    pub(super) fn session_cursor(&self) -> Option<ChatKey> {
         let shown = &self.session_list.shown;
-        let cursor = self.session_list.cursor.as_deref();
+        let cursor = self.session_list.cursor.as_ref();
+        let active = self.active_chat_key();
         let at = |dir| shown.iter().find(|(row, _)| row == dir);
         cursor
             .and_then(at)
-            .or_else(|| self.active_chat_dir().and_then(at))
+            .or_else(|| active.as_ref().and_then(at))
             .map(|(dir, _)| dir.clone())
     }
 

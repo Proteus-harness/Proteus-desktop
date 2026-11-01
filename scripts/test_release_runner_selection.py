@@ -44,6 +44,7 @@ class SelectionTests(unittest.TestCase):
     def test_exact_headless_selectors(self):
         for args in (
             ["-p", "proteus-diff"], ["--package", "proteus-tabs"],
+            ["-p", "proteus-codex-client"],
             ["--package=proteus-diff"], ["-pproteus-tabs"],
             ["-p", "proteus-diff", "-p", "proteus-tabs"],
             ["-p", "proteus-diff", "-p", "proteus-diff"],

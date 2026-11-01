@@ -2,6 +2,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result, bail};
 
+use crate::conversations::AgentKind;
+
 #[derive(Clone)]
 pub enum Target {
     /// Without a profile the server loads its default config.
@@ -17,6 +19,7 @@ pub enum Target {
 pub struct LaunchOptions {
     pub workspace: PathBuf,
     pub target: Target,
+    pub agent: AgentKind,
 }
 
 /// Command line: an unset workspace is resolved from recent folders unless
@@ -24,6 +27,8 @@ pub struct LaunchOptions {
 pub struct Launch {
     pub workspace: Option<PathBuf>,
     pub target: Target,
+    pub agent: AgentKind,
+    explicit_agent: bool,
     restore_recent: bool,
 }
 
@@ -38,6 +43,7 @@ impl Launch {
         let mut profile = None;
         let mut origin = None;
         let mut token = None;
+        let mut agent = None;
         let mut args = args.into_iter();
         while let Some(arg) = args.next() {
             let mut value = |name: &str| {
@@ -45,6 +51,13 @@ impl Launch {
                     .with_context(|| format!("{name} requires a value"))
             };
             match arg.as_str() {
+                "--agent" => {
+                    agent = Some(match value("--agent")?.as_str() {
+                        "proteus" => AgentKind::Proteus,
+                        "codex" => AgentKind::Codex,
+                        other => bail!("unknown agent {other}; expected proteus or codex"),
+                    });
+                }
                 "--config" => profile = Some(value("--config")?),
                 "--origin" => origin = Some(value("--origin")?),
                 "--token" => token = Some(value("--token")?),
@@ -82,9 +95,15 @@ impl Launch {
             _ => bail!("--origin and --token must be given together"),
         };
 
+        if matches!(target, Target::Attach { .. }) && agent == Some(AgentKind::Codex) {
+            bail!("--agent codex cannot be combined with --origin");
+        }
+        let explicit_agent = agent.is_some() || matches!(target, Target::Attach { .. });
         Ok(Self {
             workspace,
             target,
+            agent: agent.unwrap_or_default(),
+            explicit_agent,
             restore_recent,
         })
     }
@@ -93,6 +112,9 @@ impl Launch {
     /// project folders: one server can have chats from several folders open.
     /// A forced picker and an explicit workspace always keep their meaning.
     pub fn restore_workspace(&mut self, preferences: &crate::preferences::Preferences) {
+        if !self.explicit_agent {
+            self.agent = preferences.preferred_agent;
+        }
         if self.restore_recent {
             self.workspace = preferences
                 .tabs_workspace
@@ -227,6 +249,37 @@ mod tests {
         let mut unavailable_owner = parse(&["--config", "fixture"]);
         unavailable_owner.restore_workspace(&prefs);
         assert_eq!(unavailable_owner.workspace, Some(other_project));
+    }
+
+    #[test]
+    fn agent_choice_uses_preferences_unless_explicit_or_attached() {
+        let mut prefs = Preferences::default();
+        prefs.preferred_agent = AgentKind::Codex;
+        let mut launch = parse(&[]);
+        launch.restore_workspace(&prefs);
+        assert_eq!(launch.agent, AgentKind::Codex);
+        let mut explicit = parse(&["--agent", "proteus"]);
+        explicit.restore_workspace(&prefs);
+        assert_eq!(explicit.agent, AgentKind::Proteus);
+        let mut attached = parse(&["--origin", "http://localhost:9", "--token", "synthetic"]);
+        attached.restore_workspace(&prefs);
+        assert_eq!(attached.agent, AgentKind::Proteus);
+        assert!(Launch::parse(["--agent", "claude"].map(str::to_owned)).is_err());
+        assert!(
+            Launch::parse(
+                [
+                    "--agent",
+                    "codex",
+                    "--origin",
+                    "http://localhost:9",
+                    "--token",
+                    "synthetic"
+                ]
+                .map(str::to_owned)
+            )
+            .is_err()
+        );
+        assert!(Launch::parse(["--agent"].map(str::to_owned)).is_err());
     }
 
     #[test]

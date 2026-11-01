@@ -19,7 +19,7 @@ impl Workspace {
     pub(super) fn render_navigation_context(&self, cx: &mut Context<Self>) -> Div {
         let project = self.active_project_path();
         let path = project.display().to_string();
-        let chat = self.active_chat_dir().map(std::path::Path::to_path_buf);
+        let chat = self.active_chat_key();
         h_flex()
             .min_w_0()
             .gap_0p5()

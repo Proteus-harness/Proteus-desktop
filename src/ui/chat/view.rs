@@ -23,7 +23,7 @@ impl Render for Chat {
         let renderer = cx.processor(move |this, ix: usize, window, cx| {
             this.render_row(ix, frame_at, window, cx)
         });
-        let live = !self.history.archived();
+        let live = !self.archived();
         let thinking = live && self.session.thinking();
         let footer_state = FooterState {
             thinking,
@@ -89,7 +89,7 @@ impl Chat {
     /// A local send receipt is visible in the first frame after Enter. The
     /// canonical thread stays server-owned and replaces it on its own echo.
     fn render_feedback(&self, thinking: bool, cx: &App) -> Option<AnyElement> {
-        if self.history.archived() {
+        if self.archived() {
             return None;
         }
         let receipt = self.session.feedback.latest_receipt();

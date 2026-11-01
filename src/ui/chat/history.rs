@@ -291,10 +291,17 @@ impl History {
 
 impl Chat {
     pub(super) fn display_transcript(&self) -> &Transcript {
-        self.history.displayed(&self.session.transcript)
+        self.codex
+            .as_ref()
+            .and_then(|binding| binding.archive.as_ref())
+            .unwrap_or_else(|| self.history.displayed(&self.session.transcript))
     }
 
     pub(super) fn show_latest(&mut self, cx: &mut Context<Self>) {
+        if self.codex.is_some() {
+            self.codex_latest(cx);
+            return;
+        }
         let changes = self.history.latest(&self.session.transcript);
         self.apply_history_changes(changes, cx);
         self.scroller
@@ -372,7 +379,9 @@ impl Chat {
         let Some(request) = self.history.begin_request() else {
             return;
         };
-        let api = self.api.clone();
+        let Some(api) = self.api.clone() else {
+            return;
+        };
         let dir = self.session.dir.clone();
         cx.spawn(async move |this, cx| {
             let requested = cursor.clone();
@@ -421,6 +430,10 @@ impl Chat {
     }
 
     pub(super) fn load_history(&mut self, direction: Direction, cx: &mut Context<Self>) {
+        if self.codex.is_some() {
+            self.codex_history(direction, cx);
+            return;
+        }
         if self.history.loading || self.history.seek.is_some() {
             return;
         }
@@ -435,7 +448,9 @@ impl Chat {
         let Some(request) = self.history.begin_request() else {
             return;
         };
-        let api = self.api.clone();
+        let Some(api) = self.api.clone() else {
+            return;
+        };
         let dir = self.session.dir.clone();
         cx.spawn(async move |this, cx| {
             let requested = cursor.clone();

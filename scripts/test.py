@@ -9,7 +9,7 @@ from check_licenses import check
 from runtime_paths import require_extensions
 
 
-HEADLESS_PACKAGES = {"proteus-diff", "proteus-tabs"}
+HEADLESS_PACKAGES = {"proteus-diff", "proteus-tabs", "proteus-codex-client"}
 
 
 def headless_only(args):

@@ -236,8 +236,8 @@ impl Workspace {
                     )
                     .into_any_element(),
                 None => {
-                    if let Some(dir) = tabs::chat_dir(tab) {
-                        self.ensure_chat(dir.to_path_buf(), window, cx);
+                    if let Some(key) = tabs::chat_key(tab) {
+                        self.ensure_chat(key, window, cx);
                     }
                     super::super::state::loading(
                         format!("chat-loading-{tab}"),

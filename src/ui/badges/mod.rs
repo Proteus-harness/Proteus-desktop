@@ -17,6 +17,10 @@ impl Workspace {
     /// Builds icons that became visible and drops the hidden ones, so an
     /// icon keeps its state while it moves between the strips.
     pub(super) fn sync_badges(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.core_context() {
+            self.badges.clear();
+            return;
+        }
         let visible: Vec<_> = BadgePlace::SHOWN
             .into_iter()
             .flat_map(|place| extensions::visible_badges(place, cx))
@@ -44,6 +48,9 @@ impl Workspace {
     /// Row of extension icons. While an icon is dragged the row parts
     /// where it would land, and a drop puts it there.
     pub(super) fn render_badge_strip(&self, place: BadgePlace, cx: &App) -> Option<AnyElement> {
+        if !self.core_context() {
+            return None;
+        }
         let ids: Vec<&'static str> = extensions::visible_badges(place, cx)
             .into_iter()
             .map(|manifest| manifest.id)

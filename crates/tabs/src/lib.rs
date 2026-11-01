@@ -1,13 +1,14 @@
 //! Tabs of the window: a tree of panes, each with its own tabs, split side
 //! by side or stacked. Pure state, persisted with the preferences.
 //!
-//! Tabs are chats, addressed as `chat:<session dir>`, and documents of
+//! Tabs are chats, addressed as `chat:<session dir>` or `codex:<thread id>`, and documents of
 //! extensions, addressed as `<extension>:<argument>`, e.g.
 //! `files:src/main.rs`. No extension is called `chat`, so the kinds never
 //! mix.
 
 mod geometry;
 mod history;
+mod identity;
 mod layout;
 mod lock;
 mod open;
@@ -22,6 +23,7 @@ use std::path::Path;
 
 pub use geometry::{Rect, drop_edge};
 pub use history::ClosedTab;
+pub use identity::{ChatKey, chat_key, codex};
 pub use layout::TabLayout;
 pub use pane::Pane;
 pub use size::Size;
@@ -54,7 +56,7 @@ pub fn chat_dir(id: &str) -> Option<&Path> {
 }
 
 pub fn is_chat(id: &str) -> bool {
-    id.starts_with(CHAT_PREFIX)
+    id.starts_with(CHAT_PREFIX) || id.starts_with("codex:")
 }
 
 #[cfg(test)]

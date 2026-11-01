@@ -5310,6 +5310,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "proteus-codex-client"
+version = "0.1.0-alpha.3"
+dependencies = [
+ "async-channel",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "proteus-contracts"
 version = "0.1.0-alpha.2"
 source = "git+https://github.com/Proteus-harness/Proteus-core.git?rev=014e6999f099bcb1eabf298e628de6b3186dedfe#014e6999f099bcb1eabf298e628de6b3186dedfe"
@@ -5346,6 +5355,7 @@ dependencies = [
  "libc",
  "naga",
  "proteus-client-common",
+ "proteus-codex-client",
  "proteus-contracts",
  "proteus-diff",
  "proteus-tabs",

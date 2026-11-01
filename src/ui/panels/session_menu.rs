@@ -2,7 +2,7 @@
 //! top, archive it or delete it on the server. Names, pins and the archive
 //! are client preferences; deleting is a server call.
 
-use std::path::{Path, PathBuf};
+use proteus_tabs::ChatKey;
 
 use gpui_kit::component::button::ButtonVariant;
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -11,13 +11,12 @@ use gpui_kit::component::*;
 use gpui_kit::*;
 
 use crate::sessions::SessionMark;
-use crate::tabs;
 use crate::ui::prefs;
 use crate::ui::workspace::Workspace;
 
 /// The session whose name is being edited in the list.
 pub(in crate::ui) struct Renaming {
-    pub dir: PathBuf,
+    pub key: ChatKey,
     pub input: Entity<InputState>,
     _events: Subscription,
 }
@@ -25,14 +24,14 @@ pub(in crate::ui) struct Renaming {
 /// The menu of one row, both on right click and behind its «⋯» button.
 pub(super) fn build(
     menu: PopupMenu,
-    dir: &Path,
+    dir: &ChatKey,
     mark: SessionMark,
     workspace: &WeakEntity<Workspace>,
 ) -> PopupMenu {
     let item =
         |label: &'static str,
-         run: fn(&mut Workspace, PathBuf, &mut Window, &mut Context<Workspace>)| {
-            let (workspace, dir) = (workspace.clone(), dir.to_path_buf());
+         run: fn(&mut Workspace, ChatKey, &mut Window, &mut Context<Workspace>)| {
+            let (workspace, dir) = (workspace.clone(), dir.clone());
             PopupMenuItem::new(label).on_click(move |_, window, cx| {
                 workspace
                     .update(cx, |this, cx| run(this, dir.clone(), window, cx))
@@ -72,7 +71,7 @@ pub(super) fn build(
 impl Workspace {
     pub(in crate::ui) fn start_rename(
         &mut self,
-        dir: PathBuf,
+        dir: ChatKey,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -96,7 +95,7 @@ impl Workspace {
             input.select_all(window, cx);
         });
         self.renaming = Some(Renaming {
-            dir,
+            key: dir,
             input,
             _events: events,
         });
@@ -110,12 +109,12 @@ impl Workspace {
         };
         if save {
             let value = renaming.input.read(cx).value().to_string();
-            prefs::update(cx, |p| p.sessions.rename(&renaming.dir, &value));
+            prefs::update(cx, |p| p.sessions.rename(&renaming.key, &value));
         }
         cx.notify();
     }
 
-    fn confirm_delete(&mut self, dir: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+    fn confirm_delete(&mut self, dir: ChatKey, window: &mut Window, cx: &mut Context<Self>) {
         let title = self.session_title(&dir, cx);
         let workspace = cx.entity().downgrade();
         window.open_alert_dialog(cx, move |alert, _, _| {
@@ -136,24 +135,5 @@ impl Workspace {
                     true
                 })
         });
-    }
-
-    pub(in crate::ui) fn delete_session(
-        &mut self,
-        dir: PathBuf,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.close_tab(&tabs::chat(&dir), window, cx);
-        let target = dir.clone();
-        self.call(
-            cx,
-            move |api| api.delete_session(&target),
-            move |this, _, cx| {
-                prefs::update(cx, |p| p.sessions.forget(&dir));
-                this.session_projects.remove(&dir);
-                this.refresh_sessions(cx);
-            },
-        );
     }
 }

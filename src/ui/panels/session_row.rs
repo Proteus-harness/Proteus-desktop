@@ -2,6 +2,7 @@
 // Адаптировано из Zed: crates/project_panel/src/project_panel.rs
 
 use super::{session_menu, sessions::branch_key};
+use crate::conversations::ConversationSummary;
 use crate::sessions::Row;
 use crate::ui::context::RightClickMenu as _;
 use crate::ui::kit;
@@ -14,7 +15,7 @@ use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use proteus_contracts::app_protocol::{AppSessionActivityStatus, AppSessionSummary};
+use proteus_contracts::app_protocol::AppSessionActivityStatus;
 
 /// How a row stands out: the open session, the keyboard cursor; and
 /// whether it sits inside a project folder.
@@ -43,13 +44,17 @@ impl Workspace {
         let theme = cx.theme();
         let summary = row.summary;
         let mark = row.mark.clone();
-        let dir = summary.session_dir.clone();
+        let dir = summary.key.clone();
         let renaming = self
             .renaming
             .as_ref()
-            .filter(|renaming| renaming.dir == dir)
+            .filter(|renaming| renaming.key == dir)
             .map(|renaming| renaming.input.clone());
         let status = summary.activity.as_ref().map(|activity| activity.status);
+        let live = self
+            .chats
+            .get(&dir.tab_id())
+            .map(|chat| chat.view.read(cx).session.state());
         let indicator = match status {
             Some(AppSessionActivityStatus::Running) => {
                 Some(Spinner::new().xsmall().into_any_element())
@@ -62,6 +67,9 @@ impl Workspace {
                     .text_color(theme.warning)
                     .into_any_element(),
             ),
+            _ if matches!(live, Some(crate::ui::chat::ChatState::Busy(_))) => {
+                Some(Spinner::new().xsmall().into_any_element())
+            }
             _ => None,
         };
 
@@ -70,7 +78,16 @@ impl Workspace {
             .title
             .clone()
             .unwrap_or_else(|| format::session_title(summary));
-        let details = details(summary);
+        let mut details = details(summary);
+        if matches!(dir, crate::tabs::ChatKey::Codex(_)) {
+            details[0] = match live {
+                Some(
+                    crate::ui::chat::ChatState::Busy(text)
+                    | crate::ui::chat::ChatState::Trouble(text),
+                ) => format!("Codex: {text}"),
+                _ => "Агент: Codex".into(),
+            };
+        }
         let anchor = TooltipAnchor::default();
         h_flex()
             .id(("session", ix))
@@ -95,30 +112,6 @@ impl Workspace {
             })
             .when(mark.archived && !selected, |row| {
                 row.text_color(theme.muted_foreground)
-            })
-            .when(!row.children.is_empty(), |item| {
-                let branch = dir.clone();
-                item.child(
-                    div()
-                        .id(("session-branch-toggle", ix))
-                        .flex_none()
-                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .child(motion::chevron(
-                            ("session-branch-chevron", ix),
-                            branch_open,
-                            theme.muted_foreground,
-                        ))
-                        .tip_text("Дочерние сессии")
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            cx.stop_propagation();
-                            let open = !this.session_list.branches.remove(&branch);
-                            if open {
-                                this.session_list.branches.insert(branch.clone());
-                            }
-                            motion::toggled(branch_key(&branch), open, cx);
-                            cx.notify();
-                        })),
-                )
             })
             .when(mark.pinned, |row| {
                 row.child(
@@ -148,6 +141,30 @@ impl Workspace {
                     .text_sm()
                     .child(crate::ui::fade::caption("session-caption", title).anchor(anchor))
                     .into_any_element(),
+            })
+            .when(!row.children.is_empty(), |item| {
+                let branch = dir.clone();
+                item.child(
+                    div()
+                        .id(("session-branch-toggle", ix))
+                        .flex_none()
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .child(motion::chevron(
+                            ("session-branch-chevron", ix),
+                            branch_open,
+                            theme.muted_foreground,
+                        ))
+                        .tip_text("Дочерние сессии")
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            let open = !this.session_list.branches.remove(&branch);
+                            if open {
+                                this.session_list.branches.insert(branch.clone());
+                            }
+                            motion::toggled(branch_key(&branch), open, cx);
+                            cx.notify();
+                        })),
+                )
             })
             .children(indicator)
             .child(
@@ -205,7 +222,7 @@ impl Workspace {
 }
 
 /// What the tooltip of a session row tells beside its title.
-fn details(summary: &AppSessionSummary) -> Vec<String> {
+fn details(summary: &ConversationSummary) -> Vec<String> {
     let activity = summary.activity.as_ref();
     let status = match activity.map(|activity| activity.status) {
         Some(AppSessionActivityStatus::Running) => "работает",
@@ -217,11 +234,13 @@ fn details(summary: &AppSessionSummary) -> Vec<String> {
     if let Some(activity) = activity.filter(|activity| activity.running_runs > 1) {
         lines.push(format!("Запусков: {}", activity.running_runs));
     }
-    lines.push(format!("Сообщений: {}", summary.message_count));
+    if matches!(summary.key, crate::tabs::ChatKey::Proteus(_)) {
+        lines.push(format!("Сообщений: {}", summary.message_count));
+    }
     if let Some(updated) = summary.updated_at_ms {
         lines.push(format!("Изменена: {}", format::local_time(updated / 1000)));
     }
     lines.push(format!("Папка: {}", summary.workspace_path.display()));
-    lines.push(format!("ID: {}", summary.session_id));
+    lines.push(format!("ID: {}", summary.key));
     lines
 }

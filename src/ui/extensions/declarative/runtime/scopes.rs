@@ -37,7 +37,7 @@ pub(super) struct Scope {
     pub(super) host: Host,
     pub(super) window: AnyWindowHandle,
     pub(super) popup_closed: u64,
-    source: Option<(WeakEntity<Chat>, PathBuf)>,
+    source: Option<(WeakEntity<Chat>, crate::tabs::ChatKey)>,
     session: Option<PathBuf>,
     workspace: PathBuf,
     announced: bool,

@@ -10,9 +10,11 @@ use gpui_kit::*;
 use super::chat::{Chat, ChatEvent, ComposerExtras, ComposerSlot};
 use super::extensions::{HostEvent, OpenDocument};
 use super::format;
-use super::workspace::{Status, Workspace};
+use super::workspace::Workspace;
+use crate::conversations::AgentKind;
 use crate::preferences::BadgePlace;
-use crate::tabs::{self, PaneId, TabLayout};
+use crate::tabs::{self, ChatKey, PaneId, TabLayout};
+mod codex;
 
 /// A chat view and the subscription to its events.
 pub(super) struct OpenChat {
@@ -31,15 +33,19 @@ impl Workspace {
         tabs::chat_dir(self.active_chat.as_deref()?)
     }
 
+    pub(super) fn active_chat_key(&self) -> Option<ChatKey> {
+        tabs::chat_key(self.active_chat.as_deref()?)
+    }
+
     /// Title of a session: the name the user gave it, else what the session
     /// list knows.
-    pub(super) fn session_title(&self, dir: &Path, cx: &App) -> String {
+    pub(super) fn session_title(&self, dir: &ChatKey, cx: &App) -> String {
         if let Some(title) = super::prefs::current(cx).sessions.title(dir) {
             return title.to_owned();
         }
         self.sessions
             .iter()
-            .find(|summary| summary.session_dir == dir)
+            .find(|summary| &summary.key == dir)
             .map(format::session_title)
             .unwrap_or_else(|| "Новая сессия".to_owned())
     }
@@ -58,7 +64,7 @@ impl Workspace {
         }
         let chats: Vec<String> = dirs.iter().map(|dir| tabs::chat(dir)).collect();
         self.update_tabs(cx, |layout| {
-            layout.retain(|id| !tabs::is_chat(id) || chats.iter().any(|chat| chat == id))
+            layout.retain(|id| tabs::chat_dir(id).is_none() || chats.iter().any(|chat| chat == id))
         });
     }
 
@@ -79,13 +85,13 @@ impl Workspace {
     /// is not open. A preview chat is replaced by the next preview.
     pub(super) fn open_chat(
         &mut self,
-        dir: PathBuf,
+        key: ChatKey,
         open: OpenDocument,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.close_settings(cx);
-        let id = tabs::chat(&dir);
+        let id = key.tab_id();
         if self.show_external_tab(&id, cx) {
             return;
         }
@@ -93,17 +99,30 @@ impl Workspace {
             self.show_tab(&id, open, window, cx);
             return;
         }
-        self.resume_chat(dir, Some(open), window, cx);
+        self.resume_key(key, Some(open), window, cx);
     }
 
     /// Resume a saved tab without moving it or changing the user's selection.
     pub(super) fn ensure_chat(
         &mut self,
-        dir: PathBuf,
+        key: ChatKey,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.resume_chat(dir, None, window, cx);
+        self.resume_key(key, None, window, cx);
+    }
+
+    fn resume_key(
+        &mut self,
+        key: ChatKey,
+        open: Option<OpenDocument>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match key {
+            ChatKey::Proteus(dir) => self.resume_chat(dir, open, window, cx),
+            ChatKey::Codex(id) => self.resume_codex(id, open, window, cx),
+        }
     }
 
     fn resume_chat(
@@ -176,8 +195,12 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(dir) = tabs::chat_dir(&closed.id).map(Path::to_path_buf) else {
+        let Some(key) = tabs::chat_key(&closed.id) else {
             return;
+        };
+        let dir = match key {
+            ChatKey::Codex(id) => return self.restore_closed_codex(id, closed, window, cx),
+            ChatKey::Proteus(dir) => dir,
         };
         self.call_in(
             window,
@@ -204,7 +227,7 @@ impl Workspace {
     /// click keeps it and moves the keyboard there.
     pub(super) fn select_session(
         &mut self,
-        dir: PathBuf,
+        key: ChatKey,
         clicks: usize,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -214,7 +237,18 @@ impl Workspace {
             preview: !keep,
             focus: keep,
         };
-        self.open_chat(dir, open, window, cx);
+        self.open_chat(key, open, window, cx);
+    }
+
+    pub(super) fn new_session_for(
+        &mut self,
+        agent: AgentKind,
+        pane: Option<PaneId>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        super::prefs::update(cx, |prefs| prefs.preferred_agent = agent);
+        self.new_session(pane, window, cx);
     }
 
     /// Starts a session; its chat opens in `pane` when the user chose one.
@@ -224,13 +258,17 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if super::prefs::current(cx).preferred_agent == AgentKind::Codex {
+            return self.new_codex(self.active_project_path().to_path_buf(), pane, window, cx);
+        }
         self.close_settings(cx);
         let source = self.active_chat_dir().map(Path::to_path_buf);
+        let project = self.active_project_path().to_path_buf();
         self.call_in(
             window,
             cx,
             move |api| {
-                let opened = api.new_session(source.as_deref(), None)?;
+                let opened = api.new_session(source.as_deref(), Some(&project))?;
                 Ok((opened, api.sessions()?))
             },
             move |this, (opened, sessions), window, cx| {
@@ -274,7 +312,7 @@ impl Workspace {
         self.bind_chat(id, view, cx);
     }
 
-    fn bind_chat(&mut self, id: &str, view: Entity<Chat>, cx: &mut Context<Self>) {
+    pub(super) fn bind_chat(&mut self, id: &str, view: Entity<Chat>, cx: &mut Context<Self>) {
         let tab = id.to_owned();
         let events = cx.subscribe(&view, move |this, chat, event: &ChatEvent, cx| {
             this.on_chat_event(&tab, &chat, event, cx)
@@ -290,7 +328,7 @@ impl Workspace {
 
     /// Both public extension places share the activity strip above the
     /// input. Retained badges belong to the active chat.
-    fn composer_extras(&self, cx: &Context<Self>) -> ComposerExtras {
+    pub(super) fn composer_extras(&self, cx: &Context<Self>) -> ComposerExtras {
         let workspace = cx.weak_entity();
         Rc::new(move |chat, slot, cx| {
             let workspace = workspace.upgrade()?.read(cx);
@@ -316,6 +354,9 @@ impl Workspace {
                 if self.active_chat_view() != Some(chat) {
                     return;
                 }
+                if !chat.read(cx).supports_core() {
+                    return;
+                }
                 let session = &chat.read(cx).session;
                 let update = match event {
                     ChatEvent::SessionEntriesChanged(change) => {
@@ -326,7 +367,7 @@ impl Workspace {
                             session,
                             self.sessions
                                 .iter()
-                                .find(|summary| summary.session_dir == session.dir)
+                                .find(|summary| summary.key == session.key)
                                 .and_then(|summary| summary.activity.clone()),
                         )),
                     }),
@@ -341,6 +382,9 @@ impl Workspace {
             }
             ChatEvent::RunSettled => {
                 self.refresh_sessions(cx);
+                if matches!(tabs::chat_key(tab), Some(ChatKey::Codex(_))) {
+                    self.refresh_codex_sessions(cx);
+                }
                 if self.active_chat_view() == Some(chat) {
                     cx.emit(HostEvent::RunSettled);
                 }
@@ -364,15 +408,17 @@ impl Workspace {
                 match self
                     .sessions
                     .iter_mut()
-                    .find(|summary| &summary.session_dir == session_dir)
+                    .find(|summary| summary.key.proteus_dir() == Some(session_dir.as_path()))
                 {
                     Some(summary) => summary.activity = Some(activity.clone()),
                     None => self.refresh_sessions(cx),
                 }
             }
             ChatEvent::Sent => self.keep_tab(tab, cx),
-            ChatEvent::ServerStopped => {
-                self.status = Status::Failed("Сервер приложения остановлен".into());
+            ChatEvent::ServerStopped { connection } => {
+                let group = self.windows.clone();
+                let connection = *connection;
+                cx.defer(move |cx| group.server_stopped(connection, "Proteus Core остановлен", cx));
             }
         }
         cx.notify();
@@ -388,11 +434,18 @@ impl Workspace {
     ) {
         self.session_projects
             .retain(|dir, _| !sessions.iter().any(|summary| summary.session_dir == *dir));
-        self.sessions = sessions;
+        self.sessions
+            .retain(|summary| matches!(summary.key, ChatKey::Codex(_)));
+        self.sessions
+            .extend(crate::conversations::from_proteus(sessions));
         cx.emit(HostEvent::ContextChanged);
     }
 
     pub(super) fn refresh_sessions(&mut self, cx: &mut Context<Self>) {
+        // Metadata refresh must never create a Core for a Codex-only window.
+        if self.api().is_none() {
+            return;
+        }
         if self.sessions_loading {
             self.sessions_stale = true;
             return;
@@ -419,7 +472,9 @@ impl Workspace {
                             this.chats.keys().cloned().collect();
                         this.update_tabs(cx, |layout| {
                             layout.retain(|id| {
-                                !tabs::is_chat(id) || known.contains(id) || open.contains(id)
+                                tabs::chat_dir(id).is_none()
+                                    || known.contains(id)
+                                    || open.contains(id)
                             });
                         });
                         this.sessions_arrived

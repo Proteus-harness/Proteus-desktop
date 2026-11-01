@@ -1,8 +1,10 @@
+mod agents;
 mod api;
 mod attention;
 mod backend;
 mod catalog;
 mod connection;
+mod conversations;
 mod declarative;
 mod graphics;
 mod launch;
@@ -41,7 +43,7 @@ fn main() {
         Err(error) => {
             eprintln!("proteus-native: {error:#}");
             eprintln!(
-                "usage: proteus-native [WORKSPACE | --choose-workspace] [--config PROFILE | --origin URL --token TOKEN]"
+                "usage: proteus-native [WORKSPACE | --choose-workspace] [--agent proteus|codex] [--config PROFILE | --origin URL --token TOKEN]"
             );
             std::process::exit(2);
         }
@@ -88,7 +90,16 @@ fn main() {
             let window_options = window_options(cx);
             gpui_kit::open_window(window_options, cx, |window, cx| {
                 startup_trace::mark("window.create");
-                cx.new(|cx| Launcher::new(launch.workspace, launch.target, preparation, window, cx))
+                cx.new(|cx| {
+                    Launcher::new(
+                        launch.workspace,
+                        launch.target,
+                        launch.agent,
+                        preparation,
+                        window,
+                        cx,
+                    )
+                })
             })
             .expect("open window");
             cx.activate(true);

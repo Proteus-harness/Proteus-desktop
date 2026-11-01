@@ -3,16 +3,18 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use proteus_client_common::session_selection::select_startup_session;
-use proteus_contracts::app_protocol::AppSessionSummary;
 
+use crate::agents::codex::{CodexService, Model, Opened};
 use crate::api::Api;
 use crate::connection::{self, BackendGuard};
+use crate::conversations::{AgentKind, ConversationSummary, from_proteus};
 use crate::launch::LaunchOptions;
-use crate::tabs::{self, TabLayout};
+use crate::tabs::{self, ChatKey, TabLayout};
 
 #[cfg(test)]
+#[path = "startup/tests.rs"]
 mod tests;
 
 /// Start server and session reads before creating the graphics platform. The
@@ -28,6 +30,7 @@ impl Preparation {
         let options = LaunchOptions {
             workspace: workspace.clone(),
             target: launch.target.clone(),
+            agent: launch.agent,
         };
         let (send, result) = async_channel::bounded(1);
         std::thread::Builder::new()
@@ -48,33 +51,139 @@ impl Preparation {
 }
 
 pub(super) struct Boot {
-    pub api: Api,
+    pub api: Option<Api>,
     pub backend: Option<BackendGuard>,
-    pub sessions: Vec<AppSessionSummary>,
+    pub sessions: Vec<ConversationSummary>,
     pub projects: HashMap<PathBuf, PathBuf>,
     pub restored: Vec<PathBuf>,
     pub resumed: Vec<PathBuf>,
     pub startup: Option<PathBuf>,
     pub streams: HashMap<PathBuf, async_channel::Receiver<connection::PumpItem>>,
+    pub codex: Option<CodexService>,
+    pub codex_opened: Vec<Opened>,
+    pub codex_models: Vec<Model>,
+}
+
+/// Override the executable for portable installs and deterministic local peers.
+pub(in crate::ui) fn codex_program() -> PathBuf {
+    std::env::var_os("PROTEUS_CODEX_EXECUTABLE")
+        .filter(|program| !program.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("codex"))
+}
+
+/// Only the displayed chats and the command target need live subscriptions.
+fn required_chats(saved: &TabLayout) -> Vec<ChatKey> {
+    let active = saved.active_chat(None);
+    saved
+        .chats()
+        .filter(|id| {
+            saved.visible().any(|visible| visible == *id) || active.as_deref() == Some(*id)
+        })
+        .filter_map(tabs::chat_key)
+        .collect()
+}
+
+fn needs_core(agent: AgentKind, required: &[ChatKey]) -> bool {
+    required
+        .iter()
+        .any(|key| matches!(key, ChatKey::Proteus(_)))
+        || (required.is_empty() && agent == AgentKind::Proteus)
 }
 
 pub(super) fn boot(options: &LaunchOptions, saved: TabLayout) -> Result<Boot> {
+    boot_with(options, saved, connection::connect, |program, cwd| {
+        Ok(CodexService::spawn(program, cwd)?)
+    })
+}
+
+fn boot_with(
+    options: &LaunchOptions,
+    saved: TabLayout,
+    connect: impl FnOnce(&LaunchOptions) -> Result<(Api, Option<BackendGuard>)>,
+    spawn_codex: impl FnOnce(PathBuf, PathBuf) -> Result<CodexService>,
+) -> Result<Boot> {
     let _trace = crate::startup_trace::span("workspace.boot");
-    let (api, backend) = connection::connect(options)?;
-    crate::startup_trace::mark("backend.ready");
-    let mut boot = restore(api, backend, saved)?;
+    let required = required_chats(&saved);
+    let codex_ids: Vec<_> = required
+        .iter()
+        .filter_map(|key| match key {
+            ChatKey::Codex(id) => Some(id.as_str()),
+            ChatKey::Proteus(_) => None,
+        })
+        .collect();
+    let mut boot = if needs_core(options.agent, &required) {
+        let (api, backend) = connect(options)?;
+        crate::startup_trace::mark("backend.ready");
+        restore_core(api, backend, saved, codex_ids.is_empty())?
+    } else {
+        Boot {
+            api: None,
+            backend: None,
+            sessions: Vec::new(),
+            projects: HashMap::new(),
+            restored: saved
+                .chats()
+                .filter_map(tabs::chat_dir)
+                .map(Path::to_path_buf)
+                .collect(),
+            resumed: Vec::new(),
+            startup: None,
+            streams: HashMap::new(),
+            codex: None,
+            codex_opened: Vec::new(),
+            codex_models: Vec::new(),
+        }
+    };
     // Subscribe while graphics is still being created. A ready snapshot can
     // then populate the first chat frame, without a second HTTP subscription.
-    for dir in boot.resumed.iter().chain(boot.startup.iter()) {
-        boot.streams.insert(
-            dir.clone(),
-            connection::spawn_pump(boot.api.clone(), dir.clone()),
-        );
+    if let Some(api) = &boot.api {
+        for dir in boot.resumed.iter().chain(boot.startup.iter()) {
+            boot.streams.insert(
+                dir.clone(),
+                connection::spawn_pump(api.clone(), dir.clone()),
+            );
+        }
+    }
+    if !codex_ids.is_empty() || (required.is_empty() && options.agent == AgentKind::Codex) {
+        let service = spawn_codex(codex_program(), options.workspace.clone())
+            .context("Starting Codex app-server")?;
+        restore_codex(&mut boot, service, &codex_ids, &options.workspace)?;
+        crate::startup_trace::mark("codex.ready");
     }
     Ok(boot)
 }
 
+fn restore_codex(boot: &mut Boot, service: CodexService, ids: &[&str], cwd: &Path) -> Result<()> {
+    if ids.is_empty() {
+        // A new app target owns its own thread. Never pick an arbitrary thread
+        // from another Codex client merely because it is the latest one.
+        boot.codex_opened.push(service.new_thread(cwd)?);
+    } else {
+        for id in ids {
+            boot.codex_opened.push(
+                service
+                    .resume(id)
+                    .with_context(|| format!("Restoring Codex thread {id}"))?,
+            );
+        }
+    }
+    boot.codex_models = service.models().context("Reading Codex model catalog")?;
+    boot.codex = Some(service);
+    Ok(())
+}
+
+#[cfg(test)]
 fn restore(api: Api, backend: Option<BackendGuard>, saved: TabLayout) -> Result<Boot> {
+    restore_core(api, backend, saved, true)
+}
+
+fn restore_core(
+    api: Api,
+    backend: Option<BackendGuard>,
+    saved: TabLayout,
+    fallback: bool,
+) -> Result<Boot> {
     let mut sessions = Vec::new();
     let mut projects = HashMap::new();
     // Include the command target when the focused tab is a document.
@@ -99,7 +208,7 @@ fn restore(api: Api, backend: Option<BackendGuard>, saved: TabLayout) -> Result<
         .filter_map(tabs::chat_dir)
         .map(Path::to_path_buf)
         .collect();
-    let startup = if resumed.is_empty() {
+    let startup = if resumed.is_empty() && fallback {
         let bootstrap = api.bootstrap()?;
         // A fresh preference file has no restore target. Only that case needs
         // catalog discovery; existing tabs never wait for unrelated journals.
@@ -120,13 +229,16 @@ fn restore(api: Api, backend: Option<BackendGuard>, saved: TabLayout) -> Result<
         None
     };
     Ok(Boot {
-        api,
+        api: Some(api),
         backend,
-        sessions,
+        sessions: from_proteus(sessions),
         projects,
         restored,
         resumed,
         startup,
         streams: HashMap::new(),
+        codex: None,
+        codex_opened: Vec::new(),
+        codex_models: Vec::new(),
     })
 }

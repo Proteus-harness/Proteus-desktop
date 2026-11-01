@@ -68,10 +68,12 @@ impl Launcher {
     pub fn new(
         workspace: Option<PathBuf>,
         target: Target,
+        agent: crate::conversations::AgentKind,
         preparation: Option<super::Preparation>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        prefs::update(cx, |prefs| prefs.preferred_agent = agent);
         let focus = cx.focus_handle();
         focus.focus(window, cx);
         let mut launcher = Self {
@@ -153,6 +155,7 @@ impl Launcher {
         let options = LaunchOptions {
             workspace,
             target: self.target.clone(),
+            agent: prefs::current(cx).preferred_agent,
         };
         let preparation = self.preparation.take();
         let view = cx.new(|cx| Workspace::new(options, preparation, window, cx));
