@@ -4,6 +4,7 @@
 mod header;
 mod session_list;
 mod session_menu;
+mod session_row;
 mod sessions;
 mod sidebar;
 

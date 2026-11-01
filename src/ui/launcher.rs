@@ -1,6 +1,6 @@
 //! What the window shows: the folder picker until a folder is chosen, then
-//! the workspace of that folder. Opening another folder from the top bar
-//! replaces the workspace and its server.
+//! the workspace of that folder. Once running, folder navigation opens an
+//! existing project chat; an explicit restart replaces the server.
 
 use crate::ui::kit::ButtonLabel as _;
 use std::path::{Path, PathBuf};
@@ -45,6 +45,7 @@ impl Launcher {
             window,
             |this, _, request: &WorkspaceRequest, window, cx| match request {
                 WorkspaceRequest::Open(path) => this.open(path.clone(), window, cx),
+                WorkspaceRequest::ChooseFolder => this.choose_folder(window, cx),
             },
         );
         Self {
@@ -160,6 +161,7 @@ impl Launcher {
             window,
             |this, _, request: &WorkspaceRequest, window, cx| match request {
                 WorkspaceRequest::Open(path) => this.open(path.clone(), window, cx),
+                WorkspaceRequest::ChooseFolder => this.choose_folder(window, cx),
             },
         ));
         self.stage = Stage::Ready(view);
@@ -181,9 +183,9 @@ impl Launcher {
                 return;
             };
             this.update_in(cx, |this, window, cx| match &this.stage {
-                // An open workspace starts a chat in the chosen folder.
+                // Opening a folder selects its existing chat when available.
                 Stage::Ready(view) => {
-                    view.update(cx, |view, cx| view.new_chat_in(path, window, cx))
+                    view.update(cx, |view, cx| view.open_project(path, window, cx))
                 }
                 Stage::Picking { .. } => this.open(path, window, cx),
             })

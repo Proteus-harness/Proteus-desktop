@@ -1,6 +1,7 @@
 //! Window chrome around the tabs: the top bar with the logo menu, the open
 //! folder and extension icons, and the rail along the left edge.
 
+mod context;
 mod logo;
 mod projects;
 mod rail;

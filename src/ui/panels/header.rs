@@ -52,6 +52,16 @@ impl Workspace {
                         .title(panel.title),
                     )
                     .child(
+                        kit::button("open-project-folder")
+                            .icon(Lucide::FolderOpen)
+                            .quiet(cx)
+                            .small()
+                            .hint("Открыть папку…", cx)
+                            .on_click(cx.listener(|_, _, _, cx| {
+                                cx.emit(crate::ui::chrome::WorkspaceRequest::ChooseFolder);
+                            })),
+                    )
+                    .child(
                         kit::button("new-session")
                             .icon(IconName::Plus)
                             .quiet(cx)

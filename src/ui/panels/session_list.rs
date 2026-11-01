@@ -57,6 +57,8 @@ pub(in crate::ui) struct SessionList {
     pub collapsed: HashSet<PathBuf>,
     /// Project folders showing all their chats, not only the latest.
     pub expanded: HashSet<PathBuf>,
+    /// Parent sessions whose child-session branch is open.
+    pub branches: HashSet<PathBuf>,
 }
 
 impl SessionList {
@@ -86,6 +88,7 @@ impl SessionList {
             focus: cx.focus_handle(),
             collapsed: HashSet::new(),
             expanded: HashSet::new(),
+            branches: HashSet::new(),
         };
         (list, events)
     }

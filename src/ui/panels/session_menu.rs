@@ -151,6 +151,7 @@ impl Workspace {
             move |api| api.delete_session(&target),
             move |this, _, cx| {
                 prefs::update(cx, |p| p.sessions.forget(&dir));
+                this.session_projects.remove(&dir);
                 this.refresh_sessions(cx);
             },
         );

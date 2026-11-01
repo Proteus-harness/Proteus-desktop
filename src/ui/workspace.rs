@@ -40,6 +40,9 @@ pub struct Workspace {
     pub(super) layout: TabLayout,
     pub(super) windows: WindowGroup,
     pub(super) sessions: Vec<AppSessionSummary>,
+    /// Exact lifecycle acknowledgements, available before catalog discovery.
+    /// Entries leave this map once the summary catalog knows their workspace.
+    pub(super) session_projects: HashMap<PathBuf, PathBuf>,
     /// When the session list first arrived, so its rows can enter in turn.
     pub(super) sessions_arrived: Option<Instant>,
     /// A session list request is running; `sessions_stale` asks for
@@ -120,12 +123,13 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> Self {
         let workspace_path = options.workspace.clone();
-        let saved = super::prefs::current(cx).tabs.clone();
+        let saved = super::prefs::current(cx).tabs_for(&workspace_path, &options.target);
+        let windows = WindowGroup::new(&workspace_path, &options.target);
         let mut workspace = Self::empty(
             workspace_path.clone(),
             options.target.clone(),
             saved.clone(),
-            WindowGroup::default(),
+            windows,
             window,
             cx,
         );
@@ -198,6 +202,7 @@ impl Workspace {
             layout,
             windows,
             sessions: Vec::new(),
+            session_projects: HashMap::new(),
             sessions_loading: false,
             sessions_stale: false,
             attention: Tracker::default(),
@@ -252,6 +257,7 @@ impl Workspace {
                 self.windows.set_backend(boot.backend);
                 self.startup_streams = boot.streams;
                 self.sessions = boot.sessions;
+                self.session_projects = boot.projects;
                 self.sessions_arrived = (!self.sessions.is_empty()).then(Instant::now);
                 self.status = Status::Ready;
                 self.restore_chats(boot.restored, boot.resumed, window, cx);

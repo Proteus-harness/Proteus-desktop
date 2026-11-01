@@ -9,6 +9,7 @@ use gpui_kit::*;
 
 use super::{Status, Workspace};
 use crate::connection::BackendGuard;
+use crate::preferences::TabWorkspace;
 use crate::tabs::{self, TabLayout};
 use crate::ui::{launcher::Launcher, prefs};
 
@@ -17,12 +18,20 @@ pub(in crate::ui) struct WindowGroup(Rc<RefCell<Group>>);
 
 #[derive(Default)]
 struct Group {
+    owner: Option<TabWorkspace>,
     backend: Option<BackendGuard>,
     windows: Vec<(WeakEntity<Workspace>, TabLayout)>,
     quitting: bool,
 }
 
 impl WindowGroup {
+    pub(super) fn new(workspace: &std::path::Path, target: &crate::launch::Target) -> Self {
+        Self(Rc::new(RefCell::new(Group {
+            owner: TabWorkspace::new(workspace, target),
+            ..Group::default()
+        })))
+    }
+
     pub(super) fn register(&self, view: WeakEntity<Workspace>, layout: TabLayout) {
         self.0.borrow_mut().windows.push((view, layout));
     }
@@ -96,10 +105,13 @@ impl WindowGroup {
             {
                 *saved = layout.clone();
             }
-            group.saved_layout()
+            group.saved_layout().zip(group.owner.clone())
         };
-        if let Some(saved) = saved {
-            prefs::update(cx, |prefs| prefs.tabs = saved);
+        if let Some((saved, owner)) = saved {
+            prefs::update(cx, |prefs| {
+                prefs.tabs = saved;
+                prefs.tabs_workspace = Some(owner);
+            });
         }
     }
 
@@ -110,13 +122,16 @@ impl WindowGroup {
             if group.quitting {
                 None
             } else {
-                group.saved_layout()
+                group.saved_layout().zip(group.owner.clone())
             }
         };
         // Keep the last window's saved tabs for restart. Closing one window
         // removes only its tabs while the remaining windows keep their server.
-        if let Some(saved) = saved {
-            prefs::update(cx, |prefs| prefs.tabs = saved);
+        if let Some((saved, owner)) = saved {
+            prefs::update(cx, |prefs| {
+                prefs.tabs = saved;
+                prefs.tabs_workspace = Some(owner);
+            });
         }
     }
 }
@@ -166,12 +181,13 @@ impl Workspace {
         if !tabs::is_chat(id) && self.ensure_document(id, window, cx).is_none() {
             return;
         }
-        let (path, api, target, group, sessions) = (
+        let (path, api, target, group, sessions, session_projects) = (
             self.workspace_path.clone(),
             self.api.clone(),
             self.target.clone(),
             self.windows.clone(),
             self.sessions.clone(),
+            self.session_projects.clone(),
         );
         let root_target = target.clone();
         let opened = gpui_kit::open_window(crate::window_options(cx), cx, move |window, cx| {
@@ -180,6 +196,7 @@ impl Workspace {
                     Self::empty(path, target, TabLayout::default(), group, window, cx);
                 workspace.api = api;
                 workspace.sessions = sessions;
+                workspace.session_projects = session_projects;
                 workspace.status = Status::Ready;
                 workspace
             });

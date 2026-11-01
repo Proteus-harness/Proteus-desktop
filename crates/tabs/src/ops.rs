@@ -11,6 +11,7 @@ impl TabLayout {
     pub fn focus(&mut self, pane: PaneId) {
         if self.pane(pane).is_some() {
             self.focused = pane;
+            self.sync_chat_context();
         }
     }
 
@@ -21,6 +22,7 @@ impl TabLayout {
         if target.has(id) {
             target.show(id);
             self.focused = pane;
+            self.remember_chat(id);
         }
     }
 
@@ -131,7 +133,7 @@ impl TabLayout {
     /// returns that pane's active tab.
     pub fn focus_neighbor(&mut self, edge: Edge) -> Option<String> {
         let pane = self.neighbor(self.focused, edge)?;
-        self.focused = pane;
+        self.focus(pane);
         self.active(pane).map(str::to_string)
     }
 
@@ -187,6 +189,7 @@ impl TabLayout {
         pane.pinned = usize::from(pinned);
         pane.show(id);
         self.focused = pane.id;
+        self.remember_chat(id);
         pane
     }
 
@@ -196,6 +199,7 @@ impl TabLayout {
         target.insert(id, before, pinned);
         target.show(id);
         self.focused = pane;
+        self.remember_chat(id);
     }
 
     /// Takes a tab out of its pane; returns whether it was pinned.
@@ -215,6 +219,7 @@ impl TabLayout {
         self.forget_stale_locks();
         let now = self.pane_ids();
         if now.contains(&self.focused) {
+            self.sync_chat_context();
             return;
         }
         let ix = before
@@ -228,5 +233,6 @@ impl TabLayout {
             .copied()
             .find(|id| now.contains(id))
             .unwrap_or(now[0]);
+        self.sync_chat_context();
     }
 }

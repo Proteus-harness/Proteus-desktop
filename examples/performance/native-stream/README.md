@@ -109,6 +109,63 @@ process group, закрывают сервер и сохраняют trace. По
 python3 examples/performance/native-stream/test_fixture.py
 ```
 
+## Дерево чатов и открытие папки
+
+`sidebar_demo.py` использует тот же строгий transport без Core. Каталог содержит
+основной `SIDEBAR MAIN`, его `NEEDLE CHILD`, вложенный `NESTED CHILD`, доступный
+на верхнем уровне `ORPHAN` с отсутствующим родителем, второй основной чат и
+ещё один проект. История существует **только у MAIN**. Остальные строки —
+summary-only: раскрытие дерева и поиск не должны делать `/resume`, `/events`
+или загружать их историю. Клик по самому дочернему чату этот стенд намеренно
+отклоняет; проверка просмотра дочернего чата требует отдельного сценария.
+
+Запускайте готовый Native внутри своей background-gui session:
+
+```sh
+python3 /absolute/background-gui/scripts/bgui.py run SESSION --cwd /absolute/Proteus-desktop -- \
+  python3 /absolute/Proteus-desktop/examples/performance/native-stream/sidebar_demo.py \
+  --native /absolute/ready/Proteus/proteus-native \
+  --output /absolute/Proteus-desktop/build/verification/sidebar-current \
+  --timeout 600
+```
+
+После `READY` проверьте реальное окно и сохраните screenshots: дети изначально
+скрыты; раскрытие MAIN и затем CHILD показывает два уровня; поиск `NEEDLE`
+показывает совпадение вместе с родителем; очистка поиска возвращает обычное
+дерево; ORPHAN остаётся доступным. Затем откройте текущую папку `workspace`
+через действие проекта: должен открыться уже существующий MAIN без создания
+чата. Не открывайте `other-project`, SECOND MAIN и дочерние строки: они нужны
+для геометрии и группировки, не для транспорта дополнительных сессий.
+
+После каждого действия можно запросить именованный по времени checkpoint:
+
+```sh
+touch OUTPUT/control/check
+```
+
+Runner пишет `CHECK` и увеличивает `state.json:checks`. `state.json:audit`
+проверяет весь накопленный список HTTP-запросов: разрешены только каталог,
+bootstrap и чтение/resume MAIN. Любой child resume/subscription или команда
+создания сессии завершает сценарий с ошибкой. `trace.json` обновляется во время
+работы; проверяющий должен подтвердить, что число main resumes/subscriptions
+при раскрытии и поиске не растёт. Audit доказывает границы транспорта,
+screenshots — вид дерева; сам `READY` не доказывает визуальное поведение.
+
+Все HOME/XDG/runtime-каталоги приватны, расширения отключены. `launch.json`
+содержит точные argv/env и **синтетический** token. При запуске без `--native`
+runner только держит сервер; из `launch.json` можно взять origin/token для
+запуска отдельной готовой Native в том же изолированном display. Существующий
+output не перезаписывается. Остановка: `touch OUTPUT/control/stop`; затем
+остановите собственную background-gui session.
+
+Проверка самого каталога, отказа в child history и request-аудита без GUI:
+
+```sh
+python3 examples/performance/native-stream/sidebar_demo.py --check-fixture \
+  --output build/verification/sidebar-fixture-smoke
+python3 -m unittest discover -s examples/performance/native-stream -p 'test_*.py'
+```
+
 ## Ожидание ответа, прокрутка и кнопка вниз
 
 `status_demo.py` использует тот же HTTP/SSE transport и готовый Native, но

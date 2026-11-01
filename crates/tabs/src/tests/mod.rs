@@ -2,6 +2,7 @@ use std::path::Path;
 
 use super::{Node, PaneId, Size, TabLayout, chat, chat_dir, split_document};
 
+mod chat_context;
 mod history;
 mod pins;
 mod sizes;
@@ -152,7 +153,7 @@ fn active_chat_follows_focus_and_survives_hiding() {
     // A document in focus keeps the last chat; a closed one is replaced by
     // a chat in view.
     layout.focus(PaneId(1));
-    assert_eq!(layout.active_chat(Some(A)).as_deref(), Some(A));
+    assert_eq!(layout.active_chat(Some(A)).as_deref(), Some(B));
     layout.close(A);
     assert_eq!(layout.active_chat(Some(A)).as_deref(), Some(B));
 

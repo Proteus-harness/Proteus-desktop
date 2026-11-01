@@ -101,6 +101,7 @@ impl TabLayout {
             None => self.open(id, can_split),
         }
         self.preview = Some(id.to_string());
+        self.sync_chat_context();
     }
 
     /// Turns the preview tab `id` into a regular one.

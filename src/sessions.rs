@@ -2,7 +2,7 @@
 //! pinning and the archive. The server knows nothing about them; deleting a
 //! session goes to the server and only forgets the marks here.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 use proteus_contracts::app_protocol::AppSessionSummary;
@@ -83,39 +83,121 @@ impl SessionMarks {
         self.0.get(&key(dir))?.title.as_deref()
     }
 
-    /// The list as shown: pinned sessions first, then the rest in folders
-    /// of their projects, the project that changed last on top and server
-    /// order within a project; archived ones only when asked for or
-    /// searched, after everything else. A search keeps the sessions whose
-    /// title holds it, case aside.
+    /// Build a summary-only forest. Pins and archive membership belong to
+    /// each session independently; neither action moves its descendants.
     pub fn arrange<'a>(&self, sessions: &'a [AppSessionSummary], view: &View) -> Listing<'a> {
         let search = view.search.trim().to_lowercase();
-        let mut listing = Listing::default();
-        for summary in sessions {
-            let mark = self.get(&summary.session_dir);
-            let row = Row { summary, mark };
-            if !search.is_empty() && !row.title_holds(&search) {
+        let marks: Vec<_> = sessions.iter().map(|s| self.get(&s.session_dir)).collect();
+        let by_id: HashMap<_, _> = sessions
+            .iter()
+            .enumerate()
+            .map(|(i, summary)| (summary.session_id, i))
+            .collect();
+        let mut parents: Vec<_> = sessions
+            .iter()
+            .enumerate()
+            .map(|(i, summary)| {
+                let parent = *by_id.get(&summary.parent_session_id?)?;
+                // An explicit pin is its own root; archive never drags other
+                // sessions with it. Cross-folder children stay with their parent.
+                (parent != i && !marks[i].pinned && marks[i].archived == marks[parent].archived)
+                    .then_some(parent)
+            })
+            .collect();
+        break_cycles(&mut parents);
+        let matches: Vec<_> = sessions
+            .iter()
+            .zip(&marks)
+            .map(|(summary, mark)| search.is_empty() || title_holds(summary, mark, &search))
+            .collect();
+        let mut included: Vec<_> = matches
+            .iter()
+            .zip(&marks)
+            .map(|(matches, mark)| {
+                *matches && (!mark.archived || view.archived || !search.is_empty())
+            })
+            .collect();
+        // Searching a child reveals its ancestry without loading transcripts
+        // or including unrelated siblings.
+        if !search.is_empty() {
+            for i in 0..sessions.len() {
+                if !included[i] {
+                    continue;
+                }
+                let mut parent = parents[i];
+                while let Some(i) = parent {
+                    if included[i] {
+                        break;
+                    }
+                    included[i] = true;
+                    parent = parents[i];
+                }
+            }
+        }
+        let mut children = vec![Vec::new(); sessions.len()];
+        let mut roots = Vec::new();
+        for i in 0..sessions.len() {
+            if !included[i] {
                 continue;
             }
+            match parents[i].filter(|parent| included[*parent]) {
+                Some(parent) => children[parent].push(i),
+                None => roots.push(i),
+            }
+        }
+        let archived_count = marks
+            .iter()
+            .zip(&matches)
+            .filter(|(mark, matches)| mark.archived && **matches)
+            .count();
+        let mut rows: Vec<Option<Row<'a>>> = sessions
+            .iter()
+            .zip(marks)
+            .map(|(summary, mark)| {
+                Some(Row {
+                    summary,
+                    mark,
+                    children: Vec::new(),
+                })
+            })
+            .collect();
+        // Iterative postorder also handles unusually deep imported trees.
+        let mut order = Vec::new();
+        let mut pending = roots.clone();
+        while let Some(i) = pending.pop() {
+            order.push(i);
+            pending.extend(&children[i]);
+        }
+        for i in order.into_iter().rev() {
+            let descendants = children[i]
+                .iter()
+                .filter_map(|child| rows[*child].take())
+                .collect();
+            rows[i].as_mut().unwrap().children = descendants;
+        }
+        let mut listing = Listing {
+            archived_count,
+            ..Listing::default()
+        };
+        for root in roots {
+            let row = rows[root].take().unwrap();
             if row.mark.archived {
-                listing.archived_count += 1;
-                if view.archived || !search.is_empty() {
-                    listing.archived.push(row);
-                }
+                listing.archived.push(row);
             } else if row.mark.pinned {
                 listing.pinned.push(row);
             } else {
-                let path = summary.workspace_path.as_path();
-                match listing
+                let path = row.summary.workspace_path.as_path();
+                if let Some(project) = listing
                     .projects
                     .iter_mut()
                     .find(|project| project.path == path)
                 {
-                    Some(project) => project.rows.push(row),
-                    None => listing.projects.push(Project {
+                    project.rows.push(row);
+                } else {
+                    listing.projects.push(Project {
                         path,
                         rows: vec![row],
-                    }),
+                    });
                 }
             }
         }
@@ -135,16 +217,64 @@ pub struct View<'q> {
 pub struct Row<'a> {
     pub summary: &'a AppSessionSummary,
     pub mark: SessionMark,
+    pub children: Vec<Row<'a>>,
 }
 
 impl Row<'_> {
-    fn title_holds(&self, search: &str) -> bool {
-        let title = self
-            .mark
-            .title
-            .as_deref()
-            .or(self.summary.preview.as_deref());
-        title.is_some_and(|title| title.to_lowercase().contains(search))
+    pub fn contains(&self, dir: &Path) -> bool {
+        let mut pending = vec![self];
+        while let Some(row) = pending.pop() {
+            if row.summary.session_dir == dir {
+                return true;
+            }
+            pending.extend(&row.children);
+        }
+        false
+    }
+
+    fn updated_at_ms(&self) -> u64 {
+        let mut latest = 0;
+        let mut pending = vec![self];
+        while let Some(row) = pending.pop() {
+            latest = latest.max(row.summary.updated_at_ms.unwrap_or(0));
+            pending.extend(&row.children);
+        }
+        latest
+    }
+}
+
+fn title_holds(summary: &AppSessionSummary, mark: &SessionMark, search: &str) -> bool {
+    mark.title
+        .as_deref()
+        .or(summary.preview.as_deref())
+        .is_some_and(|title| title.to_lowercase().contains(search))
+}
+
+/// Each node has at most one parent: a three-colour walk breaks one edge
+/// per cycle in linear time and leaves every session accessible.
+fn break_cycles(parents: &mut [Option<usize>]) {
+    let mut colors = vec![0u8; parents.len()];
+    for start in 0..parents.len() {
+        if colors[start] != 0 {
+            continue;
+        }
+        let mut path = Vec::new();
+        let mut next = Some(start);
+        while let Some(i) = next {
+            if colors[i] == 1 {
+                parents[i] = None;
+                break;
+            }
+            if colors[i] == 2 {
+                break;
+            }
+            colors[i] = 1;
+            path.push(i);
+            next = parents[i];
+        }
+        for i in path {
+            colors[i] = 2;
+        }
     }
 }
 
@@ -157,11 +287,7 @@ pub struct Project<'a> {
 impl Project<'_> {
     /// When a session of the project last changed.
     fn updated_at_ms(&self) -> u64 {
-        self.rows
-            .iter()
-            .filter_map(|row| row.summary.updated_at_ms)
-            .max()
-            .unwrap_or(0)
+        self.rows.iter().map(Row::updated_at_ms).max().unwrap_or(0)
     }
 }
 
@@ -308,6 +434,84 @@ mod tests {
         assert_eq!(shown(&listing), ["/s/a", "/s/c", "/s/d"].map(PathBuf::from));
         assert_eq!(listing.archived_count, 1);
         assert!(shown(&marks.arrange(&sessions, &view(false, "нет такого"))).is_empty());
+    }
+
+    fn linked(id: u128, parent: Option<u128>, title: &str) -> AppSessionSummary {
+        let mut summary = changed(&format!("/s/{id}"), "/w", Some(id as u64), Some(title));
+        summary.session_id = proteus_contracts::domain::SessionId::from_u128(id);
+        summary.parent_session_id = parent.map(proteus_contracts::domain::SessionId::from_u128);
+        summary
+    }
+
+    #[test]
+    fn children_are_nested_recursively_and_search_keeps_only_their_ancestry() {
+        let sessions = [
+            linked(3, Some(2), "needle"),
+            linked(4, Some(1), "sibling"),
+            linked(2, Some(1), "worker"),
+            linked(1, None, "main"),
+        ];
+        let marks = SessionMarks::default();
+        let listing = marks.arrange(&sessions, &view(false, ""));
+        let roots = &listing.projects[0].rows;
+        assert_eq!(dirs(roots), [PathBuf::from("/s/1")]);
+        assert_eq!(
+            dirs(&roots[0].children),
+            ["/s/4", "/s/2"].map(PathBuf::from)
+        );
+        assert_eq!(
+            dirs(&roots[0].children[1].children),
+            [PathBuf::from("/s/3")]
+        );
+        assert!(roots[0].contains(Path::new("/s/3")));
+        let listing = marks.arrange(&sessions, &view(false, "needle"));
+        let root = &listing.projects[0].rows[0];
+        assert_eq!(dirs(&root.children), [PathBuf::from("/s/2")]);
+        assert_eq!(dirs(&root.children[0].children), [PathBuf::from("/s/3")]);
+    }
+
+    #[test]
+    fn missing_parents_and_cycles_do_not_hide_sessions() {
+        let sessions = [
+            linked(1, Some(99), "orphan"),
+            linked(2, Some(3), "cycle a"),
+            linked(3, Some(2), "cycle b"),
+            linked(4, Some(4), "self"),
+        ];
+        let listing = SessionMarks::default().arrange(&sessions, &view(false, ""));
+        let roots = &listing.projects[0].rows;
+        assert_eq!(roots.len(), 3);
+        for id in 1..=4 {
+            assert!(
+                roots
+                    .iter()
+                    .any(|root| root.contains(Path::new(&format!("/s/{id}"))))
+            );
+        }
+    }
+
+    #[test]
+    fn pin_and_archive_do_not_cascade_to_descendants() {
+        let sessions = [
+            linked(1, None, "main"),
+            linked(2, Some(1), "worker"),
+            linked(3, Some(2), "nested"),
+        ];
+        let mut marks = SessionMarks::default();
+        marks.set_pinned(Path::new("/s/1"), true);
+        let listing = marks.arrange(&sessions, &view(false, ""));
+        assert_eq!(listing.pinned.len(), 1);
+        assert!(listing.pinned[0].contains(Path::new("/s/3")));
+        marks.set_pinned(Path::new("/s/2"), true);
+        let listing = marks.arrange(&sessions, &view(false, ""));
+        assert_eq!(listing.pinned.len(), 2);
+        assert!(listing.pinned[0].children.is_empty());
+        assert!(listing.pinned[1].contains(Path::new("/s/3")));
+        marks.set_archived(Path::new("/s/2"), true);
+        let listing = marks.arrange(&sessions, &view(true, ""));
+        assert_eq!(dirs(&listing.archived), [PathBuf::from("/s/2")]);
+        assert_eq!(dirs(&listing.projects[0].rows), [PathBuf::from("/s/3")]);
+        assert_eq!(listing.archived_count, 1);
     }
 
     #[test]

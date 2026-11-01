@@ -46,6 +46,10 @@ fn startup_resumes_split_chats_without_resuming_hidden_tabs_or_reordering_them()
     );
     assert!(boot.startup.is_none());
     assert_eq!(
+        boot.projects.get(Path::new("/sessions/left")),
+        Some(&PathBuf::from("/workspace"))
+    );
+    assert_eq!(
         server.calls(),
         [
             ("/resume".into(), json!("/sessions/left")),
@@ -60,6 +64,7 @@ fn focused_document_resumes_only_the_hidden_command_target() {
     let mut saved = TabLayout::default();
     saved.open("chat:/sessions/target", |_| false);
     saved.open("chat:/sessions/other", |_| false);
+    saved.activate(PaneId(0), "chat:/sessions/target");
     saved.open("files:src/main.rs", |_| false);
     assert_eq!(saved.visible().collect::<Vec<_>>(), ["files:src/main.rs"]);
     assert_eq!(
@@ -96,6 +101,23 @@ fn initial_launch_uses_suggested_session_without_reading_the_catalog() {
     );
 }
 
+#[test]
+fn restored_document_knows_command_targets_workspace_before_catalog_discovery() {
+    let server = Server::start_in(&[("/sessions/a", "/project-a"), ("/sessions/b", "/project-b")]);
+    let mut saved = TabLayout::default();
+    saved.open("chat:/sessions/a", |_| false);
+    saved.open("chat:/sessions/b", |_| false);
+    saved.open("files:src/main.rs", |_| false);
+    let boot = restore(server.api(), None, saved).unwrap();
+    assert!(boot.sessions.is_empty());
+    assert_eq!(
+        boot.projects.get(Path::new("/sessions/b")),
+        Some(&PathBuf::from("/project-b"))
+    );
+    assert_eq!(boot.resumed, paths(&["/sessions/b"]));
+    assert_eq!(server.calls(), [("/resume".into(), json!("/sessions/b"))]);
+}
+
 fn paths(dirs: &[&str]) -> Vec<PathBuf> {
     dirs.iter().map(PathBuf::from).collect()
 }
@@ -109,6 +131,15 @@ struct Server {
 
 impl Server {
     fn start(dirs: &[&str]) -> Self {
+        Self::start_in(
+            &dirs
+                .iter()
+                .map(|dir| (*dir, "/workspace"))
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    fn start_in(dirs: &[(&str, &str)]) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let address = listener.local_addr().unwrap();
@@ -116,11 +147,11 @@ impl Server {
         let stop = Arc::new(AtomicBool::new(false));
         let catalog: Vec<_> = dirs
             .iter()
-            .map(|dir| {
+            .map(|(dir, workspace)| {
                 AppSessionSummary::new(
                     PathBuf::from(dir),
                     proteus_contracts::domain::new_session_id(),
-                    PathBuf::from("/workspace"),
+                    PathBuf::from(workspace),
                     0,
                     None,
                     None,
@@ -209,7 +240,7 @@ fn respond(stream: TcpStream, catalog: &[AppSessionSummary], calls: &Mutex<Vec<(
         "/sessions" => serde_json::to_value(catalog).unwrap(),
         "/resume" => json!({
             "type": "response", "id": body["id"], "ok": true, "error": null,
-            "output": {"session_dir": dir, "activity": {
+            "output": {"session_dir": dir, "workspace_path": catalog.iter().find(|summary| summary.session_dir == Path::new(dir.as_str().unwrap())).map(|summary| &summary.workspace_path).unwrap(), "activity": {
                 "status": "idle", "running_runs": 0, "running_run_ids": [],
                 "pending_approvals": 0, "pending_user_inputs": 0
             }}

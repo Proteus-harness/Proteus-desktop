@@ -37,6 +37,9 @@ pub(in crate::ui) struct Host {
 pub(in crate::ui) enum HostEvent {
     /// Another chat became active, or the last one closed.
     SessionOpened,
+    /// Session summaries arrived; the addressed folder may now be known.
+    /// This does not change the session or its transcript projection.
+    ContextChanged,
     /// A run of the active chat finished; files and quotas may differ.
     RunSettled,
     NavigationChanged,
@@ -197,7 +200,17 @@ impl Host {
 
     /// Folder the agent works in.
     pub(in crate::ui) fn workspace_path(&self, cx: &App) -> Option<PathBuf> {
-        self.read(cx, |host| host.workspace.workspace_path.clone())
+        if !self.runtime_scope.lifetime.session() {
+            return None;
+        }
+        let session = self.session_dir(cx);
+        let workspace = self.workspace.upgrade()?;
+        Some(
+            workspace
+                .read(cx)
+                .project_for_session(session.as_deref())
+                .to_path_buf(),
+        )
     }
 
     pub(in crate::ui) fn read<R>(&self, cx: &App, read: impl FnOnce(&HostView) -> R) -> Option<R> {
@@ -279,11 +292,17 @@ impl Host {
         if !self.runtime_scope.lifetime.session() {
             return None;
         }
-        if let Some((_, session)) = &self.bound {
-            return Some(session.clone());
-        }
-        self.read(cx, |host| host.session().map(|session| session.dir.clone()))
-            .flatten()
+        let active = self
+            .read(cx, |host| host.session().map(|session| session.dir.clone()))
+            .flatten();
+        self.context_session(active)
+    }
+
+    fn context_session(&self, active: Option<PathBuf>) -> Option<PathBuf> {
+        self.bound
+            .as_ref()
+            .map(|(_, session)| session.clone())
+            .or(active)
             .or_else(|| self.inherited.as_ref().map(|(_, session)| session.clone()))
     }
 
@@ -300,13 +319,16 @@ impl Host {
     ) -> Option<Subscription> {
         // A content source is immutable and bound to its chat. Switching the
         // active tab must neither repaint it nor change its session context.
-        if !self.runtime_scope.lifetime.session() || self.bound.is_some() {
+        if !self.runtime_scope.lifetime.session() {
             return None;
         }
+        let bound = self.bound.is_some();
         let workspace = self.workspace.upgrade()?;
         Some(
             cx.subscribe(&workspace, move |this, _, event: &HostEvent, cx| {
-                on_event(this, *event, cx)
+                if !bound || *event == HostEvent::ContextChanged {
+                    on_event(this, *event, cx)
+                }
             }),
         )
     }
@@ -350,6 +372,24 @@ impl Host {
 mod isolated_tests {
     use super::{Host, Lifetime};
     use gpui_kit::WeakEntity;
+
+    #[test]
+    fn retained_bound_and_inherited_directories_survive_the_chat_entity() {
+        let mut inherited = Host::new(WeakEntity::new_invalid(), "files");
+        inherited.inherit(Some((WeakEntity::new_invalid(), "/sessions/b".into())));
+        assert_eq!(inherited.context_session(None), Some("/sessions/b".into()));
+        assert_eq!(
+            inherited.context_session(Some("/sessions/a".into())),
+            Some("/sessions/a".into())
+        );
+
+        let bound = inherited.for_chat(WeakEntity::new_invalid(), "/sessions/bound".into());
+        assert_eq!(bound.context_session(None), Some("/sessions/bound".into()));
+        assert_eq!(
+            bound.context_session(Some("/sessions/a".into())),
+            Some("/sessions/bound".into())
+        );
+    }
 
     #[test]
     fn content_inline_and_rehost_clones_cannot_escape_the_view_owner() {

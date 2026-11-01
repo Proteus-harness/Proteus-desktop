@@ -36,7 +36,7 @@ fn main() {
         return;
     }
     startup_trace::mark("process.start");
-    let launch = match Launch::from_args() {
+    let mut launch = match Launch::from_args() {
         Ok(options) => options,
         Err(error) => {
             eprintln!("proteus-native: {error:#}");
@@ -48,9 +48,18 @@ fn main() {
     };
     graphics::prepare_environment();
     let preferences = preferences::load();
+    if let Ok(preferences) = &preferences {
+        launch.restore_workspace(preferences);
+    }
     let saved_tabs = preferences
         .as_ref()
-        .map(|preferences| preferences.tabs.clone())
+        .ok()
+        .and_then(|preferences| {
+            launch
+                .workspace
+                .as_ref()
+                .map(|workspace| preferences.tabs_for(workspace, &launch.target))
+        })
         .unwrap_or_default();
     let preparation = ui::Preparation::launch(&launch, saved_tabs);
 

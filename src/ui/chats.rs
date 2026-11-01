@@ -152,6 +152,8 @@ impl Workspace {
                         return this.report(format!("{error:#}"), cx);
                     }
                 };
+                this.session_projects
+                    .insert(opened.session_dir.clone(), opened.workspace_path);
                 let id = this.insert_chat(opened.session_dir, window, cx);
                 if let Some(open) = open {
                     this.show_tab(&id, open, window, cx);
@@ -187,6 +189,8 @@ impl Workspace {
                     Err(error) => return this.report(format!("{error:#}"), cx),
                 };
                 let mut closed = closed;
+                this.session_projects
+                    .insert(opened.session_dir.clone(), opened.workspace_path);
                 closed.id = this.insert_chat(opened.session_dir, window, cx);
                 this.update_tabs(cx, |tabs| tabs.restore_closed(&closed));
                 if this.settings.is_none() {
@@ -230,7 +234,9 @@ impl Workspace {
                 Ok((opened, api.sessions()?))
             },
             move |this, (opened, sessions), window, cx| {
-                this.sessions = sessions;
+                this.session_projects
+                    .insert(opened.session_dir.clone(), opened.workspace_path);
+                this.set_sessions(sessions, cx);
                 this.add_chat(opened.session_dir, pane, window, cx);
             },
         );
@@ -373,6 +379,19 @@ impl Workspace {
     }
 
     /// Reloads the session list; requests made while one runs coalesce.
+    /// Replace catalog metadata without pretending a session opened again.
+    /// Existing scopes compare their resolved folder before sending anything.
+    pub(super) fn set_sessions(
+        &mut self,
+        sessions: Vec<proteus_contracts::app_protocol::AppSessionSummary>,
+        cx: &mut Context<Self>,
+    ) {
+        self.session_projects
+            .retain(|dir, _| !sessions.iter().any(|summary| summary.session_dir == *dir));
+        self.sessions = sessions;
+        cx.emit(HostEvent::ContextChanged);
+    }
+
     pub(super) fn refresh_sessions(&mut self, cx: &mut Context<Self>) {
         if self.sessions_loading {
             self.sessions_stale = true;
@@ -405,7 +424,7 @@ impl Workspace {
                         });
                         this.sessions_arrived
                             .get_or_insert_with(std::time::Instant::now);
-                        this.sessions = sessions;
+                        this.set_sessions(sessions, cx);
                     }
                     Err(error) => this.report(format!("{error:#}"), cx),
                 }

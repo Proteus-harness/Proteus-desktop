@@ -51,6 +51,7 @@ pub(super) struct Boot {
     pub api: Api,
     pub backend: Option<BackendGuard>,
     pub sessions: Vec<AppSessionSummary>,
+    pub projects: HashMap<PathBuf, PathBuf>,
     pub restored: Vec<PathBuf>,
     pub resumed: Vec<PathBuf>,
     pub startup: Option<PathBuf>,
@@ -75,6 +76,7 @@ pub(super) fn boot(options: &LaunchOptions, saved: TabLayout) -> Result<Boot> {
 
 fn restore(api: Api, backend: Option<BackendGuard>, saved: TabLayout) -> Result<Boot> {
     let mut sessions = Vec::new();
+    let mut projects = HashMap::new();
     // Include the command target when the focused tab is a document.
     let active = saved.active_chat(None);
     let resumed: Vec<PathBuf> = saved
@@ -83,11 +85,14 @@ fn restore(api: Api, backend: Option<BackendGuard>, saved: TabLayout) -> Result<
             saved.visible().any(|visible| visible == *id) || active.as_deref() == Some(*id)
         })
         .filter_map(tabs::chat_dir)
-        .filter(|dir| {
-            api.resume(dir)
-                .is_ok_and(|opened| opened.session_dir == *dir)
+        .filter_map(|dir| {
+            let opened = api.resume(dir).ok()?;
+            if opened.session_dir != dir {
+                return None;
+            }
+            projects.insert(opened.session_dir.clone(), opened.workspace_path);
+            Some(opened.session_dir)
         })
-        .map(Path::to_path_buf)
         .collect();
     let restored = saved
         .chats()
@@ -101,16 +106,16 @@ fn restore(api: Api, backend: Option<BackendGuard>, saved: TabLayout) -> Result<
         if bootstrap.session_dir.is_none() {
             sessions = api.sessions()?;
         }
-        Some(
-            match select_startup_session(None, bootstrap.session_dir, &sessions) {
-                Some(dir) => api.resume(Path::new(&dir))?.session_dir,
-                None => {
-                    let opened = api.new_session(None, None)?.session_dir;
-                    sessions = api.sessions()?;
-                    opened
-                }
-            },
-        )
+        let opened = match select_startup_session(None, bootstrap.session_dir, &sessions) {
+            Some(dir) => api.resume(Path::new(&dir))?,
+            None => {
+                let opened = api.new_session(None, None)?;
+                sessions = api.sessions()?;
+                opened
+            }
+        };
+        projects.insert(opened.session_dir.clone(), opened.workspace_path);
+        Some(opened.session_dir)
     } else {
         None
     };
@@ -118,6 +123,7 @@ fn restore(api: Api, backend: Option<BackendGuard>, saved: TabLayout) -> Result<
         api,
         backend,
         sessions,
+        projects,
         restored,
         resumed,
         startup,

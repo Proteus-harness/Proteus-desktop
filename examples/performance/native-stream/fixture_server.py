@@ -202,6 +202,13 @@ class Fixture:
                 "tools": {"requested": 0, "finished": 0, "failed": 0, "names": []},
                 "diagnostics": []}
 
+    def session_summaries(self):
+        """Catalog hook; subclasses still share the strict single-session transport."""
+        return [{"session_dir": self.session, "session_id": SESSION_ID,
+                 "workspace_path": self.workspace, "message_count": len(self.transcript),
+                 "updated_at_ms": 1793059200000, "preview": "Synthetic native fixture",
+                 "activity": self.activity()}]
+
     def handle(self, h, method):
         h.connection.settimeout(15)
         require(h.headers.get("Authorization") == "Bearer " + self.token, "Invalid fixture token")
@@ -248,10 +255,7 @@ class Fixture:
             if path == "/bootstrap":
                 output = {"session_dir": self.session, "cwd": self.workspace}
             elif path == "/sessions":
-                output = [{"session_dir": self.session, "session_id": SESSION_ID,
-                           "workspace_path": self.workspace, "message_count": len(self.transcript),
-                           "updated_at_ms": 1793059200000, "preview": "Synthetic native fixture",
-                           "activity": self.activity()}]
+                output = self.session_summaries()
             elif path in ("/config", "/config/local"):
                 output = self.config()
             elif path == "/context":
@@ -264,7 +268,8 @@ class Fixture:
         if path == "/resume":
             require(set(body) == {"id", "session_dir"} and body["session_dir"] == self.session,
                     "Unexpected resume command")
-            output = {"session_dir": self.session, "activity": self.activity()}
+            output = {"session_dir": self.session, "workspace_path": self.workspace,
+                      "activity": self.activity()}
         else:
             raise ValueError("Unexpected POST " + path)
         h.reply(200, {"type": "response", "id": body.get("id"), "ok": True,

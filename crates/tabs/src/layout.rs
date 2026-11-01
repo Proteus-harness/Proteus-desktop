@@ -18,6 +18,9 @@ pub struct TabLayout {
     /// pile up tabs. Keeping or moving it makes it a regular tab.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preview: Option<String>,
+    /// Command context while a document is focused, including after restart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) last_chat: Option<String>,
     /// Id of the next new pane.
     pub next_id: u32,
     /// Closed regular tabs in this window; navigation state is not persisted.
@@ -32,6 +35,7 @@ impl Default for TabLayout {
             root: Node::Pane(Pane::new(PaneId(0))),
             focused: PaneId(0),
             preview: None,
+            last_chat: None,
             next_id: 1,
             closed: Vec::new(),
         }
@@ -81,6 +85,11 @@ impl TabLayout {
         }
         if !ids.contains(&self.focused) {
             return Err(format!("focused pane {} does not exist", self.focused.0));
+        }
+        if let Some(chat) = &self.last_chat
+            && (!is_chat(chat) || !seen.contains(chat.as_str()))
+        {
+            return Err(format!("command chat `{chat}` is not an open chat"));
         }
         match &self.preview {
             Some(preview) if !seen.contains(preview.as_str()) => {
@@ -156,14 +165,27 @@ impl TabLayout {
     }
 
     /// The chat that commands and extensions address: the chat shown in the
-    /// focused pane, else `current` while it is open, else a chat in view,
-    /// else any open chat.
+    /// focused pane, else the last focused chat, else `current` while it is
+    /// open, else a chat in view, else any open chat.
     pub fn active_chat(&self, current: Option<&str>) -> Option<String> {
         self.active(self.focused)
             .filter(|id| is_chat(id))
-            .or_else(|| current.filter(|id| self.contains(id)))
+            .or_else(|| self.last_chat.as_deref().filter(|id| self.contains(id)))
+            .or_else(|| current.filter(|id| is_chat(id) && self.contains(id)))
             .or_else(|| self.visible().find(|id| is_chat(id)))
             .or_else(|| self.chats().next())
             .map(str::to_string)
+    }
+
+    pub(super) fn remember_chat(&mut self, id: &str) {
+        if is_chat(id) {
+            self.last_chat = Some(id.to_owned());
+        }
+    }
+
+    /// Reconcile after removals and pane normalization, never keeping a
+    /// command target whose tab has left this window.
+    pub(super) fn sync_chat_context(&mut self) {
+        self.last_chat = self.active_chat(None);
     }
 }

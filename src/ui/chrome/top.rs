@@ -1,6 +1,6 @@
 //! The bar above the tabs: the logo menu and extension icons at both ends,
-//! drawn inside the window's own title bar. The project lives above the
-//! composer and in the session list.
+//! drawn inside the window's own title bar. Navigation context links the
+//! active project and chat to their documents without another folder selector.
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
@@ -34,6 +34,7 @@ impl Workspace {
             .values()
             .any(|chat| matches!(chat.view.read(cx).session.state(), ChatState::Busy(_)));
         let left = h_flex()
+            .min_w_0()
             .gap_1()
             .items_center()
             .child(logo_button(
@@ -41,6 +42,7 @@ impl Workspace {
                 logo_menu(None, ready.then_some(workspace)),
                 cx,
             ))
+            .when(ready, |left| left.child(self.render_navigation_context(cx)))
             .when(ready, |left| {
                 left.children(self.render_badge_strip(BadgePlace::HeaderStart, cx))
             });

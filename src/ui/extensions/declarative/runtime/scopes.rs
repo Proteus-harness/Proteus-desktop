@@ -6,15 +6,84 @@ use crate::ui::chat::Chat;
 use crate::ui::workspace::Workspace;
 use gpui_kit::component::*;
 
+/// Refresh an existing scope's folder without a session lifecycle transition.
+/// NavigationChanged makes existing protocol-4 extensions redraw after Context;
+/// Context alone only updates the SDK's metadata.
+fn workspace_update(
+    context: &str,
+    current: &std::path::Path,
+    workspace: &std::path::Path,
+    session_dir: Option<PathBuf>,
+    document: Option<String>,
+) -> Option<[Outgoing; 2]> {
+    (current != workspace).then(|| {
+        [
+            Outgoing::Context {
+                context: context.into(),
+                workspace: workspace.into(),
+                session_dir: session_dir.clone(),
+            },
+            Outgoing::Event {
+                context: context.into(),
+                event: HostEventKind::NavigationChanged,
+                session_dir,
+                document,
+            },
+        ]
+    })
+}
+
 pub(super) struct Scope {
     pub(super) host: Host,
     pub(super) window: AnyWindowHandle,
     pub(super) popup_closed: u64,
     source: Option<(WeakEntity<Chat>, PathBuf)>,
     session: Option<PathBuf>,
+    workspace: PathBuf,
     announced: bool,
     _events: Option<Subscription>,
     _session_events: Option<Subscription>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::workspace_update;
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn restored_chat_gets_its_late_project_without_a_second_session_open() {
+        let session = Some(PathBuf::from("/sessions/chat-b"));
+        let messages = workspace_update(
+            "window",
+            Path::new("/project-a"),
+            Path::new("/project-b"),
+            session,
+            Some("README.md".into()),
+        )
+        .unwrap();
+        let messages: Vec<_> = messages
+            .iter()
+            .map(|message| serde_json::to_value(message).unwrap())
+            .collect();
+        assert_eq!(
+            messages,
+            vec![
+                serde_json::json!({"type":"context", "context":"window", "workspace":"/project-b", "session_dir":"/sessions/chat-b"}),
+                serde_json::json!({"type":"event", "context":"window", "event":"navigation_changed", "session_dir":"/sessions/chat-b", "document":"README.md"}),
+            ]
+        );
+        // Repeated status/catalog refreshes leave retained extension views alone.
+        assert!(
+            workspace_update(
+                "window",
+                Path::new("/project-b"),
+                Path::new("/project-b"),
+                Some("/sessions/chat-b".into()),
+                None
+            )
+            .is_none()
+        );
+    }
 }
 
 impl Runtime {
@@ -89,6 +158,7 @@ impl Runtime {
                 popup_closed: 0,
                 source,
                 session: None,
+                workspace: PathBuf::new(),
                 announced: false,
                 _events: events,
                 _session_events: session_events,
@@ -113,13 +183,14 @@ impl Runtime {
             .scopes
             .iter()
             .any(|(id, scope)| id != context && scope.announced && scope.session == session);
+        let workspace = if !self.lifetime.session() {
+            PathBuf::new()
+        } else {
+            host.workspace_path(cx).unwrap_or_default()
+        };
         self.send(&Outgoing::Context {
             context: context.into(),
-            workspace: if !self.lifetime.session() {
-                PathBuf::new()
-            } else {
-                host.workspace_path(cx).unwrap_or_default()
-            },
+            workspace: workspace.clone(),
             session_dir: session.clone(),
         });
         if self.lifetime.session() && self.extension.manifest.session_events && !snapshot_known {
@@ -127,6 +198,7 @@ impl Runtime {
         }
         if let Some(scope) = self.scopes.get_mut(context) {
             scope.session = session;
+            scope.workspace = workspace;
             scope.announced = true;
         }
     }
@@ -135,6 +207,28 @@ impl Runtime {
         let Some(scope) = self.scopes.get_mut(context) else {
             return;
         };
+        if event == HostEvent::ContextChanged {
+            // A late catalog changes folder metadata only. Do not announce
+            // SessionOpened or resend a potentially large session snapshot.
+            if !scope.announced || self.process.is_none() {
+                return;
+            }
+            let workspace = scope.host.workspace_path(cx).unwrap_or_default();
+            let messages = workspace_update(
+                context,
+                &scope.workspace,
+                &workspace,
+                scope.host.session_dir(cx),
+                scope.host.active_document(cx),
+            );
+            scope.workspace = workspace;
+            if let Some(messages) = messages {
+                for message in messages {
+                    self.send(&message);
+                }
+            }
+            return;
+        }
         if event == HostEvent::SessionOpened {
             // Keep the last explicitly chosen session as the fallback if its
             // tab later closes. Neither fallback holds a Chat entity alive.
@@ -149,6 +243,7 @@ impl Runtime {
             HostEvent::SessionOpened => HostEventKind::SessionOpened,
             HostEvent::RunSettled => HostEventKind::RunSettled,
             HostEvent::NavigationChanged => HostEventKind::NavigationChanged,
+            HostEvent::ContextChanged => unreachable!("metadata refresh handled above"),
         };
         if self.process.is_none() && self.error.is_none() {
             self.start(cx);

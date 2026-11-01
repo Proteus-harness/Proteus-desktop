@@ -132,9 +132,43 @@ pub struct Preferences {
     pub catalogs: crate::catalog::Preferences,
     pub sidebar: SidebarPreferences,
     pub tabs: TabLayout,
+    pub tabs_workspace: Option<TabWorkspace>,
     pub sessions: SessionMarks,
     pub recent: RecentWorkspaces,
     pub shortcuts: Shortcuts,
+}
+
+/// The server namespace a saved layout belongs to. Attached connections are
+/// deliberately transient: their credentials and origins are never persisted.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TabWorkspace {
+    pub workspace: PathBuf,
+    pub profile: Option<String>,
+}
+
+impl TabWorkspace {
+    pub fn new(workspace: &Path, target: &crate::launch::Target) -> Option<Self> {
+        let crate::launch::Target::Spawn { profile } = target else {
+            return None;
+        };
+        Some(Self {
+            workspace: workspace.canonicalize().ok()?,
+            profile: profile.clone(),
+        })
+    }
+}
+
+impl Preferences {
+    /// Unowned or differently scoped tabs cannot be rehosted into this folder.
+    pub fn tabs_for(&self, workspace: &Path, target: &crate::launch::Target) -> TabLayout {
+        let owner = TabWorkspace::new(workspace, target);
+        if owner.is_some() && owner == self.tabs_workspace {
+            self.tabs.clone()
+        } else {
+            TabLayout::default()
+        }
+    }
 }
 
 /// One device-local setting. Reset restores its default or inherited value;
@@ -623,6 +657,64 @@ mod tests {
     use super::{BadgePlace, ExtensionPreferences, Preferences, SURFACE_RADIUS, ViewPreferences};
 
     const KNOWN: [&str; 3] = ["context", "plan", "files"];
+
+    #[test]
+    fn saved_tabs_restore_only_in_their_folder_and_profile() {
+        use super::TabWorkspace;
+        use crate::launch::Target;
+        let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let target = Target::Spawn {
+            profile: Some("fixture".into()),
+        };
+        let mut prefs = Preferences::default();
+        prefs.tabs.open("file:relative/source.rs", |_| false);
+        // Ownerless preferences are not guessed into the current server.
+        assert!(
+            !prefs
+                .tabs_for(workspace, &target)
+                .contains("file:relative/source.rs")
+        );
+        prefs.tabs_workspace = TabWorkspace::new(workspace, &target);
+        assert!(
+            prefs
+                .tabs_for(workspace, &target)
+                .contains("file:relative/source.rs")
+        );
+        assert!(
+            !prefs
+                .tabs_for(workspace.parent().unwrap(), &target)
+                .contains("file:relative/source.rs")
+        );
+        assert!(
+            !prefs
+                .tabs_for(workspace, &Target::Spawn { profile: None })
+                .contains("file:relative/source.rs")
+        );
+        let attached = Target::Attach {
+            origin: "http://localhost:9".into(),
+            token: "never-persist-this".into(),
+        };
+        assert!(TabWorkspace::new(workspace, &attached).is_none());
+        assert!(
+            !prefs
+                .tabs_for(workspace, &attached)
+                .contains("file:relative/source.rs")
+        );
+        let encoded = serde_json::to_string(&prefs).unwrap();
+        assert!(!encoded.contains("never-persist-this"));
+        let reopened: Preferences = serde_json::from_str(&encoded).unwrap();
+        assert!(
+            reopened
+                .tabs_for(workspace, &target)
+                .contains("file:relative/source.rs")
+        );
+        // Canonically equivalent folder names share the layout.
+        assert!(
+            reopened
+                .tabs_for(&workspace.join("."), &target)
+                .contains("file:relative/source.rs")
+        );
+    }
 
     #[test]
     fn analysis_starts_disabled_but_explicit_enable_survives_reopen() {

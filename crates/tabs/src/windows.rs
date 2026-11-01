@@ -9,6 +9,13 @@ impl TabLayout {
     pub fn include_window(&mut self, other: &Self) {
         let focused = self.focused;
         let active = self.active(focused).map(str::to_owned);
+        let command_chat = self.active_chat(None).or_else(|| other.active_chat(None));
+        let panes: Vec<_> = self
+            .panes()
+            .into_iter()
+            .filter(|pane| pane.active.is_some())
+            .map(|pane| (pane.id, pane.active.clone(), pane.history.clone()))
+            .collect();
         for pane in other.panes() {
             for id in &pane.tabs {
                 if self.contains(id) {
@@ -19,9 +26,20 @@ impl TabLayout {
                 self.set_pinned(id, other.is_pinned(id));
             }
         }
-        if let Some(active) = active {
-            self.activate(focused, &active);
+        for (id, active, history) in panes {
+            let pane = self.root.pane_mut(id).expect("existing pane remains open");
+            pane.active = active;
+            pane.history = history;
         }
+        self.focused = focused;
+        if active.is_none()
+            && let Some(active) = other.active(other.focused)
+            && let Some(pane) = self.pane_of(active)
+        {
+            self.activate(pane, active);
+        }
+        self.last_chat = command_chat;
+        self.sync_chat_context();
     }
 }
 
