@@ -7,6 +7,7 @@ persists synthetic chats to that JSON file for restart checks. Messages:
 streams Markdown plus a command result. Existing chat has 600 history rows.
 """
 import json
+import math
 import os
 import sys
 import threading
@@ -24,11 +25,54 @@ pending = {}
 sequence = 0
 state_path = Path(os.environ["PROTEUS_CODEX_FIXTURE_STATE"]) if os.environ.get("PROTEUS_CODEX_FIXTURE_STATE") else None
 cwd = os.getcwd()
+rpc_log = Path(os.environ["PROTEUS_CODEX_FIXTURE_RPC_LOG"]) if os.environ.get("PROTEUS_CODEX_FIXTURE_RPC_LOG") else None
+delays = json.loads(os.environ.get("PROTEUS_CODEX_FIXTURE_DELAYS", "{}"))
+if not isinstance(delays, dict):
+    raise ValueError("PROTEUS_CODEX_FIXTURE_DELAYS must be a JSON object")
+for key, value in delays.items():
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value):
+        raise ValueError(f"Invalid synthetic delay for {key}")
+    delays[key] = max(0.0, min(5.0, value))
+if rpc_log:
+    rpc_log.parent.mkdir(parents=True, exist_ok=True)
 
 
-def emit(value):
+def record_rpc(message, response=False):
+    if rpc_log:
+        value = {"method": message["method"] + (":response" if response else ""),
+                 "threadId": message.get("params", {}).get("threadId"), "requestId": message["id"]}
+        with rpc_log.open("a", encoding="utf-8") as output:
+            output.write(json.dumps(value, ensure_ascii=False, separators=(",", ":")) + "\n")
+
+
+def emit(value, rpc=None):
     with write_lock:
         print(json.dumps(value, ensure_ascii=False), flush=True)
+        if rpc:
+            record_rpc(rpc, response=True)
+
+
+def respond(message, result, after=None):
+    # Freeze data before waiting: a delayed list must retain its old snapshot
+    # even when a subsequent delete is acknowledged first.
+    wire = json.dumps({"id": message["id"], "result": result}, ensure_ascii=False)
+    method = message["method"]
+    thread = message.get("params", {}).get("threadId")
+    delay = delays.get(f"{method}|{thread}", delays.get(method, 0))
+
+    def send():
+        if delay:
+            time.sleep(delay)
+        with write_lock:
+            print(wire, flush=True)
+            record_rpc(message, response=True)
+        if after:
+            after()
+
+    if delay:
+        threading.Thread(target=send, daemon=True).start()
+    else:
+        send()
 
 
 def notify(method, params):
@@ -138,6 +182,12 @@ def run(thread, turn, cancel, text):
     answer(thread, turn, cancel, "| Проверка | Статус |\n|---|---|\n| История | Работает |\n\nЗапрос: " + text)
 
 
+def started(thread, turn, cancel, text):
+    notify("turn/started", {"threadId": thread, "turn": {"id": turn, "status": "inProgress"}})
+    item(thread, turn, {"id": f"user:{turn}", "type": "userMessage", "content": [{"type": "text", "text": text}]})
+    threading.Thread(target=run, args=(thread, turn, cancel, text), daemon=True).start()
+
+
 for line in sys.stdin:
     try:
         message = json.loads(line)
@@ -155,6 +205,8 @@ for line in sys.stdin:
         if "id" not in message:
             continue
         thread = params.get("threadId")
+        with write_lock:
+            record_rpc(message)
         if method == "initialize":
             result = {"userAgent": "Proteus synthetic Codex peer"}
         elif method == "model/list":
@@ -186,10 +238,8 @@ for line in sys.stdin:
             cancel = threading.Event()
             stop[thread] = (turn, cancel)
             data[thread]["updatedAt"] = int(time.time())
-            emit({"id": message["id"], "result": {"turn": {"id": turn, "status": "inProgress", "items": []}}})
-            notify("turn/started", {"threadId": thread, "turn": {"id": turn, "status": "inProgress"}})
-            item(thread, turn, {"id": f"user:{turn}", "type": "userMessage", "content": [{"type": "text", "text": text}]})
-            threading.Thread(target=run, args=(thread, turn, cancel, text), daemon=True).start()
+            respond(message, {"turn": {"id": turn, "status": "inProgress", "items": []}},
+                    after=lambda thread=thread, turn=turn, cancel=cancel, text=text: started(thread, turn, cancel, text))
             continue
         elif method == "turn/interrupt":
             if thread in stop and stop[thread][0] == params["turnId"]:
@@ -203,8 +253,8 @@ for line in sys.stdin:
         elif method == "thread/unsubscribe":
             result = {}
         else:
-            emit({"id": message["id"], "error": {"code": -32601, "message": "Unknown synthetic method: " + method}})
+            emit({"id": message["id"], "error": {"code": -32601, "message": "Unknown synthetic method: " + method}}, rpc=message)
             continue
-        emit({"id": message["id"], "result": result})
+        respond(message, result)
     except Exception as error:
-        emit({"id": message.get("id"), "error": {"code": -32000, "message": str(error)}})
+        emit({"id": message.get("id"), "error": {"code": -32000, "message": str(error)}}, rpc=message if "method" in message and "id" in message else None)

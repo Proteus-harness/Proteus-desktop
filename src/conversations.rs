@@ -56,6 +56,16 @@ pub struct ConversationSummary {
     pub activity: Option<AppSessionActivity>,
 }
 
+/// Refresh metadata in place. Merely opening an existing conversation must
+/// not move its sidebar row; newly discovered conversations append normally.
+pub fn upsert_summary(summaries: &mut Vec<ConversationSummary>, summary: ConversationSummary) {
+    if let Some(existing) = summaries.iter_mut().find(|row| row.key == summary.key) {
+        *existing = summary;
+    } else {
+        summaries.push(summary);
+    }
+}
+
 /// Resolve parent UUIDs while the driver's complete summary catalog is present.
 /// Missing parents remain accessible roots; no transcript is needed.
 pub fn from_proteus(sessions: Vec<AppSessionSummary>) -> Vec<ConversationSummary> {
@@ -144,6 +154,39 @@ impl CodexSelections {
 mod tests {
     use super::*;
     use proteus_contracts::domain::SessionId;
+
+    #[test]
+    fn opening_and_refreshing_existing_summaries_preserve_sidebar_positions() {
+        let summary = |id: &str| ConversationSummary {
+            key: ChatKey::Codex(id.into()),
+            parent: None,
+            workspace_path: "/workspace".into(),
+            message_count: 0,
+            updated_at_ms: Some(123),
+            preview: Some(id.into()),
+            activity: None,
+        };
+        let mut rows: Vec<_> = ["home", "a", "b", "c"].into_iter().map(summary).collect();
+        let expected: Vec<_> = rows.iter().map(|row| row.key.clone()).collect();
+        for id in ["b", "a", "c", "b", "a", "home"] {
+            let mut updated = summary(id);
+            updated.preview = Some(format!("Updated {id}"));
+            updated.message_count = 42;
+            updated.parent = Some(ChatKey::Codex("parent".into()));
+            upsert_summary(&mut rows, updated.clone());
+            assert_eq!(
+                rows.iter().map(|row| row.key.clone()).collect::<Vec<_>>(),
+                expected
+            );
+            assert_eq!(
+                rows.iter().find(|row| row.key == updated.key),
+                Some(&updated)
+            );
+        }
+        upsert_summary(&mut rows, summary("new"));
+        assert_eq!(rows.len(), expected.len() + 1);
+        assert_eq!(rows.last().unwrap().key, ChatKey::Codex("new".into()));
+    }
 
     #[test]
     fn parent_uuid_is_resolved_to_the_real_driver_key_and_missing_parent_stays_accessible() {

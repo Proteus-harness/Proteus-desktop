@@ -267,7 +267,7 @@ impl SettingsView {
                     .pb_3()
                     .gap_0p5()
                     .child(div().pt_2().child(item(PageId::Catalog, cx)))
-                    .child(heading("Агент"))
+                    .child(heading("Proteus"))
                     .children(agent.into_iter().map(|page| item(page, cx)))
                     .child(heading("Подключения"))
                     .children(CONNECTION_PAGES.iter().cloned().map(|page| item(page, cx)))

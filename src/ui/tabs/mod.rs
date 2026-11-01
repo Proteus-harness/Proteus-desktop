@@ -211,8 +211,8 @@ impl Workspace {
         self.focus_active(window, cx);
     }
 
-    /// Reopens any supported page through the same history. Sessions are
-    /// resumed before restoring their tab, so no empty chat/context is shown.
+    /// Reopens any supported page through the same history. Chats restore
+    /// their loading tab first; late replies cannot change that selection.
     pub(super) fn reopen_closed_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.settings.is_some() {
             return;

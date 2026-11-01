@@ -46,6 +46,9 @@ impl SettingsView {
     }
 
     pub(super) fn profile_blocked(&self) -> Option<&'static str> {
+        if self.context.profile.is_none() {
+            return Some("Для этого нужен открытый чат Proteus");
+        }
         if !self
             .snapshot()
             .is_some_and(|snapshot| snapshot.writable && snapshot.target_path.is_some())
@@ -223,8 +226,9 @@ impl SettingsView {
             return;
         }
         let request = draft.changes(&self.baseline);
-        let api = self.api.clone();
-        let dir = self.session_dir.clone();
+        let Some(super::super::context::Profile { api, dir }) = self.context.profile.clone() else {
+            return self.catalog_failed(anyhow!("Для этого нужен открытый чат Proteus"), cx);
+        };
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()

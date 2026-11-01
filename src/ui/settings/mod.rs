@@ -4,6 +4,7 @@
 mod addons;
 mod catalog;
 mod client;
+mod context;
 mod dismiss;
 mod editors;
 mod extension;
@@ -34,7 +35,6 @@ mod tools;
 mod widgets;
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 use std::time::Duration;
 
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -42,12 +42,12 @@ use gpui_kit::component::*;
 use gpui_kit::*;
 use proteus_contracts::app_protocol::config_builder::{ConfigBuilderSnapshot, ConfigHistory};
 
-use crate::api::Api;
 use crate::settings::Draft;
 use crate::settings::catalog::PageId;
 use crate::settings::mcp::mcp_problems;
 use editors::Editors;
 
+pub(in crate::ui) use context::SettingsContext;
 pub(super) use keys::bind_keys;
 
 const FEEDBACK_TIMEOUT: Duration = Duration::from_secs(4);
@@ -59,6 +59,7 @@ pub enum SettingsEvent {
 }
 
 enum LoadState {
+    Unavailable,
     Loading,
     Failed(SharedString),
     Ready(Box<ConfigBuilderSnapshot>),
@@ -77,8 +78,7 @@ struct Feedback {
 }
 
 pub struct SettingsView {
-    api: Api,
-    session_dir: PathBuf,
+    context: SettingsContext,
     state: LoadState,
     /// A reload of a shown profile is running; the page stays in place.
     reloading: bool,
@@ -129,10 +129,9 @@ pub struct SettingsView {
 impl EventEmitter<SettingsEvent> for SettingsView {}
 
 impl SettingsView {
-    pub fn new(
+    pub(in crate::ui) fn new(
         workspace: WeakEntity<crate::ui::workspace::Workspace>,
-        api: Api,
-        session_dir: PathBuf,
+        context: SettingsContext,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -172,9 +171,9 @@ impl SettingsView {
         let focus_handle = cx.focus_handle();
         let nav_focus = cx.focus_handle().tab_stop(true);
         nav_focus.focus(window, cx);
+        let page = context.initial_page();
         let mut view = Self {
-            api,
-            session_dir,
+            context,
             state: LoadState::Loading,
             reloading: false,
             addons: addons::AddonsState::Loading {
@@ -189,7 +188,7 @@ impl SettingsView {
             saving: false,
             feedback: None,
             feedback_timer: None,
-            page: PageId::Model,
+            page,
             scrolls: HashMap::new(),
             search,
             query: String::new(),
@@ -218,6 +217,10 @@ impl SettingsView {
 
     /// Reads the profile; a shown one stays on screen until the new arrives.
     fn load(&mut self, cx: &mut Context<Self>) {
+        let Some(context::Profile { api, dir }) = self.context.profile.clone() else {
+            self.state = LoadState::Unavailable;
+            return;
+        };
         if self.snapshot().is_some() {
             self.reloading = true;
         } else {
@@ -225,8 +228,6 @@ impl SettingsView {
         }
         self.load_addons(cx);
         self.refresh_history(cx);
-        let api = self.api.clone();
-        let dir = self.session_dir.clone();
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
@@ -311,8 +312,8 @@ impl SettingsView {
         self.json.clear();
     }
 
-    pub(super) fn location(&self) -> (String, PageId) {
-        (crate::tabs::chat(&self.session_dir), self.page.clone())
+    pub(super) fn location(&self) -> (Option<String>, PageId) {
+        (self.context.chat.clone(), self.page.clone())
     }
 
     pub(super) fn navigate_to(
@@ -424,9 +425,10 @@ impl SettingsView {
         if !self.can_save() {
             return;
         }
+        let Some(context::Profile { api, dir }) = self.context.profile.clone() else {
+            return;
+        };
         let request = self.draft.changes(&self.baseline);
-        let api = self.api.clone();
-        let dir = self.session_dir.clone();
         self.saving = true;
         self.clear_feedback();
         cx.notify();
@@ -471,11 +473,12 @@ impl SettingsView {
 
     /// Loaded entries stay shown while a newer list is read.
     fn load_history(&mut self, cx: &mut Context<Self>) {
+        let Some(context::Profile { api, dir }) = self.context.profile.clone() else {
+            return;
+        };
         if !matches!(self.history, HistoryState::Loaded(_)) {
             self.history = HistoryState::Loading;
         }
-        let api = self.api.clone();
-        let dir = self.session_dir.clone();
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()

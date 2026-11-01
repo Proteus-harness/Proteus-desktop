@@ -1,6 +1,7 @@
 //! Shared native Codex app-server service. RPC methods block: run off the UI thread.
 mod projection;
 mod router;
+mod subscriptions;
 mod types;
 
 use proteus_codex_client::{Client, Launch};
@@ -13,13 +14,15 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
+use subscriptions::Subscriptions;
 pub use types::{Event, Item, ItemKind, Model, Page, Summary};
 
 #[derive(Clone)]
 pub struct CodexService {
     client: Arc<Client>,
     router: Arc<Mutex<Router>>,
-    subscriptions: Arc<Mutex<()>>,
+    subscriptions: Arc<Subscriptions>,
+    models: Arc<Mutex<Option<Vec<Model>>>>,
 }
 
 pub struct Opened {
@@ -37,7 +40,7 @@ struct Lease {
     thread_id: String,
     generation: usize,
     current_turn: Arc<Mutex<Option<String>>>,
-    subscriptions: Arc<Mutex<()>>,
+    subscriptions: Arc<Subscriptions>,
 }
 impl Drop for Lease {
     fn drop(&mut self) {
@@ -56,7 +59,8 @@ impl Drop for Lease {
             .spawn(move || {
                 // Serialize unsubscribe with resume: a delayed old tab drop must
                 // never unsubscribe a newly reopened subscription.
-                let _subscription = subscriptions.lock().unwrap();
+                let subscription = subscriptions.for_thread(&id);
+                let _subscription = subscription.lock().unwrap();
                 if router.lock().unwrap().contains(&id) {
                     return;
                 }
@@ -109,7 +113,8 @@ impl CodexService {
         Ok(Self {
             client,
             router,
-            subscriptions: Arc::new(Mutex::new(())),
+            subscriptions: Arc::new(Subscriptions::default()),
+            models: Arc::new(Mutex::new(None)),
         })
     }
     pub fn is_connected(&self) -> bool {
@@ -132,6 +137,19 @@ impl CodexService {
         })
     }
     pub fn models(&self) -> Result<Vec<Model>, Error> {
+        // Catalogs belong to this app-server's configuration. Reopening a chat
+        // must not repeat a potentially remote model discovery. Keep concurrent
+        // first reads single-flight, and retry failures without caching them.
+        let mut cached = self.models.lock().unwrap();
+        if let Some(models) = cached.as_ref() {
+            return Ok(models.clone());
+        }
+        let models = self.load_models()?;
+        *cached = Some(models.clone());
+        Ok(models)
+    }
+
+    fn load_models(&self) -> Result<Vec<Model>, Error> {
         let mut models = Vec::new();
         let mut cursor = None;
         // A malformed peer cannot force unbounded catalog pagination.
@@ -173,7 +191,8 @@ impl CodexService {
         result
     }
     pub fn resume(&self, id: &str) -> Result<Opened, Error> {
-        let _subscription = self.subscriptions.lock().unwrap();
+        let subscription = self.subscriptions.for_thread(id);
+        let _subscription = subscription.lock().unwrap();
         let (events, current_turn, generation) = self.router.lock().unwrap().register(id)?;
         let handle = self.handle(id, current_turn, generation);
         let response = self
@@ -239,9 +258,24 @@ impl CodexService {
         }))
     }
     pub fn delete_thread(&self, id: &str) -> Result<(), Error> {
-        self.client
-            .request("thread/delete", json!({"threadId":id}))?;
-        Ok(())
+        let subscription = self.subscriptions.for_thread(id);
+        let _subscription = subscription.lock().unwrap();
+        // Some app-server versions stall teardown while this connection is
+        // subscribed. Release it first, keeping other threads independent.
+        let result = self
+            .client
+            .request("thread/unsubscribe", json!({"threadId":id}))
+            .and_then(|_| self.client.request("thread/delete", json!({"threadId":id})))
+            .map(|_| ());
+        if let Err(error) = &result {
+            // A timeout does not cancel server-side deletion. Do not resume
+            // automatically or pretend the old subscription is still live.
+            self.router.lock().unwrap().disconnect_thread(
+                id,
+                format!("Ошибка удаления: {error}. Закройте вкладку и откройте чат заново, если он остался в списке."),
+            );
+        }
+        result
     }
 }
 

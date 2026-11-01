@@ -25,6 +25,37 @@ impl SettingsView {
     pub(super) fn render_frame(&self, cx: &Context<Self>) -> AnyElement {
         if self.page.is_agent() {
             match &self.state {
+                LoadState::Unavailable => {
+                    return centered(
+                        v_flex()
+                            .gap_3()
+                            .items_center()
+                            .max_w(prefs::scaled(560.))
+                            .child(
+                                div()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child("Эти параметры относятся к агенту Proteus. Для их изменения откройте чат Proteus. Настройки внешнего вида, чата и расширений доступны для всех агентов."),
+                            )
+                            .child(
+                                kit::button("settings-open-proteus")
+                                    .faded_label("Открыть чат Proteus")
+                                    .outline()
+                                    .small()
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        let workspace = this.workspace.clone();
+                                        let _ = workspace.update(cx, |workspace, cx| {
+                                            workspace.close_settings(cx);
+                                            workspace.new_session_for(
+                                                crate::conversations::AgentKind::Proteus,
+                                                None,
+                                                window,
+                                                cx,
+                                            );
+                                        });
+                                    })),
+                            ),
+                    );
+                }
                 LoadState::Loading => {
                     return centered(late_in(
                         h_flex()

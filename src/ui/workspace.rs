@@ -1,5 +1,5 @@
 use std::cell::Cell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Instant;
@@ -43,6 +43,10 @@ pub struct Workspace {
     pub(super) layout: TabLayout,
     pub(super) windows: WindowGroup,
     pub(super) sessions: Vec<ConversationSummary>,
+    /// Prevent duplicate deletes and cancel opens until the driver acknowledges them.
+    pub(super) deleting_sessions: HashSet<crate::tabs::ChatKey>,
+    /// Catalog responses from before a delete may not resurrect its row.
+    pub(super) session_catalog_epoch: u64,
     /// Exact lifecycle acknowledgements, available before catalog discovery.
     /// Entries leave this map once the summary catalog knows their workspace.
     pub(super) session_projects: HashMap<PathBuf, PathBuf>,
@@ -67,6 +71,8 @@ pub struct Workspace {
         HashMap<PathBuf, async_channel::Receiver<crate::connection::PumpItem>>,
     /// Chats being resumed, and how they open.
     pub(super) opening: HashMap<String, Rc<Cell<Option<OpenDocument>>>>,
+    /// Only the latest explicit new-chat request may select its result.
+    pub(super) creating_chat: Option<Rc<()>>,
     /// Tab id of the chat that commands and extensions address.
     pub(super) active_chat: Option<String>,
     /// Error of a workspace call while no chat is open.
@@ -207,6 +213,8 @@ impl Workspace {
             layout,
             windows,
             sessions: Vec::new(),
+            deleting_sessions: HashSet::new(),
+            session_catalog_epoch: 0,
             session_projects: HashMap::new(),
             sessions_loading: false,
             sessions_stale: false,
@@ -218,6 +226,7 @@ impl Workspace {
             chats: HashMap::new(),
             startup_streams: HashMap::new(),
             opening: HashMap::new(),
+            creating_chat: None,
             active_chat: None,
             notice: None,
             window_title: String::new(),

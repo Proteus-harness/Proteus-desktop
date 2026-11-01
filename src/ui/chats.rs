@@ -15,6 +15,7 @@ use crate::conversations::AgentKind;
 use crate::preferences::BadgePlace;
 use crate::tabs::{self, ChatKey, PaneId, TabLayout};
 mod codex;
+mod pending;
 
 /// A chat view and the subscription to its events.
 pub(super) struct OpenChat {
@@ -90,6 +91,10 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.deleting_sessions.contains(&key) {
+            return;
+        }
+        self.creating_chat = None;
         self.close_settings(cx);
         let id = key.tab_id();
         if self.show_external_tab(&id, cx) {
@@ -99,6 +104,9 @@ impl Workspace {
             self.show_tab(&id, open, window, cx);
             return;
         }
+        // Selection belongs to the click, never to the order of RPC replies.
+        // The shared pane already renders an unloaded chat as a loading page.
+        self.show_tab(&id, open, window, cx);
         self.resume_key(key, Some(open), window, cx);
     }
 
@@ -119,6 +127,9 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.deleting_sessions.contains(&key) {
+            return;
+        }
         match key {
             ChatKey::Proteus(dir) => self.resume_chat(dir, open, window, cx),
             ChatKey::Codex(id) => self.resume_codex(id, open, window, cx),
@@ -151,44 +162,27 @@ impl Workspace {
             cx,
             move |api| Ok(api.resume(&dir)),
             move |this, resumed, window, cx| {
-                // Ignore cancelled requests, including an older resume of
-                // the same chat that has since been requested again.
-                if !this
-                    .opening
-                    .get(&id)
-                    .is_some_and(|active| Rc::ptr_eq(active, &pending))
-                {
+                let Some(open) = pending::take(&mut this.opening, &id, &pending, &this.layout)
+                else {
                     return;
-                }
-                this.opening.remove(&id);
-                let open = pending.get();
+                };
                 let opened = match resumed {
                     Ok(opened) => opened,
                     Err(error) => {
-                        if open.is_none() {
-                            this.update_tabs(cx, |tabs| tabs.close(&id));
-                        }
+                        this.update_tabs(cx, |tabs| tabs.close(&id));
                         return this.report(format!("{error:#}"), cx);
                     }
                 };
                 this.session_projects
                     .insert(opened.session_dir.clone(), opened.workspace_path);
                 let id = this.insert_chat(opened.session_dir, window, cx);
-                if let Some(open) = open {
-                    this.show_tab(&id, open, window, cx);
-                } else {
-                    let layout = this.tab_layout(cx);
-                    this.sync_chats(&layout, cx);
-                    if this.settings.is_none() && layout.active(layout.focused) == Some(&id) {
-                        this.focus_active_chat(window, cx);
-                    }
-                }
+                this.finish_chat_resume(&id, open, window, cx);
             },
         );
     }
 
-    /// Resumes a closed chat before the generic tab history restores its
-    /// original position. Closing the UI tab never deleted the session.
+    /// Restores a closed tab immediately, then fills its loading page.
+    /// Closing the UI tab never deleted the session.
     pub(super) fn restore_closed_chat(
         &mut self,
         closed: tabs::ClosedTab,
@@ -198,29 +192,45 @@ impl Workspace {
         let Some(key) = tabs::chat_key(&closed.id) else {
             return;
         };
-        let dir = match key {
-            ChatKey::Codex(id) => return self.restore_closed_codex(id, closed, window, cx),
-            ChatKey::Proteus(dir) => dir,
-        };
-        self.call_in(
-            window,
-            cx,
-            move |api| Ok(api.resume(&dir)),
-            move |this, resumed, window, cx| {
-                let opened = match resumed {
-                    Ok(opened) => opened,
-                    Err(error) => return this.report(format!("{error:#}"), cx),
-                };
-                let mut closed = closed;
-                this.session_projects
-                    .insert(opened.session_dir.clone(), opened.workspace_path);
-                closed.id = this.insert_chat(opened.session_dir, window, cx);
-                this.update_tabs(cx, |tabs| tabs.restore_closed(&closed));
-                if this.settings.is_none() {
-                    this.focus_active(window, cx);
-                }
-            },
-        );
+        if self.deleting_sessions.contains(&key) {
+            return;
+        }
+        self.update_tabs(cx, |tabs| tabs.restore_closed(&closed));
+        if self.chats.contains_key(&closed.id) {
+            self.focus_active(window, cx);
+        } else {
+            self.resume_key(
+                key,
+                Some(OpenDocument {
+                    preview: false,
+                    focus: true,
+                }),
+                window,
+                cx,
+            );
+        }
+    }
+
+    /// A delayed load only fills its existing tab. It never reopens a closed
+    /// preview, changes selection, or focuses a chat behind Settings.
+    fn finish_chat_resume(
+        &mut self,
+        id: &str,
+        open: Option<OpenDocument>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let layout = self.tab_layout(cx);
+        self.sync_chats(&layout, cx);
+        if pending::may_focus(
+            &layout,
+            id,
+            self.settings.is_some(),
+            open.is_none_or(|open| open.focus),
+        ) {
+            self.focus_active_chat(window, cx);
+        }
+        cx.notify();
     }
 
     /// Click on the session list: one click previews the chat, a double
@@ -262,6 +272,8 @@ impl Workspace {
             return self.new_codex(self.active_project_path().to_path_buf(), pane, window, cx);
         }
         self.close_settings(cx);
+        let requested_layout = self.layout.clone();
+        let creation = self.begin_chat_creation();
         let source = self.active_chat_dir().map(Path::to_path_buf);
         let project = self.active_project_path().to_path_buf();
         self.call_in(
@@ -275,9 +287,23 @@ impl Workspace {
                 this.session_projects
                     .insert(opened.session_dir.clone(), opened.workspace_path);
                 this.set_sessions(sessions, cx);
-                this.add_chat(opened.session_dir, pane, window, cx);
+                if this.finish_chat_creation(&creation, &requested_layout) {
+                    this.add_chat(opened.session_dir, pane, window, cx);
+                }
             },
         );
+    }
+
+    fn begin_chat_creation(&mut self) -> Rc<()> {
+        let ticket = Rc::new(());
+        self.creating_chat = Some(ticket.clone());
+        ticket
+    }
+
+    fn finish_chat_creation(&mut self, ticket: &Rc<()>, requested: &TabLayout) -> bool {
+        pending::take_creation(&mut self.creating_chat, ticket)
+            && self.settings.is_none()
+            && &self.layout == requested
     }
 
     /// Builds the chat of a session unless it exists; returns its tab id.
@@ -451,11 +477,17 @@ impl Workspace {
             return;
         }
         self.sessions_loading = true;
+        let epoch = self.session_catalog_epoch;
         self.call(
             cx,
             |api| Ok(api.sessions()),
-            |this, sessions, cx| {
+            move |this, sessions, cx| {
                 this.sessions_loading = false;
+                if epoch != this.session_catalog_epoch {
+                    this.sessions_stale = false;
+                    this.refresh_sessions(cx);
+                    return;
+                }
                 match sessions {
                     Ok(sessions) => {
                         for summary in &sessions {
@@ -495,11 +527,10 @@ impl Workspace {
     pub(super) fn sync_chats(&mut self, layout: &TabLayout, cx: &mut Context<Self>) {
         self.chats.retain(|id, _| layout.contains(id));
         self.release_hidden_chat_activities(layout, cx);
-        self.opening
-            .retain(|id, pending| pending.get().is_some() || layout.contains(id));
-        let active = layout
-            .active_chat(self.active_chat.as_deref())
-            .filter(|id| self.chats.contains_key(id));
+        // A load owns its subscription until its acknowledgement arrives.
+        // A quick reopen must reuse it instead of registering the same thread
+        // twice while the first result is still queued for the UI.
+        let active = layout.active_chat(self.active_chat.as_deref());
         if active != self.active_chat {
             // Activity updates are taken from the active chat's stream; a
             // reload covers what arrived elsewhere meanwhile.

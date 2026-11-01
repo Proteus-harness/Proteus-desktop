@@ -1,15 +1,21 @@
 """Run: python3 -m unittest discover -s examples/codex -p 'test_*.py'."""
 import json
+import os
 import queue
 import subprocess
+import tempfile
 import threading
 import unittest
 from pathlib import Path
 
 
 class Peer:
-    def __init__(self):
-        self.process = subprocess.Popen([str(Path(__file__).with_name("mock-app-server.py"))], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    def __init__(self, environment=None):
+        env = os.environ.copy()
+        for key in ("PROTEUS_CODEX_FIXTURE_STATE", "PROTEUS_CODEX_FIXTURE_DELAYS", "PROTEUS_CODEX_FIXTURE_RPC_LOG"):
+            env.pop(key, None)
+        env.update(environment or {})
+        self.process = subprocess.Popen([str(Path(__file__).with_name("mock-app-server.py"))], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=env)
         self.queue = queue.Queue()
         self.sequence = 0
         self.skipped = []
@@ -82,6 +88,48 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual(completed["params"]["turn"]["status"], "interrupted")
         metadata = self.peer.rpc("thread/resume", {"threadId": thread})
         self.assertEqual(metadata["thread"]["status"]["type"], "idle")
+
+
+class DelayedFixtureTests(unittest.TestCase):
+    def setUp(self):
+        directory = Path(__file__).resolve().parents[2] / "build" / "verification"
+        directory.mkdir(parents=True, exist_ok=True)
+        self.directory = tempfile.TemporaryDirectory(prefix="codex-rpc-", dir=directory)
+        self.addCleanup(self.directory.cleanup)
+        self.log = Path(self.directory.name) / "rpc.jsonl"
+        self.state = Path(self.directory.name) / "state.json"
+
+    def launch(self, delays):
+        peer = Peer({"PROTEUS_CODEX_FIXTURE_DELAYS": json.dumps(delays),
+                     "PROTEUS_CODEX_FIXTURE_RPC_LOG": str(self.log),
+                     "PROTEUS_CODEX_FIXTURE_STATE": str(self.state)})
+        self.addCleanup(peer.close)
+        peer.rpc("initialize", {})
+        return peer
+
+    def test_fast_resume_passes_delayed_resume_and_log_contains_only_metadata(self):
+        peer = self.launch({"thread/resume|fixture:thread/main": 0.35})
+        peer.send({"id": "slow-a", "method": "thread/resume", "params": {"threadId": "fixture:thread/main"}})
+        peer.send({"id": "fast-b", "method": "thread/resume", "params": {"threadId": "fixture:thread/child"}})
+        reply = peer.wait(lambda value: value.get("id") in ("slow-a", "fast-b"))
+        self.assertEqual(reply["id"], "fast-b")
+        self.assertEqual(peer.wait(lambda value: value.get("id") == "slow-a")["result"]["thread"]["id"], "fixture:thread/main")
+        peer.rpc("model/list", {})  # Barrier after the delayed response log write.
+        rows = [json.loads(line) for line in self.log.read_text().splitlines()]
+        self.assertTrue(all(set(row) == {"method", "threadId", "requestId"} for row in rows))
+        completed = [row["requestId"] for row in rows if row["method"] == "thread/resume:response"]
+        self.assertEqual(completed, ["fast-b", "slow-a"])
+        self.assertEqual(sum(row["method"] == "model/list" for row in rows), 1)
+
+    def test_delayed_catalog_keeps_snapshot_but_delete_updates_persisted_state(self):
+        peer = self.launch({"thread/list": 0.35})
+        peer.send({"id": "old-list", "method": "thread/list", "params": {}})
+        peer.rpc("thread/delete", {"threadId": "fixture:thread/main"})
+        stale = peer.wait(lambda value: value.get("id") == "old-list")["result"]["data"]
+        self.assertIn("fixture:thread/main", {row["id"] for row in stale})
+        current = peer.rpc("thread/list", {})["data"]
+        self.assertNotIn("fixture:thread/main", {row["id"] for row in current})
+        self.assertNotIn("fixture:thread/main", json.loads(self.state.read_text()))
 
 
 if __name__ == "__main__":

@@ -25,13 +25,14 @@ pub(super) enum AddonsState {
 impl SettingsView {
     /// Reads the snapshot again; a newer request replaces a pending one.
     pub(super) fn load_addons(&mut self, cx: &mut Context<Self>) {
+        let Some(super::context::Profile { api, dir }) = self.context.profile.clone() else {
+            return;
+        };
         let previous = match std::mem::replace(&mut self.addons, AddonsState::Failed("".into())) {
             AddonsState::Ready(snapshot) => Some(snapshot),
             AddonsState::Loading { previous, .. } => previous,
             AddonsState::Failed(_) => None,
         };
-        let api = self.api.clone();
-        let dir = self.session_dir.clone();
         let task = cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()

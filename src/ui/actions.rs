@@ -1,20 +1,27 @@
 use gpui_kit::*;
 
-use super::settings::{SettingsEvent, SettingsView};
+use super::settings::{SettingsContext, SettingsEvent, SettingsView};
 use super::workspace::Workspace;
 
 impl Workspace {
-    /// Settings of the active chat's agent profile; needs an open chat.
+    /// Client settings are independent of the active chat's agent backend.
     pub(super) fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_settings_for(self.active_chat_key(), window, cx);
+    }
+
+    pub(super) fn open_settings_for(
+        &mut self,
+        chat: Option<crate::tabs::ChatKey>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.settings.is_some() {
             return;
         }
-        let (Some(api), Some(dir)) = (self.api(), self.active_chat_dir()) else {
-            return;
-        };
-        let dir = dir.to_path_buf();
+        self.creating_chat = None;
+        let context = SettingsContext::for_chat(chat, || self.api());
         let workspace = cx.weak_entity();
-        let view = cx.new(|cx| SettingsView::new(workspace, api, dir, window, cx));
+        let view = cx.new(|cx| SettingsView::new(workspace, context, window, cx));
         self.settings_subscription = Some(cx.subscribe_in(
             &view,
             window,

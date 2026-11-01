@@ -139,6 +139,13 @@ impl Router {
             self.routes.remove(id);
         }
     }
+
+    pub fn disconnect_thread(&mut self, id: &str, reason: String) {
+        if let Some(route) = self.routes.remove(id) {
+            *route.reason.lock().unwrap() = Some(reason);
+            route.sender.close();
+        }
+    }
     pub fn finish_start(&mut self) -> Vec<Value> {
         self.starting = self.starting.saturating_sub(1);
         if self.starting == 0 {

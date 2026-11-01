@@ -45,13 +45,17 @@ impl Workspace {
             .filter(|(id, _)| {
                 crate::tabs::chat_key(id).is_some_and(|key| AgentKind::for_key(&key) == agent)
             })
-            .map(|(id, pending)| (id.clone(), pending.get().is_none()))
+            .map(|(id, _)| id.clone())
             .collect();
-        for (id, saved) in failed {
+        for id in failed {
             self.opening.remove(&id);
-            if saved {
-                self.update_tabs(cx, |tabs| tabs.close(&id));
-            }
+            self.update_tabs(cx, |tabs| tabs.close(&id));
+        }
+        let deleting = self.deleting_sessions.len();
+        self.deleting_sessions
+            .retain(|key| AgentKind::for_key(key) != agent);
+        if deleting != self.deleting_sessions.len() {
+            self.session_catalog_epoch = self.session_catalog_epoch.wrapping_add(1);
         }
     }
 
@@ -84,12 +88,13 @@ impl Workspace {
                         }
                         slot.as_ref().unwrap().clone()
                     };
-                    job(&service)
+                    Ok::<_, anyhow::Error>(job(&service))
                 })
                 .await;
             this.update_in(cx, |this, window, cx| {
                 match result {
-                    Ok(value) => done(this, value, window, cx),
+                    Ok(Ok(value)) => done(this, value, window, cx),
+                    Ok(Err(error)) => this.report(format!("Codex: {error:#}"), cx),
                     Err(error) => {
                         this.fail_openings(AgentKind::Codex, cx);
                         this.report(format!("Codex: {error:#}"), cx);

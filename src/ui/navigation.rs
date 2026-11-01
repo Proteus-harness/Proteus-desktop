@@ -10,7 +10,7 @@ use crate::settings::catalog::PageId;
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum Destination {
     Tab(String),
-    Settings { chat: String, page: PageId },
+    Settings { chat: Option<String>, page: PageId },
 }
 
 impl Workspace {
@@ -42,16 +42,12 @@ impl Workspace {
         let previous = self.navigation.clone();
         let available = |target: &Destination| match target {
             Destination::Tab(id) => layout.contains(id) || extensions::document(id, cx).is_some(),
-            Destination::Settings { chat, page } => {
-                self.chats.contains_key(chat)
-                    && layout.contains(chat)
-                    && match page {
-                        // Installed but disabled extensions still have a
-                        // settings page with their enable switch and details.
-                        PageId::Extension(id) => extensions::find(id).is_some(),
-                        _ => true,
-                    }
-            }
+            Destination::Settings { chat, page } => settings_target_available(
+                chat.as_deref(),
+                page,
+                |chat| self.chats.contains_key(chat) && layout.contains(chat),
+                |id| extensions::find(id).is_some(),
+            ),
         };
         let target = match direction {
             NavigationDirection::Back => self.navigation.back(available),
@@ -73,8 +69,9 @@ impl Workspace {
             settings.update(cx, |view, cx| view.request_close(cx));
             return;
         }
-        // A late resume must not replace the destination the user just chose.
-        self.opening.clear();
+        // Loading callbacks fill their tabs without selecting them. Preserve
+        // their operation identity; only pending new-chat selection expires.
+        self.creating_chat = None;
         match target {
             Destination::Tab(id) => {
                 self.close_settings(cx);
@@ -102,17 +99,72 @@ impl Workspace {
                 {
                     self.close_settings(cx);
                 }
-                if self.active_chat.as_ref() != Some(&chat) {
-                    if let Some(pane) = layout.pane_of(&chat) {
-                        self.activate_tab(pane, &chat, window, cx);
+                if let Some(chat) = &chat {
+                    if self.active_chat.as_ref() != Some(chat) {
+                        if let Some(pane) = layout.pane_of(chat) {
+                            self.activate_tab(pane, chat, window, cx);
+                        }
                     }
                 }
-                self.open_settings(window, cx);
+                self.open_settings_for(chat.as_deref().and_then(crate::tabs::chat_key), window, cx);
                 if let Some(settings) = self.settings.clone() {
                     settings.update(cx, |view, cx| view.navigate_to(page, window, cx));
                 }
             }
         }
         cx.notify();
+    }
+}
+
+fn settings_target_available(
+    chat: Option<&str>,
+    page: &PageId,
+    chat_available: impl FnOnce(&str) -> bool,
+    extension_available: impl FnOnce(&str) -> bool,
+) -> bool {
+    chat.is_none_or(chat_available)
+        && match page {
+            // Disabled extensions retain their settings page and enable switch.
+            PageId::Extension(id) => extension_available(id),
+            _ => true,
+        }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[::core::prelude::v1::test]
+    fn global_settings_survive_without_a_chat_but_closed_profile_targets_do_not() {
+        assert!(settings_target_available(
+            None,
+            &PageId::Appearance,
+            |_| panic!("global settings have no chat dependency"),
+            |_| false,
+        ));
+        assert!(!settings_target_available(
+            Some("codex:closed"),
+            &PageId::Appearance,
+            |_| false,
+            |_| true,
+        ));
+    }
+
+    #[::core::prelude::v1::test]
+    fn global_extension_history_still_checks_installed_extension() {
+        for installed in [false, true] {
+            assert_eq!(
+                settings_target_available(
+                    None,
+                    &PageId::Extension("synthetic.renderer".into()),
+                    |_| panic!("global extension settings have no chat dependency"),
+                    |id| {
+                        assert_eq!(id, "synthetic.renderer");
+                        installed
+                    },
+                ),
+                installed,
+            );
+        }
     }
 }
