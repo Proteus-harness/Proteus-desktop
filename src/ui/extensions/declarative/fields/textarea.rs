@@ -8,10 +8,7 @@ use gpui_kit::*;
 
 use super::super::view::{DeclarativeView, WillResize};
 use crate::ui::kit::Pressable as _;
-use crate::ui::{fade::faded, motion};
-
-const PREVIEW_LINES: usize = 8;
-const PREVIEW_CHARS: usize = 2_000;
+use crate::ui::{fade::faded, format::editor_preview, motion};
 
 pub(super) fn disclosure_id(id: &str) -> String {
     format!("input-preview:{id}")
@@ -43,23 +40,7 @@ pub(super) fn resize(state: &Entity<TextareaState>, min_rows: usize, grow: bool,
 
 /// Only the visible prefix is copied, even for a very large saved value.
 pub(super) fn preview(text: &str) -> Option<String> {
-    preview_chars(text.chars())
-}
-
-fn preview_chars(chars: impl Iterator<Item = char>) -> Option<String> {
-    let mut preview = String::new();
-    let mut lines = 1;
-    for (count, ch) in chars.take(PREVIEW_CHARS + 1).enumerate() {
-        if count == PREVIEW_CHARS || (ch == '\n' && lines == PREVIEW_LINES) {
-            preview.truncate(preview.trim_end().len());
-            return Some(preview);
-        }
-        if ch == '\n' {
-            lines += 1;
-        }
-        preview.push(ch);
-    }
-    None
+    editor_preview(text.chars())
 }
 
 pub(in crate::ui::extensions::declarative) fn render(
@@ -71,7 +52,7 @@ pub(in crate::ui::extensions::declarative) fn render(
     cx: &Context<DeclarativeView>,
 ) -> AnyElement {
     let Some(preview) = grow
-        .then(|| preview_chars(state.read(cx).text().chars()))
+        .then(|| editor_preview(state.read(cx).text().chars()))
         .flatten()
     else {
         // The editor propagates wheel events when it fits, or at its edge.
@@ -144,35 +125,12 @@ pub(in crate::ui::extensions::declarative) fn render(
 
 #[cfg(test)]
 mod tests {
-    use super::{PREVIEW_CHARS, PREVIEW_LINES, max_rows, preview, preview_chars};
+    use super::max_rows;
 
     #[test]
-    fn settings_growth_and_preview_do_not_change_fixed_panel_height() {
+    fn settings_growth_does_not_change_fixed_panel_height() {
         let value = "я".repeat(100_000);
         assert_eq!(max_rows(&value, 3, false), 3);
         assert_eq!(max_rows("a\nb", 3, true), 4);
-        assert_eq!(preview("short"), None);
-        assert_eq!(preview(&value).unwrap().chars().count(), PREVIEW_CHARS);
-        assert_eq!(preview(&["a"; 9].join("\n")), Some(["a"; 8].join("\n")));
-    }
-
-    #[test]
-    fn render_preview_never_materializes_or_visits_the_rope_tail() {
-        let mut read = 0;
-        let chars = std::iter::from_fn(|| {
-            read += 1;
-            assert!(read <= PREVIEW_CHARS + 1, "read the hidden tail");
-            Some('я')
-        });
-        assert_eq!(preview_chars(chars).unwrap().chars().count(), PREVIEW_CHARS);
-        assert_eq!(read, PREVIEW_CHARS + 1);
-        let mut read = 0;
-        let chars = std::iter::from_fn(|| {
-            read += 1;
-            assert!(read <= PREVIEW_LINES * 2, "read beyond the line preview");
-            Some(if read % 2 == 0 { '\n' } else { 'x' })
-        });
-        assert_eq!(preview_chars(chars), Some(["x"; PREVIEW_LINES].join("\n")));
-        assert_eq!(read, PREVIEW_LINES * 2);
     }
 }

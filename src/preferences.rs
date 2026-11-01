@@ -582,15 +582,15 @@ fn decode_saved(text: &str) -> serde_json::Result<Preferences> {
     };
     let mut value: serde_json::Value = serde_json::from_str(text)?;
     let mode = value.get("hints").and_then(serde_json::Value::as_str);
-    let (description, shortcut) = match mode {
-        Some("full") => (true, true),
-        Some("description") => (true, false),
-        Some("keys") => (false, true),
-        Some("off") => (false, false),
+    let (title, description, shortcut) = match mode {
+        Some("full") => (TitleHint::Clipped, true, true),
+        Some("description") => (TitleHint::Clipped, true, false),
+        Some("keys") => (TitleHint::Never, false, true),
+        Some("off") => (TitleHint::Never, false, false),
         _ => return Err(original),
     };
     value["hints"] = serde_json::to_value(Hints {
-        title: TitleHint::default(),
+        title,
         description,
         shortcut,
     })?;
@@ -699,11 +699,11 @@ mod tests {
     #[test]
     fn saved_tooltip_modes_migrate_without_losing_other_preferences() {
         let path = std::path::Path::new("fixture.json");
-        for (mode, description, shortcut) in [
-            ("full", true, true),
-            ("description", true, false),
-            ("keys", false, true),
-            ("off", false, false),
+        for (mode, title, description, shortcut) in [
+            ("full", super::TitleHint::Clipped, true, true),
+            ("description", super::TitleHint::Clipped, true, false),
+            ("keys", super::TitleHint::Never, false, true),
+            ("off", super::TitleHint::Never, false, false),
         ] {
             let source = serde_json::json!({
                 "hints": mode,
@@ -714,6 +714,7 @@ mod tests {
             });
             let prefs = super::parse(&source.to_string(), path).unwrap();
             let mut expected = Preferences::default();
+            expected.hints.title = title;
             expected.hints.description = description;
             expected.hints.shortcut = shortcut;
             expected.theme = super::ThemePreference::Light;

@@ -83,6 +83,12 @@ Core и Desktop для этого пересобирать не нужно. В �
 
 Эти изменения сборки адаптированы из `Qweasd123tg/proteus-modules-dot`,
 ревизия `ea7409b30edec9a84a842a36d6ec56d0fbdd3059`, каталог `build-speed`.
+Из ревизии `f272d8ead883906e85549a56136f071885c987b7` перенесены
+[PR #75](https://github.com/Qweasd123tg/proteus-modules-dot/pull/75) и
+[PR #76](https://github.com/Qweasd123tg/proteus-modules-dot/pull/76): сохранение
+выключенных названий при миграции старых подсказок и общее ограниченное превью
+длинных полей настроек и расширений. Текущий формат предпочтений и лимиты
+превью не меняются; новых зависимостей или кэшей нет.
 В `share/modules/claude-command-hooks` и `share/modules/hook-process` поставляются
 адаптер командных hooks и общий JavaScript SDK. Адаптер подключается явно;
 упаковка не включает выполнение сторонних hooks. `bin/proteus-hook-worker`

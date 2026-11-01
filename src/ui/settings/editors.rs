@@ -18,10 +18,7 @@ use crate::settings::catalog::{
     editable_field, editable_fields, module_info,
 };
 use crate::settings::{FieldKind, FieldPath, TextFormat, field_kind, format_value, parse_text};
-use crate::ui::{kit, motion};
-
-const PREVIEW_LINES: usize = 8;
-const PREVIEW_CHARS: usize = 2_000;
+use crate::ui::{format::editor_preview, kit, motion};
 
 /// Auto-grow still measures actual wrapped display rows. This is only an
 /// upper bound, derived once from the edited value rather than usize::MAX.
@@ -31,27 +28,6 @@ pub(super) fn editor_max_rows(text: &str) -> usize {
 
 fn editor_key(input: &Entity<TextareaState>) -> String {
     format!("text-editor:{:?}", input.entity_id())
-}
-
-/// A bounded preview: never clone the hidden remainder or count its lines.
-fn editor_preview(text: &str) -> Option<String> {
-    editor_preview_chars(text.chars())
-}
-
-fn editor_preview_chars(chars: impl Iterator<Item = char>) -> Option<String> {
-    let mut preview = String::new();
-    let mut lines = 1;
-    for (count, ch) in chars.take(PREVIEW_CHARS + 1).enumerate() {
-        if count == PREVIEW_CHARS || (ch == '\n' && lines == PREVIEW_LINES) {
-            preview.truncate(preview.trim_end().len());
-            return Some(preview);
-        }
-        if ch == '\n' {
-            lines += 1;
-        }
-        preview.push(ch);
-    }
-    None
 }
 
 #[derive(Clone)]
@@ -132,7 +108,7 @@ impl SettingsView {
         input: &Entity<TextareaState>,
         cx: &Context<Self>,
     ) -> AnyElement {
-        let Some(preview) = editor_preview_chars(input.read(cx).text().chars()) else {
+        let Some(preview) = editor_preview(input.read(cx).text().chars()) else {
             return Self::text_keys(kit::textarea(input, cx).small().w_full());
         };
         let key = editor_key(input);
@@ -188,7 +164,7 @@ impl SettingsView {
         input.update(cx, |state, cx| {
             state.set_auto_grow(2, editor_max_rows(text), cx)
         });
-        if editor_preview(text).is_some() {
+        if editor_preview(text.chars()).is_some() {
             self.open.insert(editor_key(input));
         }
     }
@@ -477,48 +453,11 @@ struct TextLeaf {
 }
 
 #[cfg(test)]
-mod preview_tests {
-    use super::{
-        PREVIEW_CHARS, PREVIEW_LINES, editor_max_rows, editor_preview, editor_preview_chars,
-    };
+mod tests {
+    use super::editor_max_rows;
 
     #[test]
-    fn short_values_stay_editable_and_long_previews_are_utf8_bounded() {
-        assert_eq!(editor_preview("one\ntwo"), None);
-        assert_eq!(editor_preview(&["line"; PREVIEW_LINES].join("\n")), None);
-        assert_eq!(
-            editor_preview(&["line"; PREVIEW_LINES + 1].join("\n")),
-            Some(["line"; PREVIEW_LINES].join("\n"))
-        );
-        let text = "я".repeat(PREVIEW_CHARS + 100_000);
-        let preview = editor_preview(&text).unwrap();
-        assert_eq!(preview.chars().count(), PREVIEW_CHARS);
+    fn editor_growth_counts_unicode_characters() {
         assert_eq!(editor_max_rows("я\n"), 3);
-    }
-
-    #[test]
-    fn render_preview_stops_before_reading_the_hidden_tail() {
-        let mut read = 0;
-        let chars = std::iter::from_fn(|| {
-            read += 1;
-            assert!(read <= PREVIEW_CHARS + 1, "read the hidden tail");
-            Some('я')
-        });
-        assert_eq!(
-            editor_preview_chars(chars).unwrap().chars().count(),
-            PREVIEW_CHARS
-        );
-        assert_eq!(read, PREVIEW_CHARS + 1);
-        let mut read = 0;
-        let chars = std::iter::from_fn(|| {
-            read += 1;
-            assert!(read <= PREVIEW_LINES * 2, "read beyond the line preview");
-            Some(if read % 2 == 0 { '\n' } else { 'x' })
-        });
-        assert_eq!(
-            editor_preview_chars(chars),
-            Some(["x"; PREVIEW_LINES].join("\n"))
-        );
-        assert_eq!(read, PREVIEW_LINES * 2);
     }
 }

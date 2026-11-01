@@ -86,6 +86,27 @@ pub fn clip_block(text: &str, max_lines: usize, max_chars: usize) -> String {
     out
 }
 
+const PREVIEW_LINES: usize = 8;
+const PREVIEW_CHARS: usize = 2_000;
+
+/// Shared settings and extension editor preview. None keeps short text editable;
+/// long text copies only its visible prefix and never visits the hidden tail.
+pub fn editor_preview(chars: impl Iterator<Item = char>) -> Option<String> {
+    let mut preview = String::new();
+    let mut lines = 1;
+    for (count, ch) in chars.take(PREVIEW_CHARS + 1).enumerate() {
+        if count == PREVIEW_CHARS || (ch == '\n' && lines == PREVIEW_LINES) {
+            preview.truncate(preview.trim_end().len());
+            return Some(preview);
+        }
+        if ch == '\n' {
+            lines += 1;
+        }
+        preview.push(ch);
+    }
+    None
+}
+
 const MONTHS: [&str; 12] = [
     "янв.",
     "февр.",
@@ -142,5 +163,44 @@ mod tests {
         assert_eq!(clip_block("a\nb\n", 5, 100), "a\nb");
         assert_eq!(clip_block("abcdef", 5, 3), "abc");
         assert_eq!(clip_block("abcdef\nz", 5, 3), "abc\nЕщё строк: 1");
+    }
+
+    #[test]
+    fn short_values_stay_editable_and_long_previews_are_utf8_bounded() {
+        assert_eq!(editor_preview("one\ntwo".chars()), None);
+        assert_eq!(
+            editor_preview(["line"; PREVIEW_LINES].join("\n").chars()),
+            None
+        );
+        assert_eq!(
+            editor_preview(["line"; PREVIEW_LINES + 1].join("\n").chars()),
+            Some(["line"; PREVIEW_LINES].join("\n"))
+        );
+        let text = "я".repeat(PREVIEW_CHARS + 100_000);
+        let preview = editor_preview(text.chars()).unwrap();
+        assert_eq!(preview.chars().count(), PREVIEW_CHARS);
+    }
+
+    #[test]
+    fn render_preview_stops_before_reading_the_hidden_tail() {
+        let mut read = 0;
+        let chars = std::iter::from_fn(|| {
+            read += 1;
+            assert!(read <= PREVIEW_CHARS + 1, "read the hidden tail");
+            Some('я')
+        });
+        assert_eq!(
+            editor_preview(chars).unwrap().chars().count(),
+            PREVIEW_CHARS
+        );
+        assert_eq!(read, PREVIEW_CHARS + 1);
+        let mut read = 0;
+        let chars = std::iter::from_fn(|| {
+            read += 1;
+            assert!(read <= PREVIEW_LINES * 2, "read beyond the line preview");
+            Some(if read % 2 == 0 { '\n' } else { 'x' })
+        });
+        assert_eq!(editor_preview(chars), Some(["x"; PREVIEW_LINES].join("\n")));
+        assert_eq!(read, PREVIEW_LINES * 2);
     }
 }
