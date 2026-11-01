@@ -1,9 +1,11 @@
-"""Pass desktop proxy settings to the client and its child processes at launch."""
+"""Prepare proxy settings and Codex discovery for a desktop-menu launch."""
 import ast
 import os
 import subprocess
 import sys
 from urllib.parse import quote
+
+from codex_executable import configure_codex
 
 
 SCHEMA = "org.gnome.system.proxy"
@@ -39,6 +41,7 @@ def endpoint(kind):
 
 def environment(inherited):
     result = dict(inherited)
+    configure_codex(result)
     explicit = any(result.get(key) or result.get(key.upper()) for key in PROXIES)
     ignored = []
     if not explicit and setting(SCHEMA, "mode") == "manual":

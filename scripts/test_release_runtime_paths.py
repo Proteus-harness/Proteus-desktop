@@ -126,6 +126,20 @@ class RunTests(unittest.TestCase):
         self.runtime.require_extensions.assert_called_once()
         self.assertEqual(self.call.call_args.args[0][-2:], ["--agent", "codex"])
 
+    def test_codex_runner_discovers_local_cli_outside_path(self):
+        with tempfile.TemporaryDirectory(prefix="codex runner ") as temporary:
+            cli = binary(Path(temporary) / ".npm-global/bin/codex")
+            os.environ["HOME"] = temporary
+            self.runner.main(["--agent", "codex"])
+        environment = self.call.call_args.kwargs["env"]
+        self.assertEqual(environment["PROTEUS_CODEX_EXECUTABLE"], str(cli))
+        self.assertEqual(environment["PATH"], "/synthetic/desktop/build/Proteus/bin:/synthetic/bin")
+
+    def test_codex_runner_preserves_explicit_executable(self):
+        os.environ["PROTEUS_CODEX_EXECUTABLE"] = "/missing/custom codex"
+        self.runner.main(["--agent", "codex"])
+        self.assertEqual(self.call.call_args.kwargs["env"]["PROTEUS_CODEX_EXECUTABLE"], "/missing/custom codex")
+
     def test_overrides_and_explicit_extension_build(self):
         os.environ.update(PROTEUS_BIN="/custom/proteus", PROTEUS_EXTENSIONS_DIR="/custom/extensions")
         self.runner.main(["--base", "/ready"])

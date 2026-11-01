@@ -229,6 +229,15 @@ Codex подключается напрямую через `codex app-server`, �
 обычные настройки и авторизация. Desktop не устанавливает Codex и не переносит
 в него ключи Proteus.
 
+Ярлык и `scripts/run.py` сначала используют `PROTEUS_CODEX_EXECUTABLE`, затем
+`codex` из `PATH`.
+Если его нет в окружении рабочего стола, проверяются настроенный npm prefix,
+`~/.local/bin`, `~/.npm-global/bin`, `~/.cargo/bin` и встроенный Codex приложения
+ChatGPT в `/usr/lib/chatgpt/resources/codex` на Linux. `PATH` не изменяется;
+явно заданный путь остаётся приоритетным, даже если он недоступен.
+При прямом запуске `target/release/proteus-native` этот поиск не выполняется:
+нужен `codex` в `PATH` или явный `PROTEUS_CODEX_EXECUTABLE`.
+
 ```bash
 ./build/Proteus/proteus-native /path/to/project --agent codex
 # При необходимости — другой установленный binary или локальный wrapper:

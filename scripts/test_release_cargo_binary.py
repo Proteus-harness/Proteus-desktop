@@ -297,6 +297,9 @@ class PortableSelectionTests(unittest.TestCase):
         return json.loads((self.portable.PORTABLE / "share/release-sources.json").read_text())
 
     def test_default_builds_only_desktop_and_preserves_whole_reused_components(self):
+        helper = self.native / "scripts/codex_executable.py"
+        helper.parent.mkdir(parents=True)
+        helper.write_text("# synthetic shared launcher helper\n")
         self.invoke()
         self.assertEqual(self.built, [("proteus-native", ["--release"])])
         self.assertEqual(self.resolved, [])
@@ -311,6 +314,7 @@ class PortableSelectionTests(unittest.TestCase):
         self.assertEqual(record["build_components"], ["desktop"])
         self.assertEqual(record["build_mode"], "partial")
         self.assertIn("proteus", record["binary_sha256"])
+        self.assertEqual((self.portable.PORTABLE / "share/codex_executable.py").read_bytes(), helper.read_bytes())
 
     def test_extension_only_never_builds_desktop_or_resolves_core_and_replaces_assets(self):
         self.invoke("--components", "extensions")

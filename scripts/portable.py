@@ -51,6 +51,7 @@ def install_desktop(stage, flags):
     for name in ("proteus-native", "install-shortcut"):
         install_file(ASSETS / name, stage / name, True)
     install_file(ASSETS / "system_proxy.py", stage / "share/system_proxy.py")
+    install_file(NATIVE / "scripts/codex_executable.py", stage / "share/codex_executable.py")
 
 
 def install_core(stage, core, flags):

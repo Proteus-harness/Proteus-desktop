@@ -8,6 +8,7 @@ import sys
 
 from sources import ROOT, resolve
 from runtime_paths import executable, require_extensions, require_modules
+from codex_executable import configure_codex
 
 
 def options(args):
@@ -31,6 +32,7 @@ def main(args):
     env = os.environ.copy()
     base = config.base.expanduser().resolve()
     env["PATH"] = str(base / "bin") + os.pathsep + env.get("PATH", "")
+    configure_codex(env)
     hint = "Provide an existing portable with --base PATH or set PROTEUS_BIN to a ready backend."
     # An attached client does not launch a local backend or its modules.
     codex_only = any(application[index:index + 2] == ["--agent", "codex"] for index in range(len(application)))

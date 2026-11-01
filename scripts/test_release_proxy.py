@@ -74,15 +74,29 @@ class PortableProxyTests(unittest.TestCase):
             for relative in ("proteus-native", "system_proxy.py"):
                 target = portable / ("share" if relative.endswith(".py") else "") / relative
                 shutil.copy2(ASSETS / relative, target)
+            shutil.copy2(ASSETS.parent / "codex_executable.py", portable / "share/codex_executable.py")
             binary = portable / "bin/proteus-native"
             binary.write_text(f"#!{sys.executable}\nimport json,os,sys\n"
                               "print(json.dumps({'args':sys.argv[1:],'proxy':os.environ.get('HTTPS_PROXY'),"
-                              "'bypass':os.environ['NO_PROXY'],'server':os.environ['PROTEUS_BIN']}))\n")
+                              "'bypass':os.environ['NO_PROXY'],'server':os.environ['PROTEUS_BIN'],"
+                              "'codex':os.environ.get('PROTEUS_CODEX_EXECUTABLE')}))\n")
             binary.chmod(0o755)
+            codex = root / "synthetic home/.npm-global/bin/codex"
+            codex.parent.mkdir(parents=True)
+            codex.write_text("#!/bin/sh\nexit 0\n")
+            codex.chmod(0o755)
             (config / "environment").write_text("export HTTPS_PROXY='http://configured.invalid:8080'\n")
             env = {key: value for key, value in os.environ.items()
                    if key.lower() not in (*proxy.PROXIES, "no_proxy")}
             env["PROTEUS_CONFIG_HOME"] = str(config)
+            env["HOME"] = str(root / "synthetic home")
+            tools = root / "launcher tools"
+            tools.mkdir()
+            for name in ("dirname", "readlink", "mkdir", "basename", "cp", "python3"):
+                (tools / name).symlink_to(shutil.which(name))
+            env["PATH"] = str(tools)
+            for key in ("PROTEUS_CODEX_EXECUTABLE", "npm_config_prefix", "NPM_CONFIG_PREFIX"):
+                env.pop(key, None)
             args = ["--choose-workspace", "папка с пробелами", "literal;$(value)"]
             result = subprocess.run([portable / "proteus-native", *args], cwd=root,
                                     env=env, capture_output=True, text=True, check=True, timeout=10)
@@ -91,6 +105,7 @@ class PortableProxyTests(unittest.TestCase):
             self.assertEqual(output["proxy"], "http://configured.invalid:8080")
             self.assertIn("127.0.0.1", output["bypass"])
             self.assertEqual(output["server"], str(portable / "bin/proteus"))
+            self.assertEqual(output["codex"], str(codex))
             # The same launcher must use current desktop settings on every launch.
             (config / "environment").unlink()
             settings = root / "settings.json"
@@ -111,6 +126,11 @@ class PortableProxyTests(unittest.TestCase):
                 expected = f"http://127.0.0.1:{port}" if mode == "manual" else None
                 self.assertEqual(output["proxy"], expected)
                 self.assertEqual(output["args"], args)
+                self.assertEqual(output["codex"], str(codex))
+            (config / "environment").write_text("export PROTEUS_CODEX_EXECUTABLE='/missing/explicit codex'\n")
+            result = subprocess.run([portable / "proteus-native"], cwd=root, env=env,
+                                    capture_output=True, text=True, check=True, timeout=10)
+            self.assertEqual(json.loads(result.stdout)["codex"], "/missing/explicit codex")
 
 
 if __name__ == "__main__":
