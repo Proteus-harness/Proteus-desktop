@@ -253,7 +253,12 @@ impl Workspace {
                     self.tab_motion.opened(tab, Instant::now()),
                 )
                 .into_any_element(),
-                None => div().into_any_element(),
+                None => div()
+                    .p_4()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child("Это расширение требует чат Proteus Core. Откройте такой чат, чтобы использовать эту вкладку.")
+                    .into_any_element(),
             },
             None => self.render_empty_pane(id, cx).into_any_element(),
         };

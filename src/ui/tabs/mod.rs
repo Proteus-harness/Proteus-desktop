@@ -64,13 +64,13 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<SurfaceView> {
-        if !self.core_context() {
+        let (manifest, argument) = extensions::document(id, cx)?;
+        if manifest.requires_core && !self.core_context() {
             return None;
         }
         if let Some(view) = self.documents.get(id) {
             return Some(view.clone());
         }
-        let (manifest, argument) = extensions::document(id, cx)?;
         let surface = manifest.document.as_ref()?;
         let view = (surface.build)(
             Host::new(cx.weak_entity(), manifest.id),

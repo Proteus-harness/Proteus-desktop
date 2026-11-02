@@ -19,6 +19,7 @@ import tempfile
 from sources import resolve
 from limits import limit
 from cargo_binary import build_binary
+from desktop_toolchain import prepare_desktop
 from portable_modules import assemble as assemble_modules
 from portable_state import (COMPONENTS, SOURCE_NAMES, binary_hashes, clear_modules,
                             desktop_protocol, publish, read_record, verify_extension_source, verify_protocol)
@@ -43,7 +44,9 @@ def install_file(source, target, executable=False):
 
 
 def install_desktop(stage, flags):
-    client = build_binary(NATIVE, "proteus-native", "proteus-native", flags, NATIVE / "Cargo.toml")
+    environment = prepare_desktop(NATIVE, flags)
+    client = build_binary(NATIVE, "proteus-native", "proteus-native", flags,
+                          NATIVE / "Cargo.toml", environ=environment)
     install_file(client, stage / "bin/proteus-native", True)
     shutil.rmtree(stage / "share/icons", ignore_errors=True)
     install_file(NATIVE / "assets/icon.png", stage / "share/icons/proteus-native.png")

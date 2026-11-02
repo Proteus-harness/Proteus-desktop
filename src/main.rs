@@ -104,6 +104,9 @@ fn main() {
             .expect("open window");
             cx.activate(true);
         });
+    // Closing a tab only requests actor shutdown. Drain owned PTYs before the
+    // process exits, so background jobs also finish after the last window closes.
+    terminal::shutdown_all();
 }
 
 /// Shared decoration, sizing and frame policy for every application window.

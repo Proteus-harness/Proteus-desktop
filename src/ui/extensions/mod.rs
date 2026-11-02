@@ -93,6 +93,8 @@ pub(super) struct Manifest {
     pub preview: Option<BuildFocused>,
     /// A fixed composer contribution, distinct from a movable widget.
     pub activity: bool,
+    /// Local surfaces can run without a Core conversation or server.
+    pub requires_core: bool,
     pub tool_dependencies: &'static [String],
     /// Packaged instructions for people to connect separately to their agent.
     pub agent_instructions: &'static [crate::declarative::manifest::AgentInstruction],

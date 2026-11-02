@@ -169,6 +169,25 @@ impl Chat {
     }
 
     fn apply_codex(&mut self, event: Event, cx: &mut Context<Self>) {
+        if let Event::Resynced {
+            current_turn,
+            history,
+        } = event
+        {
+            // Resubscription repairs the existing chat. Keep its draft, frozen
+            // reader window and scroll anchor; only reconcile the bounded tail.
+            for item in history {
+                self.apply_codex(Event::ItemUpsert(item), cx);
+            }
+            let binding = self.codex.as_ref().expect("Codex binding");
+            let state = self.session.external.as_mut().expect("Codex state");
+            *state = RunState::resumed(current_turn);
+            state.waiting = !binding.pending.is_empty();
+            self.session.connected = binding.handle.is_connected();
+            self.session.link_error = None;
+            cx.emit(ChatEvent::SessionStateChanged);
+            return;
+        }
         self.pause_codex_before_eviction(&event, cx);
         let Some(binding) = &mut self.codex else {
             return;
@@ -177,6 +196,20 @@ impl Chat {
         let mut settled = false;
         let mut rejected = None;
         let change = match event {
+            Event::SubscriptionSuspended => {
+                self.session.connected = false;
+                Change::None
+            }
+            Event::ResyncStarted => {
+                self.session.connected = false;
+                binding.pending.clear();
+                binding.answers.clear();
+                binding.selected.clear();
+                binding.responding.clear();
+                state.waiting = false;
+                Change::None
+            }
+            Event::Resynced { .. } => unreachable!(),
             Event::ItemUpsert(item) => {
                 if let ItemKind::User { text } = &item.kind {
                     if let Some(send) = &mut binding.sending {

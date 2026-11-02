@@ -1,8 +1,8 @@
-use super::{Event, projection};
+use super::{Event, Item, projection};
 use proteus_codex_client::Event as RawEvent;
 use serde_json::Value;
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     sync::{
         Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
@@ -60,7 +60,9 @@ pub(super) struct Route {
     pub current_turn: Arc<Mutex<Option<String>>>,
     reason: Arc<Mutex<Option<String>>>,
     generation: usize,
+    suspended: bool,
     saw_turn_event: bool,
+    resync_items: Option<HashSet<String>>,
 }
 struct Early {
     thread_id: String,
@@ -71,6 +73,7 @@ struct Early {
 pub(super) struct Router {
     routes: HashMap<String, Route>,
     early: VecDeque<Early>,
+    deleted_starting: HashSet<String>,
     early_bytes: usize,
     pub starting: usize,
     generation: usize,
@@ -86,6 +89,11 @@ impl Router {
         use proteus_codex_client::Error;
         if let Some(reason) = &self.disconnected {
             return Err(Error::Disconnected(reason.clone()));
+        }
+        if self.deleted_starting.contains(id) {
+            return Err(Error::Disconnected(
+                "Codex thread was deleted while opening".into(),
+            ));
         }
         if self.routes.contains_key(id) {
             return Err(Error::Protocol("Codex thread is already open".into()));
@@ -105,7 +113,9 @@ impl Router {
                 current_turn: current_turn.clone(),
                 reason: reason.clone(),
                 generation,
+                suspended: false,
                 saw_turn_event: false,
+                resync_items: None,
             },
         );
         let mut retained = VecDeque::new();
@@ -130,6 +140,82 @@ impl Router {
     pub fn contains(&self, id: &str) -> bool {
         self.routes.contains_key(id)
     }
+    pub fn contains_generation(&self, id: &str, generation: usize) -> bool {
+        self.routes
+            .get(id)
+            .is_some_and(|route| route.generation == generation && !route.sender.is_closed())
+    }
+    pub fn connected_generation(&self, id: &str, generation: usize) -> bool {
+        self.contains_generation(id, generation)
+            && self.routes.get(id).is_some_and(|route| !route.suspended)
+    }
+    pub fn suspend(&mut self, id: &str) {
+        let Some(route) = self.routes.get_mut(id) else {
+            return;
+        };
+        route.suspended = true;
+        self.deliver(id, Event::SubscriptionSuspended);
+    }
+    pub fn begin_resync(&mut self, id: &str) -> Option<usize> {
+        let route = self.routes.get_mut(id)?;
+        let generation = route.generation;
+        route.suspended = true;
+        route.saw_turn_event = false;
+        route.resync_items = Some(HashSet::new());
+        self.deliver(id, Event::ResyncStarted);
+        self.contains_generation(id, generation)
+            .then_some(generation)
+    }
+    pub fn finish_resync(
+        &mut self,
+        id: &str,
+        generation: usize,
+        turn: Option<String>,
+        mut history: Vec<Item>,
+    ) -> bool {
+        let Some(route) = self
+            .routes
+            .get_mut(id)
+            .filter(|route| route.generation == generation)
+        else {
+            return false;
+        };
+        if !route.saw_turn_event {
+            *route.current_turn.lock().unwrap() = turn;
+        }
+        if let Some(changed) = route.resync_items.take() {
+            history.retain(|item| !changed.contains(&item.id));
+        }
+        let current_turn = route.current_turn.lock().unwrap().clone();
+        route.suspended = false;
+        self.deliver(
+            id,
+            Event::Resynced {
+                current_turn,
+                history,
+            },
+        );
+        self.contains_generation(id, generation)
+    }
+    pub fn deleted(&mut self, id: &str) {
+        self.disconnect_thread(id, "Чат удалён".into());
+        if self.starting > 0 {
+            if self.deleted_starting.len() >= ROUTE_CAPACITY && !self.deleted_starting.contains(id)
+            {
+                self.disconnect("Codex startup deletion buffer exceeded its limit".into());
+                return;
+            }
+            self.deleted_starting.insert(id.into());
+        }
+        self.early.retain(|early| {
+            if early.thread_id == id {
+                self.early_bytes -= early.bytes;
+                false
+            } else {
+                true
+            }
+        });
+    }
     pub fn unregister(&mut self, id: &str, generation: usize) {
         if self
             .routes
@@ -150,6 +236,7 @@ impl Router {
         self.starting = self.starting.saturating_sub(1);
         if self.starting == 0 {
             self.early_bytes = 0;
+            self.deleted_starting.clear();
             return self
                 .early
                 .drain(..)
@@ -221,6 +308,28 @@ impl Router {
         let Some(route) = self.routes.get_mut(id) else {
             return;
         };
+        if let Some(changed) = route.resync_items.as_mut() {
+            let item_id = match &event {
+                Event::ItemUpsert(item) => Some(&item.id),
+                Event::TextDelta { id, .. }
+                | Event::ReasoningDelta { id, .. }
+                | Event::ToolOutputDelta { id, .. } => Some(id),
+                _ => None,
+            };
+            if let Some(item_id) = item_id {
+                // Recovery performs bounded RPCs. Bound even a continuously
+                // consumed stream of unique ids while those RPCs are pending.
+                if changed.len() >= ROUTE_CAPACITY && !changed.contains(item_id) {
+                    self.disconnect_thread(
+                        id,
+                        "Codex changed too many items while resynchronizing; reopen this chat"
+                            .into(),
+                    );
+                    return;
+                }
+                changed.insert(item_id.clone());
+            }
+        }
         if matches!(
             &event,
             Event::TurnStarted { .. } | Event::TurnCompleted { .. }
@@ -271,6 +380,7 @@ impl Router {
         }
         self.routes.clear();
         self.early.clear();
+        self.deleted_starting.clear();
         self.early_bytes = 0;
     }
 }
@@ -284,16 +394,8 @@ fn thread_id(params: &Value) -> Option<&str> {
 }
 fn event_bytes(event: &Event) -> usize {
     match event {
-        Event::ItemUpsert(item) => match &item.kind {
-            super::ItemKind::User { text }
-            | super::ItemKind::Assistant { text }
-            | super::ItemKind::Reasoning { text }
-            | super::ItemKind::Plan { text }
-            | super::ItemKind::Other { text, .. } => text.len() + 512,
-            super::ItemKind::Tool { input, output, .. } => {
-                input.to_string().len() + output.len() + 1024
-            }
-        },
+        Event::Resynced { history, .. } => history.iter().map(item_bytes).sum::<usize>() + 1024,
+        Event::ItemUpsert(item) => item_bytes(item),
         Event::TextDelta { delta, .. }
         | Event::ReasoningDelta { delta, .. }
         | Event::ToolOutputDelta { delta, .. } => delta.len() + 512,
@@ -303,11 +405,122 @@ fn event_bytes(event: &Event) -> usize {
         _ => 1024,
     }
 }
+fn item_bytes(item: &Item) -> usize {
+    match &item.kind {
+        super::ItemKind::User { text }
+        | super::ItemKind::Assistant { text }
+        | super::ItemKind::Reasoning { text }
+        | super::ItemKind::Plan { text }
+        | super::ItemKind::Other { text, .. } => text.len() + 512,
+        super::ItemKind::Tool { input, output, .. } => {
+            input.to_string().len() + output.len() + 1024
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn authoritative_deletion_before_start_response_cannot_reopen_a_stale_thread() {
+        let mut router = Router::default();
+        router.starting = 1;
+        router.raw(RawEvent::Notification {
+            method: "turn/started".into(),
+            params: json!({"threadId":"a","turn":{"id":"early"}}),
+        });
+        router.deleted("a");
+        assert!(router.register("a").is_err());
+        assert!(router.early.is_empty());
+        assert_eq!(router.early_bytes, 0);
+        router.finish_start();
+        assert!(
+            router.deleted_starting.is_empty(),
+            "temporary tombstones must not grow over process lifetime"
+        );
+    }
+    #[test]
+    fn recovery_orders_new_interactions_and_keeps_live_updates_authoritative() {
+        let mut router = Router::default();
+        let (events, current, generation) = router.register("a").unwrap();
+        router.seed_turn("a", Some("old".into()));
+        assert_eq!(router.begin_resync("a"), Some(generation));
+        router.deliver(
+            "a",
+            Event::PendingRequest {
+                id: json!("new-request"),
+                method: "item/tool/requestUserInput".into(),
+                params: json!({}),
+            },
+        );
+        router.deliver(
+            "a",
+            Event::TextDelta {
+                id: "changed".into(),
+                turn_id: "old".into(),
+                delta: " live".into(),
+            },
+        );
+        router.deliver(
+            "a",
+            Event::TurnCompleted {
+                id: "old".into(),
+                status: "completed".into(),
+                error: None,
+            },
+        );
+        let item = |id: &str| Item {
+            id: id.into(),
+            turn_id: "old".into(),
+            kind: super::super::ItemKind::Assistant {
+                text: "snapshot".into(),
+            },
+            status: "completed".into(),
+            timestamp_ms: None,
+        };
+        assert!(router.finish_resync(
+            "a",
+            generation,
+            Some("old".into()),
+            vec![item("changed"), item("historical")]
+        ));
+        assert_eq!(current.lock().unwrap().as_deref(), None);
+        assert_eq!(events.try_recv().unwrap(), Event::ResyncStarted);
+        assert!(
+            matches!(events.try_recv().unwrap(), Event::PendingRequest { id, .. } if id == json!("new-request"))
+        );
+        assert!(matches!(
+            events.try_recv().unwrap(),
+            Event::TextDelta { .. }
+        ));
+        assert!(matches!(
+            events.try_recv().unwrap(),
+            Event::TurnCompleted { .. }
+        ));
+        let Event::Resynced {
+            current_turn,
+            history,
+        } = events.try_recv().unwrap()
+        else {
+            panic!("missing snapshot");
+        };
+        assert!(current_turn.is_none());
+        assert_eq!(history, vec![item("historical")]);
+    }
+    #[test]
+    fn recovery_cannot_mutate_or_connect_a_new_generation() {
+        let mut router = Router::default();
+        let (_old, _, old_generation) = router.register("a").unwrap();
+        router.begin_resync("a").unwrap();
+        router.unregister("a", old_generation);
+        let (new, current, new_generation) = router.register("a").unwrap();
+        assert!(!router.contains_generation("a", old_generation));
+        assert!(router.contains_generation("a", new_generation));
+        assert!(!router.finish_resync("a", old_generation, Some("stale".into()), vec![]));
+        assert!(current.lock().unwrap().is_none());
+        assert!(new.try_recv().is_err());
+    }
     #[test]
     fn early_events_arrive_after_registration_and_stale_completion_keeps_new_turn() {
         let mut router = Router::default();

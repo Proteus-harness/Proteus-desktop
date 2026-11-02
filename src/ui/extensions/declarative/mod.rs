@@ -113,6 +113,7 @@ fn entry(extension: Installed) -> Entry {
             .as_ref()
             .map(|_| preview as super::BuildFocused),
         activity: surfaces.activity.is_some(),
+        requires_core: manifest.dependencies.core,
         tool_dependencies: manifest.dependencies.tools.as_slice(),
         agent_instructions: &manifest.agent_instructions,
         package_dir: &installed.dir,

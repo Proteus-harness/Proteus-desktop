@@ -7,9 +7,10 @@ from sources import ROOT, resolve
 from limits import limit
 from check_licenses import check
 from runtime_paths import require_extensions
+from desktop_toolchain import prepare_desktop
 
 
-HEADLESS_PACKAGES = {"proteus-diff", "proteus-tabs", "proteus-codex-client"}
+HEADLESS_PACKAGES = {"proteus-diff", "proteus-tabs", "proteus-codex-client", "proteus-terminal"}
 
 
 def headless_only(args):
@@ -108,6 +109,8 @@ def main(args):
         args = include_ignored(args)
     if headless:
         print("Targeted headless package check; not the client workspace gate.", file=sys.stderr)
+    else:
+        env = prepare_desktop(ROOT, args, env)
     selection = [] if explicit_selection(args) else ["--workspace"]
     return subprocess.call(["cargo", "test", "--locked", *selection, *args], cwd=ROOT, env=env)
 

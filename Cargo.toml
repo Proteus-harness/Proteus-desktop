@@ -1,10 +1,12 @@
 [workspace]
 resolver = "2"
-members = ["crates/client-common", "crates/diff", "crates/tabs", "crates/codex-client"]
+members = ["crates/client-common", "crates/diff", "crates/tabs", "crates/codex-client", "crates/terminal"]
 default-members = [".", "crates/diff", "crates/tabs"]
 exclude = ["vendor/gpui-fast-wgpu", "vendor/gpui-component", "vendor/gpui-base"]
 
 [patch.crates-io]
+ghostty-vt = { path = "vendor/ghostty-vt" }
+ghostty-vt-sys = { path = "vendor/ghostty-vt-sys" }
 gpui-fast-wgpu = { path = "vendor/gpui-fast-wgpu" }
 gpui-component = { path = "vendor/gpui-component" }
 gpui-base = { path = "vendor/gpui-base" }
@@ -17,7 +19,12 @@ publish = false
 description = "Experimental native GPUI client for the Proteus app server"
 license = "GPL-3.0-or-later"
 
+[features]
+default = ["ghostty-vt"]
+ghostty-vt = ["proteus-terminal/ghostty-vt"]
+
 [dependencies]
+proteus-terminal = { path = "crates/terminal" }
 proteus-codex-client = { path = "crates/codex-client" }
 gpui-kit = { version = "=0.8.1", features = [
     "gpui-fast",
@@ -53,7 +60,6 @@ ureq = { version = "3", default-features = false, features = ["json"] }
 url = "2"
 uuid = { version = "1", features = ["v4"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
-alacritty_terminal = "0.25"
 
 [dev-dependencies]
 naga = { version = "=30.0.1", features = ["wgsl-in"] }

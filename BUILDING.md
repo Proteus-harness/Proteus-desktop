@@ -77,6 +77,23 @@ python3 scripts/run.py --build-extensions /path/to/workspace
 Для подключения через `--origin` локальный backend и его модули не требуются.
 Аргументы после `--` передаются приложению без обработки runner.
 
+Терминальный движок Ghostty собирается как нативная библиотека. Если он выбран
+Cargo features (включая default), `portable.py`, `run.py` и полный `test.py`
+автоматически готовят закреплённый Zig 0.17.0 и его build-зависимости в
+`build/tools`. Это однократные загрузки с проверкой SHA256 Zig и content hashes
+пакетов; последующие сборки используют кэш. В portable эти инструменты не
+попадают. Свой Zig той же версии можно задать через `ZIG=/absolute/path/to/zig`;
+скрипты сохраняют этот выбор и настройки Cargo target/cache.
+
+`--plan`, `--reuse-binaries`, сборка только Core/модулей/расширений и обычные
+headless-проверки diff/tabs/codex-client/terminal не готовят Ghostty toolchain.
+Cargo `--no-default-features` также пропускает подготовку, пока Ghostty не
+включён явно. Для прямого вызова Cargo с Ghostty сначала выполните
+`python3 scripts/terminal_toolchain.py`; она напечатает абсолютный `ZIG`, который
+нужно передать Cargo. При уже подготовленных Zig dependencies достаточно своего
+`ZIG` нужной версии. Это относится и к прямой headless-проверке
+`cargo test -p proteus-terminal --features ghostty-vt`.
+
 ```sh
 python3 scripts/test.py                    # только Desktop workspace
 python3 scripts/test.py -p proteus-diff --lib

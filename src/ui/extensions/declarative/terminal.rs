@@ -15,7 +15,7 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use crate::terminal::{Base, Grid, Key, Run, Signal, Terminal, encode};
+use crate::terminal::{Base, Grid, Key, Run, Signal, Terminal};
 use crate::ui::kit;
 
 const PADDING: f32 = 8.;
@@ -32,6 +32,7 @@ pub(super) struct TerminalView {
     focus: FocusHandle,
     cwd: Option<PathBuf>,
     state: State,
+    notice: Option<String>,
     area: Rc<Cell<Option<Size<Pixels>>>>,
     scroll_rest: f32,
     _tasks: Vec<Task<()>>,
@@ -58,6 +59,7 @@ impl TerminalView {
             focus,
             cwd: Some(cwd),
             state: State::Waiting,
+            notice: None,
             area: Rc::default(),
             scroll_rest: 0.,
             _tasks: Vec::new(),
@@ -92,14 +94,17 @@ impl TerminalView {
             }),
             cx.spawn(async move |this, cx| {
                 while let Ok(signal) = signals.recv().await {
-                    let exited = signal == Signal::Exited;
+                    let finished = matches!(signal, Signal::Exited | Signal::Failed(_));
                     let alive = this.update(cx, |this, cx| {
-                        if exited {
-                            this.state = State::Exited;
-                            cx.notify();
+                        match signal {
+                            Signal::Exited => this.state = State::Exited,
+                            Signal::Failed(error) => this.state = State::Failed(error),
+                            Signal::InputRejected(error) => this.notice = Some(error),
+                            Signal::Title(_) | Signal::Bell => return,
                         }
+                        cx.notify();
                     });
-                    if exited || alive.is_err() {
+                    if finished || alive.is_err() {
                         break;
                     }
                 }
@@ -111,6 +116,7 @@ impl TerminalView {
     fn restart(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.state = State::Waiting;
         self._tasks.clear();
+        self.notice = None;
         self.focus.focus(window, cx);
         cx.notify();
     }
@@ -140,13 +146,12 @@ impl TerminalView {
             alt: modifiers.alt,
             shift: modifiers.shift,
         };
-        match encode(key, terminal.app_cursor()) {
-            Some(bytes) => {
-                terminal.write(bytes);
-                true
-            }
-            None => false,
+        let handled = terminal.key(key);
+        if handled {
+            self.notice = None;
+            cx.notify();
         }
+        handled
     }
 
     fn scroll(&mut self, event: &ScrollEvent, line: Pixels) {
@@ -285,7 +290,7 @@ impl Render for TerminalView {
                         .on_click(cx.listener(|this, _, window, cx| this.restart(window, cx))),
                 )
         };
-        match &self.state {
+        let rendered = match &self.state {
             State::Waiting => base,
             State::Failed(error) => {
                 base.child(notice(format!("Терминал не запустился: {error}"), cx))
@@ -323,6 +328,18 @@ impl Render for TerminalView {
                 });
                 base.children(rows).children(cursor)
             }
-        }
+        };
+        rendered.when_some(self.notice.clone(), |this, text| {
+            this.child(
+                div()
+                    .absolute()
+                    .bottom(px(PADDING))
+                    .left(px(PADDING))
+                    .right(px(PADDING))
+                    .bg(background)
+                    .text_color(muted)
+                    .child(text),
+            )
+        })
     }
 }

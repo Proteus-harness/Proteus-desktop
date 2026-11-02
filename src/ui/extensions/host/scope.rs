@@ -30,7 +30,7 @@ pub(in crate::ui) struct ViewOwner(u64);
 pub(in crate::ui) struct RuntimeScope {
     pub lifetime: Lifetime,
     pub owner: Option<ViewOwner>,
-    /// Content in another driver has no Proteus server capability.
+    /// Local extensions and content in another driver have no Core capability.
     pub content_only: bool,
 }
 
@@ -53,15 +53,15 @@ impl RuntimeScope {
     /// renderer chosen by nested Content, never even reads the workspace API.
     pub(in crate::ui) fn connection(
         self,
-        production: impl FnOnce() -> (Option<Server>, Option<PathBuf>),
+        production: impl FnOnce() -> Option<Server>,
+        workspace: impl FnOnce() -> Option<PathBuf>,
     ) -> (Option<Server>, Option<PathBuf>) {
         if self.lifetime.session() && !self.content_only {
-            production()
+            (production(), workspace())
         } else if self.lifetime.session() {
             // The wire already supports credential-free content processes.
             // Preserve the folder, without even asking for a production API.
-            let (_, workspace) = production();
-            (Some(empty_server()), workspace)
+            (Some(empty_server()), workspace())
         } else {
             (Some(empty_server()), Some(PathBuf::new()))
         }
@@ -80,12 +80,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn external_content_preserves_folder_but_discards_server_credentials() {
+    fn local_content_preserves_folder_without_reading_server_credentials() {
         let scope = RuntimeScope {
             content_only: true,
             ..Default::default()
         };
-        let (server, workspace) = scope.connection(|| (None, Some("/project".into())));
+        let (server, workspace) = scope.connection(
+            || panic!("local content read Core credentials"),
+            || Some("/project".into()),
+        );
         assert_eq!(server, Some(empty_server()));
         assert_eq!(workspace, Some("/project".into()));
         assert!(scope.lifetime.session());
@@ -102,8 +105,10 @@ mod tests {
             assert!(parent.owner.is_some());
             assert_eq!(parent.context(), inline_grandchild.context());
             for scope in [parent, child, inline_grandchild] {
-                let (server, workspace) =
-                    scope.connection(|| panic!("isolated content read real credentials"));
+                let (server, workspace) = scope.connection(
+                    || panic!("isolated content read real credentials"),
+                    || panic!("isolated content read real workspace"),
+                );
                 assert_eq!(
                     server.unwrap(),
                     Server {

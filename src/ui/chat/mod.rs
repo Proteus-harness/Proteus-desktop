@@ -27,6 +27,7 @@ mod session;
 mod snapshot_tests;
 mod stamp;
 mod stream_batch;
+pub(in crate::ui) use stream_batch::yield_after_batch;
 mod thread;
 mod tool_chain;
 mod tool_hint;
@@ -136,6 +137,7 @@ pub(super) struct Chat {
     /// Sizes the row heights were measured with.
     view: ViewPreferences,
     chat_font: SharedString,
+    enter_sends: bool,
     _pump: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
 }
@@ -210,8 +212,11 @@ impl Chat {
                     cx.notify();
                 }
                 let enter_sends = prefs::current(cx).send == SendMode::Enter;
-                this.composer
-                    .update(cx, |state, cx| state.set_submit_on_enter(enter_sends, cx));
+                if this.enter_sends != enter_sends {
+                    this.enter_sends = enter_sends;
+                    this.composer
+                        .update(cx, |state, cx| state.set_submit_on_enter(enter_sends, cx));
+                }
                 // Row heights are cached; sizes change with them.
                 let view = prefs::current(cx).view;
                 let chat_font = prefs::chat_font(cx);
@@ -259,6 +264,7 @@ impl Chat {
             _composer_events: composer_events,
             view: prefs::current(cx).view,
             chat_font: prefs::chat_font(cx),
+            enter_sends,
             _pump: None,
             _subscriptions: subscriptions,
         }

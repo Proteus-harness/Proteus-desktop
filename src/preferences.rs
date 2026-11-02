@@ -645,6 +645,11 @@ fn set_aside(path: &Path) -> std::io::Result<PathBuf> {
 /// Writes a sibling file first, so a crash never leaves half a file.
 pub fn save(preferences: &Preferences) -> Result<()> {
     let path = path().context("no HOME or XDG_CONFIG_HOME for preferences")?;
+    save_at(preferences, &path)
+}
+
+/// Explicit destination for the serial background writer and isolated fixtures.
+pub(crate) fn save_at(preferences: &Preferences, path: &Path) -> Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).with_context(|| format!("failed to create {}", dir.display()))?;
     }

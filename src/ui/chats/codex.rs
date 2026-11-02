@@ -197,15 +197,36 @@ impl Workspace {
     }
 
     fn forget_chat(&mut self, key: ChatKey, window: &mut Window, cx: &mut Context<Self>) {
-        let id = key.tab_id();
-        let layout = self.tab_layout(cx);
-        let was_active = layout.active(layout.focused) == Some(id.as_str());
-        self.sessions.retain(|summary| summary.key != key);
-        self.opening.remove(&id);
-        self.update_tabs(cx, |layout| layout.extract(&id));
         super::super::prefs::update(cx, |prefs| prefs.sessions.forget(&key));
+        self.forget_chats(&[key].into_iter().collect(), window, cx);
+    }
+
+    pub(in crate::ui) fn forget_chats(
+        &mut self,
+        keys: &std::collections::HashSet<ChatKey>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.session_catalog_epoch = self.session_catalog_epoch.wrapping_add(1);
+        self.deleting_sessions.retain(|key| !keys.contains(key));
+        let layout = self.tab_layout(cx);
+        let was_active = layout
+            .active(layout.focused)
+            .and_then(tabs::chat_key)
+            .is_some_and(|key| keys.contains(&key));
+        self.sessions.retain(|summary| !keys.contains(&summary.key));
+        self.opening
+            .retain(|id, _| tabs::chat_key(id).is_none_or(|key| !keys.contains(&key)));
+        if keys.iter().any(|key| self.layout.contains(&key.tab_id())) {
+            self.update_tabs(cx, |layout| {
+                for key in keys {
+                    layout.extract(&key.tab_id());
+                }
+            });
+        }
         if was_active && self.settings.is_none() {
             self.focus_active(window, cx);
         }
+        cx.notify();
     }
 }

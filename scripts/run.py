@@ -9,6 +9,7 @@ import sys
 from sources import ROOT, resolve
 from runtime_paths import executable, require_extensions, require_modules
 from codex_executable import configure_codex
+from desktop_toolchain import prepare_desktop
 
 
 def options(args):
@@ -50,6 +51,7 @@ def main(args):
         directory = Path(env.get("PROTEUS_EXTENSIONS_DIR", str(base / "share/extensions"))).expanduser().resolve()
     require_extensions(directory, hint="Use --base PATH with ready extensions, set PROTEUS_EXTENSIONS_DIR, or explicitly pass --build-extensions.", path=env["PATH"], native=ROOT)
     env["PROTEUS_EXTENSIONS_DIR"] = str(directory)
+    env = prepare_desktop(ROOT, environ=env)
     print("Building/running Desktop only; using installed Codex or ready Proteus runtime and extensions.", file=sys.stderr)
     return subprocess.call(["cargo", "run", "--locked", "-p", "proteus-native", "--", *application], cwd=ROOT, env=env)
 

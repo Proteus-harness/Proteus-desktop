@@ -179,15 +179,15 @@ impl Runtime {
             .unwrap_or_else(|| self.host.clone());
         let this = cx.weak_entity();
         cx.defer(move |cx| {
-            let (server, workspace) = host.runtime_scope().connection(|| {
-                (
+            let (server, workspace) = host.runtime_scope().connection(
+                || {
                     host.api(cx).map(|api| Server {
                         origin: api.origin().to_string(),
                         token: api.token().to_string(),
-                    }),
-                    host.workspace_path(cx),
-                )
-            });
+                    })
+                },
+                || host.workspace_path(cx),
+            );
             let _ = this.update(cx, |this, cx| this.launch(server, workspace, cx));
         });
     }

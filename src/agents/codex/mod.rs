@@ -1,5 +1,6 @@
 //! Shared native Codex app-server service. RPC methods block: run off the UI thread.
 mod projection;
+mod recovery;
 mod router;
 mod subscriptions;
 mod types;
@@ -15,7 +16,7 @@ use std::{
     time::Duration,
 };
 use subscriptions::Subscriptions;
-pub use types::{Event, Item, ItemKind, Model, Page, Summary};
+pub use types::{CatalogEvent, Event, Item, ItemKind, Model, Page, Summary};
 
 #[derive(Clone)]
 pub struct CodexService {
@@ -23,6 +24,7 @@ pub struct CodexService {
     router: Arc<Mutex<Router>>,
     subscriptions: Arc<Subscriptions>,
     models: Arc<Mutex<Option<Vec<Model>>>>,
+    catalog_events: Arc<Mutex<Option<async_channel::Receiver<CatalogEvent>>>>,
 }
 
 pub struct Opened {
@@ -84,12 +86,42 @@ impl CodexService {
             .take_events()
             .ok_or_else(|| Error::Protocol("Codex event stream already owned".into()))?;
         let router = Arc::new(Mutex::new(Router::default()));
+        let (catalog_sender, catalog_receiver) = async_channel::bounded(256);
         let routing = router.clone();
         let responder = Arc::downgrade(&client);
         std::thread::Builder::new()
             .name("codex-router".into())
             .spawn(move || {
                 while let Ok(event) = events.recv_blocking() {
+                    if let proteus_codex_client::Event::Notification { method, params } = &event {
+                        if method == "thread/deleted" {
+                            if let Some(id) = params.get("threadId").and_then(Value::as_str) {
+                                // Bound both the count and aggregate metadata size. Native
+                                // ids are UUIDs; malformed peers must not allocate GiB here.
+                                if id.len() > 16 * 1024 {
+                                    routing.lock().unwrap().disconnect(
+                                        "Codex deleted thread id exceeded its limit".into(),
+                                    );
+                                    if let Some(client) = responder.upgrade() {
+                                        client.shutdown();
+                                    }
+                                    break;
+                                }
+                                routing.lock().unwrap().deleted(id);
+                                // Never hold Router across backpressure: dropping a tab
+                                // also needs its mutex. Deletions cannot be coalesced/dropped.
+                                if catalog_sender
+                                    .send_blocking(CatalogEvent::ThreadDeleted {
+                                        id: id.to_owned(),
+                                    })
+                                    .is_err()
+                                {
+                                    break;
+                                }
+                            }
+                            continue;
+                        }
+                    }
                     let (reject, connected) = {
                         let mut router = routing.lock().unwrap();
                         let reject = router.raw(event);
@@ -115,10 +147,15 @@ impl CodexService {
             router,
             subscriptions: Arc::new(Subscriptions::default()),
             models: Arc::new(Mutex::new(None)),
+            catalog_events: Arc::new(Mutex::new(Some(catalog_receiver))),
         })
     }
     pub fn is_connected(&self) -> bool {
         self.client.is_connected() && self.router.lock().unwrap().is_connected()
+    }
+    /// A single group-wide consumer broadcasts catalog changes to all windows.
+    pub fn take_catalog_events(&self) -> Option<async_channel::Receiver<CatalogEvent>> {
+        self.catalog_events.lock().unwrap().take()
     }
     pub fn list(&self, cwd: &Path, cursor: Option<&str>) -> Result<Page<Summary>, Error> {
         let response = self.client.request(
@@ -260,6 +297,7 @@ impl CodexService {
     pub fn delete_thread(&self, id: &str) -> Result<(), Error> {
         let subscription = self.subscriptions.for_thread(id);
         let _subscription = subscription.lock().unwrap();
+        self.router.lock().unwrap().suspend(id);
         // Some app-server versions stall teardown while this connection is
         // subscribed. Release it first, keeping other threads independent.
         let result = self
@@ -268,12 +306,15 @@ impl CodexService {
             .and_then(|_| self.client.request("thread/delete", json!({"threadId":id})))
             .map(|_| ());
         if let Err(error) = &result {
-            // A timeout does not cancel server-side deletion. Do not resume
-            // automatically or pretend the old subscription is still live.
-            self.router.lock().unwrap().disconnect_thread(
-                id,
-                format!("Ошибка удаления: {error}. Закройте вкладку и откройте чат заново, если он остался в списке."),
-            );
+            // Only a remote rejection establishes a known outcome. A timeout
+            // does not cancel deletion and must never recreate that thread.
+            let recovered = matches!(error, Error::Remote(_)) && self.recover_subscription(id);
+            if !recovered {
+                self.router.lock().unwrap().disconnect_thread(
+                    id,
+                    format!("Ошибка удаления: {error}. Закройте вкладку и откройте чат заново, если он остался в списке."),
+                );
+            }
         }
         result
     }
@@ -288,6 +329,12 @@ impl ThreadHandle {
     }
     pub fn is_connected(&self) -> bool {
         self.0.client.is_connected()
+            && self
+                .0
+                .router
+                .lock()
+                .unwrap()
+                .connected_generation(self.thread_id(), self.0.generation)
     }
     pub fn send(
         &self,
@@ -295,6 +342,14 @@ impl ThreadHandle {
         model: Option<&str>,
         effort: Option<&str>,
     ) -> Result<String, Error> {
+        // A check before I/O alone races unsubscribe/delete. Serialize the
+        // complete turn/start with subscription changes, rejecting new input
+        // immediately instead of queuing it behind a possibly slow deletion.
+        let subscription = self.0.subscriptions.for_thread(self.thread_id());
+        let _subscription = subscription.try_lock().map_err(|_| {
+            Error::Protocol("Codex thread subscription is changing; try sending again".into())
+        })?;
+        self.ensure_connected()?;
         {
             let mut current = self.0.current_turn.lock().unwrap();
             if current.is_some() {
@@ -320,6 +375,7 @@ impl ThreadHandle {
         result
     }
     pub fn interrupt(&self, turn_id: &str) -> Result<(), Error> {
+        self.ensure_connected()?;
         self.0.client.request(
             "turn/interrupt",
             json!({"threadId":self.thread_id(),"turnId":turn_id}),
@@ -327,12 +383,30 @@ impl ThreadHandle {
         Ok(())
     }
     pub fn respond(&self, id: Value, result: Result<Value, RpcError>) -> Result<(), Error> {
+        self.ensure_connected()?;
         self.0.client.respond(id, result)
     }
     pub fn history(&self, cursor: Option<&str>) -> Result<Page<Item>, Error> {
-        let response = self.0.client.request(
+        self.ensure_connected()?;
+        Self::load_history(&self.0.client, self.thread_id(), cursor)
+    }
+    fn ensure_connected(&self) -> Result<(), Error> {
+        if self.is_connected() {
+            Ok(())
+        } else {
+            Err(Error::Disconnected(
+                "Codex thread subscription closed".into(),
+            ))
+        }
+    }
+    fn load_history(
+        client: &Client,
+        thread_id: &str,
+        cursor: Option<&str>,
+    ) -> Result<Page<Item>, Error> {
+        let response = client.request(
             "thread/items/list",
-            json!({"threadId":self.thread_id(),"cursor":cursor,"limit":50,"sortDirection":"desc"}),
+            json!({"threadId":thread_id,"cursor":cursor,"limit":50,"sortDirection":"desc"}),
         )?;
         let mut data: Vec<_> = array(&response, "data")?
             .iter()

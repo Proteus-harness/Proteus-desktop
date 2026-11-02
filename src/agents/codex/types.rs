@@ -66,6 +66,12 @@ pub enum ItemKind {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub enum CatalogEvent {
+    /// Authoritative server notification; absence from a catalog page is not deletion.
+    ThreadDeleted { id: String },
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum Event {
     ItemUpsert(Item),
     TextDelta {
@@ -101,5 +107,15 @@ pub enum Event {
     },
     Plan(Value),
     Usage(Value),
+    /// Temporarily disable input without discarding the draft or interactions.
+    SubscriptionSuspended,
+    /// Clear interactions from the old subscription before new ones can arrive.
+    ResyncStarted,
+    /// Subscription restored after a definitively rejected deletion. History is
+    /// a bounded tail, excluding items changed by live events during recovery.
+    Resynced {
+        current_turn: Option<String>,
+        history: Vec<Item>,
+    },
     Disconnected(String),
 }

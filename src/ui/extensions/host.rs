@@ -202,12 +202,16 @@ impl Host {
             extension,
             bound: None,
             inherited: None,
-            runtime_scope: RuntimeScope::default(),
+            runtime_scope: RuntimeScope {
+                content_only: super::find(extension)
+                    .is_some_and(|manifest| !manifest.requires_core),
+                ..RuntimeScope::default()
+            },
         }
     }
 
     pub(in crate::ui) fn for_chat(mut self, chat: WeakEntity<Chat>, key: ChatKey) -> Self {
-        self.runtime_scope.content_only = key.proteus_dir().is_none();
+        self.runtime_scope.content_only |= key.proteus_dir().is_none();
         self.bound = Some((chat, key));
         self
     }
@@ -218,8 +222,12 @@ impl Host {
     }
 
     pub(in crate::ui) fn with_extension(&self, extension: &'static str) -> Self {
+        let mut runtime_scope = self.runtime_scope;
+        runtime_scope.content_only |=
+            super::find(extension).is_some_and(|manifest| !manifest.requires_core);
         Self {
             extension,
+            runtime_scope,
             ..self.clone()
         }
     }
@@ -331,7 +339,7 @@ impl Host {
     }
 
     fn context_session(&self, active: impl FnOnce() -> Option<ChatKey>) -> Option<PathBuf> {
-        if !self.runtime_scope.lifetime.session() {
+        if !self.runtime_scope.lifetime.session() || self.runtime_scope.content_only {
             return None;
         }
         if let Some((_, key)) = &self.bound {
@@ -339,9 +347,6 @@ impl Host {
                 .proteus_dir()
                 .map(std::path::Path::to_path_buf)
                 .and_then(nonempty_session);
-        }
-        if self.runtime_scope.content_only {
-            return None;
         }
         match active() {
             Some(key) => key
@@ -435,6 +440,28 @@ mod isolated_tests {
     use gpui_kit::WeakEntity;
 
     #[test]
+    fn local_manifest_scope_cannot_be_widened_by_binding_a_core_chat() {
+        let mut host = Host::new(WeakEntity::new_invalid(), "local-test");
+        // The same scope set by Host::new from dependencies.core=false.
+        host.runtime_scope.content_only = true;
+        let bound = host.for_chat(
+            WeakEntity::new_invalid(),
+            ChatKey::Proteus("/sessions/core".into()),
+        );
+        assert!(bound.runtime_scope().content_only);
+        assert_eq!(
+            bound.context_session(|| panic!("local host read active chat")),
+            None
+        );
+        let child = bound.with_extension("core-required-child");
+        assert_eq!(
+            child.context_session(|| panic!("child widened local host")),
+            None
+        );
+        assert!(child.runtime_scope().content_only);
+    }
+
+    #[test]
     fn external_bound_context_cannot_fall_back_to_a_core_directory() {
         let host = Host::new(WeakEntity::new_invalid(), "renderer").for_chat(
             WeakEntity::new_invalid(),
@@ -445,9 +472,10 @@ mod isolated_tests {
             host.context_session(|| panic!("bound Codex metadata read workspace/chat")),
             None
         );
-        let (server, _) = host
-            .runtime_scope()
-            .connection(|| (None, Some("/project".into())));
+        let (server, _) = host.runtime_scope().connection(
+            || panic!("Codex content read Core credentials"),
+            || Some("/project".into()),
+        );
         let server = server.unwrap();
         assert!(server.token.is_empty());
         assert!(server.origin.is_empty());
@@ -508,8 +536,10 @@ mod isolated_tests {
                     "nested runtime entered Workspace.extension_processes"
                 );
                 assert!(host.runtime_scope().lifetime.allowed(false));
-                host.runtime_scope()
-                    .connection(|| panic!("nested host accessed production server"));
+                host.runtime_scope().connection(
+                    || panic!("nested host accessed production server"),
+                    || panic!("nested host accessed production folder"),
+                );
             }
             assert_ne!(
                 parent.runtime_scope().owner,

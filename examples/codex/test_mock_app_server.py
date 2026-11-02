@@ -131,6 +131,32 @@ class DelayedFixtureTests(unittest.TestCase):
         self.assertNotIn("fixture:thread/main", {row["id"] for row in current})
         self.assertNotIn("fixture:thread/main", json.loads(self.state.read_text()))
 
+    def test_delete_cascades_and_notifies_every_actual_descendant(self):
+        rows = {
+            "root": {"name": "Root", "cwd": "/synthetic", "history": []},
+            "child": {"name": "Child", "cwd": "/synthetic", "history": [], "parentThreadId": "root"},
+            "grandchild": {"name": "Grandchild", "cwd": "/synthetic", "history": [], "parentThreadId": "child"},
+            "other": {"name": "Other", "cwd": "/synthetic", "history": []},
+        }
+        self.state.write_text(json.dumps(rows))
+        peer = self.launch({})
+        peer.rpc("thread/delete", {"threadId": "root"})
+        notified = {peer.wait(lambda value: value.get("method") == "thread/deleted")["params"]["threadId"] for _ in range(3)}
+        self.assertEqual(notified, {"root", "child", "grandchild"})
+        self.assertEqual({row["id"] for row in peer.rpc("thread/list", {})["data"]}, {"other"})
+        self.assertEqual(set(json.loads(self.state.read_text())), {"other"})
+
+    def test_rejected_delete_keeps_thread_resumable_after_unsubscribe(self):
+        self.state.write_text(json.dumps({"root": {"name": "Root", "cwd": "/synthetic", "history": [], "deleteError": "Synthetic attached reference"}}))
+        peer = self.launch({})
+        peer.rpc("thread/resume", {"threadId": "root", "excludeTurns": True})
+        peer.rpc("thread/unsubscribe", {"threadId": "root"})
+        with self.assertRaisesRegex(AssertionError, "Synthetic attached reference"):
+            peer.rpc("thread/delete", {"threadId": "root"})
+        resumed = peer.rpc("thread/resume", {"threadId": "root", "excludeTurns": True})
+        self.assertEqual(resumed["thread"]["id"], "root")
+        self.assertIn("root", json.loads(self.state.read_text()))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,7 +3,7 @@
 //! Windows share one server lease, but own independent layouts and focus.
 
 use super::drivers::CoreConnection;
-use crate::agents::codex::CodexService;
+use crate::agents::codex::{CatalogEvent, CodexService};
 use crate::api::Api;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -60,8 +60,61 @@ impl WindowGroup {
         self.0.borrow().codex.clone()
     }
 
-    pub(super) fn set_codex(&self, service: CodexService) {
+    pub(super) fn set_codex(&self, service: CodexService, cx: &mut Context<Workspace>) {
+        self.watch_codex(&service, cx);
         *self.0.borrow().codex.lock().unwrap() = Some(service);
+    }
+
+    /// One catalog consumer per server, independent of any open chat. Native
+    /// deletion notifications also cover descendants and chats in other windows.
+    pub(super) fn watch_codex(&self, service: &CodexService, cx: &mut Context<Workspace>) {
+        let Some(events) = service.take_catalog_events() else {
+            return;
+        };
+        let weak = Rc::downgrade(&self.0);
+        cx.spawn(async move |_, cx| {
+            while let Ok(first) = events.recv().await {
+                let mut deleted = std::collections::HashSet::new();
+                let CatalogEvent::ThreadDeleted { id } = first;
+                deleted.insert(crate::tabs::ChatKey::Codex(id));
+                for _ in 1..256 {
+                    let Ok(CatalogEvent::ThreadDeleted { id }) = events.try_recv() else {
+                        break;
+                    };
+                    deleted.insert(crate::tabs::ChatKey::Codex(id));
+                }
+                let Some(group) = weak.upgrade() else {
+                    return;
+                };
+                cx.update(|cx| {
+                    let views: Vec<_> = group
+                        .borrow()
+                        .windows
+                        .iter()
+                        .map(|(view, _)| view.clone())
+                        .collect();
+                    // Store removal once, rather than once per native window.
+                    prefs::update(cx, |prefs| {
+                        for key in &deleted {
+                            prefs.sessions.forget(key);
+                        }
+                    });
+                    for view in views {
+                        let Ok(handle) = view.read_with(cx, |this, _| this.window_handle) else {
+                            continue;
+                        };
+                        handle
+                            .update(cx, |_, window, cx| {
+                                view.update(cx, |this, cx| this.forget_chats(&deleted, window, cx))
+                                    .ok();
+                            })
+                            .ok();
+                    }
+                });
+                super::super::chat::yield_after_batch().await;
+            }
+        })
+        .detach();
     }
 
     pub(super) fn take_backend(&self) -> Option<BackendGuard> {

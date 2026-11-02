@@ -80,9 +80,11 @@ def notify(method, params):
 
 
 def item(thread, turn, value, complete=True):
-    notify("item/completed" if complete else "item/started", {"threadId": thread, "turnId": turn, "item": value, "startedAtMs": int(time.time() * 1000)})
-    if complete:
-        with state_lock:
+    with state_lock:
+        if thread not in data:
+            return
+        notify("item/completed" if complete else "item/started", {"threadId": thread, "turnId": turn, "item": value, "startedAtMs": int(time.time() * 1000)})
+        if complete:
             data[thread]["history"].append({"turnId": turn, "item": value})
             save()
 
@@ -247,9 +249,33 @@ for line in sys.stdin:
                 finish(thread, params["turnId"], "interrupted")
             result = {}
         elif method == "thread/delete":
-            data.pop(thread, None)
-            save()
-            result = {}
+            with state_lock:
+                if thread not in data:
+                    raise ValueError("Synthetic thread not found")
+                if data[thread].get("deleteError"):
+                    raise ValueError(data[thread]["deleteError"])
+                # Native Codex removes the spawned subtree and announces every
+                # actual id, including descendants absent from the first page.
+                deleted = {thread}
+                while True:
+                    children = {key for key, value in data.items() if value.get("parentThreadId") in deleted}
+                    if children <= deleted:
+                        break
+                    deleted.update(children)
+                for key in deleted:
+                    active = stop.pop(key, None)
+                    if active:
+                        active[1].set()
+                    data.pop(key, None)
+                for request_id, context in list(pending.items()):
+                    if context[0] in deleted:
+                        pending.pop(request_id, None)
+                save()
+            def announce_deleted(deleted=sorted(deleted)):
+                for key in deleted:
+                    notify("thread/deleted", {"threadId": key})
+            respond(message, {}, after=announce_deleted)
+            continue
         elif method == "thread/unsubscribe":
             result = {}
         else:

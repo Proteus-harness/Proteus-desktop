@@ -21,7 +21,7 @@ pub(super) fn ready_batch(
 
 /// A ready receiver must not keep the foreground task in one unbounded poll.
 /// Requeue without a timer; the executor decides when other UI work runs.
-pub(super) async fn yield_after_batch() {
+pub(in crate::ui) async fn yield_after_batch() {
     let mut yielded = false;
     std::future::poll_fn(move |cx| {
         if std::mem::replace(&mut yielded, true) {

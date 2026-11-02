@@ -23,7 +23,7 @@ def existing_binary(cwd, profile, binary):
     return output
 
 
-def build_binary(cwd, package, binary, flags, manifest):
+def build_binary(cwd, package, binary, flags, manifest, *, environ=None):
     """Build the selected binary and return the exact existing Cargo output.
 
     Cargo owns target-directory/profile/config resolution. The manifest binds the
@@ -39,8 +39,10 @@ def build_binary(cwd, package, binary, flags, manifest):
     print("+", " ".join(command), flush=True)
     # stderr stays attached for Cargo progress/errors. Buffer only its JSON
     # stdout so failed builds can still have all rendered diagnostics forwarded.
+    environment = {} if environ is None else {"env": environ}
     result = subprocess.run(
         command, cwd=cwd, stdout=subprocess.PIPE, text=True, check=False,
+        **environment,
     )
     outputs = []
     finished = 0

@@ -116,14 +116,20 @@ impl Workspace {
 
     fn confirm_delete(&mut self, dir: ChatKey, window: &mut Window, cx: &mut Context<Self>) {
         let title = self.session_title(&dir, cx);
+        let description = match &dir {
+            ChatKey::Codex(_) => format!(
+                "«{title}», его история и дочерние чаты будут удалены с диска. Это нельзя отменить."
+            ),
+            ChatKey::Proteus(_) => {
+                format!("«{title}» и вся его история будут удалены с диска. Это нельзя отменить.")
+            }
+        };
         let workspace = cx.entity().downgrade();
         window.open_alert_dialog(cx, move |alert, _, _| {
             let (workspace, dir) = (workspace.clone(), dir.clone());
             alert
                 .title("Удалить чат?")
-                .description(format!(
-                    "«{title}» и вся его история будут удалены с диска. Это нельзя отменить."
-                ))
+                .description(description.clone())
                 .ok_text("Удалить")
                 .ok_variant(ButtonVariant::Danger)
                 .show_cancel(true)

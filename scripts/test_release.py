@@ -157,6 +157,17 @@ class MetadataTests(unittest.TestCase):
                 vendored.mkdir(parents=True)
                 for name in ("LICENSE.upstream", "README.proteus.md"):
                     (vendored / name).write_text("synthetic " + vendored_name + " " + name)
+            ghostty_files = {}
+            for vendored_name in ("ghostty-vt", "ghostty-vt-sys"):
+                vendored = roots[0] / "vendor" / vendored_name
+                vendored.mkdir(parents=True)
+                names = ["LICENSE", "LICENSE-APACHE", "LICENSE-GHOSTTY", "PROTEUS.md"]
+                if vendored_name == "ghostty-vt-sys":
+                    names.extend(["GHOSTTY.lock", "THIRD_PARTY_NOTICES"])
+                for name in names:
+                    text = "synthetic " + vendored_name + " " + name
+                    (vendored / name).write_text(text)
+                    ghostty_files[Path("vendor") / vendored_name / name] = text
             font = roots[0] / "assets/fonts/noto-color-emoji"
             font.mkdir(parents=True)
             for name in ("OFL.txt", "UPSTREAM.md"):
@@ -174,6 +185,8 @@ class MetadataTests(unittest.TestCase):
                 "synthetic gpui-component LICENSE.upstream",
             )
             self.assertIn("Apache-2.0", (portable / "share/licenses/README.txt").read_text())
+            for relative, text in ghostty_files.items():
+                self.assertEqual((portable / "share/licenses/Proteus-desktop" / relative).read_text(), text)
             for name in ("OFL.txt", "UPSTREAM.md"):
                 self.assertEqual(
                     (portable / "share/licenses/Proteus-desktop/assets/fonts/noto-color-emoji" / name).read_text(),

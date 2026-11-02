@@ -28,8 +28,11 @@ def load_runner():
     subprocess.call = Mock(return_value=0)
     runtime = types.ModuleType("runtime_paths")
     runtime.require_extensions = Mock()
+    toolchain = types.ModuleType("desktop_toolchain")
+    toolchain.prepare_desktop = Mock(side_effect=lambda root, args, env: dict(env, ZIG="/prepared/zig"))
     stubs = {"runtime_paths": runtime, "sources": sources, "limits": limits,
-             "check_licenses": licenses, "subprocess": subprocess}
+             "check_licenses": licenses, "subprocess": subprocess,
+             "desktop_toolchain": toolchain}
     spec = importlib.util.spec_from_file_location("candidate_runner", RUNNER_PATH)
     module = importlib.util.module_from_spec(spec)
     with patch.dict(sys.modules, stubs):
@@ -45,6 +48,7 @@ class SelectionTests(unittest.TestCase):
         for args in (
             ["-p", "proteus-diff"], ["--package", "proteus-tabs"],
             ["-p", "proteus-codex-client"],
+            ["-p", "proteus-terminal"],
             ["--package=proteus-diff"], ["-pproteus-tabs"],
             ["-p", "proteus-diff", "-p", "proteus-tabs"],
             ["-p", "proteus-diff", "-p", "proteus-diff"],
@@ -114,6 +118,7 @@ class RunnerTests(unittest.TestCase):
         self.addCleanup(redirect.__exit__, None, None, None)
 
     def test_import_has_no_execution_side_effects(self):
+        self.runner.prepare_desktop.assert_not_called()
         self.runner.limit.assert_not_called()
         self.runner.resolve.assert_not_called()
         self.runner.check.assert_not_called()
@@ -130,6 +135,8 @@ class RunnerTests(unittest.TestCase):
         cargo = self.runner.subprocess.call.call_args
         self.assertEqual(cargo.args[0], ["cargo", "test", "--locked", "--workspace"])
         self.assertEqual(cargo.kwargs["env"]["RUST_TEST_THREADS"], "4")
+        self.assertEqual(cargo.kwargs["env"]["ZIG"], "/prepared/zig")
+        self.runner.prepare_desktop.assert_called_once()
         self.assertNotIn("PROTEUS_TEST_EXTENSIONS_SOURCE", cargo.kwargs["env"])
 
     def test_extensions_are_ready_only_and_explicit(self):
@@ -146,8 +153,10 @@ class RunnerTests(unittest.TestCase):
     def test_build_extensions_is_the_only_build_opt_in(self):
         self.runner.main(["--build-extensions", "--release"])
         env = self.runner.subprocess.call.call_args.kwargs["env"]
+        extensions_env = dict(env)
+        extensions_env.pop("ZIG")
         self.runner.subprocess.run.assert_called_once_with(
-            [sys.executable, str(EXTENSIONS / "package.py"), "--dev"], check=True, env=env)
+            [sys.executable, str(EXTENSIONS / "package.py"), "--dev"], check=True, env=extensions_env)
         self.assertEqual(self.runner.subprocess.call.call_args.args[0][-2:], ["--", "--include-ignored"])
 
     def test_explicit_ignored_and_libtest_boundary(self):
@@ -176,6 +185,7 @@ class RunnerTests(unittest.TestCase):
         self.runner.resolve.assert_not_called()
         self.runner.check.assert_called_once_with(ROOT)
         self.runner.subprocess.run.assert_not_called()
+        self.runner.prepare_desktop.assert_not_called()
         cargo = self.runner.subprocess.call.call_args
         self.assertEqual(cargo.args[0], ["cargo", "test", "--locked", *args])
         self.assertEqual(cargo.kwargs["cwd"], ROOT)
@@ -184,6 +194,20 @@ class RunnerTests(unittest.TestCase):
         self.assertNotIn("PROTEUS_TEST_EXTENSIONS_SOURCE", cargo.kwargs["env"])
         self.assertNotIn("PROTEUS_EXTENSIONS_DIR", cargo.kwargs["env"])
         self.assertIn("not the client workspace gate", self.stderr.getvalue())
+
+    def test_every_plain_headless_package_skips_terminal_toolchain(self):
+        for package in sorted(self.runner.HEADLESS_PACKAGES):
+            with self.subTest(package=package):
+                runner = load_runner()
+                runner.main(["-p", package, "--lib"])
+                runner.prepare_desktop.assert_not_called()
+                self.assertNotIn("ZIG", runner.subprocess.call.call_args.kwargs["env"])
+
+    def test_toolchain_failure_prevents_cargo(self):
+        self.runner.prepare_desktop.side_effect = RuntimeError("missing pinned Zig")
+        with self.assertRaisesRegex(RuntimeError, "missing pinned Zig"):
+            self.runner.main([])
+        self.runner.subprocess.call.assert_not_called()
 
     def test_explicit_package_and_manifest_requests_are_never_widened(self):
         for args in (["-p", "proteus-diff", "--workspace"],

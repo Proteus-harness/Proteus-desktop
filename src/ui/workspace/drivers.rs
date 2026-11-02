@@ -88,13 +88,19 @@ impl Workspace {
                         }
                         slot.as_ref().unwrap().clone()
                     };
-                    Ok::<_, anyhow::Error>(job(&service))
+                    let result = job(&service);
+                    Ok::<_, anyhow::Error>((service, result))
                 })
                 .await;
             this.update_in(cx, |this, window, cx| {
                 match result {
-                    Ok(Ok(value)) => done(this, value, window, cx),
-                    Ok(Err(error)) => this.report(format!("Codex: {error:#}"), cx),
+                    Ok((service, result)) => {
+                        this.windows.watch_codex(&service, cx);
+                        match result {
+                            Ok(value) => done(this, value, window, cx),
+                            Err(error) => this.report(format!("Codex: {error:#}"), cx),
+                        }
+                    }
                     Err(error) => {
                         this.fail_openings(AgentKind::Codex, cx);
                         this.report(format!("Codex: {error:#}"), cx);

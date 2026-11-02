@@ -86,6 +86,8 @@ class RunTests(unittest.TestCase):
         self.runtime.require_modules = Mock()
         with patch.dict(sys.modules, {"sources": self.sources, "runtime_paths": self.runtime}):
             self.runner = load("run")
+        self.prepare = patch.object(self.runner, "prepare_desktop",
+                                    side_effect=lambda root, **options: dict(options["environ"], ZIG="/prepared/zig")).start()
         self.run = patch.object(self.runner.subprocess, "run").start()
         self.call = patch.object(self.runner.subprocess, "call", return_value=0).start()
         self.addCleanup(patch.stopall)
@@ -96,6 +98,7 @@ class RunTests(unittest.TestCase):
         self.addCleanup(self.redirect.__exit__, None, None, None)
 
     def test_import_has_no_execution(self):
+        self.prepare.assert_not_called()
         self.sources.resolve.assert_not_called()
         self.runtime.require_extensions.assert_not_called()
         self.run.assert_not_called()
@@ -110,6 +113,8 @@ class RunTests(unittest.TestCase):
         self.assertEqual(call.args[0], ["cargo", "run", "--locked", "-p", "proteus-native", "--", "/workspace", "--config", "profile"])
         self.assertEqual(call.kwargs["env"]["PROTEUS_BIN"], "/ready/proteus")
         self.assertEqual(call.kwargs["env"]["PROTEUS_EXTENSIONS_DIR"], "/synthetic/desktop/build/Proteus/share/extensions")
+        self.assertEqual(call.kwargs["env"]["ZIG"], "/prepared/zig")
+        self.prepare.assert_called_once()
         self.assertTrue(call.kwargs["env"]["PATH"].startswith("/synthetic/desktop/build/Proteus/bin:"))
 
     def test_origin_does_not_require_local_backend_or_modules(self):
@@ -157,6 +162,7 @@ class RunTests(unittest.TestCase):
         self.call.assert_not_called()
         self.run.assert_not_called()
         self.runtime.require_extensions.assert_not_called()
+        self.prepare.assert_not_called()
 
     def test_missing_ready_extensions_never_runs_cargo(self):
         self.runtime.require_extensions.side_effect = SystemExit("missing extension executable")
@@ -164,6 +170,13 @@ class RunTests(unittest.TestCase):
             self.runner.main([])
         self.call.assert_not_called()
         self.run.assert_not_called()
+        self.prepare.assert_not_called()
+
+    def test_toolchain_failure_never_runs_cargo(self):
+        self.prepare.side_effect = RuntimeError("missing pinned Zig")
+        with self.assertRaisesRegex(RuntimeError, "missing pinned Zig"):
+            self.runner.main(["--agent", "codex"])
+        self.call.assert_not_called()
 
     def test_wrapper_flags_after_delimiter_are_application_arguments(self):
         self.runner.main(["--", "--build-extensions", "--base", "/other"])

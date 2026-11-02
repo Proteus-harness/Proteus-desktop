@@ -276,7 +276,7 @@ impl Workspace {
                     self.windows.set_core(api, boot.backend);
                 }
                 if let Some(service) = boot.codex {
-                    self.windows.set_codex(service);
+                    self.windows.set_codex(service, cx);
                 }
                 self.codex_models = boot.codex_models;
                 self.startup_streams = boot.streams;

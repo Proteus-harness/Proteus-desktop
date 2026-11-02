@@ -100,6 +100,15 @@ def install_desktop_notices(target, desktop):
             destination = target / "Proteus-desktop" / vendored / name
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(desktop / vendored / name, destination)
+    for vendored in ("ghostty-vt", "ghostty-vt-sys"):
+        names = ["LICENSE", "LICENSE-APACHE", "LICENSE-GHOSTTY", "PROTEUS.md"]
+        if vendored == "ghostty-vt-sys":
+            names.extend(["GHOSTTY.lock", "THIRD_PARTY_NOTICES"])
+        for name in names:
+            relative = Path("vendor") / vendored / name
+            destination = target / "Proteus-desktop" / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(desktop / relative, destination)
     font = "assets/fonts/noto-color-emoji"
     for name in ("OFL.txt", "UPSTREAM.md"):
         destination = target / "Proteus-desktop" / font / name
@@ -116,6 +125,8 @@ NOTICE_README = (
         "The Codex-derived code includes Apache-2.0 LICENSE and NOTICE files below.\n"
         "Patched Apache-2.0 vendored crates keep upstream licenses and source\n"
         "provenance below Proteus-desktop/vendor/.\n"
+        "Ghostty VT is MIT licensed; its Rust bindings use Apache-2.0. Their\n"
+        "copyright notices and pinned source provenance are included there.\n"
         "The release sources archive also contains the four exact Proteus source snapshots.\n"
     )
 

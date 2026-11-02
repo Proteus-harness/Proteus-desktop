@@ -131,13 +131,30 @@ pub struct ActivitySurface {}
 #[serde(deny_unknown_fields)]
 pub struct PreviewSurface {}
 
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Dependencies {
+    /// Requires a Proteus Core conversation. Local surfaces opt out and
+    /// receive a folder without Core credentials or session projection.
+    #[serde(default = "core_dependency_default")]
+    pub core: bool,
     /// Tools required to create new content. Missing tools do not prevent
     /// reading saved content; the settings shell links to their controls.
     #[serde(default)]
     pub tools: Vec<String>,
+}
+
+fn core_dependency_default() -> bool {
+    true
+}
+
+impl Default for Dependencies {
+    fn default() -> Self {
+        Self {
+            core: true,
+            tools: Vec::new(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -366,6 +383,14 @@ pub fn parse(text: &str) -> Result<Manifest> {
             bail!("unsupported or duplicate required extension feature {feature:?}");
         }
     }
+    if !manifest.dependencies.core
+        && !manifest
+            .required_features
+            .iter()
+            .any(|feature| feature == "manifest.dependencies.core.v1")
+    {
+        bail!("Core-independent extensions require manifest.dependencies.core.v1");
+    }
     if !valid_id(&manifest.id) {
         bail!("id must be lowercase latin letters, digits and dashes");
     }
@@ -571,6 +596,33 @@ mod tests {
         let dir = root.join(folder);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join(MANIFEST), text).unwrap();
+    }
+
+    #[test]
+    fn core_dependency_defaults_to_true_and_local_opt_out_is_explicit() {
+        let mut value = serde_json::json!({
+            "protocol":4,"id":"local","title":"Local","command":["run"],
+            "surfaces":{"document":{}}
+        });
+        assert!(Dependencies::default().core);
+        assert!(parse(&value.to_string()).unwrap().dependencies.core);
+        value["dependencies"] = serde_json::json!({"tools":["read_file"]});
+        assert!(parse(&value.to_string()).unwrap().dependencies.core);
+        value["dependencies"] = serde_json::json!({"core":false});
+        assert!(
+            parse(&value.to_string()).is_err(),
+            "opt-out must name its feature"
+        );
+        value["required_features"] = serde_json::json!(["manifest.dependencies.core.v1"]);
+        assert!(!parse(&value.to_string()).unwrap().dependencies.core);
+        for invalid in [
+            serde_json::json!(null),
+            serde_json::json!("false"),
+            serde_json::json!(0),
+        ] {
+            value["dependencies"]["core"] = invalid;
+            assert!(parse(&value.to_string()).is_err());
+        }
     }
 
     #[test]

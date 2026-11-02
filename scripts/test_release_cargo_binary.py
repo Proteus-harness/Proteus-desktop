@@ -220,13 +220,14 @@ class PortableSelectionTests(unittest.TestCase):
         self.resolved = []
         self.built = []
         self.executed = []
-        for name in ("resolve", "limit", "build_binary", "run", "install_file",
+        for name in ("resolve", "limit", "build_binary", "prepare_desktop", "run", "install_file",
                      "install_component_notices", "assemble_modules", "source_record", "version"):
             patcher = patch.object(self.portable, name)
             setattr(self, name, patcher.start())
             self.addCleanup(patcher.stop)
         self.resolve.side_effect = self.fake_resolve
         self.build_binary.side_effect = self.fake_build
+        self.prepare_desktop.side_effect = lambda root, flags: {"ZIG": "/prepared/zig"}
         self.run.side_effect = self.fake_run
         self.install_file.side_effect = self.copy_file
         self.version.return_value = "9.0.0"
@@ -272,8 +273,10 @@ class PortableSelectionTests(unittest.TestCase):
             self.write_json(root / "packages/new/extension.json", {"protocol": 4})
         return root
 
-    def fake_build(self, root, package, binary, flags, manifest):
+    def fake_build(self, root, package, binary, flags, manifest, *, environ=None):
         self.built.append((package, flags))
+        if package == "proteus-native":
+            self.assertEqual(environ, {"ZIG": "/prepared/zig"})
         return self.client
 
     def fake_run(self, command, cwd):
@@ -302,6 +305,7 @@ class PortableSelectionTests(unittest.TestCase):
         helper.write_text("# synthetic shared launcher helper\n")
         self.invoke()
         self.assertEqual(self.built, [("proteus-native", ["--release"])])
+        self.prepare_desktop.assert_called_once_with(self.native, ["--release"])
         self.assertEqual(self.resolved, [])
         self.run.assert_not_called()
         self.assemble_modules.assert_not_called()
@@ -318,6 +322,7 @@ class PortableSelectionTests(unittest.TestCase):
 
     def test_extension_only_never_builds_desktop_or_resolves_core_and_replaces_assets(self):
         self.invoke("--components", "extensions")
+        self.prepare_desktop.assert_not_called()
         self.build_binary.assert_not_called()
         self.assertEqual(self.resolved, ["extensions"])
         self.assertEqual(len(self.executed), 1)
@@ -328,6 +333,7 @@ class PortableSelectionTests(unittest.TestCase):
 
     def test_modules_only_copy_sdk_sources_without_core_cargo(self):
         self.invoke("--components", "modules")
+        self.prepare_desktop.assert_not_called()
         self.build_binary.assert_not_called()
         self.assertEqual(self.resolved, ["harness", "modules"])
         self.assemble_modules.assert_called_once()
@@ -387,7 +393,7 @@ class PortableSelectionTests(unittest.TestCase):
 
     def test_reuse_is_exact_copy_no_resolve_build_or_metadata_rewrite(self):
         self.invoke("--reuse-binaries")
-        for mock in (self.build_binary, self.run, self.limit, self.resolve, self.source_record):
+        for mock in (self.build_binary, self.prepare_desktop, self.run, self.limit, self.resolve, self.source_record):
             mock.assert_not_called()
         for path in self.base.rglob("*"):
             if path.is_file():
@@ -396,7 +402,7 @@ class PortableSelectionTests(unittest.TestCase):
     def test_plan_has_no_source_resolution_build_limits_or_base_requirement(self):
         with contextlib.redirect_stdout(io.StringIO()):
             self.portable.main(["--plan", "--base", str(self.root / "absent")])
-        for mock in (self.build_binary, self.run, self.resolve, self.limit):
+        for mock in (self.build_binary, self.prepare_desktop, self.run, self.resolve, self.limit):
             mock.assert_not_called()
         self.assertFalse(self.portable.BUILD.exists())
 
