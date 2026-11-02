@@ -24,6 +24,11 @@ legacy aliases или dual-read. Текущий сценарий — довер�
 
 ## Стоимость Обновлений
 
+Для новых и изменяемых затратных путей применяйте общий стандарт
+[расхода ОЗУ](https://github.com/Proteus-harness/Proteus-core/blob/main/docs/development/memory.md):
+ownership/lifetime, совокупные бюджеты, ленивую подготовку, очереди и замеры.
+При соседних checkout документ находится в `../Proteus-core/docs/development/memory.md`.
+
 - Для свёрнутой строки считайте только видимые summary/stats; подробный diff,
   labels и форматирование готовьте там, где они нужны. Общий разбор должен
   сохранять те же границы файлов, counts и обработку некорректного ввода.
