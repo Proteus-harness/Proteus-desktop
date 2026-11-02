@@ -36,6 +36,10 @@ impl Raster {
         view: EntityId,
     ) -> impl IntoElement + Styled {
         let id = id.into();
+        // Img installs the decoded raster's aspect during request_layout.
+        // Canvas needs the same metadata before width/max-width constraints
+        // can derive its height; this does not prepare or allocate a raster.
+        let aspect = self.key.size.width as f32 / self.key.size.height as f32;
         canvas(
             |_, _, _| {},
             move |bounds, _, window, cx| {
@@ -79,6 +83,7 @@ impl Raster {
                 }
             },
         )
+        .aspect_ratio(aspect)
     }
 
     fn failed(&self) -> bool {
@@ -138,6 +143,8 @@ impl Raster {
 mod tests {
     use super::*;
     use crate::ui::render_image::visible;
+    use std::cell::Cell;
+    use std::rc::Rc;
 
     #[::core::prelude::v1::test]
     fn only_a_positive_visible_intersection_admits_a_raster() {
@@ -148,5 +155,122 @@ mod tests {
         assert!(!visible(bounds(110., 30., 40., 20.), mask));
         assert!(!visible(bounds(20., 100., 40., 20.), mask));
         assert!(!visible(bounds(20., 30., 0., 20.), mask));
+    }
+
+    #[::core::prelude::v1::test]
+    fn a_width_clamped_svg_canvas_matches_the_original_img_layout() {
+        let mut cx = ::gpui::TestAppContext::single();
+        let window = cx.add_empty_window();
+        let view = window.update(|window, _| window.root::<Empty>().flatten().unwrap().entity_id());
+        let renderer = SvgRenderer::new(Arc::new(()));
+        let source = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 280"><rect width="1280" height="280" fill="red"/></svg>"#;
+        let node = crate::declarative::widget::Node::Svg {
+            source: source.into(),
+            width: 1280.,
+            height: 280.,
+            baseline: None,
+            em_size: None,
+        };
+        let mut images = super::super::Images::default();
+        images.prepare_with(&node, &renderer);
+        let measure = |window: &mut ::gpui::VisualTestContext, width, element: AnyElement| {
+            let measured = Rc::new(Cell::new(None));
+            let bounds = measured.clone();
+            window.draw(
+                point(px(0.), px(0.)),
+                size(
+                    AvailableSpace::Definite(px(width)),
+                    AvailableSpace::MaxContent,
+                ),
+                move |_, _| {
+                    div()
+                        .w(px(width))
+                        .flex()
+                        .flex_col()
+                        .child(
+                            div()
+                                .w_full()
+                                .min_w_0()
+                                .on_children_prepainted(move |children, _, _| {
+                                    bounds.set(children.first().copied());
+                                })
+                                .child(element),
+                        )
+                        .into_any_element()
+                },
+            );
+            measured.get().expect("SVG child laid out")
+        };
+        for dpi in [1., 2.] {
+            images.rasterize_with(&node, dpi);
+            let old = renderer
+                .render_parsed(
+                    &images.parsed.get(source).unwrap().svg,
+                    SvgSize::ExactSize(size(
+                        DevicePixels((1280. * dpi) as i32),
+                        DevicePixels((280. * dpi) as i32),
+                    )),
+                )
+                .unwrap();
+            for width in [320., 820., 1280.] {
+                let old_bounds = measure(
+                    window,
+                    width,
+                    img(old.clone())
+                        .w(px(1280.))
+                        .h(px(280.))
+                        .max_w_full()
+                        .object_fit(ObjectFit::Contain)
+                        .into_any_element(),
+                );
+                let new_bounds = measure(
+                    window,
+                    width,
+                    images
+                        .get(source, 1280., 280.)
+                        .unwrap()
+                        .element("layout-svg", view)
+                        .w(px(1280.))
+                        .h(px(280.))
+                        .max_w_full()
+                        .into_any_element(),
+                );
+                assert_eq!(
+                    new_bounds, old_bounds,
+                    "same finite-width layout at {dpi} DPI and width {width}"
+                );
+                assert_eq!(new_bounds.size.width, px(width));
+                // When a parent derives height from the constrained width,
+                // Canvas must expose the same intrinsic aspect as Img.
+                let old_auto = measure(
+                    window,
+                    width,
+                    img(old.clone())
+                        .w(px(width))
+                        .max_w_full()
+                        .object_fit(ObjectFit::Contain)
+                        .into_any_element(),
+                );
+                let new_auto = measure(
+                    window,
+                    width,
+                    images
+                        .get(source, 1280., 280.)
+                        .unwrap()
+                        .element("auto-height-svg", view)
+                        .w(px(width))
+                        .max_w_full()
+                        .into_any_element(),
+                );
+                assert_eq!(
+                    new_auto, old_auto,
+                    "same intrinsic auto-height at {dpi} DPI and width {width}"
+                );
+                assert!(
+                    (f32::from(new_auto.size.height) - width * 280. / 1280.).abs() <= 1.,
+                    "device-pixel-rounded intrinsic geometry: {new_auto:?} at {dpi} DPI, width {width}"
+                );
+            }
+        }
     }
 }
