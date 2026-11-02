@@ -139,3 +139,35 @@ helper и его параметры. Его подкаталог `tools` не в
 Перед следующей стадией helper ждёт подтверждения `mark-NAME` в
 `marked_samples`: наличие control-файла само по себе ещё не подтверждает
 замер. Это сохраняет последний SVG sample до очистки и остановки renderer.
+
+Сравнение двух законченных прогонов:
+
+```sh
+python3 examples/performance/native-svg/tools/compare.py \
+  --before build/verification/native-svg-before \
+  --after build/verification/native-svg-after \
+  --output build/verification/native-svg-comparison.json
+```
+
+Проверяются hashes входов и исходных PNG, процедура capture, viewport и
+границы двух цветных областей на всех стадиях. Манифест renderer сравнивается
+после проверки его SHA-256 и замены единственного пути `rendered.jsonl` на
+общий маркер: каждый изолированный запуск пишет receipts в свою папку.
+В отчёте остаются оба ELF hash, hash самого compare helper и раздельные
+PSS/RSS Native и дерева. Изменение геометрии или входов возвращает exit 1;
+порог экономии памяти не задаётся. Совпадение bounds не доказывает полное
+совпадение SVG или освобождение видеопамяти.
+
+Для разбора роста PSS запустите capture без `--stop`, дождитесь clear и
+сохраните файловую раскладку Native до завершения стенда:
+
+```sh
+python3 examples/performance/native-svg/tools/mappings.py \
+  --run build/verification/native-svg-after
+touch build/verification/native-svg-after/control/stop
+```
+
+`mappings-cleared.json` содержит PID/start ticks, ELF/helper hashes и KiB
+из `/proc/PID/smaps` по файлам и анонимным mapping. Это отдельный снимок после
+clear, а не профиль malloc и не измерение полной GPU VRAM. Снимок повторно
+не перезаписывается; helper проверяет живой Native данного стенда.
