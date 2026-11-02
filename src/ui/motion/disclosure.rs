@@ -138,17 +138,37 @@ pub(in crate::ui) fn reveal_at(
 /// animates between their heights and reverses from its current position.
 /// The branches have separate element paths, so selection state cannot leak
 /// from the shortened preview into the complete content.
-pub(in crate::ui) fn preview_reveal(
+pub(in crate::ui) fn preview_reveal<E: IntoElement>(
     key: impl Into<SharedString>,
     open: bool,
     cx: &App,
     preview: impl IntoElement,
-    content: impl IntoElement,
+    content: impl FnOnce() -> E,
 ) -> AnyElement {
     let key = key.into();
-    Reveal::preview(
-        ElementId::Name(key.clone()),
+    preview_with_progress(
+        key.clone(),
+        open,
         progress(&key, open, cx),
+        preview,
+        content,
+    )
+}
+
+fn preview_with_progress<E: IntoElement>(
+    key: SharedString,
+    open: bool,
+    progress: Option<f32>,
+    preview: impl IntoElement,
+    content: impl FnOnce() -> E,
+) -> AnyElement {
+    // Both endpoints are needed while moving, including a closing or reversed
+    // transition. A settled preview never builds, lays out or paints its tail.
+    // Consume the builder now; Reveal retains elements, never this closure.
+    let content = (open || progress.is_some()).then(content);
+    Reveal::preview(
+        ElementId::Name(key),
+        progress,
         open,
         div()
             .id("preview")
@@ -158,7 +178,7 @@ pub(in crate::ui) fn preview_reveal(
         div()
             .id("content")
             .w_full()
-            .child(content)
+            .children(content)
             .into_any_element(),
     )
     .into_any_element()
@@ -199,8 +219,115 @@ pub(in crate::ui) fn drive(window: &mut Window, cx: &App) {
 
 #[cfg(test)]
 mod tests {
-    use super::{SLOW, Toggle, Tween};
+    use super::{SLOW, Toggle, Tween, preview_with_progress};
+    use gpui_kit::{ParentElement as _, div};
+    use std::cell::{Cell, RefCell};
+    use std::rc::Rc;
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn settled_preview_drops_the_full_builder_without_calling_or_retaining_it() {
+        struct Payload(Rc<Cell<bool>>);
+        impl Drop for Payload {
+            fn drop(&mut self) {
+                self.0.set(true);
+            }
+        }
+        let calls = Cell::new(0);
+        let dropped = Rc::new(Cell::new(false));
+        let payload = Payload(dropped.clone());
+        let element = preview_with_progress("closed".into(), false, None, div(), || {
+            calls.set(calls.get() + 1);
+            drop(payload);
+            div()
+        });
+        // This must happen before the returned element is dropped: otherwise
+        // each closed row could still retain a full-content builder/payload.
+        assert_eq!(calls.get(), 0);
+        assert!(dropped.get());
+        drop(element);
+    }
+
+    #[test]
+    fn collapsed_source_updates_build_only_the_latest_content_when_opened() {
+        let built = RefCell::new(Vec::new());
+        let mut source = String::from("initial result");
+        let closed = preview_with_progress("updated".into(), false, None, div(), || {
+            built.borrow_mut().push(source.clone());
+            div()
+        });
+        // The returned element must not keep borrowing the old source.
+        source.replace_range(.., "latest result");
+        assert!(built.borrow().is_empty());
+        let _open = preview_with_progress("updated".into(), true, None, div(), || {
+            built.borrow_mut().push(source.clone());
+            div()
+        });
+        assert_eq!(*built.borrow(), ["latest result"]);
+        drop(closed);
+    }
+
+    #[test]
+    fn open_and_moving_previews_consume_the_full_builder_once() {
+        for (open, progress) in [
+            (true, None),
+            (true, Some(0.)),
+            (true, Some(0.5)),
+            (true, Some(1.)),
+            (false, Some(1.)),
+            (false, Some(0.5)),
+            (false, Some(0.)),
+        ] {
+            let calls = Cell::new(0);
+            // Moving the value out makes this FnOnce, rather than a reusable
+            // closure or a builder stored for a later layout/paint phase.
+            let payload = String::from("full content");
+            let element = preview_with_progress("phase".into(), open, progress, div(), || {
+                calls.set(calls.get() + 1);
+                div().child(payload)
+            });
+            assert_eq!(calls.get(), 1, "open={open}, progress={progress:?}");
+            drop(element);
+            assert_eq!(calls.get(), 1);
+        }
+    }
+
+    #[test]
+    fn reversing_preview_keeps_full_content_until_closing_settles() {
+        let start = Instant::now();
+        let opening = Toggle {
+            tween: Tween {
+                at: start,
+                duration: SLOW,
+            },
+            from: 0.,
+            open: true,
+        };
+        let reversed_at = start + SLOW / 2;
+        let closing = Toggle {
+            tween: Tween {
+                at: reversed_at,
+                duration: SLOW,
+            },
+            from: opening.progress(reversed_at),
+            open: false,
+        };
+        assert_eq!(closing.progress(reversed_at), opening.progress(reversed_at));
+        for elapsed in [
+            Duration::ZERO,
+            SLOW / 2,
+            SLOW - Duration::from_nanos(1),
+            SLOW,
+        ] {
+            let calls = Cell::new(0);
+            let progress = closing.sample(false, reversed_at + elapsed);
+            let _element = preview_with_progress("reversed".into(), false, progress, div(), || {
+                calls.set(calls.get() + 1);
+                div()
+            });
+            assert_eq!(calls.get(), usize::from(elapsed < SLOW));
+        }
+    }
 
     #[test]
     fn split_rows_share_the_last_moving_frame_and_settle_together() {

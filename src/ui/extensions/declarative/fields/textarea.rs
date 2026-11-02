@@ -111,7 +111,7 @@ pub(in crate::ui::extensions::declarative) fn render(
         .text_color(cx.theme().muted_foreground)
         .child(preview);
     let body = if open || motion::moving(&key, open, cx) {
-        motion::preview_reveal(key, open, cx, preview, area)
+        motion::preview_reveal(key, open, cx, preview, || area)
     } else {
         preview.into_any_element()
     };

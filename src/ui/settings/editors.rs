@@ -122,13 +122,9 @@ impl SettingsView {
             .child(preview);
         // Closed fields never mount or lay out a second hidden full editor.
         let body = if open || motion::moving(&motion_key, open, cx) {
-            motion::preview_reveal(
-                motion_key,
-                open,
-                cx,
-                preview,
-                Self::text_keys(kit::textarea(input, cx).small().w_full()),
-            )
+            motion::preview_reveal(motion_key, open, cx, preview, || {
+                Self::text_keys(kit::textarea(input, cx).small().w_full())
+            })
         } else {
             preview.into_any_element()
         };

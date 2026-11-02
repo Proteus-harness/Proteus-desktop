@@ -239,7 +239,7 @@ impl Fold {
                             .overflow_hidden()
                             .child(build(preview))
                             .child(bottom_fade(theme.muted)),
-                        build(format::clip_block(text, FULL_LINES, FULL_CHARS)),
+                        || build(format::clip_block(text, FULL_LINES, FULL_CHARS)),
                     ))
                     // Reveal clips the full-size child to a rectangular
                     // mask. Cover the CURRENT viewport's corners, rather

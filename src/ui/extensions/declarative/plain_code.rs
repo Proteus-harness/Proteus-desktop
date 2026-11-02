@@ -108,7 +108,7 @@ impl Plain {
                         .max_h(relative(1.)),
                 );
             if expanded {
-                motion::preview_reveal(key.clone(), self.open, cx, preview, body(shown.clone()))
+                motion::preview_reveal(key.clone(), self.open, cx, preview, || body(shown.clone()))
             } else {
                 preview.into_any_element()
             }
