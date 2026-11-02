@@ -50,9 +50,11 @@ impl Workspace {
         change(&mut layout);
         self.tab_motion.record(&old, &layout);
         self.documents.retain(|id, _| layout.contains(id));
+        self.document_titles.retain(|id, _| layout.contains(id));
+        self.spaces.save_active(layout.clone());
         self.sync_chats(&layout, cx);
         self.layout = layout;
-        self.windows.persist(cx.entity_id(), &self.layout, cx);
+        self.windows.persist(cx.entity_id(), &self.spaces, cx);
         cx.emit(HostEvent::NavigationChanged);
         cx.notify();
     }
@@ -72,12 +74,12 @@ impl Workspace {
             return Some(view.clone());
         }
         let surface = manifest.document.as_ref()?;
-        let view = (surface.build)(
-            Host::new(cx.weak_entity(), manifest.id),
-            &argument,
-            window,
-            cx,
-        );
+        let host = Host::new(cx.weak_entity(), manifest.id);
+        let host = match self.space_root_key() {
+            Some(root) => host.for_space(root),
+            None => host,
+        };
+        let view = (surface.build)(host, &argument, window, cx);
         self.documents.insert(id.to_string(), view.clone());
         Some(view)
     }
@@ -183,6 +185,20 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if let Some(key) = tabs::chat_key(id)
+            && self.spaces.active_root() != Some(self.chat_space_root(&key).as_str())
+        {
+            self.open_chat(
+                key,
+                OpenDocument {
+                    preview: false,
+                    focus: true,
+                },
+                window,
+                cx,
+            );
+            return;
+        }
         self.update_tabs(cx, |tabs| tabs.activate(pane, id));
         self.focus_tab(id, window, cx);
     }

@@ -190,6 +190,100 @@ fn visible_driver_keys_determine_connections_independently_of_preference() {
     ));
 }
 
+#[test]
+fn restart_keeps_core_owner_context_when_child_is_command_target_behind_file() {
+    let server = Server::start_in(&[
+        ("/sessions/root", "/root-project"),
+        ("/sessions/child", "/child-project"),
+        ("/sessions/inactive", "/inactive-project"),
+    ]);
+    let mut spaces = ChatSpaces::default();
+    spaces.select("chat:/sessions/inactive");
+    spaces.select("chat:/sessions/root");
+    let mut layout = spaces.active_layout().clone();
+    layout.open("chat:/sessions/child", |_| false);
+    layout.open("files:src/main.rs", |_| false);
+    spaces.save_active(layout.clone());
+    let required = required_chats_with_owner(spaces.active_layout(), spaces.active_root());
+    assert_eq!(
+        required,
+        [
+            ChatKey::Proteus("/sessions/child".into()),
+            ChatKey::Proteus("/sessions/root".into()),
+        ]
+    );
+    let boot = restore_core(server.api(), None, layout.clone(), true, &required).unwrap();
+    assert_eq!(boot.resumed, paths(&["/sessions/child", "/sessions/root"]));
+    assert_eq!(
+        boot.projects.get(Path::new("/sessions/root")),
+        Some(&PathBuf::from("/root-project"))
+    );
+    assert!(boot.startup.is_none());
+    assert_eq!(spaces.active_layout(), &layout);
+    assert_eq!(
+        server.calls(),
+        [
+            ("/resume".into(), json!("/sessions/child")),
+            ("/resume".into(), json!("/sessions/root")),
+        ]
+    );
+}
+
+#[test]
+fn context_only_root_resumes_without_reopening_its_chat_tab() {
+    let server = Server::start(&["/sessions/root"]);
+    let mut fragment = TabLayout::default();
+    fragment.open("files:src/main.rs", |_| false);
+    let mut spaces = ChatSpaces::default();
+    spaces.set_active(Some("chat:/sessions/root"), fragment.clone());
+    let required = required_chats_with_owner(spaces.active_layout(), spaces.active_root());
+    assert_eq!(required, [ChatKey::Proteus("/sessions/root".into())]);
+    let boot = restore_core(server.api(), None, fragment.clone(), true, &required).unwrap();
+    assert_eq!(boot.resumed, paths(&["/sessions/root"]));
+    assert!(boot.restored.is_empty());
+    assert!(boot.startup.is_none());
+    assert_eq!(spaces.active_layout(), &fragment);
+    assert!(!spaces.contains("chat:/sessions/root"));
+}
+
+#[test]
+fn codex_restart_resumes_child_and_owner_but_no_inactive_area() {
+    let mut spaces = ChatSpaces::default();
+    spaces.select("chat:/sessions/inactive-core");
+    spaces.select("codex:opaque:inactive");
+    spaces.select("codex:opaque:root");
+    let mut layout = spaces.active_layout().clone();
+    layout.open("codex:opaque:child", |_| false);
+    layout.open("files:src/main.rs", |_| false);
+    spaces.save_active(layout);
+    let boot = boot_spaces_with(
+        &codex_options(),
+        spaces,
+        |_| panic!("Inactive Core area must not launch Core"),
+        |_, _| Ok(codex_peer_many(&["opaque:child", "opaque:root"], false)),
+    )
+    .unwrap();
+    assert!(boot.api.is_none());
+    assert!(boot.restored.is_empty());
+    assert_eq!(
+        boot.codex_opened
+            .iter()
+            .map(|opened| opened.metadata.id.as_str())
+            .collect::<Vec<_>>(),
+        ["opaque:child", "opaque:root"]
+    );
+}
+
+#[test]
+fn visible_owner_is_subscribed_once_even_when_it_is_also_command_target() {
+    let mut spaces = ChatSpaces::default();
+    spaces.select("codex:opaque:root");
+    assert_eq!(
+        required_chats_with_owner(spaces.active_layout(), spaces.active_root()),
+        [ChatKey::Codex("opaque:root".into())]
+    );
+}
+
 fn codex_options() -> LaunchOptions {
     LaunchOptions {
         workspace: PathBuf::from(env!("CARGO_MANIFEST_DIR")),
@@ -200,25 +294,33 @@ fn codex_options() -> LaunchOptions {
 
 /// This peer rejects catalog discovery and any unexpected history expansion.
 fn codex_peer(expected_resume: &str, fail: bool) -> CodexService {
+    let expected: Vec<_> = (!expected_resume.is_empty())
+        .then_some(expected_resume)
+        .into_iter()
+        .collect();
+    codex_peer_many(&expected, fail)
+}
+
+fn codex_peer_many(expected_resume: &[&str], fail: bool) -> CodexService {
     const PEER: &str = r#"
 import json,sys
-expected,fail=sys.argv[1],sys.argv[2]=='true'
+expected,fail=json.loads(sys.argv[1]),sys.argv[2]=='true'
 for line in sys.stdin:
     msg=json.loads(line)
     if 'id' not in msg: continue
     method=msg.get('method'); p=msg.get('params',{})
     if method=='initialize': result={}
     elif method=='thread/start':
-        assert expected=='' and p['historyMode']=='paginated'
+        assert not expected and p['historyMode']=='paginated'
         result={'thread':{'id':'opaque:own-new','cwd':p['cwd'],'status':{'type':'idle'}}}
     elif method=='thread/resume':
-        assert expected and p['threadId']==expected and p['excludeTurns']
+        assert p['threadId'] in expected and p['excludeTurns']
         if fail:
             print(json.dumps({'id':msg['id'],'error':{'code':404,'message':'synthetic missing thread'}}),flush=True)
             continue
-        result={'thread':{'id':expected,'cwd':'/synthetic','status':{'type':'idle'}}}
+        result={'thread':{'id':p['threadId'],'cwd':'/synthetic','status':{'type':'idle'}}}
     elif method=='thread/items/list':
-        assert expected and p['threadId']==expected and p['limit']==50 and p['sortDirection']=='desc'
+        assert p['threadId'] in expected and p['limit']==50 and p['sortDirection']=='desc'
         result={'data':[],'nextCursor':None}
     elif method=='model/list': result={'data':[],'nextCursor':None}
     elif method=='thread/unsubscribe': result={}
@@ -231,7 +333,7 @@ for line in sys.stdin:
         "-u".into(),
         "-c".into(),
         PEER.into(),
-        expected_resume.into(),
+        serde_json::to_string(expected_resume).unwrap(),
         fail.to_string(),
     ];
     CodexService::launch(launch).unwrap()

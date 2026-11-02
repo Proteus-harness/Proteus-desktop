@@ -226,7 +226,7 @@ mod tests {
         prefs.recent.touch(&owner);
         prefs.recent.touch(&other_project);
         prefs.tabs_workspace = TabWorkspace::new(&owner, &launch.target);
-        prefs.tabs.open("chat:project-b-session", |_| false);
+        prefs.tabs.select("chat:project-b-session");
         launch.restore_workspace(&prefs);
         assert_eq!(launch.workspace, Some(owner.clone()));
         assert!(

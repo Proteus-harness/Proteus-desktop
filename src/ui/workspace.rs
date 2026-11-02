@@ -17,9 +17,10 @@ use super::tabs::{SplitResize, TabDrop, TabMotion};
 use crate::api::Api;
 use crate::attention::Tracker;
 use crate::launch::{LaunchOptions, Target};
-use crate::tabs::{PaneId, TabLayout};
+use crate::tabs::{ChatSpaces, PaneId, TabLayout};
 
 mod drivers;
+mod spaces;
 pub(super) mod startup;
 mod windows;
 use startup::{Boot, boot};
@@ -41,6 +42,8 @@ pub struct Workspace {
     pub(super) codex_catalog_loading: bool,
     pub(super) codex_models: Vec<crate::agents::codex::Model>,
     pub(super) layout: TabLayout,
+    pub(super) spaces: ChatSpaces,
+    parked_spaces: HashMap<Option<String>, spaces::SpaceViews>,
     pub(super) windows: WindowGroup,
     pub(super) sessions: Vec<ConversationSummary>,
     /// Prevent duplicate deletes and cancel opens until the driver acknowledges them.
@@ -132,12 +135,13 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> Self {
         let workspace_path = options.workspace.clone();
-        let saved = super::prefs::current(cx).tabs_for(&workspace_path, &options.target);
+        let spaces = super::prefs::current(cx).spaces_for(&workspace_path, &options.target);
+        let saved = spaces.clone();
         let windows = WindowGroup::new(&workspace_path, &options.target);
         let mut workspace = Self::empty(
             workspace_path.clone(),
             options.target.clone(),
-            saved.clone(),
+            spaces,
             windows,
             window,
             cx,
@@ -182,12 +186,13 @@ impl Workspace {
     fn empty(
         workspace_path: PathBuf,
         target: Target,
-        layout: TabLayout,
+        spaces: ChatSpaces,
         windows: WindowGroup,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        windows.register(cx.weak_entity(), layout.clone());
+        let layout = spaces.active_layout().clone();
+        windows.register(cx.weak_entity(), spaces.clone());
         let released = windows.clone();
         let id = cx.entity_id();
         cx.on_release(move |_, cx| released.release(id, cx))
@@ -211,6 +216,8 @@ impl Workspace {
             codex_catalog_loading: false,
             codex_models: Vec::new(),
             layout,
+            spaces,
+            parked_spaces: HashMap::new(),
             windows,
             sessions: Vec::new(),
             deleting_sessions: HashSet::new(),
@@ -286,13 +293,12 @@ impl Workspace {
                 self.status = Status::Ready;
                 self.restore_chats(boot.restored, boot.resumed, window, cx);
                 for opened in boot.codex_opened {
-                    let is_new = !self
-                        .layout
-                        .contains(&crate::tabs::codex(opened.handle.thread_id()));
-                    let id = self.insert_codex_chat(opened, is_new, window, cx);
-                    if !self.layout.contains(&id) {
-                        self.show_tab_in(&id, None, window, cx);
+                    let is_new = self.spaces.active_root().is_none();
+                    if is_new {
+                        let key = crate::tabs::ChatKey::Codex(opened.handle.thread_id().to_owned());
+                        self.select_chat_space(&key, cx);
                     }
+                    self.insert_codex_chat(opened, is_new, window, cx);
                 }
                 let layout = self.tab_layout(cx);
                 self.sync_chats(&layout, cx);

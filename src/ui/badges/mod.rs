@@ -34,7 +34,11 @@ impl Workspace {
                 continue;
             };
             if !self.badges.contains_key(manifest.id) {
-                let view = (badge.build)(Host::new(cx.weak_entity(), manifest.id), window, cx);
+                let view = (badge.build)(
+                    Host::new(cx.weak_entity(), manifest.id).for_command_chat(),
+                    window,
+                    cx,
+                );
                 self.badges.insert(manifest.id, view);
                 changed = true;
             }

@@ -18,7 +18,7 @@ impl Workspace {
     }
 
     pub(super) fn active_project_path(&self) -> &Path {
-        self.project_for_key(self.active_chat_key().as_ref())
+        self.project_for_key(self.space_root_key().as_ref())
     }
 
     /// Open a project's latest main conversation without replacing the
@@ -91,8 +91,8 @@ impl Workspace {
         self.project_for_key(key.as_ref()).to_path_buf()
     }
 
-    /// Starts a chat in `project`. A blank active chat gives way to it, so
-    /// trying folders leaves no empty chats behind.
+    /// Reuse a blank chat in the same project. Another project gets its own
+    /// area: even a message-empty chat may own files and a live terminal.
     pub(super) fn new_chat_in(
         &mut self,
         project: PathBuf,
@@ -122,9 +122,8 @@ impl Workspace {
         if agent == AgentKind::Codex {
             return self.new_codex(project, None, window, cx);
         }
-        let blank = blank.and_then(|(_, key)| key.proteus_dir().map(Path::to_path_buf));
         if project == self.workspace_path {
-            return self.start_chat(None, None, blank, window, cx);
+            return self.start_chat(None, None, window, cx);
         }
         let source = self
             .sessions
@@ -136,21 +135,22 @@ impl Workspace {
             })
             .max_by_key(|summary| summary.updated_at_ms)
             .and_then(|summary| summary.key.proteus_dir().map(Path::to_path_buf));
-        self.start_chat(source, Some(project), blank, window, cx)
+        self.start_chat(source, Some(project), window, cx)
     }
 
     /// Opens a new session with the settings of `source`, or of the server
-    /// when there is none, in `workspace` or the source's folder; `replace`
-    /// is a blank chat to drop.
+    /// when there is none, in `workspace` or the source's folder. Existing
+    /// areas are retained regardless of how many messages they contain.
     fn start_chat(
         &mut self,
         source: Option<PathBuf>,
         workspace: Option<PathBuf>,
-        replace: Option<PathBuf>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.close_settings(cx);
+        let requested = self.layout.clone();
+        let creation = self.begin_chat_creation();
         self.call_in(
             window,
             cx,
@@ -165,9 +165,8 @@ impl Workspace {
                 this.session_projects
                     .insert(opened.session_dir.clone(), opened.workspace_path);
                 this.set_sessions(sessions, cx);
-                this.add_chat(opened.session_dir, None, window, cx);
-                if let Some(dir) = replace {
-                    this.delete_session(ChatKey::Proteus(dir), window, cx);
+                if this.finish_chat_creation(&creation, &requested) {
+                    this.add_chat(opened.session_dir, None, window, cx);
                 }
             },
         );

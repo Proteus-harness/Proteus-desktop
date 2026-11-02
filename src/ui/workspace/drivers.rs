@@ -35,7 +35,7 @@ pub(super) fn core(
 
 impl Workspace {
     pub(in crate::ui) fn core_context(&self) -> bool {
-        !matches!(self.active_chat_key(), Some(crate::tabs::ChatKey::Codex(_)))
+        !matches!(self.space_root_key(), Some(crate::tabs::ChatKey::Codex(_)))
     }
 
     pub(super) fn fail_openings(&mut self, agent: AgentKind, cx: &mut Context<Self>) {
@@ -49,7 +49,7 @@ impl Workspace {
             .collect();
         for id in failed {
             self.opening.remove(&id);
-            self.update_tabs(cx, |tabs| tabs.close(&id));
+            self.fail_chat_resume(&id, "Подключение к агенту недоступно".into(), cx);
         }
         let deleting = self.deleting_sessions.len();
         self.deleting_sessions

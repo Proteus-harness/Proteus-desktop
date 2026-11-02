@@ -1,5 +1,5 @@
-//! Only chats on screen belong to the workspace's startup path. Other saved
-//! tabs keep their place and resume through the normal open-chat path on use.
+//! Only displayed chats, their command target and the selected area's owner
+//! belong to startup. Inactive chat areas resume lazily on selection.
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -11,7 +11,7 @@ use crate::api::Api;
 use crate::connection::{self, BackendGuard};
 use crate::conversations::{AgentKind, ConversationSummary, from_proteus};
 use crate::launch::LaunchOptions;
-use crate::tabs::{self, ChatKey, TabLayout};
+use crate::tabs::{self, ChatKey, ChatSpaces, TabLayout};
 
 #[cfg(test)]
 #[path = "startup/tests.rs"]
@@ -25,7 +25,7 @@ pub(crate) struct Preparation {
 }
 
 impl Preparation {
-    pub(crate) fn launch(launch: &crate::launch::Launch, saved: TabLayout) -> Option<Self> {
+    pub(crate) fn launch(launch: &crate::launch::Launch, saved: ChatSpaces) -> Option<Self> {
         let workspace = launch.workspace.clone()?;
         let options = LaunchOptions {
             workspace: workspace.clone(),
@@ -72,16 +72,28 @@ pub(in crate::ui) fn codex_program() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("codex"))
 }
 
-/// Only the displayed chats and the command target need live subscriptions.
+#[cfg(test)]
 fn required_chats(saved: &TabLayout) -> Vec<ChatKey> {
+    required_chats_with_owner(saved, None)
+}
+
+/// The area owner supplies extension context even when its tab is hidden or
+/// detached. Focusing a child chat must not replace that context after restart.
+fn required_chats_with_owner(saved: &TabLayout, owner: Option<&str>) -> Vec<ChatKey> {
     let active = saved.active_chat(None);
-    saved
+    let mut required: Vec<_> = saved
         .chats()
         .filter(|id| {
             saved.visible().any(|visible| visible == *id) || active.as_deref() == Some(*id)
         })
         .filter_map(tabs::chat_key)
-        .collect()
+        .collect();
+    if let Some(owner) = owner.and_then(tabs::chat_key)
+        && !required.contains(&owner)
+    {
+        required.push(owner);
+    }
+    required
 }
 
 fn needs_core(agent: AgentKind, required: &[ChatKey]) -> bool {
@@ -91,20 +103,46 @@ fn needs_core(agent: AgentKind, required: &[ChatKey]) -> bool {
         || (required.is_empty() && agent == AgentKind::Proteus)
 }
 
-pub(super) fn boot(options: &LaunchOptions, saved: TabLayout) -> Result<Boot> {
-    boot_with(options, saved, connection::connect, |program, cwd| {
+pub(super) fn boot(options: &LaunchOptions, saved: ChatSpaces) -> Result<Boot> {
+    boot_spaces_with(options, saved, connection::connect, |program, cwd| {
         Ok(CodexService::spawn(program, cwd)?)
     })
 }
 
+fn boot_spaces_with(
+    options: &LaunchOptions,
+    saved: ChatSpaces,
+    connect: impl FnOnce(&LaunchOptions) -> Result<(Api, Option<BackendGuard>)>,
+    spawn_codex: impl FnOnce(PathBuf, PathBuf) -> Result<CodexService>,
+) -> Result<Boot> {
+    boot_with_owner(
+        options,
+        saved.active_layout().clone(),
+        saved.active_root(),
+        connect,
+        spawn_codex,
+    )
+}
+
+#[cfg(test)]
 fn boot_with(
     options: &LaunchOptions,
     saved: TabLayout,
     connect: impl FnOnce(&LaunchOptions) -> Result<(Api, Option<BackendGuard>)>,
     spawn_codex: impl FnOnce(PathBuf, PathBuf) -> Result<CodexService>,
 ) -> Result<Boot> {
+    boot_with_owner(options, saved, None, connect, spawn_codex)
+}
+
+fn boot_with_owner(
+    options: &LaunchOptions,
+    saved: TabLayout,
+    owner: Option<&str>,
+    connect: impl FnOnce(&LaunchOptions) -> Result<(Api, Option<BackendGuard>)>,
+    spawn_codex: impl FnOnce(PathBuf, PathBuf) -> Result<CodexService>,
+) -> Result<Boot> {
     let _trace = crate::startup_trace::span("workspace.boot");
-    let required = required_chats(&saved);
+    let required = required_chats_with_owner(&saved, owner);
     let codex_ids: Vec<_> = required
         .iter()
         .filter_map(|key| match key {
@@ -115,7 +153,7 @@ fn boot_with(
     let mut boot = if needs_core(options.agent, &required) {
         let (api, backend) = connect(options)?;
         crate::startup_trace::mark("backend.ready");
-        restore_core(api, backend, saved, codex_ids.is_empty())?
+        restore_core(api, backend, saved, codex_ids.is_empty(), &required)?
     } else {
         Boot {
             api: None,
@@ -175,7 +213,8 @@ fn restore_codex(boot: &mut Boot, service: CodexService, ids: &[&str], cwd: &Pat
 
 #[cfg(test)]
 fn restore(api: Api, backend: Option<BackendGuard>, saved: TabLayout) -> Result<Boot> {
-    restore_core(api, backend, saved, true)
+    let required = required_chats(&saved);
+    restore_core(api, backend, saved, true, &required)
 }
 
 fn restore_core(
@@ -183,17 +222,16 @@ fn restore_core(
     backend: Option<BackendGuard>,
     saved: TabLayout,
     fallback: bool,
+    required: &[ChatKey],
 ) -> Result<Boot> {
     let mut sessions = Vec::new();
     let mut projects = HashMap::new();
-    // Include the command target when the focused tab is a document.
-    let active = saved.active_chat(None);
-    let resumed: Vec<PathBuf> = saved
-        .chats()
-        .filter(|id| {
-            saved.visible().any(|visible| visible == *id) || active.as_deref() == Some(*id)
+    let resumed: Vec<PathBuf> = required
+        .iter()
+        .filter_map(|key| match key {
+            ChatKey::Proteus(dir) => Some(dir.as_path()),
+            ChatKey::Codex(_) => None,
         })
-        .filter_map(tabs::chat_dir)
         .filter_map(|dir| {
             let opened = api.resume(dir).ok()?;
             if opened.session_dir != dir {

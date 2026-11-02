@@ -1,6 +1,6 @@
 // Адаптировано из Zed: crates/title_bar/src/title_bar.rs (render_project_name)
 // и crates/breadcrumbs/src/breadcrumbs.rs (active item context).
-//! The project and command-target chat stay visible when a file has focus.
+//! The project and owning root chat stay visible when a file or child has focus.
 //! These are navigation links, with no second project selection state.
 
 use gpui_kit::assets::IconName as Lucide;
@@ -19,7 +19,7 @@ impl Workspace {
     pub(super) fn render_navigation_context(&self, cx: &mut Context<Self>) -> Div {
         let project = self.active_project_path();
         let path = project.display().to_string();
-        let chat = self.active_chat_key();
+        let chat = self.space_root_key();
         h_flex()
             .min_w_0()
             .gap_0p5()

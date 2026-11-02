@@ -116,7 +116,7 @@ impl Workspace {
 
     fn confirm_delete(&mut self, dir: ChatKey, window: &mut Window, cx: &mut Context<Self>) {
         let title = self.session_title(&dir, cx);
-        let description = match &dir {
+        let mut description = match &dir {
             ChatKey::Codex(_) => format!(
                 "«{title}», его история и дочерние чаты будут удалены с диска. Это нельзя отменить."
             ),
@@ -124,6 +124,15 @@ impl Workspace {
                 format!("«{title}» и вся его история будут удалены с диска. Это нельзя отменить.")
             }
         };
+        if self.spaces.roots().any(|root| root == dir.tab_id())
+            || self
+                .sessions
+                .iter()
+                .any(|row| row.key == dir && row.parent.is_none())
+        {
+            description
+                .push_str("\nЕго рабочая область с вкладками и терминалами также закроется.");
+        }
         let workspace = cx.entity().downgrade();
         window.open_alert_dialog(cx, move |alert, _, _| {
             let (workspace, dir) = (workspace.clone(), dir.clone());

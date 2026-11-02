@@ -290,7 +290,7 @@ impl Workspace {
 
     fn sync_window_title(&mut self, window: &mut Window, cx: &App) {
         let project = chrome::folder_name(self.active_project_path());
-        let title = match self.active_chat_key() {
+        let title = match self.space_root_key() {
             Some(dir) => format!("{} — {project} — Proteus", self.session_title(&dir, cx)),
             None => format!("{project} — Proteus"),
         };

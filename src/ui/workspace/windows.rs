@@ -14,7 +14,7 @@ use gpui_kit::*;
 use super::{Status, Workspace};
 use crate::connection::BackendGuard;
 use crate::preferences::TabWorkspace;
-use crate::tabs::{self, TabLayout};
+use crate::tabs::{self, ChatSpaces, TabLayout};
 use crate::ui::{launcher::Launcher, prefs};
 
 #[derive(Default, Clone)]
@@ -25,7 +25,7 @@ struct Group {
     owner: Option<TabWorkspace>,
     core: Arc<Mutex<Option<CoreConnection>>>,
     codex: Arc<Mutex<Option<CodexService>>>,
-    windows: Vec<(WeakEntity<Workspace>, TabLayout)>,
+    windows: Vec<(WeakEntity<Workspace>, ChatSpaces)>,
     quitting: bool,
 }
 
@@ -37,7 +37,7 @@ impl WindowGroup {
         })))
     }
 
-    pub(super) fn register(&self, view: WeakEntity<Workspace>, layout: TabLayout) {
+    pub(super) fn register(&self, view: WeakEntity<Workspace>, layout: ChatSpaces) {
         self.0.borrow_mut().windows.push((view, layout));
     }
 
@@ -128,8 +128,43 @@ impl WindowGroup {
             .and_then(|core| core.backend)
     }
 
+    /// A successful Core delete addresses the same retained root in every
+    /// native window, including document-only detached fragments.
+    pub(in crate::ui) fn forget_elsewhere(
+        &self,
+        source: EntityId,
+        keys: &std::collections::HashSet<crate::tabs::ChatKey>,
+        cx: &mut App,
+    ) {
+        let views: Vec<_> = self
+            .0
+            .borrow()
+            .windows
+            .iter()
+            .filter(|(view, _)| view.entity_id() != source)
+            .map(|(view, _)| view.clone())
+            .collect();
+        for view in views {
+            let Ok(handle) = view.read_with(cx, |this, _| this.window_handle) else {
+                continue;
+            };
+            handle
+                .update(cx, |_, window, cx| {
+                    view.update(cx, |this, cx| this.forget_chats(keys, window, cx))
+                        .ok();
+                })
+                .ok();
+        }
+    }
+
     pub(in crate::ui) fn all_tabs(&self) -> TabLayout {
-        self.0.borrow().saved_layout().unwrap_or_default()
+        let mut all = TabLayout::default();
+        if let Some(spaces) = self.0.borrow().saved_layout() {
+            for id in spaces.all_tabs() {
+                all.open(id, |_| false);
+            }
+        }
+        all
     }
 
     pub(super) fn watch_backend(
@@ -152,12 +187,28 @@ impl WindowGroup {
         .detach();
     }
 
-    fn other_tab(&self, source: EntityId, id: &str) -> Option<WeakEntity<Workspace>> {
+    fn other_tab(
+        &self,
+        source: EntityId,
+        id: &str,
+        root: Option<&str>,
+    ) -> Option<WeakEntity<Workspace>> {
         self.0
             .borrow()
             .windows
             .iter()
-            .find(|(view, layout)| view.entity_id() != source && layout.contains(id))
+            .find(|(view, spaces)| {
+                view.entity_id() != source
+                    && if tabs::is_chat(id) {
+                        spaces.contains(id)
+                    } else if let Some(root) = root {
+                        spaces
+                            .root_layouts()
+                            .any(|(owner, layout)| owner == root && layout.contains(id))
+                    } else {
+                        spaces.active_root().is_none() && spaces.active_layout().contains(id)
+                    }
+            })
             .map(|(view, _)| view.clone())
     }
 
@@ -201,7 +252,7 @@ impl WindowGroup {
         }
     }
 
-    pub(in crate::ui) fn persist(&self, id: EntityId, layout: &TabLayout, cx: &mut App) {
+    pub(in crate::ui) fn persist(&self, id: EntityId, layout: &ChatSpaces, cx: &mut App) {
         let saved = {
             let mut group = self.0.borrow_mut();
             if let Some((_, saved)) = group
@@ -243,7 +294,7 @@ impl WindowGroup {
 }
 
 impl Group {
-    fn saved_layout(&self) -> Option<TabLayout> {
+    fn saved_layout(&self) -> Option<ChatSpaces> {
         let mut windows = self.windows.iter();
         let mut saved = windows.next()?.1.clone();
         for (_, layout) in windows {
@@ -259,15 +310,26 @@ impl Workspace {
     pub(in crate::ui) fn show_external_tab(&self, id: &str, cx: &mut Context<Self>) -> bool {
         let Some(view) = self
             .windows
-            .other_tab(cx.entity_id(), id)
+            .other_tab(cx.entity_id(), id, self.spaces.active_root())
             .and_then(|view| view.upgrade())
         else {
             return false;
         };
         let handle = view.read(cx).window_handle;
+        let requested_root = self.spaces.active_root().map(str::to_owned);
         handle
             .update(cx, |_, window, cx| {
-                view.update(cx, |this, cx| this.show_tab_in(id, None, window, cx));
+                view.update(cx, |this, cx| {
+                    let root = if tabs::is_chat(id) {
+                        tabs::chat_key(id).map(|key| this.chat_space_root(&key))
+                    } else {
+                        requested_root
+                    };
+                    if let Some(root) = root {
+                        this.select_space_root(&root, cx);
+                    }
+                    this.show_tab_in(id, None, window, cx);
+                });
                 window.activate_window();
             })
             .is_ok()
@@ -297,10 +359,11 @@ impl Workspace {
             self.codex_models.clone(),
         );
         let root_target = target.clone();
+        let mut detached_spaces = ChatSpaces::default();
+        detached_spaces.set_active(self.spaces.active_root(), TabLayout::default());
         let opened = gpui_kit::open_window(crate::window_options(cx), cx, move |window, cx| {
             let view = cx.new(|cx| {
-                let mut workspace =
-                    Self::empty(path, target, TabLayout::default(), group, window, cx);
+                let mut workspace = Self::empty(path, target, detached_spaces, group, window, cx);
                 workspace.api = api;
                 workspace.sessions = sessions;
                 workspace.session_projects = session_projects;

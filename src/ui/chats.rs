@@ -78,7 +78,10 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let key = ChatKey::Proteus(dir.clone());
+        self.select_chat_space(&key, cx);
         let id = self.insert_chat(dir, window, cx);
+        let pane = pane.filter(|pane| self.layout.pane(*pane).is_some());
         self.show_tab_in(&id, pane, window, cx);
     }
 
@@ -98,6 +101,33 @@ impl Workspace {
         self.close_settings(cx);
         let id = key.tab_id();
         if self.show_external_tab(&id, cx) {
+            return;
+        }
+        let switched = self.select_chat_space(&key, cx);
+        if let Some(root) = self.spaces.active_root().and_then(tabs::chat_key)
+            && root != key
+            && !self.chats.contains_key(&root.tab_id())
+        {
+            self.ensure_chat(root, window, cx);
+        }
+        // Re-entering an area restores its document/pane focus. A click on
+        // the already displayed root still returns directly to that chat.
+        if switched && self.spaces.active_root() == Some(id.as_str()) {
+            if !self.layout.contains(&id) {
+                self.show_tab(
+                    &id,
+                    OpenDocument {
+                        preview: false,
+                        focus: open.focus,
+                    },
+                    window,
+                    cx,
+                );
+            }
+            if !self.chats.contains_key(&id) {
+                self.resume_key(key, None, window, cx);
+            }
+            self.focus_active(window, cx);
             return;
         }
         if self.chats.contains_key(&id) {
@@ -162,15 +192,14 @@ impl Workspace {
             cx,
             move |api| Ok(api.resume(&dir)),
             move |this, resumed, window, cx| {
-                let Some(open) = pending::take(&mut this.opening, &id, &pending, &this.layout)
+                let Some(open) = pending::take(&mut this.opening, &id, &pending, &this.spaces)
                 else {
                     return;
                 };
                 let opened = match resumed {
                     Ok(opened) => opened,
                     Err(error) => {
-                        this.update_tabs(cx, |tabs| tabs.close(&id));
-                        return this.report(format!("{error:#}"), cx);
+                        return this.fail_chat_resume(&id, format!("{error:#}"), cx);
                     }
                 };
                 this.session_projects
@@ -193,6 +222,18 @@ impl Workspace {
             return;
         };
         if self.deleting_sessions.contains(&key) {
+            return;
+        }
+        if self.spaces.active_root() != Some(self.chat_space_root(&key).as_str()) {
+            self.open_chat(
+                key,
+                OpenDocument {
+                    preview: false,
+                    focus: true,
+                },
+                window,
+                cx,
+            );
             return;
         }
         self.update_tabs(cx, |tabs| tabs.restore_closed(&closed));
@@ -222,6 +263,7 @@ impl Workspace {
     ) {
         let layout = self.tab_layout(cx);
         self.sync_chats(&layout, cx);
+        cx.emit(HostEvent::ContextChanged);
         if pending::may_focus(
             &layout,
             id,
@@ -294,13 +336,13 @@ impl Workspace {
         );
     }
 
-    fn begin_chat_creation(&mut self) -> Rc<()> {
+    pub(super) fn begin_chat_creation(&mut self) -> Rc<()> {
         let ticket = Rc::new(());
         self.creating_chat = Some(ticket.clone());
         ticket
     }
 
-    fn finish_chat_creation(&mut self, ticket: &Rc<()>, requested: &TabLayout) -> bool {
+    pub(super) fn finish_chat_creation(&mut self, ticket: &Rc<()>, requested: &TabLayout) -> bool {
         pending::take_creation(&mut self.creating_chat, ticket)
             && self.settings.is_none()
             && &self.layout == requested
@@ -377,7 +419,10 @@ impl Workspace {
     ) {
         match event {
             ChatEvent::SessionStateChanged | ChatEvent::SessionEntriesChanged(_) => {
-                if self.active_chat_view() != Some(chat) {
+                if self.active_chat_view() != Some(chat)
+                    && self.space_root_chat_view() != Some(chat)
+                    && !self.spaces.roots().any(|root| root == tab)
+                {
                     return;
                 }
                 if !chat.read(cx).supports_core() {
@@ -411,7 +456,9 @@ impl Workspace {
                 if matches!(tabs::chat_key(tab), Some(ChatKey::Codex(_))) {
                     self.refresh_codex_sessions(cx);
                 }
-                if self.active_chat_view() == Some(chat) {
+                if self.active_chat_view() == Some(chat)
+                    || self.space_root_chat_view() == Some(chat)
+                {
                     cx.emit(HostEvent::RunSettled);
                 }
             }
@@ -525,7 +572,8 @@ impl Workspace {
     /// Drops chats whose tabs closed and follows the layout to the active
     /// chat; extensions reread the session when it changes.
     pub(super) fn sync_chats(&mut self, layout: &TabLayout, cx: &mut Context<Self>) {
-        self.chats.retain(|id, _| layout.contains(id));
+        self.chats
+            .retain(|id, _| self.spaces.contains(id) || self.spaces.roots().any(|root| root == id));
         self.release_hidden_chat_activities(layout, cx);
         // A load owns its subscription until its acknowledgement arrives.
         // A quick reopen must reuse it instead of registering the same thread

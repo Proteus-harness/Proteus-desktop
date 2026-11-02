@@ -16,6 +16,7 @@ mod ops;
 mod pane;
 mod pins;
 mod size;
+mod spaces;
 mod tree;
 mod windows;
 
@@ -27,6 +28,7 @@ pub use identity::{ChatKey, chat_key, codex};
 pub use layout::TabLayout;
 pub use pane::Pane;
 pub use size::Size;
+pub use spaces::ChatSpaces;
 pub use tree::{Axis, Edge, Node, PaneId};
 
 /// Prefix of chat tab ids.

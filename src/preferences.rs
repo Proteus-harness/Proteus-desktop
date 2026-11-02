@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::recent::RecentWorkspaces;
 use crate::sessions::SessionMarks;
 use crate::shortcuts::Shortcuts;
-use crate::tabs::TabLayout;
+use crate::tabs::{ChatSpaces, TabLayout};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -133,7 +133,7 @@ pub struct Preferences {
     pub extensions: ExtensionPreferences,
     pub catalogs: crate::catalog::Preferences,
     pub sidebar: SidebarPreferences,
-    pub tabs: TabLayout,
+    pub tabs: ChatSpaces,
     pub tabs_workspace: Option<TabWorkspace>,
     pub sessions: SessionMarks,
     pub recent: RecentWorkspaces,
@@ -163,12 +163,18 @@ impl TabWorkspace {
 
 impl Preferences {
     /// Unowned or differently scoped tabs cannot be rehosted into this folder.
+    #[cfg(test)]
     pub fn tabs_for(&self, workspace: &Path, target: &crate::launch::Target) -> TabLayout {
+        self.spaces_for(workspace, target).active_layout().clone()
+    }
+
+    /// Restore all independent chat areas only in their saved server namespace.
+    pub fn spaces_for(&self, workspace: &Path, target: &crate::launch::Target) -> ChatSpaces {
         let owner = TabWorkspace::new(workspace, target);
         if owner.is_some() && owner == self.tabs_workspace {
             self.tabs.clone()
         } else {
-            TabLayout::default()
+            ChatSpaces::default()
         }
     }
 }
@@ -609,27 +615,41 @@ fn parse(text: &str, path: &Path) -> Result<Preferences> {
     Ok(preferences)
 }
 
-/// Upgrade the former tooltip mode only at the saved-file boundary. The public
-/// typed format accepts the current object exclusively and writes no old aliases.
+/// Upgrade previous saved-file shapes at this boundary only. The typed format
+/// accepts current objects exclusively and writes no legacy aliases.
 fn decode_saved(text: &str) -> serde_json::Result<Preferences> {
     let original = match serde_json::from_str(text) {
         Ok(preferences) => return Ok(preferences),
         Err(error) => error,
     };
     let mut value: serde_json::Value = serde_json::from_str(text)?;
-    let mode = value.get("hints").and_then(serde_json::Value::as_str);
-    let (title, description, shortcut) = match mode {
-        Some("full") => (TitleHint::Clipped, true, true),
-        Some("description") => (TitleHint::Clipped, true, false),
-        Some("keys") => (TitleHint::Never, false, true),
-        Some("off") => (TitleHint::Never, false, false),
-        _ => return Err(original),
-    };
-    value["hints"] = serde_json::to_value(Hints {
-        title,
-        description,
-        shortcut,
-    })?;
+    let mut upgraded = false;
+    if let Some(mode) = value.get("hints").and_then(serde_json::Value::as_str) {
+        let (title, description, shortcut) = match mode {
+            "full" => (TitleHint::Clipped, true, true),
+            "description" => (TitleHint::Clipped, true, false),
+            "keys" => (TitleHint::Never, false, true),
+            "off" => (TitleHint::Never, false, false),
+            _ => return Err(original),
+        };
+        value["hints"] = serde_json::to_value(Hints {
+            title,
+            description,
+            shortcut,
+        })?;
+        upgraded = true;
+    }
+    if value
+        .get("tabs")
+        .is_some_and(|tabs| tabs.get("root").is_some())
+    {
+        let layout: TabLayout = serde_json::from_value(value["tabs"].take())?;
+        value["tabs"] = serde_json::to_value(ChatSpaces::from_layout(layout))?;
+        upgraded = true;
+    }
+    if !upgraded {
+        return Err(original);
+    }
     serde_json::from_value(value)
 }
 
@@ -660,6 +680,9 @@ pub(crate) fn save_at(preferences: &Preferences, path: &Path) -> Result<()> {
 }
 
 #[cfg(test)]
+mod chat_spaces_tests;
+
+#[cfg(test)]
 mod tests {
     use super::{BadgePlace, ExtensionPreferences, Preferences, SURFACE_RADIUS, ViewPreferences};
 
@@ -674,7 +697,9 @@ mod tests {
             profile: Some("fixture".into()),
         };
         let mut prefs = Preferences::default();
-        prefs.tabs.open("file:relative/source.rs", |_| false);
+        let mut layout = crate::tabs::TabLayout::default();
+        layout.open("file:relative/source.rs", |_| false);
+        prefs.tabs.save_active(layout);
         // Ownerless preferences are not guessed into the current server.
         assert!(
             !prefs

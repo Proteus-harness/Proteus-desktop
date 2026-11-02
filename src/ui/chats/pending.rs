@@ -1,7 +1,7 @@
 //! Loading fills an existing selection; network completion never navigates.
 use std::{cell::Cell, collections::HashMap, rc::Rc};
 
-use crate::tabs::TabLayout;
+use crate::tabs::{ChatSpaces, TabLayout};
 
 /// Consume only this load's acknowledgement. An old request of the same
 /// thread cannot consume a newer request or restore a tab the user closed.
@@ -9,7 +9,7 @@ pub(super) fn take<T: Copy>(
     opening: &mut HashMap<String, Rc<Cell<T>>>,
     id: &str,
     pending: &Rc<Cell<T>>,
-    layout: &TabLayout,
+    spaces: &ChatSpaces,
 ) -> Option<T> {
     if !opening
         .get(id)
@@ -18,7 +18,7 @@ pub(super) fn take<T: Copy>(
         return None;
     }
     opening.remove(id);
-    layout.contains(id).then(|| pending.get())
+    (spaces.contains(id) || spaces.roots().any(|root| root == id)).then(|| pending.get())
 }
 
 pub(super) fn may_focus(
@@ -57,9 +57,25 @@ mod tests {
         ]);
         layout.open("codex:a", |_| false);
         layout.open("codex:b", |_| false);
-        assert_eq!(take(&mut opening, "codex:b", &second, &layout), Some(true));
+        assert_eq!(
+            take(
+                &mut opening,
+                "codex:b",
+                &second,
+                &ChatSpaces::from_layout(layout.clone())
+            ),
+            Some(true)
+        );
         assert!(may_focus(&layout, "codex:b", false, true));
-        assert_eq!(take(&mut opening, "codex:a", &first, &layout), Some(true));
+        assert_eq!(
+            take(
+                &mut opening,
+                "codex:a",
+                &first,
+                &ChatSpaces::from_layout(layout.clone())
+            ),
+            Some(true)
+        );
         assert!(!may_focus(&layout, "codex:a", false, true));
         assert_eq!(layout.active(layout.focused), Some("codex:b"));
     }
@@ -76,7 +92,15 @@ mod tests {
             } else {
                 layout.open_preview("codex:b", |_| false);
             }
-            assert_eq!(take(&mut opening, "codex:a", &pending, &layout), None);
+            assert_eq!(
+                take(
+                    &mut opening,
+                    "codex:a",
+                    &pending,
+                    &ChatSpaces::from_layout(layout.clone())
+                ),
+                None
+            );
             assert!(opening.is_empty());
             assert!(!layout.contains("codex:a"));
         }
@@ -89,11 +113,36 @@ mod tests {
         let old = Rc::new(Cell::new(true));
         let replacement = Rc::new(Cell::new(false));
         let mut opening = HashMap::from([("codex:a".into(), replacement.clone())]);
-        assert_eq!(take(&mut opening, "codex:a", &old, &layout), None);
         assert_eq!(
-            take(&mut opening, "codex:a", &replacement, &layout),
+            take(
+                &mut opening,
+                "codex:a",
+                &old,
+                &ChatSpaces::from_layout(layout.clone())
+            ),
+            None
+        );
+        assert_eq!(
+            take(
+                &mut opening,
+                "codex:a",
+                &replacement,
+                &ChatSpaces::from_layout(layout.clone())
+            ),
             Some(false)
         );
+    }
+
+    #[test]
+    fn background_area_reply_fills_original_tab_without_focus() {
+        let mut spaces = ChatSpaces::default();
+        spaces.select("codex:a");
+        spaces.select("codex:b");
+        let pending = Rc::new(Cell::new(true));
+        let mut opening = HashMap::from([("codex:a".into(), pending.clone())]);
+        assert_eq!(take(&mut opening, "codex:a", &pending, &spaces), Some(true));
+        assert!(!may_focus(spaces.active_layout(), "codex:a", false, true));
+        assert_eq!(spaces.active_root(), Some("codex:b"));
     }
 
     #[test]

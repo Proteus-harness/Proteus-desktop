@@ -91,7 +91,10 @@ impl Workspace {
             move |this, (opened, models), window, cx| {
                 this.codex_models = models;
                 if this.finish_chat_creation(&creation, &requested_layout) {
+                    let key = ChatKey::Codex(opened.handle.thread_id().to_owned());
+                    this.select_chat_space(&key, cx);
                     let id = this.insert_codex_chat(opened, true, window, cx);
+                    let pane = pane.filter(|pane| this.layout.pane(*pane).is_some());
                     this.show_tab_in(&id, pane, window, cx);
                 } else {
                     // Creation still succeeds, but a newer destination wins.
@@ -132,15 +135,14 @@ impl Workspace {
                     .and_then(|opened| Ok((opened, service.models()?))))
             },
             move |this, result, window, cx| {
-                let Some(open) = pending::take(&mut this.opening, &id, &pending, &this.layout)
+                let Some(open) = pending::take(&mut this.opening, &id, &pending, &this.spaces)
                 else {
                     return;
                 };
                 let (opened, models) = match result {
                     Ok(result) => result,
                     Err(error) => {
-                        this.update_tabs(cx, |tabs| tabs.close(&id));
-                        return this.report(format!("Codex: {error:#}"), cx);
+                        return this.fail_chat_resume(&id, format!("Codex: {error:#}"), cx);
                     }
                 };
                 this.codex_models = models;
@@ -198,7 +200,12 @@ impl Workspace {
 
     fn forget_chat(&mut self, key: ChatKey, window: &mut Window, cx: &mut Context<Self>) {
         super::super::prefs::update(cx, |prefs| prefs.sessions.forget(&key));
-        self.forget_chats(&[key].into_iter().collect(), window, cx);
+        let core = matches!(key, ChatKey::Proteus(_));
+        let keys = [key].into_iter().collect();
+        self.forget_chats(&keys, window, cx);
+        if core {
+            self.windows.forget_elsewhere(cx.entity_id(), &keys, cx);
+        }
     }
 
     pub(in crate::ui) fn forget_chats(
@@ -210,20 +217,20 @@ impl Workspace {
         self.session_catalog_epoch = self.session_catalog_epoch.wrapping_add(1);
         self.deleting_sessions.retain(|key| !keys.contains(key));
         let layout = self.tab_layout(cx);
-        let was_active = layout
-            .active(layout.focused)
+        let was_active = self
+            .spaces
+            .active_root()
             .and_then(tabs::chat_key)
-            .is_some_and(|key| keys.contains(&key));
+            .is_some_and(|key| keys.contains(&key))
+            || layout
+                .active(layout.focused)
+                .and_then(tabs::chat_key)
+                .is_some_and(|key| keys.contains(&key));
         self.sessions.retain(|summary| !keys.contains(&summary.key));
         self.opening
             .retain(|id, _| tabs::chat_key(id).is_none_or(|key| !keys.contains(&key)));
-        if keys.iter().any(|key| self.layout.contains(&key.tab_id())) {
-            self.update_tabs(cx, |layout| {
-                for key in keys {
-                    layout.extract(&key.tab_id());
-                }
-            });
-        }
+        let ids = keys.iter().map(ChatKey::tab_id).collect();
+        self.remove_space_chats(&ids, cx);
         if was_active && self.settings.is_none() {
             self.focus_active(window, cx);
         }

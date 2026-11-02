@@ -28,9 +28,13 @@ pub(in crate::ui) struct Host {
     extension: &'static str,
     /// A retained content view belongs to its original chat, even in a background tab.
     bound: Option<(WeakEntity<Chat>, ChatKey)>,
-    /// A document-only detached window keeps its originating session until
-    /// the destination explicitly chooses a chat. This is weak, never a pump.
+    /// A detached document can read its own root chat from another window.
+    /// Dynamic panels never use this as a fallback when no space is selected.
     inherited: Option<(WeakEntity<Chat>, ChatKey)>,
+    /// A retained document keeps its root while another space is displayed.
+    space: Option<ChatKey>,
+    /// Composer controls follow the currently addressed chat, including a child.
+    command_chat: bool,
     runtime_scope: RuntimeScope,
 }
 
@@ -55,6 +59,10 @@ impl Host {
         }
         let id = crate::tabs::document(self.extension, argument);
         let _ = self.workspace.update(cx, |workspace, cx| {
+            if let Some(root) = &self.space {
+                workspace.set_document_title_for_space(root, &id, title, cx);
+                return;
+            }
             if workspace
                 .document_titles
                 .get(&id)
@@ -120,19 +128,11 @@ impl Host {
         if !self.runtime_scope.lifetime.session() || !self.supports_core(cx) {
             return None;
         }
-        let session = self
-            .bound
-            .as_ref()
-            .and_then(|(_, key)| key.proteus_dir().map(std::path::Path::to_path_buf));
         let host = self.clone();
         Some(cx.subscribe(
             &self.workspace.upgrade()?,
             move |this, _, event: &super::session::SessionChanged, cx| {
-                if host.supports_core(cx)
-                    && session
-                        .as_ref()
-                        .is_none_or(|session| *session == event.session_dir)
-                {
+                if host.session_dir(cx).as_ref() == Some(&event.session_dir) {
                     on_event(this, event, cx)
                 }
             },
@@ -143,12 +143,19 @@ impl Host {
             .as_ref()
             .map_or_else(|| self.workspace.entity_id(), |(chat, _)| chat.entity_id())
     }
-    /// Window-scoped protocol context. Bound content has a separate runtime
-    /// per chat, while retaining the chat's own session across tab changes.
+    /// Retained documents use a stable context inside the shared process;
+    /// panels follow the displayed space, composer controls the command chat,
+    /// and bound content its own chat.
     pub(in crate::ui) fn scope(&self) -> String {
-        self.runtime_scope
-            .context()
-            .unwrap_or_else(|| self.workspace.entity_id().to_string())
+        self.runtime_scope.context().unwrap_or_else(|| {
+            let context =
+                space_context(self.workspace.entity_id().to_string(), self.space.as_ref());
+            if self.command_chat {
+                format!("{context}:command")
+            } else {
+                context
+            }
+        })
     }
 
     pub(in crate::ui) fn runtime_scope(&self) -> RuntimeScope {
@@ -165,6 +172,8 @@ impl Host {
         self.runtime_scope = RuntimeScope::isolated(lifetime);
         self.bound = None;
         self.inherited = None;
+        self.space = None;
+        self.command_chat = false;
         self
     }
 
@@ -177,7 +186,8 @@ impl Host {
 
     pub(in crate::ui) fn inherit(&mut self, source: Option<(WeakEntity<Chat>, ChatKey)>) {
         if self.bound.is_none() {
-            self.inherited = source;
+            self.inherited =
+                source.filter(|(_, key)| self.space.as_ref().is_none_or(|root| root == key));
         }
     }
 
@@ -190,18 +200,29 @@ impl Host {
         }
         let workspace = self.workspace.upgrade()?;
         let workspace = workspace.read(cx);
-        if let (Some(chat), Some(key)) = (workspace.active_chat_view(), workspace.active_chat_key())
-        {
-            return Some((chat.downgrade(), key));
+        if let Some(root) = self.context_key(|| {
+            self.dynamic_key(
+                || workspace.space_root_key(),
+                || workspace.active_chat_key(),
+            )
+        }) {
+            return workspace
+                .chats
+                .get(&root.tab_id())
+                .map(|chat| (chat.view.downgrade(), root.clone()))
+                .or_else(|| self.inherited_root(&root).cloned());
         }
-        self.inherited.clone()
+        None
     }
+
     pub(in crate::ui) fn new(workspace: WeakEntity<Workspace>, extension: &'static str) -> Self {
         Self {
             workspace,
             extension,
             bound: None,
             inherited: None,
+            space: None,
+            command_chat: false,
             runtime_scope: RuntimeScope {
                 content_only: super::find(extension)
                     .is_some_and(|manifest| !manifest.requires_core),
@@ -213,6 +234,29 @@ impl Host {
     pub(in crate::ui) fn for_chat(mut self, chat: WeakEntity<Chat>, key: ChatKey) -> Self {
         self.runtime_scope.content_only |= key.proteus_dir().is_none();
         self.bound = Some((chat, key));
+        self.space = None;
+        self.command_chat = false;
+        self
+    }
+
+    /// Pin a document to its root without creating another extension process.
+    /// An isolated/local host retains its narrower runtime capabilities.
+    pub(in crate::ui) fn for_space(mut self, root: ChatKey) -> Self {
+        self.runtime_scope.content_only |= root.proteus_dir().is_none();
+        self.space = Some(root);
+        self.bound = None;
+        self.inherited = None;
+        self.command_chat = false;
+        self
+    }
+
+    /// Composer badges address the same dynamic chat as the input, without
+    /// allocating another process or borrowing a currently rendering Chat.
+    pub(in crate::ui) fn for_command_chat(mut self) -> Self {
+        self.command_chat = true;
+        self.bound = None;
+        self.space = None;
+        self.inherited = None;
         self
     }
 
@@ -239,12 +283,22 @@ impl Host {
         }
         let workspace = self.workspace.upgrade()?;
         let workspace = workspace.read(cx);
-        let key = self
-            .bound
-            .as_ref()
-            .map(|(_, key)| key.clone())
-            .or_else(|| workspace.active_chat_key())
-            .or_else(|| self.inherited.as_ref().map(|(_, key)| key.clone()));
+        let key = self.context_key(|| {
+            self.dynamic_key(
+                || workspace.space_root_key(),
+                || workspace.active_chat_key(),
+            )
+        });
+        if self.space.is_some()
+            && !key.as_ref().is_some_and(|key| {
+                key.proteus_dir()
+                    .is_some_and(|dir| workspace.session_projects.contains_key(dir))
+                    || workspace.sessions.iter().any(|summary| &summary.key == key)
+            })
+        {
+            // Late metadata can fill this in; another displayed folder cannot.
+            return None;
+        }
         Some(workspace.project_for_key(key.as_ref()).to_path_buf())
     }
 
@@ -252,17 +306,9 @@ impl Host {
         if !self.runtime_scope.lifetime.session() {
             return None;
         }
+        let chat = self.chat(cx);
         let workspace = self.workspace.upgrade()?.read(cx);
-        let bound_chat = self.bound.as_ref().and_then(|(chat, _)| chat.upgrade());
-        let inherited_chat = self.inherited.as_ref().and_then(|(chat, _)| chat.upgrade());
-        let chat = if self.bound.is_some() {
-            bound_chat.as_ref().map(|chat| chat.read(cx))
-        } else {
-            workspace
-                .active_chat_view()
-                .or(inherited_chat.as_ref())
-                .map(|chat| chat.read(cx))
-        };
+        let chat = chat.as_ref().map(|chat| chat.read(cx));
         Some(read(&HostView { workspace, chat }))
     }
 
@@ -312,11 +358,21 @@ impl Host {
             return chat.upgrade();
         }
         let workspace = self.workspace.upgrade()?;
-        workspace
-            .read(cx)
-            .active_chat_view()
-            .cloned()
-            .or_else(|| self.inherited.as_ref()?.0.upgrade())
+        let workspace = workspace.read(cx);
+        if let Some(root) = &self.space {
+            return workspace
+                .chats
+                .get(&root.tab_id())
+                .map(|chat| chat.view.clone())
+                .or_else(|| self.inherited_root(root)?.0.upgrade());
+        }
+        if self.command_chat {
+            return workspace.active_chat_view().cloned();
+        }
+        if workspace.space_root_key().is_some() {
+            return workspace.space_root_chat_view().cloned();
+        }
+        None
     }
 
     /// Core capability is attached to the addressed conversation, not the
@@ -335,31 +391,56 @@ impl Host {
     /// Immutable host identity is safe to inspect while its Chat is rendering.
     /// Do not route metadata reads through Host::read: that leases the Chat again.
     pub(in crate::ui) fn session_dir(&self, cx: &App) -> Option<PathBuf> {
-        self.context_session(|| self.workspace.upgrade()?.read(cx).active_chat_key())
+        self.context_session(|| {
+            let workspace = self.workspace.upgrade()?;
+            let workspace = workspace.read(cx);
+            self.dynamic_key(
+                || workspace.space_root_key(),
+                || workspace.active_chat_key(),
+            )
+        })
     }
 
     fn context_session(&self, active: impl FnOnce() -> Option<ChatKey>) -> Option<PathBuf> {
         if !self.runtime_scope.lifetime.session() || self.runtime_scope.content_only {
             return None;
         }
-        if let Some((_, key)) = &self.bound {
-            return key
-                .proteus_dir()
-                .map(std::path::Path::to_path_buf)
-                .and_then(nonempty_session);
-        }
-        match active() {
-            Some(key) => key
-                .proteus_dir()
-                .map(std::path::Path::to_path_buf)
-                .and_then(nonempty_session),
-            None => self
-                .inherited
-                .as_ref()
-                .and_then(|(_, key)| key.proteus_dir())
-                .map(std::path::Path::to_path_buf)
-                .and_then(nonempty_session),
-        }
+        self.context_key(active)?
+            .proteus_dir()
+            .map(std::path::Path::to_path_buf)
+            .and_then(nonempty_session)
+    }
+
+    fn context_key(&self, active: impl FnOnce() -> Option<ChatKey>) -> Option<ChatKey> {
+        self.bound
+            .as_ref()
+            .map(|(_, key)| key.clone())
+            .or_else(|| self.space.clone())
+            .or_else(active)
+    }
+
+    /// Keep selection lazy: querying a bound/local host never reads another
+    /// chat, and an empty command target never falls back to the area's root.
+    fn dynamic_key(
+        &self,
+        root: impl FnOnce() -> Option<ChatKey>,
+        command: impl FnOnce() -> Option<ChatKey>,
+    ) -> Option<ChatKey> {
+        if self.command_chat { command() } else { root() }
+    }
+
+    fn inherited_root(&self, root: &ChatKey) -> Option<&(WeakEntity<Chat>, ChatKey)> {
+        self.space
+            .as_ref()
+            .filter(|fixed| *fixed == root)
+            .and_then(|_| self.inherited.as_ref())
+            .filter(|(_, key)| key == root)
+    }
+
+    fn displays_space(&self, workspace: &Workspace) -> bool {
+        self.space
+            .as_ref()
+            .is_none_or(|root| workspace.space_root_key().as_ref() == Some(root))
     }
 
     pub(in crate::ui) fn active_document(&self, cx: &App) -> Option<String> {
@@ -367,7 +448,11 @@ impl Host {
             return None;
         }
         let workspace = self.workspace.upgrade()?;
-        let layout = workspace.read(cx).tab_layout(cx);
+        let workspace = workspace.read(cx);
+        if !self.displays_space(workspace) {
+            return None;
+        }
+        let layout = workspace.tab_layout(cx);
         let (owner, argument) = crate::tabs::split_document(layout.active(layout.focused)?)?;
         (owner == self.extension).then(|| argument.to_string())
     }
@@ -410,7 +495,9 @@ impl Host {
         let id = crate::tabs::document(extension, argument);
         self.workspace
             .update(cx, |workspace, cx| {
-                workspace.open_document(&id, open, window, cx)
+                self.displays_space(workspace)
+                    .then(|| workspace.open_document(&id, open, window, cx))
+                    .flatten()
             })
             .ok()
             .flatten()
@@ -423,9 +510,18 @@ impl Host {
         }
         self.workspace
             .update(cx, |workspace, cx| {
-                workspace.activate_extension(id, window, cx)
+                if self.displays_space(workspace) {
+                    workspace.activate_extension(id, window, cx)
+                }
             })
             .ok();
+    }
+}
+
+fn space_context(workspace: String, root: Option<&ChatKey>) -> String {
+    match root {
+        Some(root) => format!("{workspace}:space:{}", root.tab_id()),
+        None => workspace,
     }
 }
 
@@ -434,120 +530,7 @@ fn nonempty_session(session: PathBuf) -> Option<PathBuf> {
 }
 
 #[cfg(test)]
-mod isolated_tests {
-    use super::{Host, Lifetime};
-    use crate::tabs::ChatKey;
-    use gpui_kit::WeakEntity;
-
-    #[test]
-    fn local_manifest_scope_cannot_be_widened_by_binding_a_core_chat() {
-        let mut host = Host::new(WeakEntity::new_invalid(), "local-test");
-        // The same scope set by Host::new from dependencies.core=false.
-        host.runtime_scope.content_only = true;
-        let bound = host.for_chat(
-            WeakEntity::new_invalid(),
-            ChatKey::Proteus("/sessions/core".into()),
-        );
-        assert!(bound.runtime_scope().content_only);
-        assert_eq!(
-            bound.context_session(|| panic!("local host read active chat")),
-            None
-        );
-        let child = bound.with_extension("core-required-child");
-        assert_eq!(
-            child.context_session(|| panic!("child widened local host")),
-            None
-        );
-        assert!(child.runtime_scope().content_only);
-    }
-
-    #[test]
-    fn external_bound_context_cannot_fall_back_to_a_core_directory() {
-        let host = Host::new(WeakEntity::new_invalid(), "renderer").for_chat(
-            WeakEntity::new_invalid(),
-            ChatKey::Codex("opaque:codex".into()),
-        );
-        assert!(host.runtime_scope().content_only);
-        assert_eq!(
-            host.context_session(|| panic!("bound Codex metadata read workspace/chat")),
-            None
-        );
-        let (server, _) = host.runtime_scope().connection(
-            || panic!("Codex content read Core credentials"),
-            || Some("/project".into()),
-        );
-        let server = server.unwrap();
-        assert!(server.token.is_empty());
-        assert!(server.origin.is_empty());
-    }
-
-    #[test]
-    fn retained_bound_and_inherited_directories_survive_the_chat_entity() {
-        let mut inherited = Host::new(WeakEntity::new_invalid(), "files");
-        inherited.inherit(Some((
-            WeakEntity::new_invalid(),
-            ChatKey::Proteus("/sessions/b".into()),
-        )));
-        assert_eq!(
-            inherited.context_session(|| None),
-            Some("/sessions/b".into())
-        );
-        assert_eq!(
-            inherited.context_session(|| Some(ChatKey::Proteus("/sessions/a".into()))),
-            Some("/sessions/a".into())
-        );
-
-        assert_eq!(
-            inherited.context_session(|| Some(ChatKey::Codex("active:external".into()))),
-            None,
-            "active external driver must suppress an inherited Core directory"
-        );
-
-        let bound = inherited.for_chat(
-            WeakEntity::new_invalid(),
-            ChatKey::Proteus("/sessions/bound".into()),
-        );
-        assert_eq!(
-            bound.context_session(|| panic!("bound Core metadata read workspace/chat")),
-            Some("/sessions/bound".into())
-        );
-        assert_eq!(
-            bound.context_session(|| Some(ChatKey::Proteus("/sessions/a".into()))),
-            Some("/sessions/bound".into())
-        );
-    }
-
-    #[test]
-    fn content_inline_and_rehost_clones_cannot_escape_the_view_owner() {
-        for lifetime in [Lifetime::Settings, Lifetime::Preview] {
-            let production = Host::new(WeakEntity::new_invalid(), "renderer");
-            assert!(production.retains_process());
-            let parent = production.clone().isolated(lifetime);
-            let child = parent.with_extension("nested-renderer");
-            let inline = child
-                .clone()
-                .with_extension("inline-renderer")
-                .rehost(WeakEntity::new_invalid());
-            for host in [&parent, &child, &inline] {
-                assert_eq!(host.runtime_scope(), parent.runtime_scope());
-                assert_eq!(host.scope(), parent.scope());
-                assert!(
-                    !host.retains_process(),
-                    "nested runtime entered Workspace.extension_processes"
-                );
-                assert!(host.runtime_scope().lifetime.allowed(false));
-                host.runtime_scope().connection(
-                    || panic!("nested host accessed production server"),
-                    || panic!("nested host accessed production folder"),
-                );
-            }
-            assert_ne!(
-                parent.runtime_scope().owner,
-                production.isolated(lifetime).runtime_scope().owner
-            );
-        }
-    }
-}
+mod tests;
 
 /// How [`Host::open_document`] shows a document.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

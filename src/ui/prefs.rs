@@ -261,7 +261,7 @@ mod tests {
         let before = Preferences::default();
         let mut after = before.clone();
         after.preferred_agent = crate::conversations::AgentKind::Codex;
-        after.tabs.open("codex:thread-fixture", |_| false);
+        after.tabs.select("codex:thread-fixture");
         after.tabs_workspace = Some(crate::preferences::TabWorkspace {
             workspace: "/fixture".into(),
             profile: None,
