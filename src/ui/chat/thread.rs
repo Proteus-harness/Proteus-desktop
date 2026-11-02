@@ -102,7 +102,19 @@ impl Chat {
         if chain_tail && (!chain_open || chain_moving) {
             return div().into_any_element();
         }
-        let missing = self.sent_images.missing(&entry.images);
+        let image_edge = super::images::thumbnail_edge(window, cx);
+        let missing = self
+            .api
+            .as_ref()
+            .map(|api| {
+                self.sent_images.missing(
+                    &entry.images,
+                    api.connection_id(),
+                    &self.session.dir,
+                    image_edge,
+                )
+            })
+            .unwrap_or_default();
         let expanded = self.expanded.contains(&entry.key);
         let full = [0, 1].map(|part| self.full_blocks.contains(&(entry.key, part)));
         let fresh = self.fresh_rows.is_fresh(entry.key);
@@ -186,7 +198,7 @@ impl Chat {
             (Role::System, None, None) => render_note(entry, cx),
         };
         if !missing.is_empty() {
-            self.fetch_images(missing, cx);
+            self.fetch_images(missing, image_edge, cx);
         }
         h_flex()
             .on_prepaint(|bounds, window, _| {

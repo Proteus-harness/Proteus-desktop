@@ -214,12 +214,26 @@ impl Api {
 
     /// Bytes of an image the session stored, by its `ImageRef::id`.
     pub fn image(&self, session_dir: &Path, id: &str) -> Result<Vec<u8>> {
+        self.image_with_timeout(session_dir, id, Duration::from_secs(30))
+    }
+
+    fn image_with_timeout(
+        &self,
+        session_dir: &Path,
+        id: &str,
+        timeout: Duration,
+    ) -> Result<Vec<u8>> {
+        // The shared thumbnail queue must also recover from a stalled body.
+        // Scope this deadline to images: the SSE stream remains long-lived.
         let response = self
             .agent
             .get(format!("{}/image", self.origin))
             .header("Authorization", format!("Bearer {}", self.token))
             .query("session_dir", session_dir.to_string_lossy())
             .query("path", id)
+            .config()
+            .timeout_global(Some(timeout))
+            .build()
             .call()?;
         let status = response.status();
         if !status.is_success() {
@@ -410,5 +424,57 @@ mod connection_identity_tests {
         let second = Api::new("http://localhost:1", "synthetic");
         assert_eq!(first.connection_id(), first.clone().connection_id());
         assert_ne!(first.connection_id(), second.connection_id());
+    }
+}
+
+#[cfg(test)]
+mod image_tests {
+    use super::Api;
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpListener;
+    use std::path::Path;
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn deadline_covers_stalled_image_body_without_changing_agent_defaults() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let (release, wait) = mpsc::channel();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            loop {
+                line.clear();
+                request.read_line(&mut line).unwrap();
+                if line == "\r\n" || line.is_empty() {
+                    break;
+                }
+            }
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\nx")
+                .unwrap();
+            // Leave the body incomplete until the client finishes or the
+            // bounded fallback exposes a missing body deadline.
+            let _ = wait.recv_timeout(Duration::from_secs(5));
+        });
+        let mut api = Api::new(&origin, "synthetic");
+        api.agent = ureq::Agent::config_builder().proxy(None).build().into();
+        let start = Instant::now();
+        let result = api.image_with_timeout(
+            Path::new("synthetic-session"),
+            "synthetic-image",
+            Duration::from_millis(150),
+        );
+        let elapsed = start.elapsed();
+        let _ = release.send(());
+        server.join().unwrap();
+        assert!(result.is_err(), "incomplete image body must fail");
+        assert!(
+            elapsed < Duration::from_secs(3),
+            "deadline did not release the request: {elapsed:?}"
+        );
+        assert_eq!(api.agent.config().timeouts().global, None);
     }
 }

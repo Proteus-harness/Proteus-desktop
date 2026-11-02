@@ -5537,6 +5537,7 @@ dependencies = [
  "async-channel",
  "chrono",
  "gpui-kit",
+ "image",
  "libc",
  "naga",
  "proteus-client-common",

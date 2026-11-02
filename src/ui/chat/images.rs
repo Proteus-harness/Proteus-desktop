@@ -1,30 +1,68 @@
-//! Images of sent messages, fetched from the session's image store the first
-//! time their row is shown. Thumbnails keep one size while they load, so a
-//! row never changes its measured height.
+//! Sent-message previews have fixed UI geometry, bounded native bitmaps and
+//! application-wide fetch/decode admission. Encoded originals never enter GPUI.
+mod cache;
+mod decode;
+mod schedule;
 
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Weak};
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::*;
 use gpui_kit::*;
-use proteus_contracts::domain::{ImageRef, image_mime_type};
+use proteus_contracts::domain::ImageRef;
 
 use super::Chat;
 use crate::ui::prefs;
 use crate::ui::tip::Tip as _;
 
 const THUMB: f32 = 96.;
+static NEXT_TICKET: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Key {
+    connection: u64,
+    dir: PathBuf,
+    id: String,
+    edge: u32,
+}
 
 enum Stored {
     Loading,
-    Ready(Arc<Image>),
+    Waiting,
+    Ready(Weak<cache::Bitmap>),
     Failed(SharedString),
+}
+
+struct Slot {
+    key: Key,
+    ticket: u64,
+    owner: Arc<()>,
+    state: Stored,
+}
+
+impl Slot {
+    fn matches(&self, key: &Key, ticket: u64) -> bool {
+        self.key == *key && self.ticket == ticket && matches!(self.state, Stored::Loading)
+    }
+}
+
+#[derive(Default)]
+struct Shared {
+    cache: cache::Cache,
+    queue: schedule::Queue,
+}
+
+thread_local! {
+    static SHARED: RefCell<Shared> = RefCell::default();
 }
 
 #[derive(Default)]
 pub(super) struct SentImages {
-    by_id: HashMap<String, Stored>,
+    by_id: HashMap<String, Slot>,
 }
 
 impl SentImages {
@@ -34,55 +72,104 @@ impl SentImages {
             .flat_map(|row| row.images.iter().map(|image| image.id.as_str()))
             .collect();
         self.by_id.retain(|id, _| ids.contains(id.as_str()));
+        SHARED.with(|shared| shared.borrow_mut().cache.prune());
     }
 
-    /// Images of a row that were never requested.
-    pub fn missing(&self, images: &[ImageRef]) -> Vec<String> {
-        images
-            .iter()
-            .filter(|image| !self.by_id.contains_key(&image.id))
-            .map(|image| image.id.clone())
-            .collect()
+    pub(super) fn missing(
+        &mut self,
+        images: &[ImageRef],
+        connection: u64,
+        dir: &std::path::Path,
+        edge: u32,
+    ) -> Vec<String> {
+        let mut missing = Vec::new();
+        for image in images {
+            let key = Key {
+                connection,
+                dir: dir.into(),
+                id: image.id.clone(),
+                edge,
+            };
+            if self
+                .by_id
+                .get(&image.id)
+                .is_some_and(|slot| slot.key != key)
+            {
+                self.by_id.remove(&image.id);
+            }
+            if let Some(slot) = self.by_id.get_mut(&image.id) {
+                if let Some(image) =
+                    SHARED.with(|shared| shared.borrow_mut().cache.get(&key, &slot.owner))
+                {
+                    slot.state = Stored::Ready(Arc::downgrade(&image));
+                    continue;
+                }
+                if !matches!(&slot.state, Stored::Ready(_) | Stored::Waiting) {
+                    continue;
+                }
+                // Cache ownership is authoritative. A previous frame or deferred
+                // atlas cleanup can still hold a strong Arc after eviction; do
+                // not render that unowned bitmap and re-upload it into the atlas.
+                slot.state = Stored::Loading;
+            }
+            missing.push(image.id.clone());
+        }
+        SHARED.with(|shared| shared.borrow_mut().cache.prune());
+        missing
+    }
+}
+
+impl Drop for SentImages {
+    fn drop(&mut self) {
+        self.by_id.clear();
+        let _ = SHARED.try_with(|shared| {
+            if let Ok(mut shared) = shared.try_borrow_mut() {
+                shared.cache.prune();
+            }
+        });
     }
 }
 
 impl Chat {
-    pub(super) fn fetch_images(&mut self, ids: Vec<String>, cx: &mut Context<Self>) {
-        let Some(api) = self.api.clone() else {
-            return;
-        };
+    pub(super) fn fetch_images(&mut self, ids: Vec<String>, edge: u32, cx: &mut Context<Self>) {
+        let Some(api) = &self.api else { return };
         for id in ids {
-            self.sent_images.by_id.insert(id.clone(), Stored::Loading);
-            let (api, dir) = (api.clone(), self.session.dir.clone());
-            cx.spawn(async move |this, cx| {
-                let request = id.clone();
-                let fetched = cx
-                    .background_executor()
-                    .spawn(async move { api.image(&dir, &request) })
-                    .await;
-                let stored = match fetched {
-                    Ok(bytes) => {
-                        match image_mime_type(&bytes).and_then(ImageFormat::from_mime_type) {
-                            Some(format) => {
-                                Stored::Ready(Arc::new(Image::from_bytes(format, bytes)))
-                            }
-                            None => Stored::Failed("неизвестный формат".into()),
-                        }
-                    }
-                    Err(error) => Stored::Failed(format!("{error:#}").into()),
-                };
-                this.update(cx, |this, cx| {
-                    // A page may have been evicted while the image was loading.
-                    if let Some(slot) = this.sent_images.by_id.get_mut(&id) {
-                        *slot = stored;
-                    }
-                    cx.notify();
-                })
-                .ok();
-            })
-            .detach();
+            let key = Key {
+                connection: api.connection_id(),
+                dir: self.session.dir.clone(),
+                id: id.clone(),
+                edge,
+            };
+            let ticket = NEXT_TICKET.fetch_add(1, Ordering::Relaxed);
+            let owner = Arc::new(());
+            let request = schedule::Request {
+                chat: cx.entity().downgrade(),
+                owner: Arc::downgrade(&owner),
+                key: key.clone(),
+                ticket,
+            };
+            let accepted = SHARED.with(|shared| shared.borrow_mut().queue.push(request));
+            self.sent_images.by_id.insert(
+                id,
+                Slot {
+                    key,
+                    ticket,
+                    owner,
+                    state: if accepted {
+                        Stored::Loading
+                    } else {
+                        Stored::Waiting
+                    },
+                },
+            );
         }
+        // Defer: the current Chat is borrowed while a row is rendering.
+        cx.defer(schedule::drain);
     }
+}
+
+pub(super) fn thumbnail_edge(window: &Window, cx: &App) -> u32 {
+    decode::edge(window.scale_factor() * prefs::scale(cx))
 }
 
 pub(super) fn render_sent_images(
@@ -101,15 +188,20 @@ pub(super) fn render_sent_images(
             .flex_none()
             .rounded(theme.radius)
             .bg(theme.muted);
-        match store.by_id.get(&image.id) {
-            Some(Stored::Ready(bytes)) => frame
+        match store.by_id.get(&image.id).map(|slot| &slot.state) {
+            Some(Stored::Ready(bitmap)) if bitmap.strong_count() > 0 => frame
                 .tip_text(image.name.clone())
-                .child(
-                    img(bytes.clone())
+                .child({
+                    let bitmap = bitmap.clone();
+                    // Retained elements hold only the cache lifetime token's
+                    // Weak, so an old row cannot resurrect an evicted atlas.
+                    img(move |_: &mut Window, _: &mut App| render_bitmap(&bitmap).map(Ok))
+                        // GPUI keeps frame timing only for stateful images.
+                        .id("bitmap")
                         .size_full()
                         .rounded(theme.radius)
-                        .object_fit(ObjectFit::Cover),
-                )
+                        .object_fit(ObjectFit::Cover)
+                })
                 .into_any_element(),
             Some(Stored::Failed(reason)) => frame
                 .tip_text(format!("{}: {reason}", image.name))
@@ -122,7 +214,7 @@ pub(super) fn render_sent_images(
                         .text_color(theme.muted_foreground),
                 )
                 .into_any_element(),
-            Some(Stored::Loading) | None => frame.into_any_element(),
+            _ => frame.into_any_element(),
         }
     });
     Some(
@@ -134,3 +226,10 @@ pub(super) fn render_sent_images(
             .into_any_element(),
     )
 }
+
+fn render_bitmap(bitmap: &Weak<cache::Bitmap>) -> Option<Arc<RenderImage>> {
+    bitmap.upgrade().map(|bitmap| bitmap.image())
+}
+
+#[cfg(test)]
+mod tests;
