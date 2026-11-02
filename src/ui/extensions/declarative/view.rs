@@ -26,6 +26,12 @@ pub(super) struct WillResize;
 
 impl EventEmitter<WillResize> for DeclarativeView {}
 
+#[derive(Clone, Copy)]
+pub(super) enum Reset {
+    Restart,
+    Stop,
+}
+
 pub(super) struct DeclarativeView {
     runtime: Entity<Runtime>,
     view: String,
@@ -305,7 +311,7 @@ impl DeclarativeView {
         self.runtime.read(cx).popup_closed(&self.view)
     }
 
-    pub(super) fn reset(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn reset(&mut self, reset: Reset, cx: &mut Context<Self>) {
         self.root = None;
         self.preparation = Preparation::default();
         self.failure = None;
@@ -315,9 +321,17 @@ impl DeclarativeView {
         self.presentation = None;
         self.action_sequence = 0;
         self.resize_on_reply = false;
-        // Shells outlive a restarted process: the next tree with the same
-        // terminal id picks its PTY up again, and pruning drops the rest.
-        let terminals = std::mem::take(&mut self.fields.terminals);
+        // Only a restart may reconnect the same native PTY. On disable/removal
+        // stop it explicitly: a hidden retained element can still own its Entity.
+        let terminals = match reset {
+            Reset::Restart => std::mem::take(&mut self.fields.terminals),
+            Reset::Stop => {
+                for terminal in self.fields.terminals.values() {
+                    terminal.update(cx, |terminal, cx| terminal.stop(cx));
+                }
+                HashMap::new()
+            }
+        };
         self.fields = super::fields::Fields::default();
         self.fields.terminals = terminals;
         self.steps.clear();

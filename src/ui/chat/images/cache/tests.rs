@@ -1,4 +1,5 @@
 use super::*;
+use gpui_kit::RenderImage;
 
 fn key(id: usize) -> Key {
     Key {

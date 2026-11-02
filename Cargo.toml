@@ -63,6 +63,7 @@ uuid = { version = "1", features = ["v4"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
+gpui = { package = "gpui-fast", version = "=0.1.12", default-features = false, features = ["test-support"] }
 naga = { version = "=30.0.1", features = ["wgsl-in"] }
 
 [profile.release]

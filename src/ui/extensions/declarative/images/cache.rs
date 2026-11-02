@@ -1,4 +1,6 @@
-//! One UI-thread LRU owns bitmap Arcs; view-local maps only hold Weak values.
+//! One UI-thread LRU owns managed bitmap tokens; canvases hold Weak owners.
+//! Eviction drops the LRU lease; the last cache/painted-scene lease schedules
+//! atlas cleanup. Raw pixels alone cannot revive the managed lifetime.
 use std::collections::VecDeque;
 use std::sync::{Arc, Weak};
 
@@ -31,7 +33,7 @@ impl<K, V> Default for Cache<K, V> {
 }
 
 impl<K: Eq, V: Clone> Cache<K, V> {
-    fn prune(&mut self) {
+    pub(super) fn prune(&mut self) {
         for entry in &mut self.entries {
             entry.owners.retain(|owner| owner.strong_count() > 0);
         }
@@ -90,15 +92,9 @@ impl<K: Eq, V: Clone> Cache<K, V> {
         self.source_bytes += source_bytes;
     }
 
-    pub fn retain_owner(&mut self, owner: &Arc<()>, keep: impl Fn(&K) -> bool) {
-        for entry in &mut self.entries {
-            if !keep(&entry.key) {
-                entry
-                    .owners
-                    .retain(|previous| previous.as_ptr() != Arc::as_ptr(owner));
-            }
-        }
-        self.prune();
+    #[cfg(test)]
+    pub(super) fn usage(&self) -> (usize, u64, usize) {
+        (self.entries.len(), self.pixels, self.source_bytes)
     }
 }
 
@@ -128,9 +124,11 @@ mod tests {
         let mut cache = Cache::default();
         cache.insert("old-dpi", 1, 100, 1, &first);
         assert_eq!(cache.get(&"old-dpi", &second), Some(1));
-        cache.retain_owner(&first, |_| false);
+        drop(first);
+        cache.prune();
         assert_eq!(cache.entries.len(), 1);
-        cache.retain_owner(&second, |_| false);
+        drop(second);
+        cache.prune();
         assert_eq!(cache.pixels, 0);
         assert!(cache.entries.is_empty());
     }

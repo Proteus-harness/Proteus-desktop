@@ -22,6 +22,7 @@ mod panels;
 mod picker;
 mod prefs;
 mod projects;
+mod render_image;
 mod reorder;
 mod search;
 mod selection;

@@ -71,6 +71,16 @@ impl TerminalView {
         self.focus.clone()
     }
 
+    /// Release the PTY even if a cached element still holds this entity.
+    pub(super) fn stop(&mut self, cx: &mut Context<Self>) {
+        self._tasks.clear();
+        self.state = State::Exited;
+        self.cwd = None;
+        self.notice = None;
+        self.area.set(None);
+        cx.notify();
+    }
+
     fn start(&mut self, grid: Grid, cx: &mut Context<Self>) {
         let Some(cwd) = self.cwd.clone() else {
             return;

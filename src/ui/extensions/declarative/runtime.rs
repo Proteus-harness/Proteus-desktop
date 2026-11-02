@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use gpui_kit::*;
 
-use super::view::DeclarativeView;
+use super::view::{DeclarativeView, Reset};
 use crate::declarative::manifest::Installed;
 use crate::declarative::presentation::Presentation;
 use crate::declarative::process::{Process, Signal};
@@ -93,7 +93,7 @@ impl Runtime {
                         }
                     }
                 } else {
-                    this.stop(cx);
+                    this.stop(Reset::Stop, cx);
                 }
             }),
         }
@@ -151,13 +151,15 @@ impl Runtime {
 
     pub(super) fn send(&self, message: &Outgoing) {
         if let Some(process) = &self.process {
-            process.send(message);
+            // Transport failure is also delivered through the priority pump;
+            // it closes the process and reports the error to every surface.
+            let _ = process.send(message);
         }
     }
 
     /// Starts the process again, e.g. after the user fixed it.
     pub(super) fn restart(&mut self, cx: &mut Context<Self>) {
-        self.stop(cx);
+        self.stop(Reset::Restart, cx);
         self.error = None;
         self.start(cx);
         cx.notify();
@@ -178,7 +180,18 @@ impl Runtime {
             .map(|scope| scope.host.clone())
             .unwrap_or_else(|| self.host.clone());
         let this = cx.weak_entity();
+        let generation = self.generation;
         cx.defer(move |cx| {
+            // Disable/removal/restart can retire a scheduled launch before
+            // this callback runs. Do not read the old host or revive its process.
+            let allowed = this
+                .update(cx, |this, _| {
+                    this.generation == generation && this.error.is_none()
+                })
+                .unwrap_or(false);
+            if !allowed {
+                return;
+            }
             let (server, workspace) = host.runtime_scope().connection(
                 || {
                     host.api(cx).map(|api| Server {
@@ -188,7 +201,11 @@ impl Runtime {
                 },
                 || host.workspace_path(cx),
             );
-            let _ = this.update(cx, |this, cx| this.launch(server, workspace, cx));
+            let _ = this.update(cx, |this, cx| {
+                if this.generation == generation && this.error.is_none() {
+                    this.launch(server, workspace, cx);
+                }
+            });
         });
     }
 
@@ -197,7 +214,14 @@ impl Runtime {
         if current.is_some_and(|extension| std::ptr::eq(extension, self.extension)) {
             return;
         }
-        self.stop(cx);
+        self.stop(
+            if current.is_some() {
+                Reset::Restart
+            } else {
+                Reset::Stop
+            },
+            cx,
+        );
         match current {
             Some(extension) => {
                 self.extension = extension;
@@ -229,7 +253,7 @@ impl Runtime {
         };
         match Process::spawn(self.extension) {
             Ok((process, signals)) => {
-                process.send(&Outgoing::Hello {
+                if let Err(error) = process.send(&Outgoing::Hello {
                     protocol: PROTOCOL,
                     features: crate::declarative::protocol::FEATURES
                         .iter()
@@ -237,15 +261,24 @@ impl Runtime {
                         .collect(),
                     workspace,
                     server,
-                });
+                }) {
+                    self.error = Some(format!("{error:#}"));
+                    cx.notify();
+                    return;
+                }
                 self.process = Some(process);
                 let contexts: Vec<_> = self.scopes.keys().cloned().collect();
                 for context in contexts {
                     self.announce_scope(&context, cx);
                 }
                 self._pump = Some(cx.spawn(async move |this, cx| {
-                    while let Ok(signal) = signals.recv().await {
-                        if this.update(cx, |this, cx| this.handle(signal, cx)).is_err() {
+                    while let Ok(delivery) = signals.recv().await {
+                        if this
+                            .update(cx, |this, cx| {
+                                delivery.with_signal(|signal| this.handle(signal, cx))
+                            })
+                            .is_err()
+                        {
                             break;
                         }
                     }
@@ -339,7 +372,7 @@ impl Runtime {
         }
     }
 
-    fn stop(&mut self, cx: &mut Context<Self>) {
+    fn stop(&mut self, reset: Reset, cx: &mut Context<Self>) {
         self.generation += 1;
         self.settings.clear();
         self.popup_closed += 1;
@@ -348,7 +381,7 @@ impl Runtime {
         self.reset_scopes();
         for attached in self.views.values() {
             if let Some(view) = attached.view.upgrade() {
-                view.update(cx, |view, cx| view.reset(cx));
+                view.update(cx, |view, cx| view.reset(reset, cx));
             }
         }
         for attached in self.views.values_mut() {

@@ -37,12 +37,18 @@ impl DeclarativeView {
         if self.preparation.for_frame(self.root_revision, scale).images {
             self.images.rasterize(&root, scale, cx);
         }
-        let image = self.images.get(source, *width, *height, cx)?;
+        let image = self.images.get(source, *width, *height)?;
         let element = gpui_kit::base::text::InlineElement::new(
-            img(image)
+            image
+                .element(
+                    ElementId::NamedChild(
+                        Arc::new(ElementId::View(cx.entity_id())),
+                        "inline-svg".into(),
+                    ),
+                    cx.entity_id(),
+                )
                 .w(px(geometry.width))
-                .h(px(geometry.height))
-                .object_fit(ObjectFit::Contain),
+                .h(px(geometry.height)),
         );
         Some(match geometry.baseline {
             Some(baseline) => element.with_baseline(px(baseline)),

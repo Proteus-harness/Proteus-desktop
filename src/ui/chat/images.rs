@@ -17,6 +17,7 @@ use proteus_contracts::domain::ImageRef;
 
 use super::Chat;
 use crate::ui::prefs;
+use crate::ui::render_image::load as render_bitmap;
 use crate::ui::tip::Tip as _;
 
 const THUMB: f32 = 96.;
@@ -104,12 +105,20 @@ impl SentImages {
                     slot.state = Stored::Ready(Arc::downgrade(&image));
                     continue;
                 }
+                if let Stored::Ready(bitmap) = &slot.state
+                    && bitmap
+                        .upgrade()
+                        .is_some_and(|bitmap| bitmap.has_scene_lease())
+                {
+                    // Replayed GPUI scenes keep their bitmap safe after LRU
+                    // eviction; reloading would also reset GIF frame timing.
+                    continue;
+                }
                 if !matches!(&slot.state, Stored::Ready(_) | Stored::Waiting) {
                     continue;
                 }
-                // Cache ownership is authoritative. A previous frame or deferred
-                // atlas cleanup can still hold a strong Arc after eviction; do
-                // not render that unowned bitmap and re-upload it into the atlas.
+                // A raw frame/deferred cleanup Arc has no scene lease and
+                // cannot make an evicted bitmap safe to upload again.
                 slot.state = Stored::Loading;
             }
             missing.push(image.id.clone());
@@ -188,22 +197,31 @@ pub(super) fn render_sent_images(
             .flex_none()
             .rounded(theme.radius)
             .bg(theme.muted);
-        match store.by_id.get(&image.id).map(|slot| &slot.state) {
-            Some(Stored::Ready(bitmap)) if bitmap.strong_count() > 0 => frame
+        match store
+            .by_id
+            .get(&image.id)
+            .map(|slot| (&slot.key, &slot.state))
+        {
+            Some((key, Stored::Ready(bitmap))) if bitmap.strong_count() > 0 => frame
                 .tip_text(image.name.clone())
                 .child({
-                    let bitmap = bitmap.clone();
-                    // Retained elements hold only the cache lifetime token's
-                    // Weak, so an old row cannot resurrect an evicted atlas.
-                    img(move |_: &mut Window, _: &mut App| render_bitmap(&bitmap).map(Ok))
-                        // GPUI keeps frame timing only for stateful images.
-                        .id("bitmap")
-                        .size_full()
-                        .rounded(theme.radius)
-                        .object_fit(ObjectFit::Cover)
+                    let source = bitmap.clone();
+                    let image =
+                        img(move |_: &mut Window, _: &mut App| render_bitmap(&source).map(Ok))
+                            // GPUI keeps frame timing only for stateful images.
+                            .id("bitmap")
+                            .size_full()
+                            .rounded(theme.radius)
+                            .object_fit(ObjectFit::Cover);
+                    crate::ui::render_image::retain(
+                        "bitmap-lease",
+                        key.clone(),
+                        bitmap.clone(),
+                        image,
+                    )
                 })
                 .into_any_element(),
-            Some(Stored::Failed(reason)) => frame
+            Some((_, Stored::Failed(reason))) => frame
                 .tip_text(format!("{}: {reason}", image.name))
                 .flex()
                 .items_center()
@@ -225,10 +243,6 @@ pub(super) fn render_sent_images(
             .children(thumbs)
             .into_any_element(),
     )
-}
-
-fn render_bitmap(bitmap: &Weak<cache::Bitmap>) -> Option<Arc<RenderImage>> {
-    bitmap.upgrade().map(|bitmap| bitmap.image())
 }
 
 #[cfg(test)]

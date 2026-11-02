@@ -351,12 +351,12 @@ impl DeclarativeView {
             } => div()
                 .w_full()
                 .min_w_0()
-                .children(self.images.get(source, *width, *height, cx).map(|image| {
-                    img(image)
+                .children(self.images.get(source, *width, *height).map(|image| {
+                    image
+                        .element(format!("svg-{path}"), cx.entity_id())
                         .w(prefs::scaled(*width))
                         .h(prefs::scaled(*height))
                         .max_w_full()
-                        .object_fit(ObjectFit::Contain)
                 }))
                 .into_any_element(),
             Node::RichText { id, .. } => self
