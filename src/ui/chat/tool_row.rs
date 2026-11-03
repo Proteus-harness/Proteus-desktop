@@ -30,9 +30,9 @@ pub(in crate::ui) fn tool_args(tool: &AppTranscriptTool) -> &Value {
     tool.effective_args.as_ref().unwrap_or(&tool.args)
 }
 
-pub(super) fn status_icon(status: &str, cx: &App) -> AnyElement {
+pub(super) fn status_icon(status: &str, connected: bool, cx: &App) -> AnyElement {
     let theme = cx.theme();
-    match status {
+    match display_status(status, connected) {
         "done" => Icon::new(IconName::Check)
             .xsmall()
             .text_color(theme.success)
@@ -46,11 +46,22 @@ pub(super) fn status_icon(status: &str, cx: &App) -> AnyElement {
             .text_color(theme.warning)
             .into_any_element(),
         status if is_running(status) => Spinner::new().xsmall().into_any_element(),
-        // Interrupted, canceled or unknown: nothing will finish it any more.
+        // Settled or unconfirmed state does not animate.
         _ => Icon::new(Lucide::CircleStop)
             .xsmall()
             .text_color(theme.muted_foreground)
             .into_any_element(),
+    }
+}
+
+/// A lost stream cannot confirm whether a pending call is still running.
+/// Only presentation pauses: reconnect restores the authoritative status,
+/// including children that may outlive the root run.
+fn display_status(status: &str, connected: bool) -> &str {
+    if !connected && (is_running(status) || status == "waiting_approval") {
+        "unknown"
+    } else {
+        status
     }
 }
 
@@ -60,11 +71,21 @@ pub(super) fn is_running(status: &str) -> bool {
 
 /// One-line headline: status, canonical tool name and patch stats. Parameters
 /// belong to the hover preview and expanded details, not permanent row width.
-pub(super) fn tool_line(tool: &AppTranscriptTool, cx: &App) -> Div {
-    line_with_name(tool, div().min_w_0().child(faded(tool.name.clone())), cx)
+pub(super) fn tool_line(tool: &AppTranscriptTool, connected: bool, cx: &App) -> Div {
+    line_with_name(
+        tool,
+        div().min_w_0().child(faded(tool.name.clone())),
+        connected,
+        cx,
+    )
 }
 
-fn line_with_name(tool: &AppTranscriptTool, name: impl IntoElement, cx: &App) -> Div {
+fn line_with_name(
+    tool: &AppTranscriptTool,
+    name: impl IntoElement,
+    connected: bool,
+    cx: &App,
+) -> Div {
     let stats = (tool.name == tool_display::APPLY_PATCH)
         .then(|| tool_display::patch_text(tool_args(tool)))
         .flatten()
@@ -73,7 +94,7 @@ fn line_with_name(tool: &AppTranscriptTool, name: impl IntoElement, cx: &App) ->
         .gap_2()
         .text_sm()
         .min_w_0()
-        .child(status_icon(&tool.status, cx))
+        .child(status_icon(&tool.status, connected, cx))
         .child(name)
         .children(
             stats
@@ -93,6 +114,7 @@ pub(super) fn render_tool(
     full: [bool; 2],
     diff: Option<Entity<crate::ui::diff::DiffView>>,
     external_clip: bool,
+    connected: bool,
     cx: &mut Context<Chat>,
 ) -> AnyElement {
     let muted = cx.theme().muted_foreground;
@@ -131,7 +153,7 @@ pub(super) fn render_tool(
         key,
         tool.call_id.clone(),
     );
-    let header = line_with_name(tool, name, cx)
+    let header = line_with_name(tool, name, connected, cx)
         .id(row_id("tool", key))
         .disclosure(cx)
         .child(chevron(row_id("tool-chevron", key), expanded, muted))
@@ -434,4 +456,22 @@ pub(super) fn plan_list(steps: &[PlanStep], cx: &App) -> Div {
 
 pub(super) fn code_block(id: ElementId, text: String, cx: &App) -> Div {
     kit::code_surface(cx).child(SelectableText::new(id, text))
+}
+
+#[cfg(test)]
+mod status_tests {
+    use super::display_status;
+
+    #[test]
+    fn disconnected_pending_calls_are_unknown_and_reconnect_restores_their_status() {
+        for canonical in ["running", "approved", "waiting_approval"] {
+            assert_eq!(display_status(canonical, false), "unknown");
+            assert_eq!(display_status(canonical, true), canonical);
+        }
+        // A lost connection cannot rewrite already confirmed outcomes either.
+        for canonical in ["done", "failed", "denied", "interrupted", "canceled"] {
+            assert_eq!(display_status(canonical, false), canonical);
+            assert_eq!(display_status(canonical, true), canonical);
+        }
+    }
 }

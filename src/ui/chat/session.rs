@@ -25,6 +25,8 @@ pub(in crate::ui) struct Session {
     pub pending: Option<AppPendingRequests>,
     pub connected: bool,
     pub link_error: Option<SharedString>,
+    /// This session's server closed its stream; the shared Core may still live.
+    stream_closed: bool,
     pub config: Option<ConfigSummary>,
     pub context: Option<ContextUsage>,
     pub(super) root_thread: Option<ThreadId>,
@@ -53,6 +55,7 @@ impl Session {
             pending: None,
             connected: false,
             link_error: None,
+            stream_closed: false,
             config: None,
             context: None,
             root_thread: None,
@@ -65,6 +68,31 @@ impl Session {
         self.external
             .as_ref()
             .map_or_else(|| self.execution.active.is_some(), |state| state.running())
+    }
+
+    pub(super) fn stream_connected(&mut self) {
+        self.cursor.begin_connection();
+        self.pending_cursor.begin_connection();
+        self.connected = true;
+        self.link_error = None;
+        self.stream_closed = false;
+    }
+
+    pub(super) fn stream_disconnected(&mut self, error: String) {
+        self.feedback.clear_activity();
+        self.connected = false;
+        self.link_error = Some(error.into());
+        self.stream_closed = false;
+    }
+
+    /// Shutdown belongs to one session stream, including deletion of an open
+    /// session. It is not evidence that the shared backend process has died.
+    pub(super) fn stream_shutdown(&mut self) {
+        self.feedback.clear_activity();
+        self.connected = false;
+        self.link_error = None;
+        self.stream_closed = true;
+        self.pending = None;
     }
 
     /// A baseline can confirm settlement of a run this chat actually observed.
@@ -157,6 +185,9 @@ impl Session {
 
     pub fn state(&self) -> ChatState {
         if !self.connected {
+            if self.stream_closed {
+                return ChatState::Trouble("Сессия закрыта");
+            }
             if self.external.is_some() {
                 return ChatState::Trouble("Codex отключён");
             }

@@ -488,11 +488,6 @@ impl Workspace {
                 }
             }
             ChatEvent::Sent => self.keep_tab(tab, cx),
-            ChatEvent::ServerStopped { connection } => {
-                let group = self.windows.clone();
-                let connection = *connection;
-                cx.defer(move |cx| group.server_stopped(connection, "Proteus Core остановлен", cx));
-            }
         }
         cx.notify();
     }

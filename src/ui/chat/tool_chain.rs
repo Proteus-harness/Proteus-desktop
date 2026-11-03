@@ -51,6 +51,7 @@ pub(super) fn render_chain_header(
     head: u64,
     tools: &[&AppTranscriptTool],
     open: bool,
+    connected: bool,
     cx: &mut Context<Chat>,
 ) -> AnyElement {
     let theme = cx.theme();
@@ -70,7 +71,7 @@ pub(super) fn render_chain_header(
         .text_sm()
         .min_w_0()
         .disclosure(cx)
-        .child(status_icon(chain_status(tools), cx))
+        .child(status_icon(chain_status(tools), connected, cx))
         .child(
             div()
                 .flex_none()

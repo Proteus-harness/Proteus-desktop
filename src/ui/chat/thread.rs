@@ -158,7 +158,8 @@ impl Chat {
                         .iter()
                         .filter_map(|entry| entry.tool.as_ref())
                         .collect();
-                    let header = render_chain_header(key, &tools, chain_open, cx);
+                    let header =
+                        render_chain_header(key, &tools, chain_open, self.session.connected, cx);
                     let calls = if chain_moving {
                         let run = self.render_run(chain.clone(), cx);
                         motion::reveal_at(
@@ -177,6 +178,7 @@ impl Chat {
                                 full,
                                 self.tool_diffs.get(&entry.key).cloned(),
                                 false,
+                                self.session.connected,
                                 cx,
                             );
                             div().pt_1().child(tool).into_any_element()
@@ -191,10 +193,13 @@ impl Chat {
                     full,
                     self.tool_diffs.get(&entry.key).cloned(),
                     false,
+                    self.session.connected,
                     cx,
                 ),
             },
-            (Role::System, None, Some(agent)) => render_subagent(entry.key, agent, expanded, cx),
+            (Role::System, None, Some(agent)) => {
+                render_subagent(entry.key, agent, expanded, self.session.connected, cx)
+            }
             (Role::System, None, None) => render_note(entry, cx),
         };
         if !missing.is_empty() {
@@ -250,6 +255,7 @@ impl Chat {
                 full,
                 self.tool_diffs.get(&entry.key).cloned(),
                 true,
+                self.session.connected,
                 cx,
             ));
             block = block.child(if n == 0 { call.pt_1() } else { call.pt(gap) });
@@ -433,6 +439,7 @@ fn render_subagent(
     key: u64,
     agent: &AppTranscriptSubagent,
     expanded: bool,
+    connected: bool,
     cx: &mut Context<Chat>,
 ) -> AnyElement {
     let theme = cx.theme();
@@ -455,7 +462,7 @@ fn render_subagent(
             .gap_1()
             .children(agent.tools.iter().map(|tool| {
                 super::tool_hint::row(
-                    tool_line(tool, app).id(SharedString::from(format!(
+                    tool_line(tool, connected, app).id(SharedString::from(format!(
                         "subagent-tool-{key}-{}",
                         tool.call_id
                     ))),
@@ -476,7 +483,7 @@ fn render_subagent(
                 .gap_2()
                 .text_sm()
                 .disclosure(cx)
-                .child(status_icon(status, cx))
+                .child(status_icon(status, connected, cx))
                 .child(Icon::new(IconName::Bot).small())
                 .child(div().flex_none().font_semibold().child(agent.role.clone()))
                 .child(

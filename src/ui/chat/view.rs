@@ -36,7 +36,7 @@ impl Render for Chat {
             this.render_feedback(thinking, cx)
                 .unwrap_or_else(|| div().into_any_element())
         });
-        let running = self.session.running();
+        let running = self.session.connected && self.session.running();
         v_flex()
             .id("chat")
             .size_full()

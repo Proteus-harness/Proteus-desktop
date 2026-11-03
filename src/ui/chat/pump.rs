@@ -12,6 +12,10 @@ use super::{Chat, ChatEvent};
 use crate::connection::PumpItem;
 use crate::transcript::Change;
 
+#[cfg(test)]
+#[path = "pump/tests.rs"]
+mod tests;
+
 /// Streams the session into the chat until the chat is dropped; dropping
 /// the task closes the channel, which stops the stream thread.
 pub(super) fn start(events: async_channel::Receiver<PumpItem>, cx: &mut Context<Chat>) -> Task<()> {
@@ -70,10 +74,7 @@ impl Chat {
                 // Initial setup already starts its own config request.
                 let reconnecting = session.link_error.is_some();
                 self.context_requests.invalidate();
-                session.cursor.begin_connection();
-                session.pending_cursor.begin_connection();
-                session.connected = true;
-                session.link_error = None;
+                session.stream_connected();
                 if reconnecting {
                     self.load_config(cx);
                 }
@@ -81,9 +82,7 @@ impl Chat {
                 true
             }
             PumpItem::Disconnected(error) => {
-                session.feedback.clear_activity();
-                session.connected = false;
-                session.link_error = Some(error.into());
+                session.stream_disconnected(error);
                 cx.emit(ChatEvent::SessionStateChanged);
                 true
             }
@@ -212,12 +211,8 @@ impl Chat {
                 Change::None
             }
             AppServerEvent::Shutdown => {
-                session.feedback.clear_activity();
-                if let Some(api) = &self.api {
-                    cx.emit(ChatEvent::ServerStopped {
-                        connection: api.connection_id(),
-                    });
-                }
+                session.stream_shutdown();
+                self.user_input = Default::default();
                 Change::None
             }
             _ => Change::None,

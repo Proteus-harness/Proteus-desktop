@@ -57,6 +57,19 @@ pub struct ClientPreferences {
 
 impl Global for ClientPreferences {}
 
+/// Headless entity regressions need defaults, not a disk writer or changes to
+/// the user's process-global config environment.
+#[cfg(test)]
+pub(in crate::ui) fn init_in_memory(cx: &mut App) {
+    cx.set_global(ClientPreferences {
+        value: Arc::new(Preferences::default()),
+        writer: None,
+        revision: 0,
+        problem: None,
+        chat_font: None,
+    });
+}
+
 pub fn init(cx: &mut App, loaded: anyhow::Result<Preferences>) {
     let (value, mut problem) = match loaded {
         Ok(value) => (value, None),

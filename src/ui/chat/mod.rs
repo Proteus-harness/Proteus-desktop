@@ -85,10 +85,6 @@ pub(super) enum ChatEvent {
     },
     /// The user sent a message, so the chat is worth keeping open.
     Sent,
-    /// The app server shut down.
-    ServerStopped {
-        connection: u64,
-    },
 }
 
 pub(super) struct Chat {

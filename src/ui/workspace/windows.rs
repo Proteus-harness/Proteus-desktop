@@ -17,6 +17,10 @@ use crate::preferences::TabWorkspace;
 use crate::tabs::{self, ChatSpaces, TabLayout};
 use crate::ui::{launcher::Launcher, prefs};
 
+#[cfg(test)]
+#[path = "windows/tests.rs"]
+mod tests;
+
 #[derive(Default, Clone)]
 pub(in crate::ui) struct WindowGroup(Rc<RefCell<Group>>);
 
@@ -212,7 +216,9 @@ impl WindowGroup {
             .map(|(view, _)| view.clone())
     }
 
-    pub(in crate::ui) fn server_stopped(&self, connection: u64, report: &str, cx: &mut App) {
+    // Only the owned process watcher may retire an app-wide Core lease.
+    // Session stream shutdown is local to its chat.
+    fn server_stopped(&self, connection: u64, report: &str, cx: &mut App) {
         let core = self.0.borrow().core.clone();
         {
             let Ok(mut current) = core.try_lock() else {
