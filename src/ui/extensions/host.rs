@@ -239,6 +239,13 @@ impl Host {
         self
     }
 
+    /// Saved conversations can render content without handing any renderer
+    /// credentials or a command capability for the foreign session.
+    pub(in crate::ui) fn content_only(mut self) -> Self {
+        self.runtime_scope.content_only = true;
+        self
+    }
+
     /// Pin a document to its root without creating another extension process.
     /// An isolated/local host retains its narrower runtime capabilities.
     pub(in crate::ui) fn for_space(mut self, root: ChatKey) -> Self {

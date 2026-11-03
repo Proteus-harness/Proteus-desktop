@@ -271,6 +271,7 @@ fn reverse_identity_lookup_preserves_nonassistant_metadata() {
         });
         entry.subagent = Some(proteus_contracts::app_protocol::AppTranscriptSubagent {
             child_thread_id: id(20).to_string(),
+            session: None,
             role: "fixture".into(),
             description: Some("unchanged".into()),
             status: "running".into(),

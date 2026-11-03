@@ -433,3 +433,73 @@ python3 examples/performance/native-stream/code_blocks.py --check-fixture --tool
 колесо вверх → точки → наведение (стрелка) → вниз → снова вверх → точки,
 затем `control/finish` → стрелка. Наведение в пустом поле справа от текста
 не должно включать I-beam; drag можно закончить за строкой.
+
+## Компактная строка субагента и readonly-панель
+
+`subagent_demo.py` держит MAIN и два **разных** сохранённых дочерних чата с
+одинаковым `role=explorer`, по 150 сообщений каждый. A представлен live-строкой
+`subagent.session`, B — завершённым `task` с `metadata.subagent_session`.
+Оба содержат точные UUID и абсолютные пути; синтетический `child_thread_id`
+не является UUID сессии. Третья строка UNBOUND не имеет сохранённой сессии.
+Каталог указывает общий `parent_session_id`. Core, модели и команды отсутствуют.
+
+Запускайте готовый Native в отдельном background-gui display, как выше:
+
+```sh
+python3 /absolute/background-gui/scripts/bgui.py run SESSION --cwd /absolute/Proteus-desktop -- \
+  python3 /absolute/Proteus-desktop/examples/performance/native-stream/subagent_demo.py \
+  --native /absolute/ready/Proteus/proteus-native \
+  --output /absolute/Proteus-desktop/build/verification/subagent-current \
+  --timeout 600
+```
+
+После READY проверьте реальное окно по шагам и сохраните screenshots:
+
+1. До клика запросите `touch OUTPUT/control/check-unopened`: у обоих детей
+   должно быть ноль чтений. MAIN остаётся активным чатом.
+2. Нажмите live-строку A: справа появляется readonly-история с `CHILD A ONLY`.
+   `touch OUTPUT/control/check` должен показать A `tail_reads=1`, B `reads=0`.
+   Повторите клик: панель и initial load не дублируются. Запросите
+   `touch OUTPUT/control/check-repeat`: счётчики должны совпасть с предыдущим
+   checkpoint. Дождитесь записи каждого checkpoint перед следующим действием.
+3. Прокрутите дочернюю историю вверх до начала: три страницы по 50 строк дают
+   A `reads=3`, `older_reads=2`; виден `row 000`. MAIN не переключается.
+4. Нажмите завершённую строку B: виден `CHILD B ONLY`, затем её `row 000` при
+   прокрутке. Она не должна показывать текст A, несмотря на общий role.
+   Отдельные счётчики позволяют подтвердить, какой target читался.
+5. Нажмите UNBOUND: нет новой панели и нет чтения другой дочерней истории.
+   Сравните checkpoints до/после; сам transport не знает, какой UI клик сделан.
+6. Откройте A, затем `touch OUTPUT/control/finishA`: добавляется 151-е сообщение
+   `CHILD A FINAL`, через родительский SSE приходит `SubagentFinished`.
+   После единственного coalesced refresh A имеет `tail_reads=2`, B не меняется.
+   Refresh читает tail новой revision с `base.common_prefix=150`.
+7. Запишите `control/check`, затем явно нажмите «Обновить» в панели A и запросите
+   `control/check-refresh-A`: разрешён ровно один дополнительный tail той же
+   revision (A `tail_reads=3`), B и parent resume/subscription не меняются.
+   Для B аналогичен `control/check-refresh-B`; перед действием нужен checkpoint.
+8. Закройте панель: основная сессия и её транспорт остаются теми же.
+   Остановите runner через `touch OUTPUT/control/stop`, затем свой display.
+
+Только `/history/page?session_dir=EXACT_CHILD` читает детей: initial/refresh —
+последние 50 строк; older — `before` плюс та же `revision`. Неизвестные пути,
+перепутанные revisions и любые child `/resume`/`events` отклоняются. Audit
+считает все tail, включая законный ручной Refresh без изменения revision.
+Отсутствие повторной initial загрузки проверяется отдельно через `check-repeat`:
+с момента предыдущего checkpoint не должны измениться счётчики дочерних чтений
+и parent resume/subscription. `check-refresh-A/B` проверяет явный Refresh:
+ровно один tail выбранного ребёнка той же revision, без других таких изменений.
+Transport не различает причины одинаковых HTTP-запросов; действия и
+единственность панели проверяются в реальном окне. Дочерних runtime/subscriptions
+должно быть **ноль**.
+
+`state.json` обновляет audit, именованные checkpoints, hashes launcher/ELF и
+исходников; `trace.json` содержит запросы и SSE, `launch.json` — приватные
+argv/env и синтетический token. HOME/XDG/session изолированы, расширения пустые.
+Output должен быть новым, timeout — 10–600 секунд; без `--native` запускается
+только сервер. Ни READY, ни `--check-fixture` не доказывают работу UI:
+
+```sh
+python3 examples/performance/native-stream/subagent_demo.py --check-fixture \
+  --output build/verification/subagent-fixture-smoke
+python3 -m unittest discover -s examples/performance/native-stream -p 'test_subagent.py'
+```

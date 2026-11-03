@@ -19,6 +19,10 @@ impl Entry {
             + self.tool.as_ref().map_or(0, tool_bytes)
             + self.subagent.as_ref().map_or(0, |agent| {
                 agent.child_thread_id.len()
+                    + agent
+                        .session
+                        .as_ref()
+                        .map_or(0, |session| session.session_dir.as_os_str().len())
                     + agent.role.len()
                     + agent.description.as_ref().map_or(0, String::len)
                     + agent.status.len()

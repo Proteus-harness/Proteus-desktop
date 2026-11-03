@@ -105,6 +105,91 @@ fn subagent_tools_group_under_the_card() {
 }
 
 #[test]
+fn child_session_binding_uses_exact_task_and_survives_lifecycle_completion() {
+    let parent = Uuid::from_u128(1);
+    let child = Uuid::from_u128(2);
+    let session = Uuid::from_u128(3);
+    let mut transcript = Transcript::default();
+    transcript.set_root_thread(Some(parent));
+    transcript.apply_runtime(
+        parent,
+        &Event::SubagentStarted {
+            role: "explorer".into(),
+            description: Some("saved child".into()),
+            child_thread_id: child,
+        },
+    );
+    assert!(
+        transcript.entries()[0]
+            .subagent
+            .as_ref()
+            .unwrap()
+            .session
+            .is_none()
+    );
+    assert_eq!(
+        transcript.apply_runtime(
+            parent,
+            &Event::SubagentSessionBound {
+                child_thread_id: Uuid::from_u128(99),
+                session_id: session,
+                session_dir: "/wrong".into(),
+            }
+        ),
+        Change::None
+    );
+    assert_eq!(
+        transcript.apply_runtime(
+            parent,
+            &Event::SubagentSessionBound {
+                child_thread_id: child,
+                session_id: session,
+                session_dir: "/saved/actual-peer-session".into(),
+            }
+        ),
+        Change::Updated(0)
+    );
+    transcript.apply_runtime(
+        parent,
+        &Event::SubagentFinished {
+            role: "explorer".into(),
+            status: "completed".into(),
+            iterations: 4,
+            child_thread_id: child,
+        },
+    );
+    let agent = transcript.entries()[0].subagent.as_ref().unwrap();
+    assert_eq!(agent.status, "completed");
+    assert_eq!(agent.session.as_ref().unwrap().session_id, session);
+    assert_eq!(
+        agent.session.as_ref().unwrap().session_dir,
+        std::path::Path::new("/saved/actual-peer-session")
+    );
+}
+
+#[test]
+fn late_binding_changes_snapshot_rows_even_when_tool_status_and_result_are_unchanged() {
+    let mut transcript = Transcript::default();
+    let mut row = message("system", None, "");
+    row.tool = Some(AppTranscriptTool {
+        call_id: "spawn".into(),
+        name: "spawn_agent".into(),
+        args: serde_json::Value::Null,
+        effective_args: None,
+        status: "done".into(),
+        result: Some("started".into()),
+        metadata: serde_json::json!({"tool":"spawn_agent","child_thread_id":"child"}),
+    });
+    transcript.reset(vec![row.clone()]);
+    let key = transcript.entries()[0].key;
+    row.tool.as_mut().unwrap().metadata["subagent_session"] =
+        serde_json::json!({"session_id":Uuid::from_u128(3),"session_dir":"/saved/exact-child"});
+    assert_ne!(transcript.reset(vec![row.clone()]), Change::None);
+    assert_eq!(transcript.entries()[0].key, key);
+    assert_eq!(transcript.reset(vec![row]), Change::None);
+}
+
+#[test]
 fn rootless_snapshot_keeps_turn_started_bootstrap_and_later_turn_switching() {
     let mut transcript = Transcript::default();
     transcript.set_root_thread(Some(Uuid::from_u128(99)));

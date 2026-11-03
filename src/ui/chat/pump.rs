@@ -146,6 +146,17 @@ impl Chat {
                 Change::None
             }
             AppServerEvent::Runtime { envelope } => {
+                if let RuntimeEvent::SubagentFinished {
+                    child_thread_id,
+                    status,
+                    ..
+                } = &envelope.event
+                {
+                    cx.emit(ChatEvent::SubagentLifecycle {
+                        child_thread_id: child_thread_id.to_string(),
+                        status: status.clone(),
+                    });
+                }
                 let feedback_changed = session
                     .root_thread
                     .is_none_or(|root| root == envelope.thread_id)

@@ -180,6 +180,17 @@ impl ChatSpaces {
         })
     }
 
+    /// Remove invalid documents from every retained area, including its closed
+    /// tab history. Root ownership is unaffected by document cleanup.
+    pub fn retain_documents(&mut self, keep: impl Fn(&str) -> bool) {
+        for layout in std::iter::once(&mut self.loose).chain(self.roots.values_mut()) {
+            layout.retain(|id| is_chat(id) || keep(id));
+            layout
+                .closed
+                .retain(|tab| is_chat(&tab.id) || keep(&tab.id));
+        }
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         if let Some(root) = &self.active
             && !self.roots.contains_key(root)

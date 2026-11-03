@@ -1,4 +1,5 @@
-use crate::ui::kit::Frame as _;
+// Адаптировано из Zed: crates/agent_ui/src/conversation_view/thread_view.rs
+// (переход от строки субагента к его чату).
 use std::ops::Range;
 use std::time::Instant;
 
@@ -9,16 +10,16 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use proteus_contracts::app_protocol::AppTranscriptSubagent;
 
-use super::Chat;
 use super::images::{SentImages, render_sent_images};
 use super::stamp::message_time;
 use super::tool_chain::{chain_reveal_key, render_chain_header};
-use super::tool_row::{render_tool, status_icon, tool_line};
+use super::tool_row::{render_tool, status_icon};
+use super::{Chat, ChatEvent};
 use crate::transcript::{Entry, Role};
-use crate::ui::fade::faded;
+use crate::ui::fade::{caption, faded};
 use crate::ui::kit::Hint as _;
 use crate::ui::kit::Pressable as _;
-use crate::ui::motion::{self, chevron, fade_in_if, reveal};
+use crate::ui::motion::{self, fade_in_if};
 use crate::ui::{format, prefs};
 
 impl Chat {
@@ -87,6 +88,13 @@ impl Chat {
         let Some(entry) = entries.get(ix) else {
             return div().into_any_element();
         };
+        if entry
+            .tool
+            .as_ref()
+            .is_some_and(|tool| crate::transcript::subagent::progress_row(entries, tool).is_some())
+        {
+            return div().into_any_element();
+        }
         let compact = prefs::current(cx).view.compact_tools;
         let chain = self.chain_at(ix, compact);
         let chain_head = chain.as_ref().map(|chain| entries[chain.start].key);
@@ -147,10 +155,27 @@ impl Chat {
                     &entry.text,
                     self.workspace.clone(),
                     self.session.key.clone(),
+                    self.readonly.is_some(),
                     window,
                     cx,
                 );
                 render_assistant(entry, reply, cx)
+            }
+            (Role::System, Some(tool), _) if crate::transcript::subagent::is_task(tool) => {
+                let (role, description) = crate::transcript::subagent::task_caption(tool);
+                let agent = AppTranscriptSubagent {
+                    child_thread_id: tool.metadata["child_thread_id"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_owned(),
+                    session: crate::transcript::subagent::task_session(tool),
+                    role: format::clip(role, 80),
+                    description: description.map(|description| format::clip(description, 200)),
+                    status: crate::transcript::subagent::task_status(tool).to_owned(),
+                    iterations: None,
+                    tools: Vec::new(),
+                };
+                render_subagent(entry.key, &agent, self.session.connected, cx)
             }
             (Role::System, Some(tool), _) => match &chain {
                 Some(chain) if ix == chain.start => {
@@ -198,7 +223,7 @@ impl Chat {
                 ),
             },
             (Role::System, None, Some(agent)) => {
-                render_subagent(entry.key, agent, expanded, self.session.connected, cx)
+                render_subagent(entry.key, agent, self.session.connected, cx)
             }
             (Role::System, None, None) => render_note(entry, cx),
         };
@@ -438,75 +463,68 @@ fn render_note(entry: &Entry, cx: &App) -> AnyElement {
 fn render_subagent(
     key: u64,
     agent: &AppTranscriptSubagent,
-    expanded: bool,
     connected: bool,
     cx: &mut Context<Chat>,
 ) -> AnyElement {
     let theme = cx.theme();
-    let mut meta = format!("инструментов: {}", agent.tools.len());
-    if let Some(iterations) = agent.iterations {
-        meta.push_str(&format!(" · шагов: {iterations}"));
-    }
     // Agent lifecycle statuses mapped onto the tool status icons.
-    let status = match agent.status.as_str() {
+    let status = match crate::transcript::subagent::status(&agent.status) {
         "running" => "running",
         "completed" | "done" => "done",
         "errored" | "failed" => "failed",
         _ => "interrupted",
     };
-    let app: &App = cx;
-    let tools = reveal(reveal_key(cx.entity_id(), key), expanded, app, || {
-        v_flex()
-            .pt_2()
-            .pl_5()
-            .gap_1()
-            .children(agent.tools.iter().map(|tool| {
-                super::tool_hint::row(
-                    tool_line(tool, connected, app).id(SharedString::from(format!(
-                        "subagent-tool-{key}-{}",
-                        tool.call_id
-                    ))),
-                    cx.entity().downgrade(),
-                    key,
-                    tool.call_id.clone(),
-                )
+    let session = agent
+        .session
+        .clone()
+        .filter(|session| session.session_dir.is_absolute());
+    let available = session.is_some();
+    let child_thread_id = agent.child_thread_id.clone();
+    let action = if available {
+        "Открыть чат субагента в соседней панели"
+    } else {
+        "У этой задачи нет сохранённой привязки к чату субагента"
+    };
+    h_flex()
+        .id(row_id("subagent", key))
+        .w_full()
+        .min_w_0()
+        .gap_2()
+        .py_1()
+        .text_sm()
+        .when(available, |row| {
+            row.disclosure(cx).on_click(cx.listener(move |_, _, _, cx| {
+                cx.emit(ChatEvent::OpenSubagent {
+                    child_thread_id: child_thread_id.clone(),
+                    session: session.clone().expect("available child session"),
+                });
             }))
-            .into_any_element()
-    });
-    v_flex()
-        .px_3()
-        .py_2()
-        .surface_frame(cx)
+        })
+        .when(!available, |row| row.text_color(theme.muted_foreground))
+        .child(if agent.status == "unknown" {
+            Icon::new(gpui_kit::assets::IconName::MessageSquare)
+                .small()
+                .text_color(theme.muted_foreground)
+                .into_any_element()
+        } else {
+            status_icon(status, connected, cx).into_any_element()
+        })
         .child(
-            h_flex()
-                .id(ElementId::NamedInteger("subagent".into(), key))
-                .gap_2()
-                .text_sm()
-                .disclosure(cx)
-                .child(status_icon(status, connected, cx))
-                .child(Icon::new(IconName::Bot).small())
-                .child(div().flex_none().font_semibold().child(agent.role.clone()))
-                .child(
+            div().min_w_0().max_w(relative(0.35)).font_semibold().child(
+                caption(row_id("subagent-role", key), agent.role.clone())
+                    .description(Some(action.into())),
+            ),
+        )
+        .when_some(
+            agent.description.as_deref().filter(|text| !text.is_empty()),
+            |row, description| {
+                row.child(
                     div()
                         .flex_1()
                         .min_w_0()
-                        .text_color(theme.muted_foreground)
-                        .child(faded(agent.description.clone().unwrap_or_default())),
+                        .child(faded(format::clip(description, 200))),
                 )
-                .child(
-                    div()
-                        .flex_none()
-                        .text_xs()
-                        .text_color(theme.muted_foreground)
-                        .child(meta),
-                )
-                .child(chevron(
-                    row_id("subagent-chevron", key),
-                    expanded,
-                    theme.muted_foreground,
-                ))
-                .on_click(cx.listener(move |this, _, _, cx| this.toggle_expanded(key, cx))),
+            },
         )
-        .children(tools)
         .into_any_element()
 }

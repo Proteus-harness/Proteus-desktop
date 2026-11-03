@@ -82,6 +82,14 @@ impl Api {
         )
     }
 
+    /// Read the saved tail without resuming the session or acquiring its writer.
+    pub fn initial_history_page(
+        &self,
+        session_dir: &Path,
+    ) -> Result<proteus_contracts::app_protocol::AppTranscriptPage> {
+        self.get("/history/page", Some(session_dir))
+    }
+
     pub fn resume(&self, session_dir: &Path) -> Result<SessionOpened> {
         let body = ResumeSessionRequest {
             id: Some(request_id("resume")),
@@ -424,6 +432,44 @@ mod connection_identity_tests {
         let second = Api::new("http://localhost:1", "synthetic");
         assert_eq!(first.connection_id(), first.clone().connection_id());
         assert_ne!(first.connection_id(), second.connection_id());
+    }
+}
+
+#[cfg(test)]
+mod saved_history_tests {
+    use super::*;
+    use std::io::Write as _;
+    use std::net::TcpListener;
+
+    #[test]
+    fn initial_saved_history_is_a_readonly_get_without_resume_or_cursor() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = BufReader::new(socket.try_clone().unwrap());
+            let mut first = String::new();
+            request.read_line(&mut first).unwrap();
+            loop {
+                let mut line = String::new();
+                request.read_line(&mut line).unwrap();
+                if line == "\r\n" || line.is_empty() {
+                    break;
+                }
+            }
+            let body = r#"{"revision":"saved","start":0,"total":0,"messages":[],"base":null}"#;
+            write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            first
+        });
+        let mut api = Api::new(&origin, "synthetic");
+        api.agent = ureq::Agent::config_builder().proxy(None).build().into();
+        let page = api.initial_history_page(Path::new("/saved/child")).unwrap();
+        assert_eq!(page.revision, "saved");
+        let request = server.join().unwrap();
+        assert!(request.starts_with("GET /history/page?"), "{request}");
+        assert!(request.contains("session_dir="));
+        assert!(!request.contains("before=") && !request.contains("revision="));
+        assert!(!request.contains("resume") && !request.contains("events"));
     }
 }
 

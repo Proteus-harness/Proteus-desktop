@@ -88,6 +88,9 @@ impl Chat {
     /// Sends the composer text and images; the server queues them while a
     /// run is active. A refused message returns to an empty composer.
     pub(super) fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.readonly.is_some() {
+            return;
+        }
         if self.codex.is_some() {
             self.send_codex(window, cx);
             return;

@@ -37,6 +37,7 @@ impl Replies {
         text: &Arc<str>,
         workspace: WeakEntity<Workspace>,
         session: ChatKey,
+        readonly: bool,
         window: &mut Window,
         cx: &mut Context<Chat>,
     ) -> Vec<Part> {
@@ -65,6 +66,7 @@ impl Replies {
                 source_revision: Some(0),
             };
             let host = Host::new(workspace, extension).for_chat(cx.weak_entity(), session);
+            let host = if readonly { host.content_only() } else { host };
             let view =
                 cx.new(|cx| content::ContentView::body(host, key.to_string(), payload, window, cx));
             let changes = cx.observe(&view, move |chat, _, cx| chat.remeasure_row(key, cx));

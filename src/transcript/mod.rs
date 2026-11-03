@@ -316,6 +316,7 @@ impl Transcript {
                     tool: None,
                     subagent: Some(AppTranscriptSubagent {
                         child_thread_id: child_thread_id.to_string(),
+                        session: None,
                         role: role.clone(),
                         description: description.clone(),
                         status: "running".to_owned(),
@@ -326,6 +327,27 @@ impl Transcript {
                     time: None,
                 });
                 Change::Pushed
+            }
+            Event::SubagentSessionBound {
+                child_thread_id,
+                session_id,
+                session_dir,
+            } => {
+                let child = child_thread_id.to_string();
+                let Some(index) = self.entries.iter().rposition(|entry| {
+                    entry
+                        .subagent
+                        .as_ref()
+                        .is_some_and(|agent| agent.child_thread_id == child)
+                }) else {
+                    return Change::None;
+                };
+                self.entries[index].subagent.as_mut().unwrap().session =
+                    Some(proteus_contracts::app_protocol::AppSubagentSession {
+                        session_id: *session_id,
+                        session_dir: session_dir.clone(),
+                    });
+                Change::Updated(index)
             }
             Event::SubagentFinished {
                 status,
@@ -547,6 +569,7 @@ fn same_row(before: &Entry, after: &Entry) -> bool {
             (None, None) => true,
             (Some(a), Some(b)) => {
                 a.status == b.status
+                    && a.session == b.session
                     && a.iterations == b.iterations
                     && a.tools.len() == b.tools.len()
                     && a.tools.iter().zip(&b.tools).all(|(a, b)| same_tool(a, b))
@@ -560,11 +583,16 @@ fn same_tool(a: &AppTranscriptTool, b: &AppTranscriptTool) -> bool {
         && a.status == b.status
         && a.result == b.result
         && a.effective_args.is_some() == b.effective_args.is_some()
+        // Binding can arrive after the tool result without changing its text
+        // or status. Compare only the compact reserved fields, not large raw
+        // result metadata on every unchanged snapshot row.
+        && ["tool", "child_thread_id", "subagent_session"].iter().all(|key| a.metadata.get(*key) == b.metadata.get(*key))
 }
 
 mod cache;
 mod chains;
 mod external;
+pub(crate) mod subagent;
 mod text_run;
 
 pub(crate) use text_run::{TextRun, TextRunOutcome};

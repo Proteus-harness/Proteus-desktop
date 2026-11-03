@@ -70,11 +70,14 @@ impl HistoryWindow {
 }
 
 impl History {
+    pub(super) fn seeking(&self) -> bool {
+        self.seek.is_some()
+    }
     pub(super) fn request_pending(&self) -> bool {
         self.loading || self.seek.is_some()
     }
 
-    fn begin_request(&mut self) -> Option<u64> {
+    pub(super) fn begin_request(&mut self) -> Option<u64> {
         if self.loading {
             return None;
         }
@@ -83,7 +86,7 @@ impl History {
         Some(self.epoch)
     }
 
-    fn finish_request(&mut self, request: u64) -> bool {
+    pub(super) fn finish_request(&mut self, request: u64) -> bool {
         if !self.loading || self.epoch != request {
             return false;
         }
@@ -369,14 +372,14 @@ impl Chat {
         }
     }
 
-    fn load_history_seek(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn load_history_seek(&mut self, cx: &mut Context<Self>) {
         if self.history.loading {
             return;
         }
         let Some(cursor) = self.history.seek_cursor() else {
             return;
         };
-        let Some(request) = self.history.begin_request() else {
+        let Some(request) = self.begin_history_request(false) else {
             return;
         };
         let Some(api) = self.api.clone() else {
@@ -390,7 +393,7 @@ impl Chat {
                 .spawn(async move { api.history_page(&dir, &requested) })
                 .await;
             this.update(cx, |this, cx| {
-                if !this.history.finish_request(request) {
+                if !this.finish_history_request(request, cx) {
                     return;
                 }
                 match page {
@@ -413,7 +416,7 @@ impl Chat {
                         } else {
                             this.history.seek = None;
                             this.sync_history_range(cx);
-                            this.show_notice("История изменилась; ожидаю новый снимок сессии", cx);
+                            this.history_changed(cx);
                         }
                     }
                     Err(error) => {
@@ -445,7 +448,7 @@ impl Chat {
             }
             return;
         };
-        let Some(request) = self.history.begin_request() else {
+        let Some(request) = self.begin_history_request(false) else {
             return;
         };
         let Some(api) = self.api.clone() else {
@@ -459,7 +462,7 @@ impl Chat {
                 .spawn(async move { api.history_page(&dir, &requested) })
                 .await;
             this.update(cx, |this, cx| {
-                if !this.history.finish_request(request) {
+                if !this.finish_history_request(request, cx) {
                     return;
                 }
                 if this.history.seek.is_some() {
@@ -478,7 +481,7 @@ impl Chat {
                         ) {
                             this.apply_history_changes(changes, cx);
                         } else {
-                            this.show_notice("История изменилась; ожидаю новый снимок сессии", cx);
+                            this.history_changed(cx);
                         }
                     }
                     Err(error) => {
@@ -490,6 +493,14 @@ impl Chat {
             .ok();
         })
         .detach();
+    }
+
+    fn history_changed(&mut self, cx: &mut Context<Self>) {
+        if self.readonly.is_some() {
+            self.refresh_readonly(cx);
+        } else {
+            self.show_notice("История изменилась; ожидаю новый снимок сессии", cx);
+        }
     }
 }
 

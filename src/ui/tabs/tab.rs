@@ -105,6 +105,13 @@ impl Workspace {
     }
 
     fn tab_label(&self, id: &str, cx: &App) -> TabLabel {
+        if super::super::chat::readonly::Target::parse(id).is_some() {
+            return TabLabel {
+                icon: Icon::new(Lucide::MessageSquare),
+                title: "Чат субагента".into(),
+                tooltip: Some("Сохранённая история · только просмотр".into()),
+            };
+        }
         if let Some(key) = tabs::chat_key(id) {
             let tooltip = match self.chat_state(id, cx) {
                 Some(ChatState::Busy(text) | ChatState::Trouble(text)) => Some(text.into()),

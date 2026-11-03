@@ -66,6 +66,9 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<SurfaceView> {
+        if super::chat::readonly::Target::parse(id).is_some() {
+            return self.ensure_subagent_document(id, window, cx);
+        }
         let (manifest, argument) = extensions::document(id, cx)?;
         if manifest.requires_core && !self.core_context() {
             return None;
@@ -368,5 +371,7 @@ impl Workspace {
 /// Whether a tab id stands for something that can be shown. Chats whose
 /// sessions are gone are closed when the workspace starts.
 pub(super) fn tab_available(id: &str, cx: &App) -> bool {
-    tabs::is_chat(id) || extensions::document(id, cx).is_some()
+    tabs::is_chat(id)
+        || super::chat::readonly::Target::parse(id).is_some()
+        || extensions::document(id, cx).is_some()
 }

@@ -45,6 +45,28 @@ fn external_bound_context_cannot_fall_back_to_a_core_directory() {
 }
 
 #[test]
+fn saved_content_keeps_identity_without_core_credentials_or_command_directory() {
+    let host = Host::new(WeakEntity::new_invalid(), "renderer")
+        .for_chat(
+            WeakEntity::new_invalid(),
+            ChatKey::Proteus("/saved/foreign-child".into()),
+        )
+        .content_only();
+    assert!(host.runtime_scope().content_only);
+    assert_eq!(
+        host.context_session(|| panic!("saved content queried active session")),
+        None
+    );
+    let nested = host.with_extension("nested-core-required-renderer");
+    assert!(nested.runtime_scope().content_only);
+    let (server, _) = nested.runtime_scope().connection(
+        || panic!("saved renderer read API credentials"),
+        || Some("/project".into()),
+    );
+    assert!(server.unwrap().token.is_empty());
+}
+
+#[test]
 fn bound_directory_survives_the_chat_entity_and_dynamic_root_has_no_stale_fallback() {
     let mut inherited = Host::new(WeakEntity::new_invalid(), "files");
     inherited.inherit(Some((

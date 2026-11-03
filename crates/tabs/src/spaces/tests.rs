@@ -244,3 +244,25 @@ fn selecting_legacy_chat_can_move_its_tab_to_own_area_without_duplicates() {
     assert!(spaces.active_layout().contains("files:legacy"));
     assert_eq!(spaces.validate(), Ok(()));
 }
+
+#[test]
+fn deleting_a_saved_document_cleans_open_and_closed_tabs_in_hidden_areas() {
+    let mut spaces = populated();
+    let mut first = spaces.active_layout().clone();
+    first.open("subagent:saved", |_| true);
+    first.close("subagent:saved");
+    spaces.save_active(first);
+    spaces.select(SECOND);
+    let mut second = spaces.active_layout().clone();
+    second.open("subagent:saved", |_| true);
+    spaces.save_active(second);
+    spaces.retain_documents(|id| id != "subagent:saved");
+    assert!(!spaces.all_tabs().any(|id| id == "subagent:saved"));
+    assert!(
+        !spaces
+            .all_layouts()
+            .any(|layout| layout.closed_ids().any(|id| id == "subagent:saved"))
+    );
+    assert_eq!(spaces.active_root(), Some(SECOND));
+    assert!(spaces.owner_of_chat(FIRST).is_some());
+}

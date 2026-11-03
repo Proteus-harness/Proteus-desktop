@@ -12,6 +12,7 @@ impl Render for Chat {
     /// The conversation: thread, pending requests and composer.
     /// Files dropped anywhere on it attach to the draft.
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.ensure_readonly_history(cx);
         if !self.display_transcript().entries().is_empty() {
             crate::startup_trace::first("chat.transcript.render");
         }
@@ -39,11 +40,18 @@ impl Render for Chat {
         let running = self.session.connected && self.session.running();
         v_flex()
             .id("chat")
+            .when_some(
+                self.readonly.as_ref().map(|binding| binding.focus.clone()),
+                |view, focus| view.track_focus(&focus),
+            )
             .size_full()
             .drag_over::<ExternalPaths>(|chat, _, _, cx| chat.bg(cx.theme().drop_target))
             .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
-                this.attach_files(paths.paths(), cx)
+                if this.readonly.is_none() {
+                    this.attach_files(paths.paths(), cx)
+                }
             }))
+            .children(self.render_readonly_header(cx))
             .child(motion::fade_in_if(
                 div()
                     .relative()
@@ -65,6 +73,9 @@ impl Render for Chat {
                 true,
             ))
             .capture_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                if this.readonly.is_some() {
+                    return;
+                }
                 let keystroke = &event.keystroke;
                 let handled = match keystroke.key.as_str() {
                     // A popup or a free-answer field owns its Escape. Only
@@ -81,7 +92,9 @@ impl Render for Chat {
                     cx.stop_propagation();
                 }
             }))
-            .child(self.render_composer(window, cx))
+            .when(self.readonly.is_none(), |view| {
+                view.child(self.render_composer(window, cx))
+            })
     }
 }
 

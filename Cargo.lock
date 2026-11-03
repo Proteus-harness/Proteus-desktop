@@ -5651,7 +5651,7 @@ dependencies = [
 [[package]]
 name = "proteus-contracts"
 version = "0.1.0-alpha.2"
-source = "git+https://github.com/Proteus-harness/Proteus-core.git?rev=014e6999f099bcb1eabf298e628de6b3186dedfe#014e6999f099bcb1eabf298e628de6b3186dedfe"
+source = "git+https://github.com/Proteus-harness/Proteus-core.git?rev=9ce93629e0720a4107806f86a22b89e7095ae5a1#9ce93629e0720a4107806f86a22b89e7095ae5a1"
 dependencies = [
  "anyhow",
  "async-trait",

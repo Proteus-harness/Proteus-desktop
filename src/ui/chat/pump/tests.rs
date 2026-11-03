@@ -99,3 +99,86 @@ fn session_shutdown_only_emits_session_state_and_preserves_shared_api_identity()
         "session Shutdown must not emit an app-wide backend-stopped signal"
     );
 }
+
+#[::core::prelude::v1::test]
+fn background_child_completion_notifies_saved_document_without_a_live_progress_row() {
+    use proteus_contracts::app_protocol::AppSessionSnapshot;
+    use proteus_contracts::domain::{EventContext, EventEnvelope};
+    let mut cx = TestAppContext::single();
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::ui::prefs::init_in_memory(cx);
+    });
+    let window = cx.add_empty_window();
+    let chat = window.update(|window, cx| {
+        cx.new(|cx| {
+            Chat::base(
+                None,
+                WeakEntity::new_invalid(),
+                Session::new("parent".into()),
+                Rc::new(|_, _, _| None),
+                window,
+                cx,
+            )
+        })
+    });
+    let completed = Rc::new(RefCell::new(Vec::new()));
+    let _subscription = cx.update(|cx| {
+        let completed = completed.clone();
+        cx.subscribe(&chat, move |_, event: &ChatEvent, _| {
+            if let ChatEvent::SubagentLifecycle {
+                child_thread_id,
+                status,
+            } = event
+            {
+                completed
+                    .borrow_mut()
+                    .push((child_thread_id.clone(), status.clone()));
+            }
+        })
+    });
+    let session = uuid::Uuid::from_u128(1);
+    let root = uuid::Uuid::from_u128(2);
+    let child = uuid::Uuid::from_u128(3);
+    chat.update(&mut cx, |chat, cx| {
+        chat.apply(PumpItem::Connected, cx);
+        chat.apply(
+            PumpItem::Event(Box::new(AppServerEvent::SessionSnapshot {
+                snapshot: Box::new(AppSessionSnapshot {
+                    session_id: session,
+                    stream_id: "parent-stream".into(),
+                    seq: 0,
+                    root_thread_id: Some(root),
+                    transcript: Vec::new(),
+                    history: None,
+                    execution: Default::default(),
+                }),
+            })),
+            cx,
+        );
+        chat.apply(
+            PumpItem::Event(Box::new(AppServerEvent::Runtime {
+                envelope: Box::new(EventEnvelope::new(
+                    EventContext::new(session, root, None),
+                    1,
+                    RuntimeEvent::SubagentFinished {
+                        role: "explorer".into(),
+                        status: "completed".into(),
+                        iterations: 2,
+                        child_thread_id: child,
+                    },
+                )),
+            })),
+            cx,
+        );
+        assert!(
+            chat.session.transcript.entries().is_empty(),
+            "completion need not manufacture a progress row"
+        );
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        &*completed.borrow(),
+        &[(child.to_string(), "completed".into())]
+    );
+}

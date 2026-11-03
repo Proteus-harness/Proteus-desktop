@@ -21,6 +21,30 @@ pub(super) struct SpaceViews {
 }
 
 impl Workspace {
+    pub(in crate::ui) fn retained_documents(
+        &self,
+    ) -> impl Iterator<Item = (&String, &SurfaceView)> {
+        self.documents.iter().chain(
+            self.parked_spaces
+                .values()
+                .flat_map(|space| space.documents.iter()),
+        )
+    }
+
+    /// In-flight read results may fill the same retained hidden document, but
+    /// cannot fill a closed tab or its replacement after a quick reopen.
+    pub(in crate::ui) fn subagent_document_current(&self, id: &str, entity: EntityId) -> bool {
+        self.documents
+            .get(id)
+            .is_some_and(|surface| surface.view.entity_id() == entity)
+            || self.parked_spaces.values().any(|space| {
+                space
+                    .documents
+                    .get(id)
+                    .is_some_and(|surface| surface.view.entity_id() == entity)
+            })
+    }
+
     pub(in crate::ui) fn space_root_key(&self) -> Option<ChatKey> {
         self.spaces
             .active_root()
@@ -153,6 +177,17 @@ impl Workspace {
         self.spaces.save_active(self.layout.clone());
         let before = self.spaces.active_root().map(str::to_owned);
         self.spaces.remove_chats(ids.iter().map(String::as_str));
+        let keep_document = |id: &str| {
+            crate::ui::chat::readonly::Target::parse(id)
+                .is_none_or(|target| !ids.contains(&tabs::chat(&target.session.session_dir)))
+        };
+        self.spaces.retain_documents(keep_document);
+        self.documents.retain(|id, _| keep_document(id));
+        for parked in self.parked_spaces.values_mut() {
+            parked.documents.retain(|id, _| keep_document(id));
+            parked.titles.retain(|id, _| keep_document(id));
+        }
+        self.document_titles.retain(|id, _| keep_document(id));
         let after = self.spaces.active_root().map(str::to_owned);
         if before != after {
             // Explicit deletion closes the area's resources; hiding never does.

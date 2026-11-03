@@ -16,6 +16,7 @@ use crate::preferences::BadgePlace;
 use crate::tabs::{self, ChatKey, PaneId, TabLayout};
 mod codex;
 mod pending;
+mod subagent;
 
 /// A chat view and the subscription to its events.
 pub(super) struct OpenChat {
@@ -418,7 +419,25 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         match event {
+            ChatEvent::OpenSubagent {
+                child_thread_id,
+                session,
+            } => {
+                let owner = self.spaces.owner_of_chat(tab).unwrap_or(tab).to_owned();
+                self.defer_open_subagent(
+                    owner,
+                    tab.to_owned(),
+                    child_thread_id.clone(),
+                    session.clone(),
+                    cx,
+                );
+            }
+            ChatEvent::SubagentLifecycle {
+                child_thread_id,
+                status,
+            } => self.refresh_subagent_lifecycle(tab, child_thread_id, status, cx),
             ChatEvent::SessionStateChanged | ChatEvent::SessionEntriesChanged(_) => {
+                self.refresh_subagent_documents(tab, false, cx);
                 if self.active_chat_view() != Some(chat)
                     && self.space_root_chat_view() != Some(chat)
                     && !self.spaces.roots().any(|root| root == tab)
@@ -452,6 +471,7 @@ impl Workspace {
                 return;
             }
             ChatEvent::RunSettled => {
+                self.refresh_subagent_documents(tab, true, cx);
                 self.refresh_sessions(cx);
                 if matches!(tabs::chat_key(tab), Some(ChatKey::Codex(_))) {
                     self.refresh_codex_sessions(cx);

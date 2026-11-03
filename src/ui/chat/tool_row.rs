@@ -69,17 +69,6 @@ pub(super) fn is_running(status: &str) -> bool {
     matches!(status, "running" | "approved")
 }
 
-/// One-line headline: status, canonical tool name and patch stats. Parameters
-/// belong to the hover preview and expanded details, not permanent row width.
-pub(super) fn tool_line(tool: &AppTranscriptTool, connected: bool, cx: &App) -> Div {
-    line_with_name(
-        tool,
-        div().min_w_0().child(faded(tool.name.clone())),
-        connected,
-        cx,
-    )
-}
-
 fn line_with_name(
     tool: &AppTranscriptTool,
     name: impl IntoElement,

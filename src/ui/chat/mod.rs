@@ -1,6 +1,7 @@
 //! One open session as a self-contained view: the thread, pending requests,
-//! notices and the composer. Every chat tab owns a [`Chat`]; it streams its
-//! session's events while it lives and tells the workspace what matters
+//! notices and the composer. Interactive chat tabs stream their session's
+//! events; saved child documents reuse the renderer without a writer/pump.
+//! Each [`Chat`] tells the workspace what matters
 //! outside through [`ChatEvent`].
 
 mod actions;
@@ -18,6 +19,7 @@ mod images;
 mod notice;
 mod pump;
 mod question_card;
+pub(in crate::ui) mod readonly;
 mod replies;
 mod requests;
 mod row_layout;
@@ -78,6 +80,17 @@ pub(super) enum ChatEvent {
     RunSettled,
     /// Background read projections changed the saved session list.
     CatalogUpdated,
+    /// Open this exact saved subagent conversation beside its parent.
+    OpenSubagent {
+        child_thread_id: String,
+        session: proteus_contracts::app_protocol::AppSubagentSession,
+    },
+    /// May arrive after the parent run ended and its progress row was folded
+    /// into canonical history. Saved child documents still need the final tail.
+    SubagentLifecycle {
+        child_thread_id: String,
+        status: String,
+    },
     /// Activity of some session; every session stream carries all of them.
     Activity {
         session_dir: PathBuf,
@@ -90,6 +103,7 @@ pub(super) enum ChatEvent {
 pub(super) struct Chat {
     api: Option<Api>,
     codex: Option<codex::Binding>,
+    readonly: Option<readonly::Binding>,
     workspace: WeakEntity<crate::ui::workspace::Workspace>,
     pub session: Session,
     /// Invalidates a delayed catalog when another config snapshot was applied.
@@ -231,6 +245,7 @@ impl Chat {
             api,
             workspace,
             codex: None,
+            readonly: None,
             session,
             config_generation: 0,
             context_requests: context_requests::ContextRequests::default(),
@@ -302,6 +317,9 @@ impl Chat {
             &composer,
             window,
             |this, _, event: &InputEvent, window, cx| {
+                if this.readonly.is_some() {
+                    return;
+                }
                 if matches!(event, InputEvent::Change) {
                     cx.notify();
                     return;
@@ -326,7 +344,7 @@ impl Chat {
     }
 
     pub(in crate::ui) fn supports_core(&self) -> bool {
-        self.api.is_some()
+        self.api.is_some() && self.readonly.is_none()
     }
 
     fn archived(&self) -> bool {
@@ -348,6 +366,10 @@ impl Chat {
     }
 
     pub fn focus(&self, window: &mut Window, cx: &mut App) {
+        if let Some(binding) = &self.readonly {
+            binding.focus.focus(window, cx);
+            return;
+        }
         self.composer
             .update(cx, |state, cx| state.focus(window, cx));
     }
@@ -360,6 +382,11 @@ impl Chat {
         job: impl FnOnce(&Api) -> anyhow::Result<R> + Send + 'static,
         done: impl FnOnce(&mut Self, R, &mut Context<Self>) + 'static,
     ) {
+        // Read-only documents deliberately cannot run session commands. Their
+        // history/images use explicit read APIs outside this command helper.
+        if self.readonly.is_some() {
+            return;
+        }
         let Some(api) = self.api.clone() else {
             return;
         };
@@ -383,6 +410,9 @@ impl Chat {
 
 impl Focusable for Chat {
     fn focus_handle(&self, cx: &App) -> FocusHandle {
-        self.composer.focus_handle(cx)
+        self.readonly.as_ref().map_or_else(
+            || self.composer.focus_handle(cx),
+            |binding| binding.focus.clone(),
+        )
     }
 }
