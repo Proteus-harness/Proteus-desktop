@@ -204,6 +204,7 @@ impl Chat {
                                 self.tool_diffs.get(&entry.key).cloned(),
                                 false,
                                 self.session.connected,
+                                self.supports_core(),
                                 cx,
                             );
                             div().pt_1().child(tool).into_any_element()
@@ -219,6 +220,7 @@ impl Chat {
                     self.tool_diffs.get(&entry.key).cloned(),
                     false,
                     self.session.connected,
+                    self.supports_core(),
                     cx,
                 ),
             },
@@ -281,6 +283,7 @@ impl Chat {
                 self.tool_diffs.get(&entry.key).cloned(),
                 true,
                 self.session.connected,
+                self.supports_core(),
                 cx,
             ));
             block = block.child(if n == 0 { call.pt_1() } else { call.pt(gap) });

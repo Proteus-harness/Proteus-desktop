@@ -47,8 +47,9 @@ gpui-kit = { version = "=0.8.1", features = [
 proteus-client-common = { path = "crates/client-common" }
 proteus-diff = { path = "crates/diff" }
 proteus-tabs = { path = "crates/tabs" }
-proteus-contracts = { git = "https://github.com/Proteus-harness/Proteus-core.git", rev = "08e0ee67ff8115fd545b08e4a937e38388fc8f53" }
+proteus-contracts = { git = "https://github.com/Proteus-harness/Proteus-core.git", rev = "23883bd3e43e482136c8dcbc40fa032ec6cc456d" }
 anyhow = "1"
+base64 = "0.22"
 async-channel = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 libc = "0.2"

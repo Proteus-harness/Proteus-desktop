@@ -110,6 +110,13 @@ impl Workspace {
     }
 
     fn tab_label(&self, id: &str, cx: &App) -> TabLabel {
+        if let Some(target) = super::super::terminal::Target::parse(id) {
+            return TabLabel {
+                icon: Icon::new(Lucide::Terminal),
+                title: target.terminal.title.into(),
+                tooltip: Some("Терминал команды агента".into()),
+            };
+        }
         if super::super::chat::readonly::Target::parse(id).is_some() {
             return TabLabel {
                 icon: Icon::new(Lucide::MessageSquare),

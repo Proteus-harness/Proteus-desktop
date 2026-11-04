@@ -12,7 +12,7 @@ fn is_tool(entry: &Entry) -> bool {
         && entry
             .tool
             .as_ref()
-            .is_some_and(|tool| !super::subagent::is_task(tool))
+            .is_some_and(|tool| tool.terminal.is_none() && !super::subagent::is_task(tool))
 }
 
 /// The run of tool rows containing `ix`, when it is long enough to fold.
@@ -25,7 +25,11 @@ pub fn tool_chain(entries: &[Entry], ix: usize) -> Option<Range<usize>> {
 pub fn affected_rows(entries: &[Entry], ix: usize) -> Range<usize> {
     let mut rows = tool_run(entries, ix).unwrap_or(ix..(ix + 1).min(entries.len()));
     if let Some(entry) = entries.get(ix) {
-        if entry.tool.as_ref().is_some_and(super::subagent::is_task) {
+        if entry
+            .tool
+            .as_ref()
+            .is_some_and(|tool| tool.terminal.is_some() || super::subagent::is_task(tool))
+        {
             // A newly bound call may have split a former generic tool chain.
             if let Some(previous) = ix.checked_sub(1).and_then(|row| tool_run(entries, row)) {
                 rows.start = previous.start;
@@ -79,6 +83,7 @@ mod tests {
 
     fn entry(key: u64, tool: bool) -> Entry {
         let tool = tool.then(|| AppTranscriptTool {
+            terminal: None,
             call_id: format!("c{key}"),
             name: "read_file".into(),
             args: serde_json::Value::Null,
@@ -120,6 +125,20 @@ mod tests {
         assert_eq!(tool_chain(&rows, 5), Some(4..7));
         assert_eq!(affected_rows(&rows, 6), 4..7);
         assert_eq!(affected_rows(&rows, 3), 3..4);
+    }
+
+    #[test]
+    fn early_terminal_binding_keeps_button_visible_and_invalidates_old_chain() {
+        let mut rows: Vec<_> = (0..5).map(|key| entry(key, true)).collect();
+        assert_eq!(tool_chain(&rows, 2), Some(0..5));
+        rows[2].tool.as_mut().unwrap().terminal =
+            Some(proteus_contracts::contracts::ToolTerminalRef {
+                id: uuid::Uuid::from_u128(19),
+                title: "running command".into(),
+                tty: true,
+            });
+        assert_eq!(tool_chain(&rows, 2), None);
+        assert_eq!(affected_rows(&rows, 2), 0..5);
     }
 
     #[test]

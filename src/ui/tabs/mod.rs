@@ -66,6 +66,9 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<SurfaceView> {
+        if super::terminal::Target::parse(id).is_some() {
+            return self.ensure_agent_terminal(id, window, cx);
+        }
         if super::chat::readonly::Target::parse(id).is_some() {
             return self.ensure_subagent_document(id, window, cx);
         }
@@ -384,6 +387,7 @@ impl Workspace {
 /// sessions are gone are closed when the workspace starts.
 pub(super) fn tab_available(id: &str, cx: &App) -> bool {
     tabs::is_chat(id)
+        || super::terminal::Target::parse(id).is_some()
         || super::chat::readonly::Target::parse(id).is_some()
         || extensions::document(id, cx).is_some()
 }

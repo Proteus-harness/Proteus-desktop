@@ -1,12 +1,14 @@
 //! Headless PTY terminal with one selected VT engine and immutable visible snapshots.
 mod alacritty;
 mod alacritty_screen;
+mod display;
 #[cfg(all(feature = "ghostty-vt", unix))]
 mod ghostty;
 mod keys;
 mod screen;
 
 use anyhow::Result;
+pub use display::{Display, SpawnedDisplay};
 pub use keys::{Key, encode};
 pub use screen::{Base, Run, Screen};
 use std::path::Path;
@@ -52,17 +54,8 @@ pub enum Terminal {
 impl Terminal {
     pub fn spawn(cwd: &Path, grid: Grid) -> Result<Spawned> {
         let grid = Grid::new(grid.columns, grid.rows);
-        let engine = std::env::var("PROTEUS_TERMINAL_ENGINE").unwrap_or_default();
-        let engine = if engine.is_empty() {
-            if cfg!(all(feature = "ghostty-vt", unix)) {
-                "ghostty"
-            } else {
-                "alacritty"
-            }
-        } else {
-            engine.as_str()
-        };
-        match engine {
+        let engine = selected_engine();
+        match engine.as_str() {
             "ghostty" => {
                 #[cfg(all(feature = "ghostty-vt", unix))]
                 {
@@ -132,6 +125,17 @@ impl Terminal {
             #[cfg(all(feature = "ghostty-vt", unix))]
             Self::Ghostty(term) => term.snapshot(base),
         }
+    }
+}
+
+fn selected_engine() -> String {
+    let engine = std::env::var("PROTEUS_TERMINAL_ENGINE").unwrap_or_default();
+    if !engine.is_empty() {
+        engine
+    } else if cfg!(all(feature = "ghostty-vt", unix)) {
+        "ghostty".into()
+    } else {
+        "alacritty".into()
     }
 }
 

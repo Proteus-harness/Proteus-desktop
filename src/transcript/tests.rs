@@ -17,6 +17,50 @@ fn message(role: &str, id: Option<MessageId>, text: &str) -> AppTranscriptMessag
     }
 }
 
+#[test]
+fn terminal_binding_is_visible_before_completion_and_survives_snapshot() {
+    let thread = Uuid::new_v4();
+    let mut transcript = Transcript::default();
+    transcript.apply_runtime(
+        thread,
+        &Event::ToolCallRequested {
+            call: ToolCall::new(
+                "exec",
+                "exec_command",
+                serde_json::json!({"cmd":"synthetic"}),
+            ),
+        },
+    );
+    let terminal = proteus_contracts::contracts::ToolTerminalRef {
+        id: Uuid::new_v4(),
+        title: "synthetic".into(),
+        tty: true,
+    };
+    assert_eq!(
+        transcript.apply_runtime(
+            thread,
+            &Event::ToolTerminalBound {
+                call_id: "exec".into(),
+                terminal: terminal.clone()
+            }
+        ),
+        Change::Updated(0)
+    );
+    let live = transcript.entries()[0].tool.as_ref().unwrap();
+    assert_eq!(live.status, "running");
+    assert!(live.result.is_none());
+    assert_eq!(live.terminal.as_ref(), Some(&terminal));
+    let mut row = message("system", None, "");
+    row.tool = Some(live.clone());
+    assert_eq!(transcript.reset(vec![row.clone()]), Change::None);
+    row.tool.as_mut().unwrap().terminal = None;
+    assert_ne!(
+        transcript.reset(vec![row]),
+        Change::None,
+        "binding affects cached row rendering"
+    );
+}
+
 fn delta(message_id: MessageId, offset: usize, text: &str) -> Event {
     Event::AssistantTextDelta {
         offset,
@@ -172,6 +216,7 @@ fn late_binding_changes_snapshot_rows_even_when_tool_status_and_result_are_uncha
     let mut transcript = Transcript::default();
     let mut row = message("system", None, "");
     row.tool = Some(AppTranscriptTool {
+        terminal: None,
         call_id: "spawn".into(),
         name: "spawn_agent".into(),
         args: serde_json::Value::Null,

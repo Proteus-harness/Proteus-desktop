@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 mod proxy;
+mod terminals;
 
 /// Blocking HTTP client for the app server; call it off the UI thread.
 #[derive(Clone)]

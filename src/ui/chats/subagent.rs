@@ -220,7 +220,7 @@ impl Workspace {
         Some(surface)
     }
 
-    pub(in crate::ui) fn subagent_document_visible(&self, id: &str, entity: EntityId) -> bool {
+    pub(in crate::ui) fn document_visible(&self, id: &str, entity: EntityId) -> bool {
         self.settings.is_none()
             && self.layout.visible().any(|visible| visible == id)
             && self

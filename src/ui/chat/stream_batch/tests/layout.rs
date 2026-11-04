@@ -78,6 +78,7 @@ fn text_plans_preserve_appends_fresh_keys_dirty_chains_and_no_snapshot_reconcili
                         text: "tool row".into(),
                         images: Vec::new(),
                         tool: Some(AppTranscriptTool {
+                            terminal: None,
                             call_id: format!("chain-{row}"),
                             name: "tool".into(),
                             args: json!({"row": row}),

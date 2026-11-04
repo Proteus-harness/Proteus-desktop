@@ -7,6 +7,7 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use proteus_contracts::app_protocol::AppTranscriptTool;
+use proteus_contracts::contracts::ToolTerminalRef;
 use serde_json::Value;
 
 use super::Chat;
@@ -104,6 +105,7 @@ pub(super) fn render_tool(
     diff: Option<Entity<crate::ui::diff::DiffView>>,
     external_clip: bool,
     connected: bool,
+    terminal_supported: bool,
     cx: &mut Context<Chat>,
 ) -> AnyElement {
     let muted = cx.theme().muted_foreground;
@@ -145,6 +147,22 @@ pub(super) fn render_tool(
     let header = line_with_name(tool, name, connected, cx)
         .id(row_id("tool", key))
         .disclosure(cx)
+        .when_some(
+            terminal_supported.then(|| tool.terminal.clone()).flatten(),
+            |header, terminal| {
+                header.child(
+                    kit::button(row_id("tool-terminal", key))
+                        .quiet(cx)
+                        .xsmall()
+                        .icon(Lucide::Terminal)
+                        .hint("Открыть терминал", cx)
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            cx.stop_propagation();
+                            this.open_tool_terminal(terminal.clone(), window, cx);
+                        })),
+                )
+            },
+        )
         .child(chevron(row_id("tool-chevron", key), expanded, muted))
         .on_click(cx.listener(move |this, _, _, cx| this.toggle_expanded(key, cx)));
     v_flex().child(header).children(details).into_any_element()
@@ -462,5 +480,43 @@ mod status_tests {
             assert_eq!(display_status(canonical, false), canonical);
             assert_eq!(display_status(canonical, true), canonical);
         }
+    }
+}
+
+impl Chat {
+    pub(in crate::ui) fn open_tool_terminal(
+        &self,
+        terminal: ToolTerminalRef,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.supports_core() {
+            return;
+        }
+        let Some(api) = &self.api else {
+            return;
+        };
+        let connection = api.connection_id();
+        let session = self.session.dir.clone();
+        let owner = self.readonly_target().map(|target| target.owner.clone());
+        self.workspace
+            .update(cx, |workspace, cx| {
+                if workspace
+                    .api()
+                    .is_none_or(|api| api.connection_id() != connection)
+                {
+                    return;
+                }
+                let tab = crate::tabs::chat(&session);
+                let owner = owner.unwrap_or_else(|| {
+                    workspace
+                        .spaces
+                        .owner_of_chat(&tab)
+                        .unwrap_or(&tab)
+                        .to_owned()
+                });
+                workspace.open_agent_terminal(owner, session, terminal, window, cx);
+            })
+            .ok();
     }
 }

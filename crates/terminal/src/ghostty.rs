@@ -3,6 +3,7 @@
 //! PTY descriptors, process lifecycle and resize use portable-pty. There is
 //! no Alacritty emulator or raw-output replay buffer in this implementation.
 
+pub(super) mod display;
 mod input;
 mod process;
 use process::Process;
@@ -279,23 +280,7 @@ fn run(
 ) -> Result<()> {
     let init = || -> Result<_> {
         let grid = shared.view.lock().unwrap().grid;
-        let mut vt = Vt::new(Options {
-            cols: grid.columns as u16,
-            rows: grid.rows as u16,
-            max_scrollback: 8 * 1024 * 1024,
-        })?;
-        vt.resize(grid.columns as u16, grid.rows as u16, 1, 1)?;
-        vt.set_default_fg_color(Some(rgb(BASE.foreground)))?;
-        vt.set_default_bg_color(Some(rgb(BASE.background)))?;
-        vt.set_default_color_palette(Some(ghostty_vt::style::Palette(std::array::from_fn(|i| {
-            rgb(super::alacritty_screen::indexed(i as u8))
-        }))))?;
-        vt.set_scrollback_max_lines(Some(10_000))?;
-        vt.set_apc_max_bytes(Some(64 * 1024))?;
-        vt.set_clipboard_write_max_bytes(Some(0))?;
-        vt.set_clipboard_write_policy(ClipboardWritePolicy::Deny);
-        vt.set_glyph_protocol_enabled(false)?;
-        vt.set_xtversion(Some("Proteus Ghostty".into()));
+        let vt = configured_vt(grid, BASE)?;
         let fd = master.as_raw_fd().context("PTY не предоставляет fd")?;
         // SAFETY: the master remains owned by this actor until run returns.
         let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
@@ -527,6 +512,27 @@ fn run(
 
 #[cfg(test)]
 mod tests;
+
+pub(super) fn configured_vt(grid: Grid, base: Base) -> Result<Vt> {
+    let mut vt = Vt::new(Options {
+        cols: grid.columns as u16,
+        rows: grid.rows as u16,
+        max_scrollback: 8 * 1024 * 1024,
+    })?;
+    vt.resize(grid.columns as u16, grid.rows as u16, 1, 1)?;
+    vt.set_default_fg_color(Some(rgb(base.foreground)))?;
+    vt.set_default_bg_color(Some(rgb(base.background)))?;
+    vt.set_default_color_palette(Some(ghostty_vt::style::Palette(std::array::from_fn(|i| {
+        rgb(super::alacritty_screen::indexed(i as u8))
+    }))))?;
+    vt.set_scrollback_max_lines(Some(10_000))?;
+    vt.set_apc_max_bytes(Some(64 * 1024))?;
+    vt.set_clipboard_write_max_bytes(Some(0))?;
+    vt.set_clipboard_write_policy(ClipboardWritePolicy::Deny);
+    vt.set_glyph_protocol_enabled(false)?;
+    vt.set_xtversion(Some("Proteus Ghostty".into()));
+    Ok(vt)
+}
 
 fn rgb([r, g, b]: [u8; 3]) -> ghostty_vt::style::RgbColor {
     ghostty_vt::style::RgbColor { r, g, b }

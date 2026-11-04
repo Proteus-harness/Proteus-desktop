@@ -235,10 +235,10 @@ impl Chat {
                     return;
                 };
                 let workspace = workspace.read(cx);
-                if !workspace.subagent_document_current(&document, cx.entity_id()) {
+                if !workspace.document_current(&document, cx.entity_id()) {
                     return;
                 }
-                let visible = workspace.subagent_document_visible(&document, cx.entity_id());
+                let visible = workspace.document_visible(&document, cx.entity_id());
                 match result {
                     Ok(page) if page.start + page.messages.len() == page.total => {
                         let cursor = AppTranscriptCursor {
@@ -297,7 +297,7 @@ impl Chat {
                 let visible = this.workspace.upgrade().is_some_and(|workspace| {
                     workspace
                         .read(cx)
-                        .subagent_document_visible(&document, cx.entity_id())
+                        .document_visible(&document, cx.entity_id())
                 });
                 if visible && binding.refreshing() {
                     binding.dirty = true;

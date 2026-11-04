@@ -279,6 +279,7 @@ fn reverse_identity_lookup_preserves_nonassistant_metadata() {
             tools: Vec::new(),
         });
         entry.tool = Some(AppTranscriptTool {
+            terminal: None,
             call_id: "collision".into(),
             name: "fixture".into(),
             args: serde_json::json!({"exact": [1, 2]}),

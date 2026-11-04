@@ -334,6 +334,7 @@ fn patch_row(
         text: String::new(),
         images: Vec::new(),
         tool: Some(AppTranscriptTool {
+            terminal: None,
             call_id: "patch-call".into(),
             name: crate::tool_display::APPLY_PATCH.into(),
             args,

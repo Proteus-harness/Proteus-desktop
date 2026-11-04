@@ -33,7 +33,7 @@ impl Workspace {
 
     /// In-flight read results may fill the same retained hidden document, but
     /// cannot fill a closed tab or its replacement after a quick reopen.
-    pub(in crate::ui) fn subagent_document_current(&self, id: &str, entity: EntityId) -> bool {
+    pub(in crate::ui) fn document_current(&self, id: &str, entity: EntityId) -> bool {
         self.documents
             .get(id)
             .is_some_and(|surface| surface.view.entity_id() == entity)

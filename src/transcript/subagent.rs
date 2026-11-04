@@ -101,6 +101,7 @@ mod tests {
     #[test]
     fn canonical_task_link_requires_typed_reserved_metadata_not_name_or_uuid() {
         let mut tool = AppTranscriptTool {
+            terminal: None,
             call_id: "call".into(),
             name: "task".into(),
             args: json!({}),
@@ -131,6 +132,7 @@ mod tests {
     #[test]
     fn background_call_success_is_not_a_completed_child() {
         let mut tool = AppTranscriptTool {
+            terminal: None,
             call_id: "spawn".into(),
             name: "anything".into(),
             args: json!({}),

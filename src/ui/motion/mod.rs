@@ -63,6 +63,8 @@ pub(super) const SLOW: Duration = Duration::from_millis(260);
 pub(super) const HOLD: Duration = Duration::from_millis(300);
 /// Saved child history has no child stream; only visible active readers poll.
 pub(super) const SAVED_CHAT_REFRESH: Duration = Duration::from_secs(1);
+/// Backpressure and empty nonblocking responses yield instead of spinning.
+pub(super) const TERMINAL_REFRESH: Duration = Duration::from_millis(50);
 
 /// Easing of everything that arrives or moves to a new place.
 pub(super) fn ease_enter(t: f32) -> f32 {

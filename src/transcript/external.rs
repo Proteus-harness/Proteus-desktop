@@ -22,6 +22,7 @@ impl Transcript {
                 Role::System,
                 String::new(),
                 Some(AppTranscriptTool {
+                    terminal: None,
                     call_id: identity.1.clone(),
                     name,
                     args: input,

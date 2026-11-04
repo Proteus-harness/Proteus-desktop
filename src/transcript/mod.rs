@@ -254,6 +254,7 @@ impl Transcript {
             } => self.push_user(Some(*message_id), text, images.clone()),
             Event::ToolCallRequested { call } => {
                 let tool = AppTranscriptTool {
+                    terminal: None,
                     call_id: call.id.clone(),
                     name: call.name.clone(),
                     args: call.args.clone(),
@@ -290,6 +291,9 @@ impl Transcript {
             }
             Event::ToolCallResolved { call } => self.update_tool(&call.id, |tool| {
                 tool.effective_args = Some(call.args.clone());
+            }),
+            Event::ToolTerminalBound { call_id, terminal } => self.update_tool(call_id, |tool| {
+                tool.terminal = Some(terminal.clone());
             }),
             Event::ApprovalRequested { call_id, .. } => self.update_tool(call_id, |tool| {
                 tool.status = "waiting_approval".to_owned();
@@ -551,6 +555,13 @@ fn finish_tool(tool: &mut AppTranscriptTool, result: &ToolResult) {
     tool.status = if result.ok { "done" } else { "failed" }.to_owned();
     tool.result = Some(result.text_or_status());
     tool.metadata = result.metadata.clone();
+    if let Some(terminal) = result
+        .metadata
+        .get("tool_terminal")
+        .and_then(|value| serde_json::from_value(value.clone()).ok())
+    {
+        tool.terminal = Some(terminal);
+    }
 }
 
 /// Whether a row renders the same after a snapshot replaced it.
@@ -582,6 +593,7 @@ fn same_tool(a: &AppTranscriptTool, b: &AppTranscriptTool) -> bool {
     a.call_id == b.call_id
         && a.status == b.status
         && a.result == b.result
+        && a.terminal == b.terminal
         && a.effective_args.is_some() == b.effective_args.is_some()
         // Binding can arrive after the tool result without changing its text
         // or status. Compare only the compact reserved fields, not large raw

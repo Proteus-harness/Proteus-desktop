@@ -391,6 +391,7 @@ fn original_observer_changes_and_public_metadata_projection_are_preserved() {
                     text: "original".into(),
                     images: Vec::new(),
                     tool: Some(AppTranscriptTool {
+                        terminal: None,
                         call_id: "collision".into(),
                         name: "tool".into(),
                         args: json!({"keep": 1}),

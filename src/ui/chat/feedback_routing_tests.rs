@@ -108,6 +108,7 @@ fn reconnect_and_parallel_completion_yield_to_an_approved_running_tool() {
                 subagent: None,
                 streaming: false,
                 tool: Some(AppTranscriptTool {
+                    terminal: None,
                     call_id: "still-executing".into(),
                     name: "shell".into(),
                     args: serde_json::json!({}),
