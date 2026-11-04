@@ -30,43 +30,7 @@ impl Runtime {
                     runtime.retarget_arguments(connection, &session, &from, &to, cx);
                 });
             }
-            let workspaces: Vec<_> = cx
-                .windows()
-                .into_iter()
-                .filter_map(|window| {
-                    let window = window.downcast::<crate::ui::launcher::Launcher>()?;
-                    window.read(cx).ok()?.ready_workspace()
-                })
-                .collect();
-            let destination = crate::tabs::document(extension, &to);
-            let existing = workspaces
-                .iter()
-                .filter(|workspace| {
-                    workspace
-                        .read(cx)
-                        .has_session_document(connection, &session, &destination)
-                })
-                .map(|workspace| workspace.entity_id())
-                .min_by_key(|id| id.to_string());
-            for workspace in workspaces {
-                let destination_elsewhere =
-                    existing.is_some_and(|owner| owner != workspace.entity_id());
-                let window = workspace.read(cx).window_handle;
-                let _ = window.update(cx, |_, window, cx| {
-                    workspace.update(cx, |workspace, cx| {
-                        workspace.retarget_document(
-                            connection,
-                            &session,
-                            extension,
-                            &from,
-                            &to,
-                            destination_elsewhere,
-                            window,
-                            cx,
-                        );
-                    })
-                });
-            }
+            retarget_workspaces(connection, &session, extension, &from, &to, cx);
         });
     }
 
@@ -99,12 +63,157 @@ impl Runtime {
     }
 }
 
+/// Apply the same exact document rename to retained layouts of native windows.
+fn retarget_workspaces(
+    connection: u64,
+    session: &std::path::Path,
+    extension: &str,
+    from: &str,
+    to: &str,
+    cx: &mut App,
+) {
+    let workspaces: Vec<_> = cx
+        .windows()
+        .into_iter()
+        .filter_map(|window| {
+            // gpui_kit wraps application content in Base Root in every native
+            // window; its application view is the Launcher, not the window root.
+            let window = window.downcast::<gpui_kit::base::Root>()?;
+            let launcher = window
+                .read(cx)
+                .ok()?
+                .view()
+                .clone()
+                .downcast::<crate::ui::launcher::Launcher>()
+                .ok()?;
+            launcher.read(cx).ready_workspace()
+        })
+        .collect();
+    let destination = crate::tabs::document(extension, to);
+    let existing = workspaces
+        .iter()
+        .filter(|workspace| {
+            workspace
+                .read(cx)
+                .has_session_document(connection, session, &destination)
+        })
+        .map(|workspace| workspace.entity_id())
+        .min_by_key(|id| id.to_string());
+    for workspace in workspaces {
+        let destination_elsewhere = existing.is_some_and(|owner| owner != workspace.entity_id());
+        let window = workspace.read(cx).window_handle;
+        let _ = window.update(cx, |_, window, cx| {
+            workspace.update(cx, |workspace, cx| {
+                workspace.retarget_document(
+                    connection,
+                    session,
+                    extension,
+                    from,
+                    to,
+                    destination_elsewhere,
+                    window,
+                    cx,
+                );
+            })
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::api::Api;
     use crate::tabs::ChatKey;
     use crate::ui::workspace::Workspace;
+
+    #[::core::prelude::v1::test]
+    fn production_root_retargets_the_native_tab_caption_and_retains_document_entity() {
+        use crate::ui::extensions::SurfaceView;
+        use crate::ui::launcher::Launcher;
+        struct Document;
+        impl Render for Document {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div()
+            }
+        }
+        let cx = ::gpui::TestAppContext::single();
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::ui::prefs::init_in_memory(cx);
+        });
+        let api = Api::new("http://127.0.0.1:1", "synthetic");
+        let (window, launcher) = cx.update(|cx| {
+            gpui_kit::open_window(WindowOptions::default(), cx, |window, cx| {
+                let workspace = cx.new(|cx| Workspace::test_empty(window, cx));
+                workspace.update(cx, |workspace, cx| {
+                    workspace.test_set_api(api.clone());
+                    let mut layout = crate::tabs::TabLayout::default();
+                    layout.open("files:rename-me.txt", |_| false);
+                    layout.preview = Some("files:rename-me.txt".into());
+                    workspace
+                        .spaces
+                        .set_active(Some("chat:/one"), layout.clone());
+                    workspace.layout = layout;
+                    workspace.documents.insert(
+                        "files:rename-me.txt".into(),
+                        SurfaceView {
+                            view: cx.new(|_| Document).into(),
+                            focus: cx.focus_handle(),
+                            rehost: std::rc::Rc::new(|_, _, _| {}),
+                        },
+                    );
+                });
+                cx.new(|cx| {
+                    Launcher::from_workspace(
+                        workspace,
+                        crate::launch::Target::Spawn { profile: None },
+                        window,
+                        cx,
+                    )
+                })
+            })
+            .unwrap()
+        });
+        let workspace = launcher.read_with(&cx, |launcher, _| launcher.ready_workspace().unwrap());
+        let identity = workspace.read_with(&cx, |workspace, cx| {
+            assert_eq!(
+                workspace.test_tab_title("files:rename-me.txt", cx).as_ref(),
+                "rename-me.txt"
+            );
+            workspace.documents["files:rename-me.txt"].view.entity_id()
+        });
+        assert!(window.downcast::<gpui_kit::base::Root>().is_some());
+        assert!(window.downcast::<Launcher>().is_none());
+        cx.update(|cx| {
+            retarget_workspaces(
+                api.connection_id(),
+                std::path::Path::new("/one"),
+                "files",
+                "rename-me.txt",
+                "renamed.txt",
+                cx,
+            )
+        });
+        workspace.read_with(&cx, |workspace, cx| {
+            assert_eq!(
+                workspace.layout.active(workspace.layout.focused),
+                Some("files:renamed.txt")
+            );
+            assert_eq!(
+                workspace.test_tab_title("files:renamed.txt", cx).as_ref(),
+                "renamed.txt"
+            );
+            assert_eq!(
+                workspace.layout.preview.as_deref(),
+                Some("files:renamed.txt")
+            );
+            assert_eq!(
+                workspace.documents["files:renamed.txt"].view.entity_id(),
+                identity
+            );
+            assert!(!workspace.layout.contains("files:rename-me.txt"));
+        });
+    }
 
     #[::core::prelude::v1::test]
     fn attached_document_arguments_follow_exact_session_connection_without_changing_view_ids() {

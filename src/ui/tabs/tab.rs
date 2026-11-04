@@ -100,6 +100,11 @@ pub(super) struct TabState {
 }
 
 impl Workspace {
+    #[cfg(test)]
+    pub(in crate::ui) fn test_tab_title(&self, id: &str, cx: &App) -> SharedString {
+        self.tab_label(id, cx).title
+    }
+
     fn chat_state(&self, id: &str, cx: &App) -> Option<ChatState> {
         Some(self.chats.get(id)?.view.read(cx).session.state())
     }
