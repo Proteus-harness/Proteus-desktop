@@ -146,6 +146,11 @@ impl Chat {
                 Change::None
             }
             AppServerEvent::Runtime { envelope } => {
+                if matches!(&envelope.event, RuntimeEvent::SubagentSessionBound { .. }) {
+                    // The actual child identity is now durable. Discover it
+                    // while it is running, rather than waiting for RunSettled.
+                    cx.emit(ChatEvent::CatalogUpdated);
+                }
                 if let RuntimeEvent::SubagentFinished {
                     child_thread_id,
                     status,
@@ -157,10 +162,7 @@ impl Chat {
                         status: status.clone(),
                     });
                 }
-                let feedback_changed = session
-                    .root_thread
-                    .is_none_or(|root| root == envelope.thread_id)
-                    && session.feedback.runtime(&envelope.event);
+                let feedback_changed = session.runtime_feedback(&envelope);
                 if let RuntimeEvent::TokenUsageUpdated { usage, .. } = &envelope.event
                     && session
                         .root_thread

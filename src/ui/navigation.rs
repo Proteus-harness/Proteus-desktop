@@ -37,6 +37,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.invalidate_navigation();
         self.record_navigation(cx);
         let layout = self.tab_layout(cx);
         let previous = self.navigation.clone();

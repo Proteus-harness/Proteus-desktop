@@ -44,7 +44,6 @@ impl SettingsView {
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         let workspace = this.workspace.clone();
                                         let _ = workspace.update(cx, |workspace, cx| {
-                                            workspace.close_settings(cx);
                                             workspace.new_session_for(
                                                 crate::conversations::AgentKind::Proteus,
                                                 None,

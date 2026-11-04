@@ -15,6 +15,7 @@ mod open;
 mod ops;
 mod pane;
 mod pins;
+mod retarget;
 mod size;
 mod spaces;
 mod tree;

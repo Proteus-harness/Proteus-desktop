@@ -25,6 +25,7 @@ mod packages;
 mod params;
 mod reveal;
 mod revisions;
+mod save;
 mod search;
 mod shortcuts;
 mod sizes;
@@ -33,6 +34,9 @@ mod slots;
 mod spot;
 mod tools;
 mod widgets;
+
+#[cfg(test)]
+mod audit_tests;
 
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
@@ -91,6 +95,8 @@ pub struct SettingsView {
     /// Open disclosures by key.
     open: HashSet<String>,
     saving: bool,
+    /// Includes raw editor changes that have no parsed draft value yet.
+    edit_revision: u64,
     feedback: Option<Feedback>,
     feedback_timer: Option<Task<()>>,
     page: PageId,
@@ -186,6 +192,7 @@ impl SettingsView {
             json: HashSet::new(),
             open: HashSet::new(),
             saving: false,
+            edit_revision: 0,
             feedback: None,
             feedback_timer: None,
             page,
@@ -268,11 +275,11 @@ impl SettingsView {
     }
 
     fn dirty(&self) -> bool {
-        self.draft.is_dirty(&self.baseline)
+        self.draft.is_dirty(&self.baseline) || self.editors.has_errors()
     }
 
     pub(super) fn has_unsaved_changes(&self) -> bool {
-        self.dirty()
+        self.dirty() || self.saving
     }
 
     fn can_save(&self) -> bool {
@@ -290,6 +297,7 @@ impl SettingsView {
 
     fn update_draft(&mut self, cx: &mut Context<Self>, change: impl FnOnce(&mut Draft)) {
         change(&mut self.draft);
+        self.edit_revision = self.edit_revision.wrapping_add(1);
         self.clear_feedback();
         cx.notify();
     }
@@ -298,6 +306,7 @@ impl SettingsView {
     /// rebuilt from the new values.
     fn replace_draft(&mut self, draft: Draft, cx: &mut Context<Self>) {
         self.draft = draft;
+        self.edit_revision = self.edit_revision.wrapping_add(1);
         self.forget_editors();
         self.clear_feedback();
         cx.notify();
@@ -419,47 +428,6 @@ impl SettingsView {
                 .ok();
             })
         });
-    }
-
-    fn save(&mut self, cx: &mut Context<Self>) {
-        if !self.can_save() {
-            return;
-        }
-        let Some(context::Profile { api, dir }) = self.context.profile.clone() else {
-            return;
-        };
-        let request = self.draft.changes(&self.baseline);
-        self.saving = true;
-        self.clear_feedback();
-        cx.notify();
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move { api.save_config_builder(&dir, &request) })
-                .await;
-            this.update(cx, |this, cx| {
-                this.saving = false;
-                match result {
-                    Ok(snapshot) => {
-                        this.accept(snapshot);
-                        this.load_addons(cx);
-                        this.refresh_history(cx);
-                        this.show_feedback(
-                            "Сохранено · новые запросы используют обновлённую сборку",
-                            false,
-                            cx,
-                        );
-                        cx.emit(SettingsEvent::Saved);
-                    }
-                    Err(error) => {
-                        this.show_feedback(format!("Не сохранено: {error:#}"), true, cx);
-                    }
-                }
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
     }
 
     /// Reads the history again on its page, or on the next visit.

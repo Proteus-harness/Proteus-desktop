@@ -74,6 +74,7 @@ impl SessionList {
             |this, state, event: &InputEvent, window, cx| match event {
                 InputEvent::Change => {
                     this.session_list.search = state.read(cx).value().trim().to_string();
+                    this.continue_codex_catalogs(cx);
                     cx.notify();
                 }
                 InputEvent::PressEnter { .. } => this.enter_session_list(window, cx),

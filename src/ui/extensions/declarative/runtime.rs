@@ -3,6 +3,7 @@
 mod commands;
 mod content_queue;
 use content_queue::ContentQueue;
+mod documents;
 mod invalidation;
 mod scopes;
 pub(super) use crate::ui::extensions::host::Lifetime;
@@ -564,6 +565,9 @@ impl Runtime {
                 if self.error.take().is_none() {
                     return;
                 }
+            }
+            Signal::Message(Incoming::RetargetDocument { context, from, to }) => {
+                self.retarget_document(&context, from, to, cx);
             }
             Signal::Message(Incoming::OpenDocument {
                 mut context,

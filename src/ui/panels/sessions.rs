@@ -119,10 +119,14 @@ impl Workspace {
             } else {
                 rows(&first, true, target, slot);
             }
-            if !searching && project.rows.len() > PROJECT_ROWS {
+            let has_more = self
+                .codex_catalogs
+                .get(project.path)
+                .is_some_and(|cursor| cursor.has_more());
+            if !searching && (project.rows.len() > PROJECT_ROWS || has_more) {
                 let hidden = if all { 0 } else { rest.len() };
                 let button = self
-                    .render_more(gi, project.path, hidden, cx)
+                    .render_more(gi, project.path, hidden, all, cx)
                     .into_any_element();
                 if more_moving {
                     // The extra chats and the button make one child, so the
@@ -388,6 +392,7 @@ impl Workspace {
         gi: usize,
         path: &Path,
         hidden: usize,
+        expanded: bool,
         cx: &Context<Self>,
     ) -> impl IntoElement {
         let theme = cx.theme();
@@ -402,16 +407,19 @@ impl Workspace {
             .text_color(theme.muted_foreground)
             .cursor_pointer()
             .hover(|row| row.text_color(theme.foreground))
-            .child(if hidden > 0 {
+            .child(if expanded {
+                "Свернуть".to_string()
+            } else if hidden > 0 {
                 format!("Показать больше · {hidden}")
             } else {
-                "Свернуть".to_string()
+                "Показать больше".to_string()
             })
             .on_click(cx.listener(move |this, _, _, cx| {
                 let expanded = &mut this.session_list.expanded;
                 let all = !expanded.remove(&path);
                 if all {
                     expanded.insert(path.clone());
+                    this.more_codex_sessions(path.clone(), cx);
                 }
                 motion::toggled(more_key(&path), all, cx);
                 cx.notify();

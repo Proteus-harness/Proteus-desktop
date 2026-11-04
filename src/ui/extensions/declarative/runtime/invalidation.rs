@@ -32,7 +32,7 @@ pub(super) fn broadcast_surfaces(extension: &str, cx: &mut App) {
     broadcast_kind(extension, true, cx);
 }
 
-fn broadcast_kind(extension: &str, all: bool, cx: &mut App) {
+pub(super) fn runtimes(extension: &str, cx: &App) -> Vec<Entity<Runtime>> {
     let mut runtimes = cx
         .try_global::<super::super::Runtimes>()
         .map(|runtimes| {
@@ -54,7 +54,13 @@ fn broadcast_kind(extension: &str, all: bool, cx: &mut App) {
                 .filter(|runtime| runtime.read(cx).extension_id() == extension),
         );
     }
-    for runtime in runtimes {
+    let mut seen = HashSet::new();
+    runtimes.retain(|runtime| seen.insert(runtime.entity_id()));
+    runtimes
+}
+
+fn broadcast_kind(extension: &str, all: bool, cx: &mut App) {
+    for runtime in runtimes(extension, cx) {
         runtime.update(cx, |runtime, cx| {
             if all {
                 runtime.invalidate_surfaces(cx)

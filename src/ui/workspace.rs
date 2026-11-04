@@ -19,6 +19,7 @@ use crate::attention::Tracker;
 use crate::launch::{LaunchOptions, Target};
 use crate::tabs::{ChatSpaces, PaneId, TabLayout};
 
+mod documents;
 mod drivers;
 mod spaces;
 pub(super) mod startup;
@@ -40,6 +41,7 @@ pub struct Workspace {
     api: Option<Api>,
     target: Target,
     pub(super) codex_catalog_loading: bool,
+    pub(super) codex_catalogs: HashMap<PathBuf, crate::agents::codex::CatalogCursor>,
     pub(super) codex_models: Vec<crate::agents::codex::Model>,
     pub(super) layout: TabLayout,
     pub(super) spaces: ChatSpaces,
@@ -84,6 +86,9 @@ pub struct Workspace {
     pub(super) settings: Option<Entity<SettingsView>>,
     pub(super) settings_subscription: Option<Subscription>,
     pub(super) navigation: crate::navigation::History<super::navigation::Destination>,
+    /// Latest explicit destination; async project discovery may only apply
+    /// navigation while this generation is still current.
+    pub(super) navigation_generation: u64,
     /// Extension panels, document tabs and icons built so far; the tab
     /// layout and the side panel themselves are client preferences.
     pub(super) panels: HashMap<&'static str, SurfaceView>,
@@ -117,6 +122,24 @@ pub struct Workspace {
 }
 
 impl Workspace {
+    #[cfg(test)]
+    pub(in crate::ui) fn test_empty(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let mut workspace = Self::empty(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+            Target::Spawn { profile: None },
+            ChatSpaces::default(),
+            WindowGroup::default(),
+            window,
+            cx,
+        );
+        workspace.status = Status::Ready;
+        workspace
+    }
+    #[cfg(test)]
+    pub(in crate::ui) fn test_set_api(&mut self, api: Api) {
+        self.api = Some(api);
+    }
+
     /// Hidden tabs and the chat area covered by Settings keep no composer
     /// contribution views or chat-owned extension processes.
     pub(super) fn release_hidden_chat_activities(&self, layout: &TabLayout, cx: &mut App) {
@@ -214,6 +237,7 @@ impl Workspace {
             api: None,
             target,
             codex_catalog_loading: false,
+            codex_catalogs: HashMap::new(),
             codex_models: Vec::new(),
             layout,
             spaces,
@@ -240,6 +264,7 @@ impl Workspace {
             settings: None,
             settings_subscription: None,
             navigation: crate::navigation::History::default(),
+            navigation_generation: 0,
             panels: HashMap::new(),
             documents: HashMap::new(),
             document_titles: HashMap::new(),
@@ -299,6 +324,10 @@ impl Workspace {
                         self.select_chat_space(&key, cx);
                     }
                     self.insert_codex_chat(opened, is_new, window, cx);
+                }
+                for (id, message) in boot.codex_failed {
+                    self.fail_chat_resume(&id, message.clone(), cx);
+                    self.report(message, cx);
                 }
                 let layout = self.tab_layout(cx);
                 self.sync_chats(&layout, cx);

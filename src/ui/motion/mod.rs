@@ -61,6 +61,8 @@ pub(super) const BASE: Duration = Duration::from_millis(180);
 pub(super) const SLOW: Duration = Duration::from_millis(260);
 /// A held pointer starts reordering only after an ordinary click has settled.
 pub(super) const HOLD: Duration = Duration::from_millis(300);
+/// Saved child history has no child stream; only visible active readers poll.
+pub(super) const SAVED_CHAT_REFRESH: Duration = Duration::from_secs(1);
 
 /// Easing of everything that arrives or moves to a new place.
 pub(super) fn ease_enter(t: f32) -> f32 {

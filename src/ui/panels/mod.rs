@@ -146,7 +146,9 @@ impl Workspace {
         let Some(panel) = info(name, cx) else {
             return;
         };
-        self.close_settings(cx);
+        if !self.begin_navigation(cx) {
+            return;
+        }
         prefs::update(cx, |prefs| {
             prefs.sidebar.panel = Some(panel.name.to_owned())
         });

@@ -282,8 +282,9 @@ fn centered(content: impl IntoElement) -> Div {
 impl Workspace {
     fn toggle_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.settings.is_some() {
-            self.close_settings(cx);
-            self.focus_active_chat(window, cx);
+            if self.begin_navigation(cx) {
+                self.focus_active_chat(window, cx);
+            }
         } else {
             self.open_settings(window, cx);
         }

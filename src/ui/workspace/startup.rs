@@ -62,6 +62,7 @@ pub(super) struct Boot {
     pub codex: Option<CodexService>,
     pub codex_opened: Vec<Opened>,
     pub codex_models: Vec<Model>,
+    pub codex_failed: Vec<(String, String)>,
 }
 
 /// Override the executable for portable installs and deterministic local peers.
@@ -171,6 +172,7 @@ fn boot_with_owner(
             codex: None,
             codex_opened: Vec::new(),
             codex_models: Vec::new(),
+            codex_failed: Vec::new(),
         }
     };
     // Subscribe while graphics is still being created. A ready snapshot can
@@ -199,11 +201,20 @@ fn restore_codex(boot: &mut Boot, service: CodexService, ids: &[&str], cwd: &Pat
         boot.codex_opened.push(service.new_thread(cwd)?);
     } else {
         for id in ids {
-            boot.codex_opened.push(
-                service
-                    .resume(id)
-                    .with_context(|| format!("Restoring Codex thread {id}"))?,
-            );
+            match service.resume(id) {
+                Ok(opened) => boot.codex_opened.push(opened),
+                // A rejected saved ID belongs to that tab. A broken transport
+                // still fails startup, because the remaining replies are unknown.
+                Err(crate::agents::codex::Error::Remote(error)) if service.is_connected() => {
+                    boot.codex_failed.push((
+                        tabs::ChatKey::Codex((*id).to_owned()).tab_id(),
+                        format!("Не удалось восстановить чат Codex {id}: {}", error.message),
+                    ));
+                }
+                Err(error) => {
+                    return Err(error).with_context(|| format!("Restoring Codex thread {id}"));
+                }
+            }
         }
     }
     boot.codex_models = service.models().context("Reading Codex model catalog")?;
@@ -278,5 +289,6 @@ fn restore_core(
         codex: None,
         codex_opened: Vec::new(),
         codex_models: Vec::new(),
+        codex_failed: Vec::new(),
     })
 }

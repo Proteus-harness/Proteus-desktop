@@ -1,10 +1,12 @@
 //! Shared native Codex app-server service. RPC methods block: run off the UI thread.
+mod catalog;
 mod projection;
 mod recovery;
 mod router;
 mod subscriptions;
 mod types;
 
+pub(crate) use catalog::CatalogCursor;
 use proteus_codex_client::{Client, Launch};
 pub use proteus_codex_client::{Error, RpcError};
 pub use router::Events;

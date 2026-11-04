@@ -4,20 +4,56 @@ use crate::agents::codex::Opened;
 
 impl Workspace {
     pub(in crate::ui) fn refresh_codex_sessions(&mut self, cx: &mut Context<Self>) {
+        let project = self.active_project_path().to_path_buf();
+        self.load_codex_catalog_page(project, true, cx);
+    }
+
+    pub(in crate::ui) fn more_codex_sessions(&mut self, project: PathBuf, cx: &mut Context<Self>) {
+        self.load_codex_catalog_page(project, false, cx);
+    }
+
+    /// Search and an explicitly expanded project request more metadata one
+    /// page at a time. Hidden folders never trigger history reads or paging.
+    pub(in crate::ui) fn continue_codex_catalogs(&mut self, cx: &mut Context<Self>) {
         if self.codex_catalog_loading {
             return;
         }
+        let searching = !self.session_list.search.is_empty();
+        let project = self.codex_catalogs.iter().find_map(|(project, cursor)| {
+            (cursor.has_more() && (searching || self.session_list.expanded.contains(project)))
+                .then(|| project.clone())
+        });
+        if let Some(project) = project {
+            self.more_codex_sessions(project, cx);
+        }
+    }
+
+    fn load_codex_catalog_page(&mut self, project: PathBuf, refresh: bool, cx: &mut Context<Self>) {
+        if self.codex_catalog_loading {
+            return;
+        }
+        let Some(cursor) = self
+            .codex_catalogs
+            .entry(project.clone())
+            .or_default()
+            .request(refresh)
+        else {
+            return;
+        };
         self.codex_catalog_loading = true;
         let epoch = self.session_catalog_epoch;
         let slot = self.windows.codex_slot();
-        let project = self.active_project_path().to_path_buf();
+        let requested_project = project.clone();
+        let requested_cursor = cursor.clone();
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
                 .spawn(async move {
                     let service = slot.lock().unwrap().clone();
                     service
-                        .map(|service| service.list(&project, None))
+                        .map(|service| {
+                            service.list(&requested_project, requested_cursor.as_deref())
+                        })
                         .transpose()
                 })
                 .await;
@@ -29,6 +65,11 @@ impl Workspace {
                 }
                 match result {
                     Ok(Some(page)) => {
+                        let pagination = this
+                            .codex_catalogs
+                            .entry(project)
+                            .or_default()
+                            .accept(cursor.as_deref(), page.next_cursor);
                         for row in page.data {
                             let row = crate::conversations::from_codex(&row);
                             if this.deleting_sessions.contains(&row.key) {
@@ -38,8 +79,15 @@ impl Workspace {
                         }
                         this.sessions_arrived
                             .get_or_insert_with(std::time::Instant::now);
+                        if let Err(error) = pagination {
+                            this.report(format!("Codex: {error:#}"), cx);
+                        } else {
+                            this.continue_codex_catalogs(cx);
+                        }
                     }
-                    Ok(None) => {}
+                    Ok(None) => {
+                        this.codex_catalogs.remove(&project);
+                    }
                     Err(error) => this.report(format!("Codex: {error:#}"), cx),
                 }
                 cx.notify();
@@ -78,7 +126,9 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.close_settings(cx);
+        if !self.begin_navigation(cx) {
+            return;
+        }
         let requested_layout = self.layout.clone();
         let creation = self.begin_chat_creation();
         self.call_codex_in(

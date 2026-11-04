@@ -13,10 +13,10 @@ use crate::ui::extensions::{HostEvent, SurfaceView};
 
 #[derive(Default)]
 pub(super) struct SpaceViews {
-    documents: HashMap<String, SurfaceView>,
-    titles: HashMap<String, SharedString>,
-    navigation: crate::navigation::History<crate::ui::navigation::Destination>,
-    strips: HashMap<tabs::PaneId, (ScrollHandle, Option<String>)>,
+    pub(super) documents: HashMap<String, SurfaceView>,
+    pub(super) titles: HashMap<String, SharedString>,
+    pub(super) navigation: crate::navigation::History<crate::ui::navigation::Destination>,
+    pub(super) strips: HashMap<tabs::PaneId, (ScrollHandle, Option<String>)>,
     notice: Option<SharedString>,
 }
 
@@ -242,6 +242,7 @@ mod tests {
     fn row(id: &str, parent: Option<&str>) -> ConversationSummary {
         ConversationSummary {
             key: ChatKey::Codex(id.into()),
+            proteus_session_id: None,
             parent: parent.map(|id| ChatKey::Codex(id.into())),
             workspace_path: "/project".into(),
             message_count: 0,

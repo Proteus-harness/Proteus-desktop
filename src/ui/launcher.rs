@@ -57,6 +57,13 @@ impl Launcher {
         }
     }
 
+    pub(in crate::ui) fn ready_workspace(&self) -> Option<Entity<Workspace>> {
+        match &self.stage {
+            Stage::Ready(view) => Some(view.clone()),
+            Stage::Picking { .. } => None,
+        }
+    }
+
     pub(super) fn workspace(&self) -> &Entity<Workspace> {
         match &self.stage {
             Stage::Ready(view) => view,

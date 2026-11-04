@@ -61,8 +61,19 @@ impl SettingsView {
 
     /// All explicit close commands use the same unsaved-edit guard.
     pub(in crate::ui) fn request_close(&mut self, cx: &mut Context<Self>) {
-        if self.dirty() {
-            let text = "Есть несохранённые изменения: сохраните или сбросьте их";
+        if self.check_close(cx) {
+            cx.emit(SettingsEvent::Close);
+        }
+    }
+
+    /// Guard shared by explicit close and navigation that replaces this view.
+    pub(in crate::ui) fn check_close(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.has_unsaved_changes() {
+            let text = if self.saving {
+                "Профиль сохраняется: дождитесь завершения"
+            } else {
+                "Есть несохранённые изменения: сохраните или сбросьте их"
+            };
             // The catalog page has no save bar to show the warning.
             if self.page == PageId::Catalog {
                 self.catalog_message(Err(anyhow::anyhow!(text)));
@@ -70,9 +81,9 @@ impl SettingsView {
             } else {
                 self.show_feedback(text, true, cx);
             }
-            return;
+            return false;
         }
-        cx.emit(SettingsEvent::Close);
+        true
     }
 }
 

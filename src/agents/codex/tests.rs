@@ -74,6 +74,44 @@ fn peer() -> CodexService {
     peer_with(PEER)
 }
 
+#[test]
+fn project_discovery_pages_past_fifty_children_without_resuming_threads() {
+    let service = peer_with(
+        r#"
+import json,sys
+requests=0
+for line in sys.stdin:
+    msg=json.loads(line)
+    if 'id' not in msg: continue
+    method=msg['method']; p=msg.get('params',{})
+    if method=='initialize': result={}
+    elif method=='thread/list':
+        requests+=1
+        assert p['limit']==50
+        if p['cursor'] is None:
+            result={'data':[{'id':'child:'+str(n),'cwd':p['cwd'],'parentThreadId':'older:main','updatedAt':100+n} for n in range(50)],'nextCursor':'after:50'}
+        else:
+            assert p['cursor']=='after:50'
+            result={'data':[{'id':'older:main','cwd':p['cwd'],'name':'Find me after fifty','updatedAt':90}],'nextCursor':None}
+    elif method=='test/requests': result=requests
+    else: raise AssertionError('History or unexpected call: '+method)
+    print(json.dumps({'id':msg['id'],'result':result}),flush=True)
+"#,
+    );
+    let summaries = service.list_until_main(Path::new("/synthetic")).unwrap();
+    assert_eq!(summaries.len(), 51);
+    assert_eq!(summaries.last().unwrap().id, "older:main");
+    assert!(
+        summaries[..50]
+            .iter()
+            .all(|summary| summary.parent_thread_id.is_some())
+    );
+    assert_eq!(
+        service.client.request("test/requests", json!({})).unwrap(),
+        json!(2)
+    );
+}
+
 fn peer_with(script: &str) -> CodexService {
     let mut launch = Launch::codex(PathBuf::from("python3"), std::env::current_dir().unwrap());
     launch.args = vec!["-u".into(), "-c".into(), script.into()];

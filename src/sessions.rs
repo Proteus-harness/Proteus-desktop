@@ -351,6 +351,7 @@ mod tests {
     ) -> ConversationSummary {
         ConversationSummary {
             key: key(dir),
+            proteus_session_id: None,
             parent: None,
             workspace_path: workspace.into(),
             message_count: 1,

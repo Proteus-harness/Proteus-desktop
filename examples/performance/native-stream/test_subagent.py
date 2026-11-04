@@ -21,6 +21,31 @@ class SubagentTests(unittest.TestCase):
         with build_opener(ProxyHandler({})).open(request, timeout=3) as response:
             return json.load(response)
 
+    def test_binding_publishes_running_child_and_live_reply_needs_no_parent_event(self):
+        with TemporaryDirectory() as directory:
+            fixture = SubagentFixture(Path(directory), "test", deferred_a=True).start()
+            try:
+                target = fixture.children["A"]["session"]
+                self.assertNotIn(target["session_id"],
+                                 [row["session_id"] for row in self.request(fixture, "/sessions")])
+                fixture.bind_a()
+                rows = self.request(fixture, "/sessions")
+                row = next(row for row in rows if row["session_id"] == target["session_id"])
+                self.assertEqual(row["activity"]["status"], "running")
+                before_events = len([row for row in fixture.trace if row["kind"] == "event_enqueued"])
+                initial = self.request(fixture, "/history/page", session_dir=target["session_dir"])
+                fixture.append_a()
+                live = self.request(fixture, "/history/page", session_dir=target["session_dir"])
+                self.assertEqual(live["total"], initial["total"] + 1)
+                self.assertEqual(live["base"], {"revision": initial["revision"], "common_prefix": 150})
+                self.assertIn("A LIVE", live["messages"][-1]["text"])
+                self.assertEqual(before_events,
+                                 len([row for row in fixture.trace if row["kind"] == "event_enqueued"]))
+                self.assertFalse(fixture.finished_a)
+                fixture.audit()
+            finally:
+                fixture.close()
+
     def test_snapshot_exact_binding_completed_metadata_and_legacy_unbound(self):
         with TemporaryDirectory() as directory:
             fixture = SubagentFixture(Path(directory), "test")
@@ -38,7 +63,7 @@ class SubagentTests(unittest.TestCase):
                 catalog = fixture.session_summaries()
                 self.assertEqual([row["parent_session_id"] for row in catalog[1:]], [SESSION_ID] * 2)
                 catalog[1]["activity"]["status"] = "corrupted"
-                self.assertEqual(fixture.session_summaries()[1]["activity"]["status"], "idle")
+                self.assertEqual(fixture.session_summaries()[1]["activity"]["status"], "running")
                 self.assertEqual(fixture.audit(unopened=True)["children"]["A"]["reads"], 0)
             finally:
                 fixture.server.server_close()

@@ -316,11 +316,14 @@ impl SettingsView {
                 let value = value.filter(|value| Some(value) != default);
                 self.update_draft(cx, |draft| draft.set_value(path, value))
             }
-            Err(_) => cx.notify(),
+            Err(_) => {
+                self.edit_revision = self.edit_revision.wrapping_add(1);
+                cx.notify();
+            }
         }
     }
 
-    fn ensure_json(
+    pub(super) fn ensure_json(
         &mut self,
         slot: &str,
         module: &str,
@@ -361,7 +364,7 @@ impl SettingsView {
         );
     }
 
-    fn json_changed(&mut self, key: &ModuleKey, text: &str, cx: &mut Context<Self>) {
+    pub(super) fn json_changed(&mut self, key: &ModuleKey, text: &str, cx: &mut Context<Self>) {
         let parsed =
             match serde_json::from_str::<Value>(if text.trim().is_empty() { "{}" } else { text }) {
                 Ok(Value::Object(object)) => Ok(object),
@@ -376,7 +379,10 @@ impl SettingsView {
                 let (slot, module) = key;
                 self.update_draft(cx, |draft| draft.set_module_config(slot, module, object));
             }
-            Err(_) => cx.notify(),
+            Err(_) => {
+                self.edit_revision = self.edit_revision.wrapping_add(1);
+                cx.notify();
+            }
         }
     }
 

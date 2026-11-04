@@ -160,20 +160,52 @@ fn fresh_codex_launch_creates_own_thread_without_choosing_other_clients_history(
 }
 
 #[test]
-fn failed_codex_restore_is_visible_instead_of_creating_a_replacement_thread() {
+fn failed_codex_thread_is_local_and_does_not_create_a_replacement_thread() {
     let mut saved = TabLayout::default();
     saved.open("codex:opaque:missing", |_| false);
-    let result = boot_with(
+    let boot = boot_with(
         &codex_options(),
         saved,
         |_| panic!("Missing Codex thread must not start Core"),
         |_, _| Ok(codex_peer("opaque:missing", true)),
+    )
+    .unwrap();
+    assert!(boot.codex.is_some());
+    assert!(boot.codex_opened.is_empty());
+    assert_eq!(boot.codex_failed.len(), 1);
+    assert_eq!(boot.codex_failed[0].0, "codex:opaque:missing");
+    assert!(boot.codex_failed[0].1.contains("synthetic missing thread"));
+}
+
+#[test]
+fn missing_codex_thread_preserves_healthy_split_restoration() {
+    let mut saved = TabLayout::default();
+    saved.open("codex:opaque:healthy", |_| false);
+    saved.open("codex:opaque:missing", |_| false);
+    saved.split("codex:opaque:missing", PaneId(0), Edge::Right);
+    let boot = boot_with(
+        &codex_options(),
+        saved,
+        |_| panic!("Codex restore must not launch Core"),
+        |_, _| Ok(codex_peer_many(&["opaque:healthy", "opaque:missing"], true)),
+    )
+    .unwrap();
+    assert_eq!(boot.codex_opened.len(), 1);
+    assert_eq!(boot.codex_opened[0].metadata.id, "opaque:healthy");
+    assert_eq!(boot.codex_failed.len(), 1);
+}
+
+#[test]
+fn lost_codex_transport_still_fails_restoration() {
+    let mut saved = TabLayout::default();
+    saved.open("codex:opaque:disconnected", |_| false);
+    let result = boot_with(
+        &codex_options(),
+        saved,
+        |_| panic!("Codex restore must not launch Core"),
+        |_, _| Ok(codex_peer("opaque:disconnected", false)),
     );
-    let error = match result {
-        Err(error) => error,
-        Ok(_) => panic!("restore must fail"),
-    };
-    assert!(format!("{error:#}").contains("Restoring Codex thread opaque:missing"));
+    assert!(result.is_err());
 }
 
 #[test]
@@ -315,7 +347,8 @@ for line in sys.stdin:
         result={'thread':{'id':'opaque:own-new','cwd':p['cwd'],'status':{'type':'idle'}}}
     elif method=='thread/resume':
         assert p['threadId'] in expected and p['excludeTurns']
-        if fail:
+        if p['threadId']=='opaque:disconnected': sys.exit(0)
+        if fail and 'missing' in p['threadId']:
             print(json.dumps({'id':msg['id'],'error':{'code':404,'message':'synthetic missing thread'}}),flush=True)
             continue
         result={'thread':{'id':p['threadId'],'cwd':'/synthetic','status':{'type':'idle'}}}

@@ -97,7 +97,7 @@ def sdk_gate(core):
     target = target.resolve()
     env["CARGO_TARGET_DIR"] = str(target)
     run(["cargo", "build", "--locked", "--manifest-path", "examples/modules/rust-tool/Cargo.toml"], core, env=env)
-    run(["cargo", "build", "--locked", "-p", "proteus-module-protocol", "--bin", "proteus-component-conformance"], core, env=env)
+    run(["cargo", "build", "--locked", "-p", "proteus-module-protocol", "--features", "conformance-cli", "--bin", "proteus-component-conformance"], core, env=env)
     run([sys.executable, "examples/modules/rust-tool/smoke.py",
          "--conformance", target / "debug/proteus-component-conformance",
          "--module", target / "debug/proteus-rust-tool-example"], core, env=env)

@@ -11,7 +11,7 @@ use super::{TabLayout, is_chat};
 #[serde(default, deny_unknown_fields)]
 pub struct ChatSpaces {
     active: Option<String>,
-    roots: BTreeMap<String, TabLayout>,
+    pub(super) roots: BTreeMap<String, TabLayout>,
     loose: TabLayout,
 }
 

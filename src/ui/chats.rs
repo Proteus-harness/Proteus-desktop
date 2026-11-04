@@ -95,11 +95,16 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.begin_navigation(cx) {
+            return;
+        }
         if self.deleting_sessions.contains(&key) {
             return;
         }
+        if self.open_catalog_subagent(&key, window, cx) {
+            return;
+        }
         self.creating_chat = None;
-        self.close_settings(cx);
         let id = key.tab_id();
         if self.show_external_tab(&id, cx) {
             return;
@@ -159,6 +164,9 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         if self.deleting_sessions.contains(&key) {
+            return;
+        }
+        if self.open_catalog_subagent(&key, window, cx) {
             return;
         }
         match key {
@@ -223,6 +231,9 @@ impl Workspace {
             return;
         };
         if self.deleting_sessions.contains(&key) {
+            return;
+        }
+        if self.open_catalog_subagent(&key, window, cx) {
             return;
         }
         if self.spaces.active_root() != Some(self.chat_space_root(&key).as_str()) {
@@ -300,6 +311,9 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.begin_navigation(cx) {
+            return;
+        }
         super::prefs::update(cx, |prefs| prefs.preferred_agent = agent);
         self.new_session(pane, window, cx);
     }
@@ -311,10 +325,12 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.begin_navigation(cx) {
+            return;
+        }
         if super::prefs::current(cx).preferred_agent == AgentKind::Codex {
             return self.new_codex(self.active_project_path().to_path_buf(), pane, window, cx);
         }
-        self.close_settings(cx);
         let requested_layout = self.layout.clone();
         let creation = self.begin_chat_creation();
         let source = self.active_chat_dir().map(Path::to_path_buf);
@@ -483,9 +499,7 @@ impl Workspace {
                 }
             }
             ChatEvent::CatalogUpdated => {
-                if self.active_chat.as_deref() == Some(tab) {
-                    self.refresh_sessions(cx);
-                }
+                self.refresh_sessions(cx);
             }
             ChatEvent::Activity {
                 session_dir,
@@ -493,6 +507,7 @@ impl Workspace {
             } => {
                 // Repeated copies from other streams carry no change.
                 self.attend(session_dir, activity.status, cx);
+                self.refresh_subagent_activity(session_dir, activity.status, cx);
                 // Every session stream carries every update; only the active
                 // chat's copy counts, and a switch reloads the list anyway.
                 if self.active_chat.as_deref() != Some(tab) {

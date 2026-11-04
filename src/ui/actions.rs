@@ -15,6 +15,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.invalidate_navigation();
         if self.settings.is_some() {
             return;
         }
@@ -44,5 +45,24 @@ impl Workspace {
             self.settings_subscription = None;
             cx.notify();
         }
+    }
+
+    pub(in crate::ui) fn invalidate_navigation(&mut self) {
+        self.navigation_generation = self.navigation_generation.wrapping_add(1);
+        self.creating_chat = None;
+    }
+
+    /// Every explicit destination uses the Settings guard before it can
+    /// replace the screen or start an operation. A declined destination also
+    /// invalidates older pending navigation.
+    pub(in crate::ui) fn begin_navigation(&mut self, cx: &mut Context<Self>) -> bool {
+        self.invalidate_navigation();
+        if let Some(settings) = self.settings.clone()
+            && !settings.update(cx, |settings, cx| settings.check_close(cx))
+        {
+            return false;
+        }
+        self.close_settings(cx);
+        true
     }
 }

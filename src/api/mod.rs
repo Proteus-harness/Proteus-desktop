@@ -22,6 +22,8 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+mod proxy;
+
 /// Blocking HTTP client for the app server; call it off the UI thread.
 #[derive(Clone)]
 pub struct Api {
@@ -45,11 +47,7 @@ impl Api {
     }
 
     pub fn new(origin: &str, token: &str) -> Self {
-        let agent = ureq::Agent::config_builder()
-            .http_status_as_error(false)
-            .timeout_connect(Some(Duration::from_secs(10)))
-            .build()
-            .into();
+        let agent = proxy::server_agent(origin, ureq::Proxy::try_from_env());
         static NEXT_CONNECTION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         Self {
             connection_id: NEXT_CONNECTION.fetch_add(1, std::sync::atomic::Ordering::Relaxed),

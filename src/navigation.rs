@@ -37,6 +37,13 @@ impl<T: Clone + PartialEq> History<T> {
         true
     }
 
+    /// Retarget identities without adding a visit or moving the cursor.
+    pub(crate) fn map(&mut self, mut change: impl FnMut(&mut T)) {
+        for entry in &mut self.entries {
+            change(entry);
+        }
+    }
+
     /// Move to the nearest available target before the current one.
     /// Unavailable targets are skipped. If none is available, the cursor is
     /// unchanged.

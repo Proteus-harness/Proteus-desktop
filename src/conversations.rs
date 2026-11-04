@@ -34,6 +34,7 @@ impl AgentKind {
 pub fn from_codex(summary: &crate::agents::codex::Summary) -> ConversationSummary {
     ConversationSummary {
         key: ChatKey::Codex(summary.id.clone()),
+        proteus_session_id: None,
         parent: summary.parent_thread_id.clone().map(ChatKey::Codex),
         workspace_path: summary.cwd.clone(),
         message_count: 0,
@@ -48,6 +49,8 @@ pub fn from_codex(summary: &crate::agents::codex::Summary) -> ConversationSummar
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConversationSummary {
     pub key: ChatKey,
+    /// Durable server identity, retained without copying the directory in `key`.
+    pub proteus_session_id: Option<uuid::Uuid>,
     pub parent: Option<ChatKey>,
     pub workspace_path: PathBuf,
     pub message_count: usize,
@@ -82,6 +85,7 @@ pub fn from_proteus(sessions: Vec<AppSessionSummary>) -> Vec<ConversationSummary
         .into_iter()
         .map(|summary| ConversationSummary {
             key: ChatKey::Proteus(summary.session_dir),
+            proteus_session_id: Some(summary.session_id),
             parent: summary
                 .parent_session_id
                 .and_then(|id| keys.get(&id).cloned()),
@@ -159,6 +163,7 @@ mod tests {
     fn opening_and_refreshing_existing_summaries_preserve_sidebar_positions() {
         let summary = |id: &str| ConversationSummary {
             key: ChatKey::Codex(id.into()),
+            proteus_session_id: None,
             parent: None,
             workspace_path: "/workspace".into(),
             message_count: 0,
@@ -208,6 +213,7 @@ mod tests {
             summary(3, Some(9)),
         ]);
         assert_eq!(rows[0].parent, Some(rows[1].key.clone()));
+        assert_eq!(rows[0].proteus_session_id, Some(SessionId::from_u128(2)));
         assert_eq!(rows[2].parent, None);
         assert_eq!(rows[0].message_count, 3);
         assert_eq!(rows[0].workspace_path, PathBuf::from("/workspace"));

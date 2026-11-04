@@ -1,6 +1,7 @@
 //! A saved child conversation is a document, never another session writer.
 //! Zed conversation_view::load_subagent_session supplies the lazy/deduplicated
 //! navigation pattern; Proteus reads its existing journal page API instead.
+//! Composer suppression follows Zed conversation_view/thread_view.rs::render_message_editor.
 use gpui_kit::component::*;
 use gpui_kit::*;
 use proteus_contracts::app_protocol::{AppSubagentSession, AppTranscriptCursor};
@@ -8,8 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{Chat, ComposerExtras, Session};
 use crate::api::Api;
-use crate::ui::kit::ButtonLabel as _;
-use crate::ui::{kit, workspace::Workspace};
+use crate::ui::workspace::Workspace;
 
 const PREFIX: &str = "subagent:";
 
@@ -20,7 +20,8 @@ const PREFIX: &str = "subagent:";
 pub(in crate::ui) struct Target {
     pub owner: String,
     pub parent: String,
-    pub child_thread_id: String,
+    /// A catalog supplies the durable session directly without a logical task id.
+    pub child_thread_id: Option<String>,
     pub session: AppSubagentSession,
 }
 
@@ -36,7 +37,10 @@ impl Target {
         let target: Self = serde_json::from_str(id.strip_prefix(PREFIX)?).ok()?;
         (crate::tabs::chat_key(&target.owner).is_some()
             && crate::tabs::chat_key(&target.parent).is_some()
-            && !target.child_thread_id.is_empty()
+            && target
+                .child_thread_id
+                .as_ref()
+                .is_none_or(|id| !id.is_empty())
             && target.session.session_dir.is_absolute())
         .then_some(target)
     }
@@ -48,10 +52,12 @@ pub(super) struct Binding {
     loaded: bool,
     dirty: bool,
     source: Option<String>,
+    child_thread_id: Option<String>,
     error: Option<SharedString>,
     /// Physical HTTP read, independent of the history revision fence. Returning
     /// to the tail can invalidate a page before that network read has ended.
     inflight: Option<(u64, bool)>,
+    refresh_pending: bool,
 }
 
 impl Chat {
@@ -72,14 +78,17 @@ impl Chat {
             window,
             cx,
         );
+        let child_thread_id = target.child_thread_id.clone();
         chat.readonly = Some(Binding {
             target,
             focus: cx.focus_handle(),
             loaded: false,
             dirty: true,
             source,
+            child_thread_id,
             error: None,
             inflight: None,
+            refresh_pending: false,
         });
         chat._subscriptions.push(cx.subscribe(
             &cx.entity(),
@@ -118,6 +127,27 @@ impl Chat {
         self.readonly.as_ref().map(|binding| &binding.target)
     }
 
+    pub(in crate::ui) fn readonly_child_thread_id(&self) -> Option<&str> {
+        self.readonly.as_ref()?.child_thread_id.as_deref()
+    }
+
+    pub(in crate::ui) fn readonly_thread_bound(&mut self, child: Option<String>) {
+        if let Some(child) = child
+            && let Some(binding) = &mut self.readonly
+        {
+            binding.child_thread_id = Some(child);
+        }
+    }
+
+    pub(in crate::ui) fn readonly_reopened(&mut self, cx: &mut Context<Self>) {
+        if let Some(binding) = &mut self.readonly
+            && binding.error.take().is_some()
+        {
+            binding.dirty = true;
+            cx.notify();
+        }
+    }
+
     /// Parent lifecycle notifications coalesce and never poll a hidden document.
     pub(in crate::ui) fn readonly_source_changed(
         &mut self,
@@ -136,7 +166,7 @@ impl Chat {
             .or_else(|| binding.source.clone());
         let terminal = source
             .as_deref()
-            .is_some_and(|status| matches!(status, "completed" | "failed" | "cancelled"));
+            .is_some_and(|status| matches!(status, "completed" | "failed" | "cancelled" | "idle"));
         if binding.source == source && (!force || terminal) {
             return;
         }
@@ -151,6 +181,9 @@ impl Chat {
         if let Some(binding) = &mut self.readonly {
             binding.dirty = true;
         }
+        // Explicit recovery of a rejected history cursor already lacked a
+        // confirmed prefix. Ordinary background refresh never takes this path.
+        self.show_latest(cx);
         self.ensure_readonly_history(cx);
     }
 
@@ -167,7 +200,13 @@ impl Chat {
             self.load_history_seek(cx);
             return;
         }
+        // A tail GET has no confirmed prefix for a newly changed revision.
+        // Keep the page under the reader; refresh on their return to the tail.
+        if self.history.archived() {
+            return;
+        }
         if !binding.dirty || self.history.request_pending() {
+            self.schedule_readonly_refresh(cx);
             return;
         }
         let target = binding.target.clone();
@@ -237,6 +276,39 @@ impl Chat {
         cx.notify();
     }
 
+    fn schedule_readonly_refresh(&mut self, cx: &mut Context<Self>) {
+        let Some(binding) = &mut self.readonly else {
+            return;
+        };
+        if binding.refresh_pending || binding.inflight.is_some() || !binding.refreshing() {
+            return;
+        }
+        binding.refresh_pending = true;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(crate::ui::motion::SAVED_CHAT_REFRESH)
+                .await;
+            this.update(cx, |this, cx| {
+                let Some(binding) = &mut this.readonly else {
+                    return;
+                };
+                binding.refresh_pending = false;
+                let document = binding.target.id();
+                let visible = this.workspace.upgrade().is_some_and(|workspace| {
+                    workspace
+                        .read(cx)
+                        .subagent_document_visible(&document, cx.entity_id())
+                });
+                if visible && binding.refreshing() {
+                    binding.dirty = true;
+                    this.ensure_readonly_history(cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     pub(super) fn begin_history_request(&mut self, tail: bool) -> Option<u64> {
         if self
             .readonly
@@ -285,7 +357,7 @@ impl Chat {
             } else if !binding.loaded {
                 "История ещё не загружена"
             } else if self.display_transcript().entries().is_empty() {
-                "Пока нет сохранённых сообщений. Обновите после ответа субагента."
+                "Пока нет сохранённых сообщений"
             } else {
                 "Сохранённый чат субагента · только просмотр"
             }
@@ -298,13 +370,16 @@ impl Chat {
                 .gap_2()
                 .text_sm()
                 .text_color(cx.theme().muted_foreground)
-                .child(div().flex_1().min_w_0().child(status))
-                .child(
-                    kit::button("refresh-subagent-history")
-                        .label("Обновить")
-                        .quiet(cx)
-                        .on_click(cx.listener(|this, _, _, cx| this.refresh_readonly(cx))),
-                ),
+                .child(div().flex_1().min_w_0().child(status)),
+        )
+    }
+}
+
+impl Binding {
+    fn refreshing(&self) -> bool {
+        matches!(
+            self.source.as_deref(),
+            Some("running" | "waiting_approval" | "waiting_input")
         )
     }
 }
@@ -317,7 +392,7 @@ mod tests {
         let target = Target {
             owner: crate::tabs::chat(std::path::Path::new("/saved/parent")),
             parent: crate::tabs::chat(std::path::Path::new("/saved/parent")),
-            child_thread_id: "logical-task".into(),
+            child_thread_id: Some("logical-task".into()),
             session: AppSubagentSession {
                 session_id: uuid::Uuid::from_u128(19),
                 session_dir: "/elsewhere/child with spaces".into(),
@@ -325,6 +400,67 @@ mod tests {
         };
         assert_eq!(Target::parse(&target.id()), Some(target));
         assert!(Target::parse("subagent:00000000-0000-0000-0000-000000000019").is_none());
+    }
+
+    #[::core::prelude::v1::test]
+    fn refresh_timer_does_not_read_hidden_or_finished_documents() {
+        let mut cx = ::gpui::TestAppContext::single();
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::ui::prefs::init_in_memory(cx);
+        });
+        let window = cx.add_empty_window();
+        let chat = window.update(|window, cx| {
+            cx.new(|cx| {
+                Chat::saved_subagent(
+                    Api::new("http://127.0.0.1:1", "synthetic-never-used"),
+                    WeakEntity::new_invalid(),
+                    Target {
+                        owner: crate::tabs::chat(std::path::Path::new("/saved/parent")),
+                        parent: crate::tabs::chat(std::path::Path::new("/saved/parent")),
+                        child_thread_id: None,
+                        session: AppSubagentSession {
+                            session_id: uuid::Uuid::from_u128(2),
+                            session_dir: "/saved/child".into(),
+                        },
+                    },
+                    Some("running".into()),
+                    std::rc::Rc::new(|_, _, _| None),
+                    window,
+                    cx,
+                )
+            })
+        });
+        chat.update(&mut cx, |chat, cx| {
+            chat.readonly.as_mut().unwrap().dirty = false;
+            chat.readonly_thread_bound(Some("actual-task".into()));
+            chat.readonly_thread_bound(None);
+            assert_eq!(chat.readonly_child_thread_id(), Some("actual-task"));
+            assert!(
+                chat.readonly_target().unwrap().child_thread_id.is_none(),
+                "learning task identity must not change the persisted document id"
+            );
+            chat.schedule_readonly_refresh(cx);
+            chat.schedule_readonly_refresh(cx);
+            assert!(chat.readonly.as_ref().unwrap().refresh_pending);
+        });
+        cx.run_until_parked();
+        cx.executor()
+            .advance_clock(crate::ui::motion::SAVED_CHAT_REFRESH);
+        cx.run_until_parked();
+        chat.update(&mut cx, |chat, cx| {
+            let binding = chat.readonly.as_ref().unwrap();
+            assert!(!binding.refresh_pending);
+            assert!(!binding.dirty, "hidden timer cannot initiate history work");
+            assert!(binding.inflight.is_none());
+            chat.readonly_source_changed(Some("completed".into()), false, false, cx);
+            chat.schedule_readonly_refresh(cx);
+            assert!(
+                !chat.readonly.as_ref().unwrap().refresh_pending,
+                "finished history has no polling timer"
+            );
+            assert!(!chat.history.request_pending());
+        });
     }
 
     #[::core::prelude::v1::test]
@@ -344,7 +480,7 @@ mod tests {
                     Target {
                         owner: parent.clone(),
                         parent,
-                        child_thread_id: "logical-task".into(),
+                        child_thread_id: Some("logical-task".into()),
                         session: AppSubagentSession {
                             session_id: uuid::Uuid::from_u128(1),
                             session_dir: "/saved/child".into(),
@@ -401,6 +537,16 @@ mod tests {
                     chat.readonly.as_ref().unwrap().source.as_deref(),
                     Some("completed")
                 );
+                let binding = chat.readonly.as_mut().unwrap();
+                binding.error = Some("synthetic read failure".into());
+                binding.dirty = false;
+                chat.readonly_reopened(cx);
+                assert!(
+                    chat.readonly.as_ref().unwrap().dirty,
+                    "reopening a failed final history retries once without polling"
+                );
+                assert!(chat.readonly.as_ref().unwrap().error.is_none());
+                assert!(!chat.history.request_pending());
             })
         });
         window.update(|window, cx| {

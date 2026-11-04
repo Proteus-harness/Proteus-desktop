@@ -126,6 +126,11 @@ fn background_child_completion_notifies_saved_document_without_a_live_progress_r
     let _subscription = cx.update(|cx| {
         let completed = completed.clone();
         cx.subscribe(&chat, move |_, event: &ChatEvent, _| {
+            if matches!(event, ChatEvent::CatalogUpdated) {
+                completed
+                    .borrow_mut()
+                    .push(("catalog".into(), String::new()));
+            }
             if let ChatEvent::SubagentLifecycle {
                 child_thread_id,
                 status,
@@ -161,6 +166,20 @@ fn background_child_completion_notifies_saved_document_without_a_live_progress_r
                 envelope: Box::new(EventEnvelope::new(
                     EventContext::new(session, root, None),
                     1,
+                    RuntimeEvent::SubagentSessionBound {
+                        child_thread_id: child,
+                        session_id: uuid::Uuid::from_u128(4),
+                        session_dir: "/saved/exact-child".into(),
+                    },
+                )),
+            })),
+            cx,
+        );
+        chat.apply(
+            PumpItem::Event(Box::new(AppServerEvent::Runtime {
+                envelope: Box::new(EventEnvelope::new(
+                    EventContext::new(session, root, None),
+                    2,
                     RuntimeEvent::SubagentFinished {
                         role: "explorer".into(),
                         status: "completed".into(),
@@ -179,6 +198,9 @@ fn background_child_completion_notifies_saved_document_without_a_live_progress_r
     cx.run_until_parked();
     assert_eq!(
         &*completed.borrow(),
-        &[(child.to_string(), "completed".into())]
+        &[
+            ("catalog".into(), String::new()),
+            (child.to_string(), "completed".into())
+        ]
     );
 }

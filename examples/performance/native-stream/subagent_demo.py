@@ -32,7 +32,7 @@ def transcript_message(text, number, role="assistant"):
 
 
 class SubagentFixture(Fixture):
-    def __init__(self, output, token):
+    def __init__(self, output, token, *, deferred_a=False):
         output = output.resolve()
         self.children = {}
         for key in ("A", "B"):
@@ -67,16 +67,45 @@ class SubagentFixture(Fixture):
                                              "Both use the same role; their histories must stay distinct.", 200),
                           live, completed, unbound])
         self.finished_a = False
+        self.bound_a = not deferred_a
+        if deferred_a:
+            self.transcript[1]["subagent"]["session"] = None
 
     def session_summaries(self):
         rows = super().session_summaries()
         rows[0].update(preview="SUBAGENT MAIN", parent_session_id=None)
         for key, child in self.children.items():
+            if key == "A" and not self.bound_a:
+                continue
+            active = key == "A" and not self.finished_a
             rows.append({**child["session"], "parent_session_id": SESSION_ID,
                          "workspace_path": self.workspace, "message_count": len(child["messages"]),
                          "updated_at_ms": 1793059200000, "preview": f"CHILD {key} · {ROLE}",
-                         "activity": self.activity()})
+                         "activity": {"status": "running" if active else "idle",
+                                      "running_runs": int(active), "running_run_ids": [],
+                                      "pending_approvals": 0, "pending_user_inputs": 0}})
         return rows
+
+    def bind_a(self):
+        """Publish a new child's actual session while its task is still running."""
+        with self.lock:
+            require(not self.bound_a, "bindA already applied")
+            self.bound_a = True
+            session = self.children["A"]["session"]
+            self.transcript[1]["subagent"]["session"] = copy.deepcopy(session)
+            self.runtime("SubagentSessionBound", {"child_thread_id": THREAD_IDS["A"], **session})
+            self.record("control_applied", control="bindA")
+
+    def append_a(self):
+        """Write a child reply without a relayed parent event, as the real peer does."""
+        with self.lock:
+            require(self.bound_a and not self.finished_a, "appendA requires a bound running child")
+            child = self.children["A"]
+            number = len(child["messages"])
+            child["base"] = {"revision": child["revision"], "common_prefix": number}
+            child["revision"] = f"child-A-live-{number + 1}"
+            child["messages"].append(transcript_message("CHILD A LIVE · reply before completion", 10000 + number))
+            self.record("control_applied", control="appendA", child_total=len(child["messages"]))
 
     def handle(self, h, method):
         parsed = urlsplit(h.path)
@@ -181,13 +210,13 @@ class SubagentFixture(Fixture):
                 child["revisions"][revision] += 1
             require(audit == expected,
                     "Repeated click changed request counts" if name == "check-repeat" else
-                    "Manual refresh must add exactly one same-revision child tail and no other requests")
+                    "Tail refresh must add exactly one same-revision child tail and no other requests")
         return {"name": name, "at_ns": time.monotonic_ns(), "audit": audit}
 
 
 def record(output, fixture, state):
     with fixture.lock:
-        state.update(audit=fixture.audit(), finished_a=fixture.finished_a,
+        state.update(audit=fixture.audit(), finished_a=fixture.finished_a, bound_a=fixture.bound_a,
                      fixture_errors=list(fixture.errors))
         save(output / "trace.json", fixture.trace)
         save(output / "state.json", state)
@@ -225,13 +254,13 @@ def check_fixture(output):
         manual = fixture.checkpoint("check-refresh-A", repeated)
         record(output, fixture, {"status": "fixture-smoke-passed", "native_verified": False,
                                  "session": fixture.session, "checks": [baseline, repeated, manual]})
-        print("PASS fixture: exact child targets, 50-row pages, final append, manual refresh; no GUI checked")
+        print("PASS fixture: exact child targets, 50-row pages, final append, same-revision tail; no GUI checked")
     finally:
         fixture.close()
 
 
 def hold(args):
-    fixture = SubagentFixture(args.output, secrets.token_hex(24)).start()
+    fixture = SubagentFixture(args.output, secrets.token_hex(24), deferred_a=args.deferred_a).start()
     process = None
     started = time.monotonic()
     interrupted = False
@@ -268,6 +297,12 @@ def hold(args):
                     state.update(launched_executable(process.pid))
                 state["status"] = "connected"
                 print("READY · parent SSE connected; check the native window separately", flush=True)
+            for name, action in (("bindA", fixture.bind_a), ("appendA", fixture.append_a)):
+                control = args.output / "control" / name
+                if control.exists():
+                    control.unlink()
+                    action()
+                    print("APPLIED " + name, flush=True)
             control = args.output / "control/finishA"
             if control.exists():
                 control.unlink()
@@ -307,6 +342,8 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--timeout", type=float, default=600)
     parser.add_argument("--check-fixture", action="store_true")
+    parser.add_argument("--deferred-a", action="store_true",
+                        help="Publish running A only after control/bindA; appendA writes without parent events")
     args = parser.parse_args()
     if not 10 <= args.timeout <= 600:
         parser.error("--timeout must be between 10 and 600 seconds")

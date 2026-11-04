@@ -29,6 +29,10 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.begin_navigation(cx) {
+            return;
+        }
+        let navigation = self.navigation_generation;
         let project = match project.canonicalize() {
             Ok(path) if path.is_dir() => path,
             _ => {
@@ -47,20 +51,20 @@ impl Workspace {
             return self.call_codex_in(
                 window,
                 cx,
-                move |service| Ok(service.list(&listed_project, None)?),
-                move |this, page, window, cx| {
-                    for summary in page.data {
+                move |service| Ok(service.list_until_main(&listed_project)?),
+                move |this, summaries, window, cx| {
+                    for summary in summaries {
                         let summary = crate::conversations::from_codex(&summary);
                         this.sessions.retain(|row| row.key != summary.key);
                         this.sessions.push(summary);
                     }
-                    if let Some(key) =
-                        latest_main_session(&this.sessions, &project, AgentKind::Codex)
-                    {
-                        this.open_chat(key, project_open(), window, cx);
-                    } else {
-                        this.new_codex(project, None, window, cx);
-                    }
+                    this.finish_project_navigation(
+                        project,
+                        AgentKind::Codex,
+                        navigation,
+                        window,
+                        cx,
+                    );
                 },
             );
         }
@@ -70,14 +74,31 @@ impl Workspace {
             |api| api.sessions(),
             move |this, sessions, window, cx| {
                 this.set_sessions(sessions, cx);
-                if let Some(key) = latest_main_session(&this.sessions, &project, AgentKind::Proteus)
-                {
-                    this.open_chat(key, project_open(), window, cx);
-                } else {
-                    this.new_chat_in(project, window, cx);
-                }
+                this.finish_project_navigation(project, AgentKind::Proteus, navigation, window, cx);
             },
         );
+    }
+
+    /// Catalog data may arrive after any later destination. It is still useful
+    /// metadata, but only the surviving user intention can select a workspace.
+    pub(super) fn finish_project_navigation(
+        &mut self,
+        project: PathBuf,
+        agent: AgentKind,
+        navigation: u64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.navigation_generation != navigation {
+            return;
+        }
+        if let Some(key) = latest_main_session(&self.sessions, &project, agent) {
+            self.open_chat(key, project_open(), window, cx);
+        } else if agent == AgentKind::Codex {
+            self.new_codex(project, None, window, cx);
+        } else {
+            self.new_chat_in(project, window, cx);
+        }
     }
 
     /// Project of the chat shown by `chat`; the server's folder until the
@@ -99,6 +120,9 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.begin_navigation(cx) {
+            return;
+        }
         let project = match project.canonicalize() {
             Ok(path) if path.is_dir() => path,
             _ => {
@@ -148,7 +172,9 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.close_settings(cx);
+        if !self.begin_navigation(cx) {
+            return;
+        }
         let requested = self.layout.clone();
         let creation = self.begin_chat_creation();
         self.call_in(
@@ -220,6 +246,7 @@ mod tests {
     ) -> ConversationSummary {
         ConversationSummary {
             key,
+            proteus_session_id: None,
             parent,
             workspace_path: project.into(),
             updated_at_ms: Some(updated),

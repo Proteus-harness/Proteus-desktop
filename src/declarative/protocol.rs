@@ -42,6 +42,7 @@ pub const FEATURES: &[&str] = &[
     "manifest.agent_instructions.v1",
     "widgets.person.v1",
     "documents.title.v1",
+    "documents.retarget.v1",
     "surfaces.content.v1",
     "surfaces.content.invalidate.v1",
     "widgets.svg.v1",
@@ -224,6 +225,12 @@ pub enum Incoming {
         #[serde(default)]
         sequence: u64,
     },
+    /// Exact argument change, authorized by the addressed context's session.
+    RetargetDocument {
+        context: String,
+        from: String,
+        to: String,
+    },
     /// Opens a document of this extension as a tab.
     OpenDocument {
         context: String,
@@ -290,6 +297,22 @@ pub fn view_id(surface: SurfaceKind, argument: Option<&str>) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn document_retarget_uses_only_the_addressed_context_and_exact_arguments() {
+        assert!(FEATURES.contains(&"documents.retarget.v1"));
+        let message = r#"{"type":"retarget_document","context":"one","from":"old","to":"new"}"#;
+        assert_eq!(
+            parse(message).unwrap(),
+            Incoming::RetargetDocument {
+                context: "one".into(),
+                from: "old".into(),
+                to: "new".into(),
+            }
+        );
+        let forged = r#"{"type":"retarget_document","context":"one","from":"old","to":"new","session_dir":"/foreign"}"#;
+        assert!(parse(forged).is_err());
+    }
 
     #[test]
     fn writes_messages_as_tagged_json() {

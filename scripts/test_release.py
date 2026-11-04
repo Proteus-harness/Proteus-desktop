@@ -130,6 +130,7 @@ class MetadataTests(unittest.TestCase):
                 self.assertIn("--locked", calls[0].args[0])
                 self.assertIn("examples/modules/rust-tool/Cargo.toml", calls[0].args[0])
                 self.assertIn("--locked", calls[1].args[0])
+                self.assertEqual(calls[1].args[0][calls[1].args[0].index("--features") + 1], "conformance-cli")
                 self.assertEqual(calls[0].kwargs["env"]["CARGO_TARGET_DIR"], str(expected))
                 self.assertIn(expected / "debug/proteus-component-conformance", calls[2].args[0])
                 self.assertIn(expected / "debug/proteus-rust-tool-example", calls[2].args[0])

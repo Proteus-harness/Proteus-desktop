@@ -95,6 +95,9 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.begin_navigation(cx) {
+            return;
+        }
         let Some(id) = extensions::next_document("terminal.new", &self.windows.all_tabs(), cx)
         else {
             return;
@@ -102,7 +105,6 @@ impl Workspace {
         if self.ensure_document(&id, window, cx).is_none() {
             return;
         }
-        self.close_settings(cx);
         self.show_tab_in(&id, pane, window, cx);
     }
 
@@ -114,11 +116,13 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyView> {
+        if !self.begin_navigation(cx) {
+            return None;
+        }
         if self.show_external_tab(id, cx) {
             return None;
         }
         let view = self.ensure_document(id, window, cx)?;
-        self.close_settings(cx);
         self.show_tab(id, open, window, cx);
         Some(view.view)
     }
@@ -188,6 +192,9 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.begin_navigation(cx) {
+            return;
+        }
         if let Some(key) = tabs::chat_key(id)
             && self.spaces.active_root() != Some(self.chat_space_root(&key).as_str())
         {
@@ -202,6 +209,7 @@ impl Workspace {
             );
             return;
         }
+        self.retry_subagent_document(id, cx);
         self.update_tabs(cx, |tabs| tabs.activate(pane, id));
         self.focus_tab(id, window, cx);
     }
@@ -212,6 +220,7 @@ impl Workspace {
     }
 
     pub(super) fn close_tab(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.invalidate_navigation();
         let layout = self.tab_layout(cx);
         let closed_active = layout.active(layout.focused) == Some(id);
         self.update_tabs(cx, |tabs| tabs.close(id));
@@ -222,6 +231,7 @@ impl Workspace {
 
     /// Keyboard close protects pinned tabs; an open settings page closes first.
     pub(super) fn close_active_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.invalidate_navigation();
         if let Some(settings) = self.settings.clone() {
             settings.update(cx, |settings, cx| settings.request_close(cx));
             return;
@@ -233,6 +243,7 @@ impl Workspace {
     /// Reopens any supported page through the same history. Chats restore
     /// their loading tab first; late replies cannot change that selection.
     pub(super) fn reopen_closed_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.invalidate_navigation();
         if self.settings.is_some() {
             return;
         }
@@ -297,6 +308,7 @@ impl Workspace {
     }
 
     pub(super) fn close_pane(&mut self, pane: PaneId, window: &mut Window, cx: &mut Context<Self>) {
+        self.invalidate_navigation();
         self.update_tabs(cx, |tabs| tabs.close_pane(pane));
         self.focus_active(window, cx);
     }

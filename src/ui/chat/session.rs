@@ -7,7 +7,7 @@ use proteus_contracts::app_protocol::config::ConfigSummary;
 use proteus_contracts::app_protocol::{
     AppExecutionState, AppPendingRequests, AppRunStatus, AppServerEvent, AppSessionSnapshot,
 };
-use proteus_contracts::domain::{SessionId, ThreadId};
+use proteus_contracts::domain::{Event, EventEnvelope, SessionId, ThreadId};
 
 use super::context_usage::ContextUsage;
 use super::history::History;
@@ -129,7 +129,7 @@ impl Session {
             entry
                 .tool
                 .as_ref()
-                .is_some_and(|tool| tool.status == "running")
+                .is_some_and(|tool| super::tool_row::is_running(&tool.status))
         });
         let message_ids: Vec<_> = snapshot
             .transcript
@@ -152,18 +152,26 @@ impl Session {
             if !self.cursor.accept(event) {
                 return false;
             }
-            if let AppServerEvent::Runtime { envelope } = event
-                && self
-                    .root_thread
-                    .is_none_or(|root| root == envelope.thread_id)
-            {
-                feedback_changed |= self.feedback.runtime(&envelope.event);
+            if let AppServerEvent::Runtime { envelope } = event {
+                feedback_changed |= self.runtime_feedback(envelope);
             }
             true
         });
         let mut outcome = self.transcript.apply_text_run(&run);
         outcome.feedback_changed = feedback_changed;
         outcome
+    }
+
+    /// An empty initial snapshot has no root yet. Learn it from the first
+    /// TurnStarted before accepting activity; forwarded child tool/error events
+    /// must not change the parent's indicator during its first turn.
+    pub(super) fn runtime_feedback(&mut self, envelope: &EventEnvelope) -> bool {
+        if self.root_thread.is_none() && matches!(envelope.event, Event::TurnStarted { .. }) {
+            self.root_thread = Some(envelope.thread_id);
+        }
+        self.root_thread
+            .is_none_or(|root| root == envelope.thread_id)
+            && self.feedback.runtime(&envelope.event)
     }
 
     pub(super) fn thinking(&self) -> bool {
@@ -178,7 +186,7 @@ impl Session {
             entry
                 .tool
                 .as_ref()
-                .is_some_and(|tool| tool.status == "running")
+                .is_some_and(|tool| super::tool_row::is_running(&tool.status))
         });
         !tools_running && self.feedback.thinking(&self.execution, waiting)
     }
@@ -214,3 +222,7 @@ impl Session {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "feedback_routing_tests.rs"]
+mod feedback_routing_tests;
