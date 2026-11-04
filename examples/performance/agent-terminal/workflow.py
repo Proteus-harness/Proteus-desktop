@@ -42,6 +42,8 @@ def invoke(context, method, params):
         "surface": "function", "raw_arguments": None,
     }
     result = context.host_call("host.tools.execute", {"task": params["task"], "call": call})
+    if not result.get("ok"):
+        raise ProtocolError("demo command failed; inspect the exec_command tool row")
     text = ("Команда создана. Кнопка терминала у exec_command открывает тот же процесс. "
             "Для повторной проверки отправьте ещё одно сообщение.")
     return {
@@ -49,8 +51,8 @@ def invoke(context, method, params):
         "result": {
             "output": {"text": text, "metadata": None},
             "new_messages": [
-                message("Assistant", {"ToolCall": call}),
-                message("Tool", {"ToolResult": result}, tool_call_id=call_id),
+                message("Assistant", {"ToolCall": {"call": call}}),
+                message("Tool", {"ToolResult": {"result": result}}, tool_call_id=call_id),
                 message("Assistant", {"Text": {"text": text}}),
             ],
             "history_replacement": None, "compactions": [],

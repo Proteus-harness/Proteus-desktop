@@ -17,6 +17,9 @@ def prepare(native, output, core):
     shell = portable / "bin/proteus-shell-tool-module"
     if not shell.is_file():
         raise SystemExit("ready portable has no shell-tool executable")
+    policy = portable / "bin/proteus-policy-pack-module"
+    if not policy.is_file():
+        raise SystemExit("ready portable has no policy-pack executable")
     output.mkdir(parents=True, mode=0o700, exist_ok=False)
     for name in ("workspace", "config", "home", "runtime", "xdg-config", "xdg-data",
                  "xdg-state", "xdg-cache", "fixtures", "empty-extensions"):
@@ -32,7 +35,7 @@ def prepare(native, output, core):
     profile = output / "config/terminal-demo.toml"
     profile.write_text(
         '[profile]\nname = "terminal-demo"\n'
-        '[modules]\nworkflow = "terminal_demo"\n'
+        '[modules]\nworkflow = "terminal_demo"\npolicy = "allow_all"\n'
         '[tools]\nenabled = ["exec_command", "write_stdin"]\n'
         '[agent_control]\nsurface = "none"\nroles = []\n'
         '[components.terminal-demo]\ncommand = "python3"\nargs = ["-B", '
@@ -41,6 +44,8 @@ def prepare(native, output, core):
         '[components.shell-tool]\ncommand = ' + json.dumps(str(shell)) + '\n'
         'env_allowlist = ["HOME", "PROTEUS_HOME"]\n'
         '[components.shell-tool.exports.tool.shell_tools]\n'
+        '[components.demo-policy]\ncommand = ' + json.dumps(str(policy)) + '\n'
+        '[components.demo-policy.exports.policy.allow_all]\n'
         '[runtime]\nworkflow_timeout_ms = 120000\n')
     return profile
 
