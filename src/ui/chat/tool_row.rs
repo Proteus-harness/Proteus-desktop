@@ -317,6 +317,9 @@ impl Chat {
     }
 }
 
+#[cfg(test)]
+mod terminal_tests;
+
 /// The end of a cut block melts into its background.
 fn bottom_fade(background: Hsla) -> Div {
     crate::ui::fade::bottom(background, crate::ui::prefs::scaled(56.)).max_h(relative(1.))
@@ -496,27 +499,52 @@ impl Chat {
         let Some(api) = &self.api else {
             return;
         };
+        let Some(workspace) = self.workspace.upgrade() else {
+            return;
+        };
         let connection = api.connection_id();
         let session = self.session.dir.clone();
-        let owner = self.readonly_target().map(|target| target.owner.clone());
-        self.workspace
-            .update(cx, |workspace, cx| {
-                if workspace
-                    .api()
-                    .is_none_or(|api| api.connection_id() != connection)
-                {
-                    return;
-                }
-                let tab = crate::tabs::chat(&session);
-                let owner = owner.unwrap_or_else(|| {
+        let tab = crate::tabs::chat(&session);
+        let (navigation, owner) = {
+            let workspace = workspace.read(cx);
+            let owner = self.readonly_target().map_or_else(
+                || {
                     workspace
                         .spaces
                         .owner_of_chat(&tab)
                         .unwrap_or(&tab)
                         .to_owned()
-                });
-                workspace.open_agent_terminal(owner, session, terminal, window, cx);
-            })
-            .ok();
+                },
+                |target| target.owner.clone(),
+            );
+            (workspace.navigation_generation, owner)
+        };
+        let source = cx.entity_id();
+        let workspace = workspace.downgrade();
+        let window = window.window_handle();
+        // A pane change may hide this Chat and update it to release activity
+        // views. Wait until the tool-button listener's Chat lease has ended.
+        cx.defer(move |cx| {
+            window
+                .update(cx, |_, window, cx| {
+                    workspace
+                        .update(cx, |workspace, cx| {
+                            if workspace.navigation_generation != navigation
+                                || workspace
+                                    .api()
+                                    .is_none_or(|api| api.connection_id() != connection)
+                                || workspace
+                                    .chats
+                                    .get(&tab)
+                                    .is_none_or(|chat| chat.view.entity_id() != source)
+                            {
+                                return;
+                            }
+                            workspace.open_agent_terminal(owner, session, terminal, window, cx);
+                        })
+                        .ok();
+                })
+                .ok();
+        });
     }
 }

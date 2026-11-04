@@ -56,9 +56,14 @@ def main():
     parser.add_argument("--core-source", type=Path, default=DESKTOP.parent / "Proteus-core")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--prepare-only", action="store_true")
+    parser.add_argument("--no-extensions", action="store_true",
+                        help="use an empty extension directory for a minimal comparison")
     args = parser.parse_args()
     native = args.native.resolve(strict=True)
     output = args.output.resolve()
+    extensions = output / "empty-extensions" if args.no_extensions else native.parent / "share/extensions"
+    if not args.no_extensions and not extensions.is_dir():
+        raise SystemExit("ready portable has no extension directory")
     profile = prepare(native, output, args.core_source.resolve(strict=True))
     keep = {"DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS",
             "XAUTHORITY", "XDG_SESSION_TYPE", "XDG_DATA_DIRS", "FONTCONFIG_PATH", "FONTCONFIG_FILE",
@@ -67,13 +72,14 @@ def main():
     env.update({"PATH": "/usr/local/bin:/usr/bin:/bin", "LANG": "C.UTF-8",
                 "HOME": str(output / "home"), "PROTEUS_HOME": str(output / "runtime"),
                 "PROTEUS_CONFIG_HOME": str(output / "config"),
-                "PROTEUS_EXTENSIONS_DIR": str(output / "empty-extensions"),
+                "PROTEUS_EXTENSIONS_DIR": str(extensions),
                 "XDG_CONFIG_HOME": str(output / "xdg-config"),
                 "XDG_DATA_HOME": str(output / "xdg-data"),
                 "XDG_STATE_HOME": str(output / "xdg-state"),
                 "XDG_CACHE_HOME": str(output / "xdg-cache")})
     command = [str(native), str(output / "workspace"), "--agent", "proteus", "--config", str(profile)]
     (output / "prepared.json").write_text(json.dumps({"command": command, "model": None,
+                                                     "extensions": str(extensions),
                                                      "synthetic": True}, indent=2) + "\n")
     if args.prepare_only:
         print(output)
