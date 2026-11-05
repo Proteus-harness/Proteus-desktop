@@ -324,7 +324,7 @@ python3 /absolute/background-gui/scripts/bgui.py run SESSION --cwd /absolute/Pro
 шрифта нижний длинный fence не виден, прокрутите чат вниз. Проверьте каждый
 блок и скопируйте его **кнопкой блока**, включая финальный LF и табы.
 Точный исходник каждого fence сохранён в `expected/initial/{rust,text,markdown,unicode,long}.txt`;
-`message.txt` содержит всё сообщение и предназначен для отдельного message Copy.
+`message.txt` содержит всё сообщение для проверки копирования выделенного текста через контекстное меню.
 Не используйте expected-файл вместо реального clipboard. Например, после
 копирования короткого Rust блока сохраните clipboard из того же display:
 

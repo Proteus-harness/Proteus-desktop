@@ -234,7 +234,7 @@ class ControlTests(unittest.TestCase):
                 check_copy(args)
             self.assertFalse(json.loads((output / "copy-barrier-primary.json").read_text())["passed"])
             save(output / "state.json", {"stage": "continuation", "status": "running"})
-            with self.assertRaisesRegex(ValueError, "Copy is hidden"):
+            with self.assertRaisesRegex(ValueError, "Message text is still streaming"):
                 check_copy(SimpleNamespace(output=output, stage="continuation", row="secondary",
                                            file=clipboard))
             save(output / "state.json", {"stage": "hold", "status": "running"})

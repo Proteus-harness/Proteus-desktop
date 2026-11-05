@@ -85,7 +85,7 @@ def check_copy(args):
     if state["stage"] != args.stage or state["status"] != "running":
         raise RuntimeError("Copy must be checked while its stage is held live")
     if args.row not in COPY_ROWS.get(args.stage, ()):
-        raise ValueError("Message Copy is hidden while this row is streaming")
+        raise ValueError("Message text is still streaming and is not stable for this check")
     expected = EXPECTED[args.stage][args.row].encode()
     actual = args.file.read_bytes()
     passed = actual == expected
