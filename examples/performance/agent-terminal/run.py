@@ -10,7 +10,7 @@ SOURCE = Path(__file__).resolve().parent
 DESKTOP = SOURCE.parents[2]
 
 
-def prepare(native, output, core):
+def prepare(native, output, core, *, unsandboxed=False):
     portable = native.parent
     if not (portable / "bin/proteus").is_file():
         raise SystemExit("--native must be the ready portable launcher")
@@ -39,7 +39,8 @@ def prepare(native, output, core):
         '[tools]\nenabled = ["exec_command", "write_stdin"]\n'
         '[agent_control]\nsurface = "none"\nroles = []\n'
         '[components.terminal-demo]\ncommand = "python3"\nargs = ["-B", '
-        + json.dumps(str(output / "fixtures/workflow.py")) + ']\n'
+        + json.dumps(str(output / "fixtures/workflow.py"))
+        + (', "--unsandboxed"' if unsandboxed else '') + ']\n'
         '[components.terminal-demo.exports.workflow.terminal_demo]\n'
         '[components.shell-tool]\ncommand = ' + json.dumps(str(shell)) + '\n'
         'env_allowlist = ["HOME", "PROTEUS_HOME"]\n'
@@ -56,6 +57,8 @@ def main():
     parser.add_argument("--core-source", type=Path, default=DESKTOP.parent / "Proteus-core")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--prepare-only", action="store_true")
+    parser.add_argument("--unsandboxed", action="store_true",
+                        help="compare with an explicitly unsandboxed command")
     parser.add_argument("--no-extensions", action="store_true",
                         help="use an empty extension directory for a minimal comparison")
     args = parser.parse_args()
@@ -64,7 +67,8 @@ def main():
     extensions = output / "empty-extensions" if args.no_extensions else native.parent / "share/extensions"
     if not args.no_extensions and not extensions.is_dir():
         raise SystemExit("ready portable has no extension directory")
-    profile = prepare(native, output, args.core_source.resolve(strict=True))
+    profile = prepare(native, output, args.core_source.resolve(strict=True),
+                      unsandboxed=args.unsandboxed)
     keep = {"DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS",
             "XAUTHORITY", "XDG_SESSION_TYPE", "XDG_DATA_DIRS", "FONTCONFIG_PATH", "FONTCONFIG_FILE",
             "LIBGL_ALWAYS_SOFTWARE", "WGPU_BACKEND", "ZIG"}
@@ -80,6 +84,7 @@ def main():
     command = [str(native), str(output / "workspace"), "--agent", "proteus", "--config", str(profile)]
     (output / "prepared.json").write_text(json.dumps({"command": command, "model": None,
                                                      "extensions": str(extensions),
+                                                     "sandboxed": not args.unsandboxed,
                                                      "synthetic": True}, indent=2) + "\n")
     if args.prepare_only:
         print(output)

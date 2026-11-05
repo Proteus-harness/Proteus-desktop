@@ -37,8 +37,9 @@ def invoke(context, method, params):
     command = shlex.join([sys.executable, "-u", str(Path(__file__).with_name("password.py"))])
     call = {
         "id": call_id, "name": "exec_command",
-        "args": {"cmd": command, "tty": True, "with_escalated_permissions": True,
-                 "yield_time_ms": 30000, "max_output_tokens": 2000},
+        "args": {"cmd": command, "tty": True,
+                 "with_escalated_permissions": "--unsandboxed" in sys.argv[1:],
+                 "yield_time_ms": 1000, "max_output_tokens": 2000},
         "surface": "function", "raw_arguments": None,
     }
     result = context.host_call("host.tools.execute", {"task": params["task"], "call": call})
