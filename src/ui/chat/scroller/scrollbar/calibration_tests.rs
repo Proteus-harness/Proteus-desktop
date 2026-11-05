@@ -48,7 +48,7 @@ impl Render for MixedRows {
 }
 
 #[::core::prelude::v1::test]
-fn a_mostly_visible_long_row_keeps_ordinary_mixed_height_wheel_motion_uniform() {
+fn an_ordinary_clipped_row_keeps_wheel_and_drag_uniform_after_the_first_window_resize() {
     let mut app = TestAppContext::single();
     let cx = app.add_empty_window();
     let range = HistoryRange {
@@ -62,25 +62,26 @@ fn a_mostly_visible_long_row_keeps_ordinary_mixed_height_wheel_motion_uniform() 
         item_ix: 3,
         offset_in_item: px(0.),
     });
-    let paint = |cx: &mut VisualTestContext| {
+    let paint = |cx: &mut VisualTestContext, height| {
         let view = cx.update(|_, cx| cx.new(|_| MixedRows(bar.list.clone())));
-        cx.draw(point(px(0.), px(0.)), size(px(300.), px(880.)), |_, _| {
+        cx.draw(point(px(0.), px(0.)), size(px(300.), height), |_, _| {
             view.into_any_element()
         });
         bar.did_layout();
     };
-    paint(cx);
+    // Match the requested native size, followed by compositor tiling.
+    paint(cx, px(668.));
     bar.list.scroll_to(ListOffset {
         item_ix: 0,
         offset_in_item: px(0.),
     });
-    paint(cx);
+    paint(cx, px(856.));
     let mut previous = -bar.offset().y;
     let mut min = px(f32::INFINITY);
     let mut max = px(0.);
     for _ in 0..384 {
         bar.list.scroll_by(px(8.));
-        paint(cx);
+        paint(cx, px(856.));
         let current = -bar.offset().y;
         min = min.min(current - previous);
         max = max.max(current - previous);
@@ -104,9 +105,9 @@ fn a_mostly_visible_long_row_keeps_ordinary_mixed_height_wheel_motion_uniform() 
         let requested = drag_start + px(step as f32 * 16.);
         bar.set_offset(point(px(0.), -requested));
         assert!(bar.scroll_to(bar.take_target().unwrap()));
-        paint(cx);
+        paint(cx, px(856.));
         bar.settle();
-        paint(cx);
+        paint(cx, px(856.));
         let current = physical();
         min = min.min(current - previous);
         max = max.max(current - previous);

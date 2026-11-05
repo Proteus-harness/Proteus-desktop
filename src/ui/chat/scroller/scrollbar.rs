@@ -231,15 +231,16 @@ impl HistoryScrollbar {
                 // A tall clipped reply is much more likely to intersect the
                 // viewport than a short row. Extrapolating its full height to
                 // every unknown row leaves almost the entire track to cover
-                // at the beginning of the history. Sample rows with at least
-                // half their height visible: requiring complete rows would
-                // bias an ordinary mixed-height page toward its shortest
-                // messages. Fall back to all intersecting rows when none
-                // qualify (including a single long first reply).
+                // at the beginning of the history. Omit rows hiding more
+                // than a viewport of content. Ordinary clipped replies still
+                // contribute, even in the smaller first window layout, so
+                // the sample is not biased toward the shortest messages.
+                // Fall back to all intersecting rows when none qualify
+                // (including a single long first reply).
                 let visible = (bounds.bottom().min(viewport.bottom())
                     - bounds.top().max(viewport.top()))
                 .max(px(0.));
-                if visible * 2. >= bounds.size.height {
+                if bounds.size.height - visible <= viewport.size.height {
                     sample_height += bounds.size.height;
                     sample_count += 1;
                 }
