@@ -216,8 +216,8 @@ impl HistoryScrollbar {
         let rows = self.state.get().range.map_or(0, |range| range.rows);
         let mut count = 0;
         let mut height = px(0.);
-        let mut complete_count = 0;
-        let mut complete_height = px(0.);
+        let mut sample_count = 0;
+        let mut sample_height = px(0.);
         for index in start..rows {
             let Some(bounds) = self.list.bounds_for_item(index) else {
                 break;
@@ -231,18 +231,23 @@ impl HistoryScrollbar {
                 // A tall clipped reply is much more likely to intersect the
                 // viewport than a short row. Extrapolating its full height to
                 // every unknown row leaves almost the entire track to cover
-                // at the beginning of the history. Prefer complete rows; use
-                // the intersecting sample when no complete row is available
-                // (including a single long first reply).
-                if bounds.top() >= viewport.top() && bounds.bottom() <= viewport.bottom() {
-                    complete_height += bounds.size.height;
-                    complete_count += 1;
+                // at the beginning of the history. Sample rows with at least
+                // half their height visible: requiring complete rows would
+                // bias an ordinary mixed-height page toward its shortest
+                // messages. Fall back to all intersecting rows when none
+                // qualify (including a single long first reply).
+                let visible = (bounds.bottom().min(viewport.bottom())
+                    - bounds.top().max(viewport.top()))
+                .max(px(0.));
+                if visible * 2. >= bounds.size.height {
+                    sample_height += bounds.size.height;
+                    sample_count += 1;
                 }
             }
         }
-        if complete_count > 0 {
-            height = complete_height;
-            count = complete_count;
+        if sample_count > 0 {
+            height = sample_height;
+            count = sample_count;
         }
         if count > 0 {
             let unit = (height / count as f32).max(px(1.));
@@ -423,3 +428,7 @@ mod tests;
 #[cfg(test)]
 #[path = "scrollbar/layout_tests.rs"]
 mod layout_tests;
+
+#[cfg(test)]
+#[path = "scrollbar/calibration_tests.rs"]
+mod calibration_tests;
