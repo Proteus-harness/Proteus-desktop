@@ -11,6 +11,9 @@ use gpui_kit::{component::scroll::ScrollbarHandle, *};
 #[path = "scrollbar/geometry.rs"]
 mod geometry;
 use geometry::Geometry;
+#[cfg(debug_assertions)]
+#[path = "scroll_trace.rs"]
+pub(super) mod scroll_trace;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct HistoryRange {
@@ -213,6 +216,8 @@ impl HistoryScrollbar {
         let rows = self.state.get().range.map_or(0, |range| range.rows);
         let mut count = 0;
         let mut height = px(0.);
+        let mut complete_count = 0;
+        let mut complete_height = px(0.);
         for index in start..rows {
             let Some(bounds) = self.list.bounds_for_item(index) else {
                 break;
@@ -223,7 +228,21 @@ impl HistoryScrollbar {
             if bounds.size.height > px(0.) {
                 height += bounds.size.height;
                 count += 1;
+                // A tall clipped reply is much more likely to intersect the
+                // viewport than a short row. Extrapolating its full height to
+                // every unknown row leaves almost the entire track to cover
+                // at the beginning of the history. Prefer complete rows; use
+                // the intersecting sample when no complete row is available
+                // (including a single long first reply).
+                if bounds.top() >= viewport.top() && bounds.bottom() <= viewport.bottom() {
+                    complete_height += bounds.size.height;
+                    complete_count += 1;
+                }
             }
+        }
+        if complete_count > 0 {
+            height = complete_height;
+            count = complete_count;
         }
         if count > 0 {
             let unit = (height / count as f32).max(px(1.));
@@ -295,6 +314,15 @@ impl HistoryScrollbar {
             let track = geometry.position(top);
             geometry.record(top, track);
         }
+        #[cfg(debug_assertions)]
+        scroll_trace::record(|| {
+            let geometry = self.geometry.borrow();
+            serde_json::json!({"phase":"layout", "range":[range.start,range.rows,range.total],
+                "row":range.start+top.item_ix,"row_offset":f32::from(top.offset_in_item),
+                "native_y":f32::from(self.list.scroll_px_offset_for_scrollbar().y),
+                "unit":self.state.get().unit.map(f32::from),"max":f32::from(self.max_offset()),
+                "track":f32::from(geometry.position(top)),"map":geometry.diagnostic_mapping()})
+        });
     }
 }
 

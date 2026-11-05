@@ -35,6 +35,8 @@ mod wheel;
 pub(super) use footer::FooterState;
 use middle::MiddleScroll;
 use scrollbar::HistoryScrollbar;
+#[cfg(debug_assertions)]
+use scrollbar::scroll_trace;
 pub(super) use scrollbar::{HistoryRange, ScrollTarget};
 use wheel::WheelScroll;
 
@@ -137,6 +139,10 @@ impl ChatScroller {
             return None;
         }
         self.wheel_up = delta.y > px(0.);
+        #[cfg(debug_assertions)]
+        scroll_trace::record(
+            || serde_json::json!({"phase":"wheel", "delta":f32::from(delta.y), "top":format!("{:?}",self.list.logical_scroll_top())}),
+        );
         self.scrollbar.lock_unit();
         self.wheel.push(delta.y, &self.list);
         // An explicit gesture takes over from a disclosure's stationary

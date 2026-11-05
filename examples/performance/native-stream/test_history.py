@@ -10,6 +10,34 @@ from history_demo import HistoryFixture, PAGE, REVISION, make_rows
 
 
 class HistoryTests(unittest.TestCase):
+    def test_local_replay_serves_the_short_first_page_without_replacing_rows(self):
+        rows = make_rows()[-62:]
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = HistoryFixture(Path(directory) / "workspace", Path(directory) / "session",
+                                     "test-token", delay=0, transcript=rows).start()
+            try:
+                client = build_opener(ProxyHandler({}))
+                def get(path, query):
+                    return client.open(Request(fixture.origin + path + "?" + urlencode(query),
+                        headers={"Authorization": "Bearer test-token"}), timeout=3)
+                with get("/events", {"session_dir": fixture.session}) as stream:
+                    line = stream.readline()
+                    while not line.startswith(b"data: "):
+                        line = stream.readline()
+                    snapshot = json.loads(line[6:])["event"]["snapshot"]
+                    self.assertEqual(snapshot["transcript"], rows[12:])
+                    self.assertEqual(snapshot["history"]["before"], 12)
+                    with get("/history/page", {"session_dir": fixture.session,
+                                              "revision": REVISION, "before": 12}) as response:
+                        page = json.load(response)
+                    self.assertEqual(page["start"], 0)
+                    self.assertEqual(page["total"], 62)
+                    self.assertEqual(page["messages"], rows[:12])
+                    fixture.stopping.set()
+                self.assertEqual(fixture.errors, [])
+            finally:
+                fixture.close()
+
     def test_long_tool_chain_crosses_six_pages(self):
         rows = make_rows(long_tools=True)
         self.assertTrue(all(row["tool"] and row["role"] == "system" for row in rows[200:500]))

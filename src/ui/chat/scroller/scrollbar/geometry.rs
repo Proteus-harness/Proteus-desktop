@@ -67,6 +67,11 @@ pub(super) struct Geometry {
 }
 
 impl Geometry {
+    #[cfg(debug_assertions)]
+    pub fn diagnostic_mapping(&self) -> [[f64; 2]; 3] {
+        [self.mapping.left, self.mapping.pivot, self.mapping.right].map(|k| [k.pixel, k.track])
+    }
+
     pub fn represents(&self, range: HistoryRange) -> bool {
         self.range == Some(range)
     }

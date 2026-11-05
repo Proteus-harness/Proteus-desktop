@@ -54,11 +54,16 @@ def make_rows(now=None, *, long_tools=False):
 
 
 class HistoryFixture(Fixture):
-    def __init__(self, workspace, session, token, *, delay=0.2, long_tools=False, unpaged=False):
+    def __init__(self, workspace, session, token, *, delay=0.2, long_tools=False, unpaged=False, transcript=None):
         super().__init__(workspace, session, token, make_rows(long_tools=long_tools))
         self.delay = delay
+        if transcript is not None:
+            require(isinstance(transcript, list) and transcript and all(isinstance(row, dict) for row in transcript),
+                    "Transcript must be a nonempty list of public message DTOs")
+            self.transcript = transcript
+            unpaged = len(transcript) <= PAGE
         self.unpaged = unpaged
-        if unpaged:
+        if unpaged and transcript is None:
             self.transcript = self.transcript[-26:]
             self.transcript[5].update(role="assistant", tool=None,
                 text="LONG UNPAGED REPLY\n\n```text\n" + "\n".join(
@@ -98,13 +103,14 @@ class HistoryFixture(Fixture):
 
 
 def run(args):
+    transcript = json.loads(args.transcript.read_text()) if args.transcript else None
     fixture = HistoryFixture(args.output / "workspace", args.output / "session", secrets.token_hex(24),
-                             long_tools=args.long_tools, unpaged=args.unpaged).start()
+                             long_tools=args.long_tools, unpaged=args.unpaged, transcript=transcript).start()
     process = None
     interrupted = False
     state = {"status": "starting", "rows": len(fixture.transcript), "page_rows": PAGE,
              "long_tools": args.long_tools,
-             "unpaged": args.unpaged,
+             "unpaged": fixture.unpaged,
              "launcher": str(args.native), "launcher_sha256": digest(args.native),
              "source_sha256": {name: digest(Path(__file__).with_name(name)) for name in
                                ("history_demo.py", "fixture_server.py", "run.py", "status_demo.py")}}
@@ -120,6 +126,13 @@ def run(args):
             ("HOME", "home"), ("PROTEUS_HOME", "runtime"), ("PROTEUS_CONFIG_HOME", "config"),
             ("XDG_CONFIG_HOME", "xdg-config"), ("XDG_DATA_HOME", "xdg-data"),
             ("XDG_CACHE_HOME", "xdg-cache"), ("PROTEUS_EXTENSIONS_DIR", "empty-extensions"))})
+        if args.preferences:
+            from run import save
+            preferences = json.loads(args.preferences.read_text())
+            allowed = {"theme", "themes", "fonts", "motion", "hints", "label_truncation", "view"}
+            (args.output / "xdg-config/dev.proteus.native").mkdir(mode=0o700, exist_ok=True)
+            save(args.output / "xdg-config/dev.proteus.native/preferences.json",
+                 {key: value for key, value in preferences.items() if key in allowed})
         if args.extensions:
             from code_blocks import select_renderer
             state.update(select_renderer(args.output, args.extensions))
@@ -166,12 +179,14 @@ def main():
     parser.add_argument("--long-tools", action="store_true", help="One 300-tool folded run crossing six pages")
     parser.add_argument("--unpaged", action="store_true", help="26 rows, no cursor, one very long earlier reply")
     parser.add_argument("--extensions", type=Path, help="Installed ready packages; use their Markdown renderer")
+    parser.add_argument("--transcript", type=Path, help="Local public-message DTO array for private replay; never commit real data")
+    parser.add_argument("--preferences", type=Path, help="Copy only appearance/view preferences into the isolated profile")
     args = parser.parse_args()
     args.native = args.native.resolve(strict=True)
     require(args.native.is_file() and os.access(args.native, os.X_OK), "Ready executable required")
-    require(10 <= args.timeout <= 600, "Timeout must be 10..600")
+    require(10 <= args.timeout <= 1800, "Timeout must be 10..1800")
     args.output = args.output.resolve()
-    args.output.mkdir(parents=True, exist_ok=False)
+    args.output.mkdir(mode=0o700, parents=True, exist_ok=False)
     for directory in DIRECTORIES:
         (args.output / directory).mkdir(mode=0o700)
     run(args)
