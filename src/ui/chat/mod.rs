@@ -132,6 +132,8 @@ pub(super) struct Chat {
     open_chains: HashSet<u64>,
     /// Rows pushed by live events, for enter motion.
     fresh_rows: Recent,
+    /// Last represented row and settlement state whose timestamp was measured.
+    stamp_tail: Option<(u64, bool)>,
     /// Approval and question cards that just arrived, for enter motion.
     fresh_requests: Recent,
     user_input: UserInputDrafts,
@@ -265,6 +267,7 @@ impl Chat {
             tool_diffs: HashMap::new(),
             open_chains: HashSet::new(),
             fresh_rows: Recent::default(),
+            stamp_tail: None,
             fresh_requests: Recent::default(),
             user_input: UserInputDrafts::default(),
             activity_dock: activity_dock::DockState::default(),

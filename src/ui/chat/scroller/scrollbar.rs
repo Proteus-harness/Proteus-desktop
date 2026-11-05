@@ -64,7 +64,16 @@ impl HistoryScrollbar {
             *self.geometry.borrow_mut() = Geometry::default();
         } else if state.waiting && !seeking {
             state.waiting = false;
-            state.displayed = None;
+            // An accepted page still needs layout and fractional positioning.
+            // Keep the requested track anchor until settle pins its real pixels.
+            // A cancelled/failed seek has no matching resident target.
+            if !state.displayed.is_some_and(|(target, _)| {
+                range.is_some_and(|range| {
+                    (range.start..range.start + range.rows).contains(&target.row)
+                })
+            }) {
+                state.displayed = None;
+            }
         }
         self.state.set(state);
         changed

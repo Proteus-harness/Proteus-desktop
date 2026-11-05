@@ -20,6 +20,7 @@ impl Render for Chat {
         // disclosures.
         motion::drive(window, cx);
         self.prepare_tool_diffs(cx);
+        self.prepare_turn_stamp(cx);
         let frame_at = Instant::now();
         let renderer = cx.processor(move |this, ix: usize, window, cx| {
             this.render_row(ix, frame_at, window, cx)

@@ -1,5 +1,35 @@
 # Native: поток текста без завершающего snapshot
 
+## Ползунок истории и время хода
+
+`history_demo.py` показывает 600 синтетических строк по 50 на страницу. Каждый
+ход содержит вопрос, промежуточный ответ, два инструмента и итог. Последний ход
+сегодняшний, предыдущие — вчерашние; середина истории содержит длинные ответы.
+Запуск готовой поставки внутри своей background-gui session:
+
+```sh
+python3 /absolute/background-gui/scripts/bgui.py run SESSION --cwd /absolute/Proteus-desktop -- \
+  python3 /absolute/Proteus-desktop/examples/performance/native-stream/history_demo.py \
+  --native /absolute/ready/Proteus/proteus-native \
+  --output /absolute/Proteus-desktop/build/verification/history-current
+```
+
+После READY проверьте окно: одна отметка после итога каждого хода, сегодня
+только время, вчера — время перед датой. Перемещайте ползунок вверх через
+несколько страниц, в том числе в длинную середину и обратно. Задержка страницы
+200 мс позволяет проверить позицию во время ожидания, после layout и после
+отпускания мыши. Сохраняйте screenshots; `trace.json` содержит реальные запросы
+страниц, `state.json` — SHA256 запущенного ELF. Остановка: `touch OUTPUT/control/stop`,
+затем остановите свою background-gui session. Стенд не меняет реальные сессии.
+
+```sh
+python3 -m unittest discover -s examples/performance/native-stream -p 'test_history.py'
+```
+
+Проверка wire-стенда сама по себе не подтверждает поведение окна.
+
+## Поток текста
+
 Постоянный синтетический стенд для coalescing соседних AssistantTextDelta и
 root-thread routing. Он запускает **готовый** `proteus-native` через публичные
 `--origin`/`--token`; Core, модули, платные модели и сборка не нужны. Transport

@@ -11,7 +11,7 @@ use gpui_kit::*;
 use proteus_contracts::app_protocol::AppTranscriptSubagent;
 
 use super::images::{SentImages, render_sent_images};
-use super::stamp::message_time;
+use super::stamp::{self, turn_time};
 use super::tool_chain::{chain_reveal_key, render_chain_header};
 use super::tool_row::{render_tool, status_icon};
 use super::{Chat, ChatEvent};
@@ -23,6 +23,36 @@ use crate::ui::motion::{self, fade_in_if};
 use crate::ui::{format, prefs};
 
 impl Chat {
+    fn complete_stamp_tail(&self) -> bool {
+        self.codex
+            .as_ref()
+            .is_some_and(|binding| binding.archive.is_some())
+            || self.history.at_live_tail(&self.session.transcript) && !self.session.running()
+    }
+
+    /// Tail settlement can change without a transcript splice (execution or
+    /// Codex state). Invalidate just the former/new tail and its folded run.
+    pub(super) fn prepare_turn_stamp(&mut self, cx: &mut Context<Self>) {
+        let entries = self.display_transcript().entries();
+        let compact = prefs::current(cx).view.compact_tools;
+        let row = entries
+            .iter()
+            .rposition(|entry| !stamp::hidden(entries, entry))
+            .map(|row| self.chain_at(row, compact).map_or(row, |chain| chain.start));
+        let tail = row.map(|row| (entries[row].key, self.complete_stamp_tail()));
+        if self.stamp_tail == tail {
+            return;
+        }
+        for key in self.stamp_tail.into_iter().chain(tail).map(|(key, _)| key) {
+            if let Some(row) = entries.iter().position(|entry| entry.key == key) {
+                let rows = crate::transcript::affected_rows(entries, row);
+                self.scroller
+                    .update(cx, |scroller, cx| scroller.remeasure_items(rows, cx));
+            }
+        }
+        self.stamp_tail = tail;
+    }
+
     pub(super) fn toggle_expanded(&mut self, key: u64, cx: &mut Context<Self>) {
         let open = !self.expanded.remove(&key);
         if open {
@@ -88,11 +118,7 @@ impl Chat {
         let Some(entry) = entries.get(ix) else {
             return div().into_any_element();
         };
-        if entry
-            .tool
-            .as_ref()
-            .is_some_and(|tool| crate::transcript::subagent::progress_row(entries, tool).is_some())
-        {
+        if stamp::hidden(entries, entry) {
             return div().into_any_element();
         }
         let compact = prefs::current(cx).view.compact_tools;
@@ -110,6 +136,12 @@ impl Chat {
         if chain_tail && (!chain_open || chain_moving) {
             return div().into_any_element();
         }
+        let end = if !chain_open || chain_moving {
+            chain.as_ref().map_or(ix + 1, |chain| chain.end)
+        } else {
+            ix + 1
+        };
+        let time = stamp::time_after(entries, end, self.complete_stamp_tail());
         let image_edge = super::images::thumbnail_edge(window, cx);
         let missing = self
             .api
@@ -249,7 +281,11 @@ impl Chat {
             .pb(prefs::scaled(spacing.bottom * 4.))
             .when(ix == 0, |row| row.pt_6())
             .child(fade_in_if(
-                div().w_full().max_w(prefs::chat_width(cx)).child(body),
+                v_flex()
+                    .w_full()
+                    .max_w(prefs::chat_width(cx))
+                    .child(body)
+                    .children(turn_time(key, time, cx).map(|time| div().pt_1().child(time))),
                 row_id("enter", key),
                 fresh,
             ))
@@ -405,22 +441,15 @@ fn render_user(entry: &Entry, images: &SentImages, cx: &App) -> AnyElement {
             )
         })
         .when(has_text, |row| {
-            row.child(
-                row_actions()
-                    .children(message_time(entry.key, entry.time, cx))
-                    .child(copy_button("copy-user", entry.key, text, cx)),
-            )
+            row.child(row_actions().child(copy_button("copy-user", entry.key, text, cx)))
         })
         .into_any_element()
 }
 
 fn render_assistant(entry: &Entry, reply: Vec<super::replies::Part>, cx: &App) -> AnyElement {
     let text = SharedString::from(&entry.text);
-    let actions = (!entry.streaming && !entry.text.trim().is_empty()).then(|| {
-        row_actions()
-            .child(copy_button("copy-assistant", entry.key, text.clone(), cx))
-            .children(message_time(entry.key, entry.time, cx))
-    });
+    let actions = (!entry.streaming && !entry.text.trim().is_empty())
+        .then(|| row_actions().child(copy_button("copy-assistant", entry.key, text.clone(), cx)));
     v_flex()
         .group(ROW_GROUP)
         .w_full()

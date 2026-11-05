@@ -104,6 +104,11 @@ impl History {
         self.archive.is_some()
     }
 
+    pub(super) fn at_live_tail(&self, live: &Transcript) -> bool {
+        self.range(live)
+            .is_none_or(|range| range.start + range.rows == range.total)
+    }
+
     fn range(&self, live: &Transcript) -> Option<HistoryRange> {
         let cursor = self.cursor.as_ref()?;
         Some(HistoryRange {
