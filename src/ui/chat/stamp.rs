@@ -111,6 +111,7 @@ mod tests {
                                 status: "done".into(),
                                 result: Some("fixture".into()),
                                 metadata: serde_json::Value::Null,
+                                terminal: None,
                             }
                         }),
                         subagent: None,
