@@ -123,7 +123,13 @@ pub fn prepare(
             );
             // An existing immutable plugin version may only be reused by its receipt.
             if !(entry.kind == Kind::AgentPlugin && managed && path.exists()) {
-                files.install(root, &id, managed)?;
+                if entry.kind == Kind::ClientExtension {
+                    files.install_checked(root, &id, managed, |dir| {
+                        crate::declarative::manifest::load(dir).map(|_| ())
+                    })?;
+                } else {
+                    files.install(root, &id, managed)?;
+                }
             }
             Target::Folder { path }
         }
@@ -148,14 +154,24 @@ pub fn connect(
 ) -> Result<()> {
     match &installed.target {
         Target::Folder { path } if installed.kind == Kind::AgentPlugin => {
+            let mut enabled = true;
             if let Some(Installed {
                 target: Target::Folder { path: old },
                 ..
             }) = previous
             {
+                // Updating a package must preserve the profile's switch.
+                enabled = draft
+                    .addons
+                    .addons
+                    .plugins
+                    .iter()
+                    .find(|plugin| plugin.path == *old)
+                    .is_none_or(|plugin| plugin.enabled);
                 draft.remove_package(old);
             }
             draft.add_package(path.clone());
+            draft.set_package(path, enabled);
         }
         Target::Mcp { server } => {
             let old = previous.and_then(|old| match &old.target {

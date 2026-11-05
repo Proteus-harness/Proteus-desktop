@@ -207,6 +207,79 @@ fn installation_binding_update_and_removal_use_the_existing_formats() {
     );
 }
 
+fn plugin_receipt(path: &str) -> Installed {
+    Installed {
+        source: source(Path::new("catalog")),
+        entry: "plugin".into(),
+        version: "1.0.0".into(),
+        kind: Kind::AgentPlugin,
+        profile: Some("profile.toml".into()),
+        target: Target::Folder { path: path.into() },
+    }
+}
+
+#[test]
+fn plugin_catalog_updates_preserve_the_profile_switch() {
+    let installed = plugin_receipt("plugin-v1");
+    for enabled in [false, true] {
+        for path in ["plugin-v1", "plugin-v2"] {
+            let mut draft = Draft::default();
+            install::connect(&mut draft, &installed, None).unwrap();
+            draft.set_package(Path::new("plugin-v1"), enabled);
+            draft.add_package("unrelated".into());
+            draft.set_package(Path::new("unrelated"), false);
+            let baseline = draft.clone();
+            let updated = plugin_receipt(path);
+
+            install::connect(&mut draft, &updated, Some(&installed)).unwrap();
+
+            let plugins = &draft.addons.addons.plugins;
+            assert_eq!(plugins.len(), 2);
+            let unrelated = plugins
+                .iter()
+                .find(|plugin| plugin.path == Path::new("unrelated"))
+                .unwrap();
+            assert!(!unrelated.enabled);
+            let current = plugins
+                .iter()
+                .find(|plugin| plugin.path == Path::new(path))
+                .unwrap();
+            assert_eq!(current.enabled, enabled);
+            assert!(install::connected(&updated, &draft));
+
+            if path != "plugin-v1" {
+                assert!(!install::connected(&installed, &draft));
+                let saved = draft.changes(&baseline).addon_settings.unwrap();
+                assert_eq!(saved.addons.plugins, draft.addons.addons.plugins);
+            }
+
+            let connected = draft.clone();
+            install::connect(&mut draft, &updated, Some(&updated)).unwrap();
+            assert_eq!(draft, connected, "retrying an update keeps the switch");
+        }
+    }
+}
+
+#[test]
+fn plugin_catalog_installs_without_a_current_binding_start_enabled() {
+    let installed = plugin_receipt("plugin-v1");
+    let updated = plugin_receipt("plugin-v2");
+    for previous in [None, Some(&installed)] {
+        let mut draft = Draft::default();
+        draft.add_package("unrelated".into());
+        draft.set_package(Path::new("unrelated"), false);
+
+        install::connect(&mut draft, &updated, previous).unwrap();
+
+        let plugins = &draft.addons.addons.plugins;
+        assert_eq!(plugins.len(), 2);
+        assert_eq!(plugins[0].path, Path::new("unrelated"));
+        assert!(!plugins[0].enabled);
+        assert_eq!(plugins[1].path, Path::new("plugin-v2"));
+        assert!(plugins[1].enabled);
+    }
+}
+
 #[test]
 fn mcp_conflicts_dont_overwrite_manual_edits_and_receipts_are_profile_scoped() {
     let fixture = Fixture::new();
@@ -373,4 +446,95 @@ fn repository_without_index_lists_agent_skills_as_installable_entries() {
         };
         assert_eq!(source.name(), "owner/skills");
     }
+}
+
+#[test]
+fn extension_preflight_checks_staged_files_before_installing_or_replacing() {
+    use crate::declarative::manifest;
+
+    let fixture = Fixture::new();
+    let repo = Contents::folder(&example())
+        .unwrap()
+        .install(&fixture.0, "repo", false)
+        .unwrap();
+    let catalog = schema::read(&repo, "example", &Default::default()).unwrap();
+    let entry = catalog
+        .entries
+        .iter()
+        .find(|entry| entry.kind == Kind::ClientExtension)
+        .unwrap();
+    let package = repo.join(&entry.path);
+    let manifest_path = package.join(manifest::MANIFEST);
+    let mut value: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&manifest_path).unwrap()).unwrap();
+    value["command"] = serde_json::json!(["proteus-preflight-must-not-run"]);
+    value["required_features"] = serde_json::json!(["manifest.agent_instructions.v1"]);
+    value["agent_instructions"] = serde_json::json!([{"skill": "guide", "path": "skills/guide"}]);
+    let original = value.to_string();
+    fs::write(&manifest_path, &original).unwrap();
+
+    let source = source(&repo);
+    let locations = fixture.locations();
+    let profile = fixture.0.join("profile.toml");
+    assert!(install::prepare(&locations, &source, &catalog, entry, None, &profile, &[]).is_err());
+    assert_eq!(fs::read_dir(&locations.extensions).unwrap().count(), 0);
+
+    let skill = package.join("skills/guide/SKILL.md");
+    fs::create_dir_all(skill.parent().unwrap()).unwrap();
+    fs::write(&skill, "# Original").unwrap();
+    let previous =
+        install::prepare(&locations, &source, &catalog, entry, None, &profile, &[]).unwrap();
+    let destination = locations.extensions.join(&entry.id);
+    assert_eq!(manifest::load(&destination).unwrap().id, entry.id);
+    // The catalog folder is named demo, not catalog-demo. Validation must use
+    // the staged final id, rather than the source or hidden staging folder name.
+    assert_ne!(package.file_name(), destination.file_name());
+
+    let mut newer = entry.clone();
+    newer.version = "2.0.0".into();
+    value["title"] = serde_json::json!("Updated");
+    fs::write(&manifest_path, value.to_string()).unwrap();
+    fs::remove_file(&skill).unwrap();
+    assert!(
+        install::prepare(
+            &locations,
+            &source,
+            &catalog,
+            &newer,
+            Some(&previous),
+            &profile,
+            &[entry.id.clone()],
+        )
+        .is_err()
+    );
+    assert_eq!(
+        fs::read_to_string(destination.join(manifest::MANIFEST)).unwrap(),
+        original
+    );
+    assert_eq!(
+        fs::read_to_string(destination.join("skills/guide/SKILL.md")).unwrap(),
+        "# Original"
+    );
+    assert!(manifest::load(&destination).is_ok());
+    assert_eq!(fs::read_dir(&locations.extensions).unwrap().count(), 1);
+
+    fs::write(&skill, "# Updated").unwrap();
+    let updated = install::prepare(
+        &locations,
+        &source,
+        &catalog,
+        &newer,
+        Some(&previous),
+        &profile,
+        &[entry.id.clone()],
+    )
+    .unwrap();
+    assert_eq!(updated.target, previous.target);
+    assert_eq!(updated.version, "2.0.0");
+    assert_eq!(manifest::load(&destination).unwrap().title, "Updated");
+    assert_eq!(
+        fs::read_to_string(destination.join("skills/guide/SKILL.md")).unwrap(),
+        "# Updated"
+    );
+    assert_eq!(fs::read_dir(&locations.extensions).unwrap().count(), 1);
 }

@@ -2,8 +2,8 @@
 //!
 //! The archive holds the extension folder contents with `extension.json` at
 //! its root. It is unpacked into a hidden folder first and renamed into
-//! `<root>/<id>` only when complete, so a broken archive leaves nothing
-//! behind.
+//! `<root>/<id>` only after the normal on-disk manifest checks pass.
+//! An incomplete update never replaces the previous installation.
 
 use std::path::Path;
 
@@ -40,7 +40,9 @@ fn install_contents(root: &Path, files: Contents, taken: &[&str]) -> Result<Mani
             "Существующая папка не принадлежит этому расширению"
         );
     }
-    files.install(root, &manifest.id, replace)?;
+    files.install_checked(root, &manifest.id, replace, |dir| {
+        super::manifest::load(dir).map(|_| ())
+    })?;
     Ok(manifest)
 }
 
@@ -80,6 +82,126 @@ mod tests {
 
     fn temp_root() -> PathBuf {
         std::env::temp_dir().join(format!("proteus-zip-{}", uuid::Uuid::new_v4()))
+    }
+
+    fn skill_manifest(title: &str) -> String {
+        let mut manifest: serde_json::Value = serde_json::from_str(MANIFEST_TEXT).unwrap();
+        manifest["title"] = serde_json::json!(title);
+        // A preflight must not try to spawn or resolve the extension's command.
+        manifest["command"] = serde_json::json!(["proteus-preflight-must-not-run"]);
+        manifest["required_features"] = serde_json::json!(["manifest.agent_instructions.v1"]);
+        manifest["agent_instructions"] =
+            serde_json::json!([{"skill": "guide", "path": "skills/guide"}]);
+        manifest.to_string()
+    }
+
+    #[test]
+    fn incomplete_skill_links_leave_no_new_installation() {
+        let root = temp_root();
+        let text = skill_manifest("New");
+        assert!(parse(&text).is_ok());
+        for extra in [
+            vec![],
+            vec![("skills/guide/README.md", "No skill file", 0o644)],
+            vec![("skills/guide", "Not a directory", 0o644)],
+            vec![(
+                "skills/guide/SKILL.md/child",
+                "Not a regular skill file",
+                0o644,
+            )],
+        ] {
+            let mut files = vec![("extension.json", text.as_str(), 0o644)];
+            files.extend(extra);
+            assert!(install_bytes(&root, &archive(&files), &[]).is_err());
+            assert!(!root.join("todo").exists());
+            assert_eq!(std::fs::read_dir(&root).unwrap().count(), 0);
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn incomplete_skill_update_keeps_the_previous_package_and_cleans_staging() {
+        let root = temp_root();
+        let original = skill_manifest("Original");
+        let good = archive(&[
+            ("extension.json", original.as_str(), 0o644),
+            ("skills/guide/SKILL.md", "# Original instructions", 0o644),
+            ("old-asset.txt", "Keep this until a valid update", 0o644),
+        ]);
+        install_bytes(&root, &good, &[]).unwrap();
+        let changed = skill_manifest("Incomplete");
+        for extra in [
+            vec![],
+            vec![("skills/guide/README.md", "No skill file", 0o644)],
+            vec![("skills/guide", "Not a directory", 0o644)],
+            vec![(
+                "skills/guide/SKILL.md/child",
+                "Not a regular skill file",
+                0o644,
+            )],
+        ] {
+            let mut files = vec![("extension.json", changed.as_str(), 0o644)];
+            files.extend(extra);
+            assert!(install_bytes(&root, &archive(&files), &[]).is_err());
+            assert_eq!(
+                std::fs::read_to_string(root.join("todo/extension.json")).unwrap(),
+                original
+            );
+            assert_eq!(
+                std::fs::read_to_string(root.join("todo/skills/guide/SKILL.md")).unwrap(),
+                "# Original instructions"
+            );
+            assert_eq!(
+                std::fs::read_to_string(root.join("todo/old-asset.txt")).unwrap(),
+                "Keep this until a valid update"
+            );
+            assert_eq!(
+                super::super::manifest::load(&root.join("todo"))
+                    .unwrap()
+                    .title,
+                "Original"
+            );
+            assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn complete_skill_update_passes_discovery_without_running_the_command() {
+        let root = temp_root();
+        let original = skill_manifest("Original");
+        install_bytes(
+            &root,
+            &archive(&[
+                ("extension.json", original.as_str(), 0o644),
+                ("skills/guide/SKILL.md", "# Original", 0o644),
+                ("old-asset.txt", "Obsolete", 0o644),
+            ]),
+            &[],
+        )
+        .unwrap();
+        let changed = skill_manifest("Updated");
+        let installed = install_bytes(
+            &root,
+            &archive(&[
+                ("extension.json", changed.as_str(), 0o644),
+                ("skills/guide/SKILL.md", "# Updated", 0o644),
+            ]),
+            &[],
+        )
+        .unwrap();
+        let (found, problems) = super::super::manifest::discover(&root);
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].manifest, installed);
+        assert_eq!(installed.title, "Updated");
+        assert_eq!(
+            std::fs::read_to_string(root.join("todo/skills/guide/SKILL.md")).unwrap(),
+            "# Updated"
+        );
+        assert!(!root.join("todo/old-asset.txt").exists());
+        assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
