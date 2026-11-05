@@ -336,6 +336,22 @@ fn scrollbar_range_counts_unloaded_rows_and_live_progress() {
 }
 
 #[test]
+fn a_complete_unpaged_chat_uses_stable_scrollbar_geometry_too() {
+    let mut history = History::default();
+    let mut live = Transcript::default();
+    assert_eq!(history.range(&live), None);
+    history.apply(&mut live, rows(0, 26), None);
+    let range = history
+        .range(&live)
+        .expect("no cursor still needs stable geometry");
+    assert_eq!((range.start, range.rows, range.total), (0, 26, 26));
+    assert!(history.request(Direction::Older, &live).is_none());
+    live.push_user(None, "new live row", vec![]);
+    let range = history.range(&live).unwrap();
+    assert_eq!((range.start, range.rows, range.total), (0, 27, 27));
+}
+
+#[test]
 fn scrollbar_seek_loads_only_one_page_around_the_requested_message() {
     let (mut history, live) = fixture();
     history.seek = Some(super::ScrollTarget {

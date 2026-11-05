@@ -10,6 +10,32 @@ from history_demo import HistoryFixture, PAGE, REVISION, make_rows
 
 
 class HistoryTests(unittest.TestCase):
+    def test_long_tool_chain_crosses_six_pages(self):
+        rows = make_rows(long_tools=True)
+        self.assertTrue(all(row["tool"] and row["role"] == "system" for row in rows[200:500]))
+        self.assertIsNone(rows[199]["tool"])
+        self.assertIsNone(rows[500]["tool"])
+
+    def test_unpaged_snapshot_keeps_the_long_reply_and_has_no_cursor(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = HistoryFixture(Path(directory) / "workspace", Path(directory) / "session",
+                                     "test-token", delay=0, unpaged=True).start()
+            try:
+                request = Request(fixture.origin + "/events?" + urlencode({"session_dir": fixture.session}),
+                                  headers={"Authorization": "Bearer test-token"})
+                with build_opener(ProxyHandler({})).open(request, timeout=3) as stream:
+                    line = stream.readline()
+                    while not line.startswith(b"data: "):
+                        line = stream.readline()
+                    snapshot = json.loads(line[6:])["event"]["snapshot"]
+                    self.assertIsNone(snapshot["history"])
+                    self.assertEqual(len(snapshot["transcript"]), 26)
+                    self.assertGreater(len(snapshot["transcript"][5]["text"]), 20000)
+                    fixture.stopping.set()
+                self.assertEqual(fixture.errors, [])
+            finally:
+                fixture.close()
+
     def test_turn_dates_and_heterogeneous_heights(self):
         now = datetime.now().astimezone()
         rows = make_rows(now)

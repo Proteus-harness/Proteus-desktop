@@ -19,7 +19,7 @@ REVISION = "synthetic-history-v1"
 PAGE = 50
 
 
-def make_rows(now=None):
+def make_rows(now=None, *, long_tools=False):
     now = now or datetime.now().astimezone()
     rows = []
     for turn in range(120):
@@ -44,27 +44,43 @@ def make_rows(now=None):
                     "effective_args": None, "status": "done",
                     "result": "SYNTHETIC RESULT", "metadata": None})
             rows.append(row)
+    if long_tools:
+        for index in range(200, 500):
+            rows[index].update(role="system", text="", message_id=None, tool={
+                "call_id": f"long-chain-{index}", "name": "read_file",
+                "args": {"path": f"synthetic/chain/{index}.txt"}, "effective_args": None,
+                "status": "done", "result": "SYNTHETIC RESULT", "metadata": None})
     return rows
 
 
 class HistoryFixture(Fixture):
-    def __init__(self, workspace, session, token, *, delay=0.2):
-        super().__init__(workspace, session, token, make_rows())
+    def __init__(self, workspace, session, token, *, delay=0.2, long_tools=False, unpaged=False):
+        super().__init__(workspace, session, token, make_rows(long_tools=long_tools))
         self.delay = delay
+        self.unpaged = unpaged
+        if unpaged:
+            self.transcript = self.transcript[-26:]
+            self.transcript[5].update(role="assistant", tool=None,
+                text="LONG UNPAGED REPLY\n\n```text\n" + "\n".join(
+                    f"Абзац {index}: длинный ответ для проверки прокрутки без страниц. " * 5
+                    for index in range(90)) + "\n```\n")
 
     def start(self):
         self.thread.start()
         self.emit({"type": "session_snapshot", "snapshot": {
             "session_id": SESSION_ID, "stream_id": "native-fixture-incarnation",
-            "seq": 0, "root_thread_id": THREAD_ID, "transcript": self.transcript[-PAGE:],
-            "history": {"revision": REVISION, "before": len(self.transcript) - PAGE,
-                        "base": None}, "execution": {"active": None, "last": None}}})
+            "seq": 0, "root_thread_id": THREAD_ID,
+            "transcript": self.transcript if self.unpaged else self.transcript[-PAGE:],
+            "history": None if self.unpaged else {"revision": REVISION,
+                "before": len(self.transcript) - PAGE, "base": None},
+            "execution": {"active": None, "last": None}}})
         return self
 
     def handle(self, handler, method):
         parsed = urlsplit(handler.path)
         if parsed.path != "/history/page":
             return super().handle(handler, method)
+        require(not self.unpaged, "Unpaged fixture must not request history")
         require(method == "GET", "History only supports GET")
         require(handler.headers.get("Authorization") == "Bearer " + self.token, "Invalid token")
         query = parse_qs(parsed.query, strict_parsing=True)
@@ -82,10 +98,13 @@ class HistoryFixture(Fixture):
 
 
 def run(args):
-    fixture = HistoryFixture(args.output / "workspace", args.output / "session", secrets.token_hex(24)).start()
+    fixture = HistoryFixture(args.output / "workspace", args.output / "session", secrets.token_hex(24),
+                             long_tools=args.long_tools, unpaged=args.unpaged).start()
     process = None
     interrupted = False
     state = {"status": "starting", "rows": len(fixture.transcript), "page_rows": PAGE,
+             "long_tools": args.long_tools,
+             "unpaged": args.unpaged,
              "launcher": str(args.native), "launcher_sha256": digest(args.native),
              "source_sha256": {name: digest(Path(__file__).with_name(name)) for name in
                                ("history_demo.py", "fixture_server.py", "run.py", "status_demo.py")}}
@@ -101,6 +120,10 @@ def run(args):
             ("HOME", "home"), ("PROTEUS_HOME", "runtime"), ("PROTEUS_CONFIG_HOME", "config"),
             ("XDG_CONFIG_HOME", "xdg-config"), ("XDG_DATA_HOME", "xdg-data"),
             ("XDG_CACHE_HOME", "xdg-cache"), ("PROTEUS_EXTENSIONS_DIR", "empty-extensions"))})
+        if args.extensions:
+            from code_blocks import select_renderer
+            state.update(select_renderer(args.output, args.extensions))
+            env["PROTEUS_EXTENSIONS_DIR"] = state["selected_extensions"]
         with (args.output / "native.log").open("w") as log:
             process = subprocess.Popen([str(args.native), str(args.output / "workspace"),
                                         "--origin", fixture.origin, "--token", fixture.token],
@@ -140,6 +163,9 @@ def main():
     parser.add_argument("--native", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--timeout", type=int, default=600)
+    parser.add_argument("--long-tools", action="store_true", help="One 300-tool folded run crossing six pages")
+    parser.add_argument("--unpaged", action="store_true", help="26 rows, no cursor, one very long earlier reply")
+    parser.add_argument("--extensions", type=Path, help="Installed ready packages; use their Markdown renderer")
     args = parser.parse_args()
     args.native = args.native.resolve(strict=True)
     require(args.native.is_file() and os.access(args.native, os.X_OK), "Ready executable required")

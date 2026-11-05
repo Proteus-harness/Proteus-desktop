@@ -67,6 +67,10 @@ pub(super) struct Geometry {
 }
 
 impl Geometry {
+    pub fn represents(&self, range: HistoryRange) -> bool {
+        self.range == Some(range)
+    }
+
     pub fn refresh(
         &mut self,
         list: &ListState,
@@ -185,22 +189,19 @@ impl Geometry {
         self.mapping = Mapping::new(left, right, pivot);
     }
 
-    pub fn position(&mut self, top: ListOffset) -> Pixels {
+    /// Kit queries during wheel bubbling too, before the chat restores its
+    /// painted position. A query must not commit that transient anchor.
+    pub fn position(&self, top: ListOffset) -> Pixels {
         let range = self.range.unwrap();
         let row = range.start + top.item_ix;
         let pixel = self
             .pixel(row, top.offset_in_item)
             .unwrap_or(self.mapping.right.pixel);
-        let track = px(self.mapping.convert(pixel, false) as f32).clamp(px(0.), self.max);
-        self.anchor = Some(Anchor {
-            row,
-            offset: top.offset_in_item,
-            track,
-        });
-        track
+        px(self.mapping.convert(pixel, false) as f32).clamp(px(0.), self.max)
     }
 
-    pub fn pin(&mut self, top: ListOffset, track: Pixels) {
+    /// A completed layout establishes the reader's stable position.
+    pub fn record(&mut self, top: ListOffset, track: Pixels) {
         let Some(range) = self.range else {
             return;
         };
@@ -209,6 +210,10 @@ impl Geometry {
             offset: top.offset_in_item,
             track,
         });
+    }
+
+    pub fn pin(&mut self, top: ListOffset, track: Pixels) {
+        self.record(top, track);
         self.rebuild();
     }
 
@@ -318,10 +323,12 @@ mod tests {
             ..Default::default()
         };
         geometry.rebuild();
-        let before = geometry.position(ListOffset {
+        let top = ListOffset {
             item_ix: 100,
             offset_in_item: px(5.),
-        });
+        };
+        let before = geometry.position(top);
+        geometry.record(top, before);
         // The row ordinal and its pixel progress differ by orders of magnitude.
         assert!(before < px(300.));
         let list = ListState::new(201, gpui_kit::ListAlignment::Top, px(400.));
