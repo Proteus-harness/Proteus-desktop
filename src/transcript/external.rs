@@ -183,6 +183,13 @@ impl Transcript {
             .map(|(identity, _)| identity.clone())
     }
 
+    pub(crate) fn external_identity(&self, key: u64) -> Option<(&str, &str)> {
+        self.external_ids
+            .iter()
+            .find(|(_, entry)| **entry == key)
+            .map(|((turn, item), _)| (turn.as_str(), item.as_str()))
+    }
+
     pub(crate) fn external_trim_budget(&mut self, limit: usize, bytes: usize) -> Change {
         let mut count = self.entries.len().saturating_sub(limit);
         let mut retained = self.entries[count..]

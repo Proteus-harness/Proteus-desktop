@@ -156,7 +156,7 @@ impl ContentView {
         }
     }
 
-    /// An ordinary reply already owns its copy actions in the chat row.
+    /// An ordinary reply uses the chat's shared turn footer for copy actions.
     pub(in crate::ui) fn body(
         host: Host,
         id: String,

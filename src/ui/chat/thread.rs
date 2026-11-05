@@ -3,7 +3,6 @@
 use std::ops::Range;
 use std::time::Instant;
 
-use crate::ui::kit::Clipboard;
 use gpui_kit::base::SelectableText;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -11,13 +10,12 @@ use gpui_kit::*;
 use proteus_contracts::app_protocol::AppTranscriptSubagent;
 
 use super::images::{SentImages, render_sent_images};
-use super::stamp::{self, turn_time};
+use super::stamp;
 use super::tool_chain::{chain_reveal_key, render_chain_header};
 use super::tool_row::{render_tool, status_icon};
 use super::{Chat, ChatEvent};
 use crate::transcript::{Entry, Role};
 use crate::ui::fade::{caption, faded};
-use crate::ui::kit::Hint as _;
 use crate::ui::kit::Pressable as _;
 use crate::ui::motion::{self, fade_in_if};
 use crate::ui::{format, prefs};
@@ -142,6 +140,16 @@ impl Chat {
             ix + 1
         };
         let time = stamp::time_after(entries, end, self.complete_stamp_tail());
+        let footer = stamp::ending(entries, end, self.complete_stamp_tail());
+        let end_key = entries[end - 1].key;
+        let turn = &entries[..end];
+        let copyable = footer
+            && (turn
+                .iter()
+                .rev()
+                .take_while(|entry| entry.role != Role::User)
+                .any(|entry| entry.role == Role::Assistant && !entry.text.trim().is_empty())
+                || !turn.iter().any(|entry| entry.role == Role::User));
         let image_edge = super::images::thumbnail_edge(window, cx);
         let missing = self
             .api
@@ -174,10 +182,9 @@ impl Chat {
                 bottom: 2.,
             },
         };
-        // The user's stable action row already occupies one line. One more
-        // line of padding separates the reply (or its first tool) from it.
+        // The turn footer owns actions; the user bubble needs only a small gap.
         if ix > 0 && entries[ix - 1].role == Role::User && entry.role != Role::User {
-            spacing.top = 6.;
+            spacing.top = 4.;
         }
         let body = match (&entry.role, &entry.tool, &entry.subagent) {
             (Role::User, _, _) => render_user(entry, &self.sent_images, cx),
@@ -265,6 +272,7 @@ impl Chat {
             self.fetch_images(missing, image_edge, cx);
         }
         h_flex()
+            .group(super::turn_footer::GROUP)
             .on_prepaint(|bounds, window, _| {
                 let visible = window.content_mask().bounds;
                 if bounds.size.width > px(0.)
@@ -287,7 +295,13 @@ impl Chat {
                     .w_full()
                     .max_w(prefs::chat_width(cx))
                     .child(body)
-                    .children(turn_time(key, time, cx).map(|time| div().pt_1().child(time))),
+                    .when(footer && (copyable || time.is_some()), |row| {
+                        row.child(
+                            div()
+                                .pt_1()
+                                .child(self.turn_footer(key, end_key, time, copyable, cx)),
+                        )
+                    }),
                 row_id("enter", key),
                 fresh,
             ))
@@ -408,19 +422,11 @@ pub(super) fn reveal_key(chat: EntityId, key: u64) -> SharedString {
     format!("thread-row-{chat}-{key}").into()
 }
 
-fn copy_button(name: &'static str, key: u64, text: SharedString, cx: &App) -> Clipboard {
-    Clipboard::new(row_id(name, key))
-        .value(text)
-        .hint("Копировать", cx)
-        .xsmall()
-}
-
 fn render_user(entry: &Entry, images: &SentImages, cx: &App) -> AnyElement {
     let theme = cx.theme();
     let text = SharedString::from(&entry.text);
     let has_text = !entry.text.trim().is_empty();
     v_flex()
-        .group(ROW_GROUP)
         .w_full()
         .items_end()
         .gap_0p5()
@@ -443,18 +449,11 @@ fn render_user(entry: &Entry, images: &SentImages, cx: &App) -> AnyElement {
                     ),
             )
         })
-        .when(has_text, |row| {
-            row.child(row_actions().child(copy_button("copy-user", entry.key, text, cx)))
-        })
         .into_any_element()
 }
 
 fn render_assistant(entry: &Entry, reply: Vec<super::replies::Part>, cx: &App) -> AnyElement {
-    let text = SharedString::from(&entry.text);
-    let actions = (!entry.streaming && !entry.text.trim().is_empty())
-        .then(|| row_actions().child(copy_button("copy-assistant", entry.key, text.clone(), cx)));
     v_flex()
-        .group(ROW_GROUP)
         .w_full()
         .font_family(prefs::chat_font(cx))
         .text_size(prefs::chat_text(cx))
@@ -468,19 +467,7 @@ fn render_assistant(entry: &Entry, reply: Vec<super::replies::Part>, cx: &App) -
                 .into_any_element(),
             }
         }))
-        .children(actions)
         .into_any_element()
-}
-
-const ROW_GROUP: &str = "thread-row";
-
-/// Row actions stay laid out so revealing them on hover does not shift rows.
-fn row_actions() -> Div {
-    h_flex()
-        .h_5()
-        .gap_1()
-        .invisible()
-        .group_hover(ROW_GROUP, |style| style.visible())
 }
 
 fn render_note(entry: &Entry, cx: &App) -> AnyElement {

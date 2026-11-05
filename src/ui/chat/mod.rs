@@ -34,6 +34,8 @@ mod thread;
 mod tool_chain;
 mod tool_hint;
 pub(super) mod tool_row;
+mod turn_copy;
+mod turn_footer;
 mod user_input;
 mod view;
 
@@ -134,6 +136,7 @@ pub(super) struct Chat {
     fresh_rows: Recent,
     /// Last represented row and settlement state whose timestamp was measured.
     stamp_tail: Option<(u64, bool)>,
+    turn_copy: turn_footer::CopyState,
     /// Approval and question cards that just arrived, for enter motion.
     fresh_requests: Recent,
     user_input: UserInputDrafts,
@@ -268,6 +271,7 @@ impl Chat {
             open_chains: HashSet::new(),
             fresh_rows: Recent::default(),
             stamp_tail: None,
+            turn_copy: Default::default(),
             fresh_requests: Recent::default(),
             user_input: UserInputDrafts::default(),
             activity_dock: activity_dock::DockState::default(),

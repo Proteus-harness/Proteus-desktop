@@ -1,4 +1,4 @@
-//! One local timestamp at the end of a completed response turn.
+//! One footer boundary and local timestamp per completed response turn.
 // Local-day comparison follows Zed: crates/time_format/src/time_format.rs.
 
 use chrono::{DateTime, Local, TimeZone as _};
@@ -17,13 +17,19 @@ pub(super) fn hidden(entries: &[Entry], entry: &Entry) -> bool {
 
 /// `end` includes the whole represented tool chain. Hidden duplicate progress
 /// rows do not become separate turns; an unloaded page edge is not an ending.
-pub(super) fn time_after(entries: &[Entry], end: usize, complete_tail: bool) -> Option<i64> {
-    let entry = entries.get(end.checked_sub(1)?)?;
+pub(super) fn ending(entries: &[Entry], end: usize, complete_tail: bool) -> bool {
+    let Some(entry) = end.checked_sub(1).and_then(|row| entries.get(row)) else {
+        return false;
+    };
     if entry.role == Role::User || entry.streaming {
-        return None;
+        return false;
     }
     let next = entries[end..].iter().find(|entry| !hidden(entries, entry));
-    if !next.map_or(complete_tail, |entry| entry.role == Role::User) {
+    next.map_or(complete_tail, |entry| entry.role == Role::User)
+}
+
+pub(super) fn time_after(entries: &[Entry], end: usize, complete_tail: bool) -> Option<i64> {
+    if !ending(entries, end, complete_tail) {
         return None;
     }
     entries[..end]
@@ -204,6 +210,7 @@ mod tests {
         message.timestamp_ms = None;
         message.text = "unknown time".into();
         transcript.reset(vec![message]);
+        assert!(super::ending(transcript.entries(), 1, true));
         assert_eq!(super::time_after(transcript.entries(), 1, true), None);
     }
 }

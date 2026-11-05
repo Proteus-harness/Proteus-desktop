@@ -407,7 +407,12 @@ fn argument_details(fold: &Fold, tool: &AppTranscriptTool, cx: &App) -> Vec<AnyE
     let full_subject = subject_key
         .and_then(|key| args.get(key))
         .and_then(Value::as_str)
-        .filter(|text| !text.is_empty())
+        // Empty polls, Enter and Ctrl-D have no useful text preview.
+        // Keep their raw arguments available without an empty code surface.
+        .filter(|text| {
+            text.chars()
+                .any(|ch| !ch.is_whitespace() && !ch.is_control())
+        })
         .map(|text| {
             fold.block(
                 1,

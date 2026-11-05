@@ -95,16 +95,16 @@ python3 examples/performance/native-stream/run.py advance --output OUTPUT --stag
   затем индексы 33–63. Между половинами — дочерние TurnStarted и дельта
   **с тем же message_id**: `CHILD MUST NEVER APPEAR` не должна попасть в ленту
   или перехватить дальнейший root stream. Коррекция содержит кириллицу и 🦀.
-  На этой стадии проверяйте screenshot: message Copy скрыт у streaming строки.
+  На этой стадии проверяйте screenshot: общего футера ещё нет у незавершённого хода.
 - `barrier`: отдельный ToolCallRequested `barrierprobe`, без исполнения.
   Весь первый текст должен оставаться видимым перед карточкой инструмента.
-  Tool barrier снимает streaming и открывает message Copy для первого текста.
+  Tool barrier снимает streaming с первого текста.
 - `continuation`: дописывание того же message_id после инструмента, затем
   отдельное сообщение `DISTINCT MESSAGE: другой ответ 🌍`. Первое сообщение
   обновляется на прежнем месте, второе остаётся отдельной строкой.
-  Появление второго сообщения снимает streaming с первого: его уже можно Copy.
+  Появление второго сообщения снимает streaming с первого.
 - `hold`: только ToolCallRequested `freezeprobe`, без исполнения. Он снимает
-  streaming со второго сообщения, открывая message Copy для обеих строк.
+  streaming со второго сообщения.
   Текст не заменяется: потерянные дельты этот barrier восстановить не может.
 
 Сценарий **никогда** не отправляет AssistantMessageCompleted, второй snapshot
@@ -113,7 +113,9 @@ python3 examples/performance/native-stream/run.py advance --output OUTPUT --stag
 проверкой. Snapshot начальной строки остаётся единственным.
 
 Сохраните screenshots через background-gui. Для точного текстового oracle
-скопируйте нужное assistant сообщение действием Copy в UI и сохраните
+выделите нужный assistant текст и скопируйте через его контекстное меню.
+Общая кнопка копирования появится только после завершения хода; этот стенд
+намеренно его не завершает. Сохраните
 **изолированный** clipboard display в файл без добавления перевода строки
 (например, `wl-paste --no-newline` внутри того же display, если wl-clipboard
 установлен). Не подставляйте expected-файл вместо реального clipboard.
@@ -130,7 +132,7 @@ python3 examples/performance/native-stream/run.py check-copy --output OUTPUT \
 
 На `hold` также можно повторно проверить `--row primary`: текст соответствует
 первому сообщению после continuation. На `burst` используйте screenshot;
-check-copy принимает только стадии, где message Copy доступен для строки.
+check-copy принимает только стадии, где текст строки уже стабилен.
 
 Сравнение точное, без trim и нормализации. `copy-*.json` записывает результат,
 время, SHA256 и число байтов; expected-*.txt содержит эталон. `trace.json`

@@ -148,10 +148,14 @@ impl Render for Remote {
         .absolute()
         .size_full();
         let screen = self.display.as_ref().map(|display| {
-            display.snapshot(Base {
+            let mut screen = display.snapshot(Base {
                 foreground: cells::rgb_bytes(foreground),
                 background: cells::rgb_bytes(background),
-            })
+            });
+            if self.process_finished {
+                screen.cursor = None;
+            }
+            screen
         });
         let state = if self.finished {
             self.exit_code.map_or_else(

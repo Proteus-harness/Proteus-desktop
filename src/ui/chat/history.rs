@@ -104,6 +104,11 @@ impl History {
         self.archive.is_some()
     }
 
+    /// Independent readers keep this exact revision without changing the UI window.
+    pub(super) fn copy_cursor(&self, live: &Transcript) -> Option<AppTranscriptCursor> {
+        self.request(Direction::Older, live)
+    }
+
     pub(super) fn at_live_tail(&self, live: &Transcript) -> bool {
         self.range(live)
             .is_none_or(|range| range.start + range.rows == range.total)
