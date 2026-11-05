@@ -138,6 +138,40 @@ fn drag_freezes_the_extent_even_when_live_messages_arrive() {
 }
 
 #[test]
+fn arriving_page_preserves_requested_track_position_until_fraction_is_measured() {
+    let bar = fixture();
+    bar.start_drag();
+    bar.set_offset(point(px(0.), px(-50025.)));
+    let target = bar.take_target().unwrap();
+    assert!(!bar.scroll_to(target));
+    // The owner clears its seek as soon as it accepts the page, before layout.
+    bar.set_range(
+        Some(HistoryRange {
+            start: 475,
+            rows: 50,
+            total: 1000,
+        }),
+        false,
+    );
+    assert_eq!(bar.offset().y, px(-50025.));
+    assert!(bar.scroll_to(target));
+    assert_eq!(bar.offset().y, px(-50025.));
+    bar.end_drag();
+    assert_eq!(bar.offset().y, px(-50025.));
+    assert!(bar.state.get().local.is_some());
+}
+
+#[test]
+fn failed_remote_seek_releases_the_requested_position() {
+    let bar = fixture();
+    bar.set_offset(point(px(0.), px(-50025.)));
+    assert!(!bar.scroll_to(bar.take_target().unwrap()));
+    bar.set_range(bar.state.get().range, false);
+    assert!(bar.state.get().displayed.is_none());
+    assert!(!bar.state.get().waiting);
+}
+
+#[test]
 fn bottom_of_track_addresses_the_live_tail_not_the_loaded_page_end() {
     let bar = fixture();
     bar.set_range(

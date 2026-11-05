@@ -104,15 +104,22 @@ impl History {
         self.archive.is_some()
     }
 
+    pub(super) fn at_live_tail(&self, live: &Transcript) -> bool {
+        self.range(live)
+            .is_none_or(|range| range.start + range.rows == range.total)
+    }
+
     fn range(&self, live: &Transcript) -> Option<HistoryRange> {
-        let cursor = self.cursor.as_ref()?;
+        // No cursor still means a virtual list with unmeasured earlier rows.
+        let before = self.cursor.as_ref().map_or(0, |cursor| cursor.before);
+        let rows = self.displayed(live).entries().len();
+        if rows == 0 {
+            return None;
+        }
         Some(HistoryRange {
-            start: self
-                .archive
-                .as_ref()
-                .map_or(cursor.before, |window| window.start),
-            rows: self.displayed(live).entries().len(),
-            total: cursor.before + live.entries().len(),
+            start: self.archive.as_ref().map_or(before, |window| window.start),
+            rows,
+            total: before + live.entries().len(),
         })
     }
 

@@ -153,6 +153,7 @@ impl Render for Fixture {
                 .into_any_element()
         })
         .size_full();
+        let laid_out_scrollbar = self.scrollbar.clone();
         div()
             .flex()
             .flex_col()
@@ -172,6 +173,16 @@ impl Render for Fixture {
                     .flex_1()
                     .min_h_0()
                     .child(rows)
+                    .child(
+                        canvas(
+                            move |_, _, _| laid_out_scrollbar.did_layout(),
+                            |_, _, _, _| {},
+                        )
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .size_full(),
+                    )
                     .vertical_scrollbar(&self.scrollbar)
                     .child(ScrollableMask::new(Axis::Vertical, &self.list)),
             )

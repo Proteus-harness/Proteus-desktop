@@ -121,7 +121,13 @@ tree-sitter) оптимизируются (`opt-level = 2`), сам клиент
 окно не тормозило, а пересборка оставалась быстрой. Dev/test сохраняют line
 tables для backtraces без тяжёлой debug-информации переменных, как Core и
 Modules; для её получения задайте `CARGO_PROFILE_DEV_DEBUG=2` и
-`CARGO_PROFILE_TEST_DEBUG=2`:
+`CARGO_PROFILE_TEST_DEBUG=2`.
+
+Перед прямым вызовом Cargo с default feature `ghostty-vt` подготовьте
+закреплённый Zig и его зависимости через `python3 scripts/terminal_toolchain.py`
+и передайте напечатанный путь как `ZIG=/absolute/path/to/zig`; подробности —
+в [BUILDING.md](BUILDING.md#запуск-и-проверки). Скрипты `run.py`, `test.py`
+и `portable.py` готовят этот toolchain сами, когда он нужен.
 
 ```bash
 cargo build --release

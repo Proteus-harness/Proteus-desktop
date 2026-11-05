@@ -35,6 +35,8 @@ mod wheel;
 pub(super) use footer::FooterState;
 use middle::MiddleScroll;
 use scrollbar::HistoryScrollbar;
+#[cfg(debug_assertions)]
+use scrollbar::scroll_trace;
 pub(super) use scrollbar::{HistoryRange, ScrollTarget};
 use wheel::WheelScroll;
 
@@ -137,6 +139,11 @@ impl ChatScroller {
             return None;
         }
         self.wheel_up = delta.y > px(0.);
+        #[cfg(debug_assertions)]
+        scroll_trace::record(
+            || serde_json::json!({"phase":"wheel", "delta":f32::from(delta.y), "top":format!("{:?}",self.list.logical_scroll_top())}),
+        );
+        self.scrollbar.lock_unit();
         self.wheel.push(delta.y, &self.list);
         // An explicit gesture takes over from a disclosure's stationary
         // anchor. Scrolling down ends at content, not retained empty room.
@@ -634,6 +641,7 @@ impl RenderOnce for ChatList {
         let resized = self.state.clone();
         let press = self.state.clone();
         let laid_out = list_state.clone();
+        let laid_out_scrollbar = scrollbar.clone();
         let viewport_origin = list_state.viewport_bounds().origin;
         let jump = self.state.update(cx, |state, cx| {
             let status = jump::JumpStatus::new(self.running, state.footer.thinking, scrolled_up);
@@ -691,7 +699,10 @@ impl RenderOnce for ChatList {
                     .child(rows)
                     .child(
                         canvas(
-                            move |_, _, _| painted.set(Some(laid_out.logical_scroll_top())),
+                            move |_, _, _| {
+                                painted.set(Some(laid_out.logical_scroll_top()));
+                                laid_out_scrollbar.did_layout();
+                            },
                             |_, _, _, _| {},
                         )
                         .absolute()

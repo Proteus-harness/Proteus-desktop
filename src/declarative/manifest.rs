@@ -326,7 +326,7 @@ fn is_hidden(path: &Path) -> bool {
         .is_some_and(|name| name.starts_with('.'))
 }
 
-fn load(dir: &Path) -> Result<Manifest> {
+pub(crate) fn load(dir: &Path) -> Result<Manifest> {
     let path = dir.join(MANIFEST);
     let text = std::fs::read_to_string(&path)
         .with_context(|| format!("cannot read {}", path.display()))?;

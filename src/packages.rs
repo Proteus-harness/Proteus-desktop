@@ -113,6 +113,18 @@ impl Contents {
 
     /// Validated contents are written to a hidden sibling before publication.
     pub fn install(&self, root: &Path, id: &str, replace: bool) -> Result<PathBuf> {
+        self.install_checked(root, id, replace, |_| Ok(()))
+    }
+
+    /// Check the complete staged package before touching an existing installation.
+    /// Its directory has the final id so normal on-disk validators can be reused.
+    pub fn install_checked(
+        &self,
+        root: &Path,
+        id: &str,
+        replace: bool,
+        validate: impl FnOnce(&Path) -> Result<()>,
+    ) -> Result<PathBuf> {
         ensure!(
             !id.is_empty()
                 && id.len() <= 128
@@ -131,8 +143,10 @@ impl Contents {
         let temporary = root.join(format!(".install-{}", uuid::Uuid::new_v4()));
         let result = (|| {
             std::fs::create_dir(&temporary)?;
+            let staged = temporary.join(id);
+            std::fs::create_dir(&staged)?;
             for (path, file) in &self.0 {
-                let target = temporary.join(path);
+                let target = staged.join(path);
                 if let Some(parent) = target.parent() {
                     std::fs::create_dir_all(parent)?;
                 }
@@ -145,12 +159,12 @@ impl Contents {
                     )?;
                 }
             }
-            publish(&temporary, &destination, replace)?;
+            validate(&staged)?;
+            publish(&staged, &destination, replace)?;
             Ok(destination)
         })();
-        if result.is_err() {
-            let _ = std::fs::remove_dir_all(temporary);
-        }
+        // On success publication moved the child; on failure discard only staging.
+        let _ = std::fs::remove_dir_all(temporary);
         result
     }
 }
