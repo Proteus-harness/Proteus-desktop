@@ -116,6 +116,17 @@ def main():
         time.sleep(0.1)
     assert terminal and terminal["tty"], "no early interactive terminal reference"
     early_seconds = time.monotonic() - started
+    # The process must outlive the SDK's short-lived tool invocation thread.
+    # Input supplied before yield can hide a broken sandbox parent lifetime.
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        history = request("/history", query)
+        if any(obj.get("terminal", {}).get("id") == terminal["id"] and obj.get("result")
+               for obj in objects(history) if isinstance(obj.get("terminal"), dict)):
+            break
+        time.sleep(0.1)
+    else:
+        raise AssertionError("tool did not yield before interactive input")
     address = dict(query, id=terminal["id"])
     cursor = None
     raw = bytearray()
@@ -137,6 +148,9 @@ def main():
     while "Пароль:".encode() not in raw and time.monotonic() < deadline:
         read()
     assert "Пароль:".encode() in raw, "missing hidden-input prompt"
+    # Drain the already displayed prompt, then make a real long-poll while the
+    # completed tool invocation has no more output. Parent death must not finish it.
+    assert not read()["finished"], "interactive process died after tool yield"
     assert request("/terminals/resize", body=dict(address, columns=100, rows=30))["type"] == "accepted"
     password = ("synthetic-" + secrets.token_hex(16)).encode()
     # Deliberately a single request: an uncertain write is never retried.
@@ -171,7 +185,8 @@ def main():
     receipt = {"passed": True, "origin": origin, "terminal": terminal["id"],
                "early_reference_seconds": round(early_seconds, 3), "exit_code": 0,
                "output_bytes": len(raw), "session_files_checked": checked,
-               "checks": ["early_reference_before_yield", "real_module_pty", "resize",
+               "checks": ["early_reference_before_yield", "alive_after_tool_yield",
+                          "real_module_pty", "resize",
                           "hidden_input", "independent_output", "final_drain",
                           "no_password_in_output_history_or_storage"]}
     destination = root / "wire-receipt.json"
