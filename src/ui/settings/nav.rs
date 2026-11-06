@@ -29,7 +29,7 @@ use crate::ui::prefs;
 use crate::ui::tip::Tip as _;
 use crate::ui::{divider, drag};
 
-fn page_icon(page: &PageId) -> Icon {
+pub(super) fn page_icon(page: &PageId) -> Icon {
     match page {
         PageId::Model => Icon::new(Lucide::Brain),
         PageId::Slot(slot) => match slot.as_str() {

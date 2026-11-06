@@ -1,24 +1,52 @@
 //! Modules overview: process components, overall switches and exact links to
 //! the pages that own tool, hook and slot settings.
 
+#[cfg(test)]
+mod tests;
+
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use proteus_contracts::app_protocol::config_builder::{
-    ConfigBuilderPlugin, ConfigBuilderPluginExport, ConfigBuilderToolPack,
+    ConfigBuilderPlugin, ConfigBuilderPluginExport, ConfigBuilderSnapshot, ConfigBuilderToolPack,
 };
 
 use super::SettingsView;
 use super::spot::{self, Destination};
 use super::tools::pack_key;
-use super::widgets::{Tone, card, chip, described, hashed_id, item_row, named, note};
+use super::widgets::{
+    Tone, card, card_cell, chip, described, hashed_id, item_row, named, note, package_heading,
+};
 use crate::settings::catalog::{
     CONTEXT_PROVIDER_SLOT, HOOK_SLOT, MODEL_SLOT, PackState, PageId, TOOL_SLOT, export_selected,
     pack_summary, page_title, plural, slot_page, slot_title,
 };
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
+use crate::ui::kit::Pressable as _;
+use crate::ui::tip::Tip as _;
+
+fn module_key(id: &str) -> String {
+    format!("module:{id}")
+}
+
+/// Every route to a Modules row unfolds its exact configured owner before
+/// scrolling. Matching uses the same keys as the rendered rows, not ID parsing.
+pub(super) fn disclosure_for_spot(snapshot: &ConfigBuilderSnapshot, key: &str) -> Option<String> {
+    snapshot.plugins.iter().find_map(|plugin| {
+        (key == spot::component(&plugin.id)
+            || plugin
+                .tool_packs
+                .iter()
+                .any(|pack| key == pack_key(&plugin.id, &pack.id))
+            || plugin
+                .exports
+                .iter()
+                .any(|export| key == spot::export(&export.slot, &export.id)))
+        .then(|| module_key(&plugin.id))
+    })
+}
 
 impl SettingsView {
     pub(super) fn modules_page(&self, cx: &Context<Self>) -> Vec<AnyElement> {
@@ -36,11 +64,12 @@ impl SettingsView {
                 cx,
             ));
         }
-        parts
+        vec![v_flex().gap_2().children(parts).into_any_element()]
     }
 
     fn component_card(&self, plugin: &ConfigBuilderPlugin, cx: &Context<Self>) -> AnyElement {
         let theme = cx.theme();
+        let key = module_key(&plugin.id);
         let hooks: Vec<_> = plugin
             .exports
             .iter()
@@ -71,63 +100,71 @@ impl SettingsView {
                 "реализаций слотов",
             ));
         }
+        let header = item_row(
+            package_heading(
+                Icon::new(Lucide::Boxes).text_color(theme.muted_foreground),
+                described(
+                    hashed_id("component", &plugin.id),
+                    plugin.id.clone().into(),
+                    plugin.description.clone().map(Into::into),
+                    Some(plugin.command.clone().into()),
+                    cx,
+                ),
+                counts
+                    .into_iter()
+                    .map(|text| chip(text, Tone::Muted, cx).into_any_element()),
+            ),
+            [],
+        );
+        let body = self.reveal(&key, cx, || {
+            let mut rows = Vec::new();
+            if plugin.exports.is_empty() && plugin.tool_packs.is_empty() {
+                rows.push(note("Модуль не объявил exports.", cx).into_any_element());
+            }
+            if !plugin.tool_packs.is_empty() {
+                rows.extend(
+                    plugin
+                        .tool_packs
+                        .iter()
+                        .map(|pack| self.pack_overview(plugin, pack, cx)),
+                );
+            }
+            if !hooks.is_empty() {
+                rows.extend(
+                    hooks
+                        .into_iter()
+                        .map(|export| self.hook_export_row(export, cx)),
+                );
+            }
+            if !modules.is_empty() {
+                rows.extend(
+                    modules
+                        .into_iter()
+                        .map(|export| self.module_export_row(export, cx)),
+                );
+            }
+            v_flex()
+                .children(rows.into_iter().map(|row| card_cell(row, true, cx)))
+                .into_any_element()
+        });
         let header = h_flex()
-            .flex_wrap()
-            .px_4()
-            .py_3()
-            .gap_x_3()
-            .gap_y_1()
-            .items_center()
-            .child(
-                h_flex()
-                    .min_w_0()
-                    .gap_2()
-                    .items_center()
-                    .child(
-                        Icon::new(Lucide::Boxes)
-                            .small()
-                            .flex_none()
-                            .text_color(theme.muted_foreground),
-                    )
-                    .child(div().min_w_0().text_base().font_semibold().child(described(
-                        hashed_id("component", &plugin.id),
-                        plugin.id.clone().into(),
-                        plugin.description.clone().map(Into::into),
-                        Some(plugin.command.clone().into()),
-                        cx,
-                    ))),
-            )
-            .children(counts.into_iter().map(|text| chip(text, Tone::Muted, cx)));
-        let mut rows = vec![self.spotted(&spot::component(&plugin.id), header, cx)];
-        if plugin.exports.is_empty() && plugin.tool_packs.is_empty() {
-            rows.push(note("Модуль не объявил exports.", cx).into_any_element());
-        }
-        if !plugin.tool_packs.is_empty() {
-            rows.push(group_label("Пакеты инструментов", cx));
-            rows.extend(
-                plugin
-                    .tool_packs
-                    .iter()
-                    .map(|pack| self.pack_overview(plugin, pack, cx)),
-            );
-        }
-        if !hooks.is_empty() {
-            rows.push(group_label("Hooks", cx));
-            rows.extend(
-                hooks
-                    .into_iter()
-                    .map(|export| self.hook_export_row(export, cx)),
-            );
-        }
-        if !modules.is_empty() {
-            rows.push(group_label("Реализации слотов", cx));
-            rows.extend(
-                modules
-                    .into_iter()
-                    .map(|export| self.module_export_row(export, cx)),
-            );
-        }
-        card(rows, cx)
+            .id(hashed_id("module-open", &plugin.id))
+            .w_full()
+            .min_w_0()
+            .relative()
+            .group("module-surface")
+            .cursor_pointer()
+            .pressable(cx)
+            .child(kit::surface_highlight("module-surface", cx))
+            .child(header.w_full().min_w_0())
+            .on_click(cx.listener(move |this, _, _, cx| this.toggle_open(&key, cx)));
+        card(
+            [v_flex()
+                .child(self.spotted(&spot::component(&plugin.id), header, cx))
+                .children(body)
+                .into_any_element()],
+            cx,
+        )
     }
 
     fn pack_overview(
@@ -194,6 +231,7 @@ impl SettingsView {
             .min_w_0()
             .gap_2()
             .items_center()
+            .child(type_icon(TOOL_SLOT, &key, cx))
             .child(named(
                 hashed_id("pack-name", &key),
                 pack.id.clone(),
@@ -286,16 +324,18 @@ impl SettingsView {
     }
 }
 
-fn group_label(text: &'static str, cx: &App) -> AnyElement {
+fn type_icon(slot: &str, id: &str, cx: &App) -> Stateful<Div> {
+    let title = match slot {
+        TOOL_SLOT => "Пакет инструментов".to_string(),
+        HOOK_SLOT => "Hook".to_string(),
+        _ => format!("Реализация слота · {slot}"),
+    };
     div()
-        .px_4()
-        .pt_3()
-        .pb_1()
-        .text_xs()
-        .font_semibold()
+        .id(hashed_id("module-kind", &(slot, id)))
+        .flex_none()
         .text_color(cx.theme().muted_foreground)
-        .child(text)
-        .into_any_element()
+        .tip_text(title)
+        .child(super::nav::page_icon(&slot_page(slot)).small())
 }
 
 fn export_row(
@@ -304,13 +344,18 @@ fn export_row(
     cx: &App,
 ) -> kit::SettingsRow {
     item_row(
-        named(
-            hashed_id("export", &(&export.slot, &export.id)),
-            export.id.clone(),
-            export.description.clone().map(Into::into),
-            Some(format!("{}/{}", export.slot, export.id).into()),
-            cx,
-        ),
+        h_flex()
+            .min_w_0()
+            .gap_2()
+            .items_center()
+            .child(type_icon(&export.slot, &export.id, cx))
+            .child(named(
+                hashed_id("export", &(&export.slot, &export.id)),
+                export.id.clone(),
+                export.description.clone().map(Into::into),
+                Some(format!("{}/{}", export.slot, export.id).into()),
+                cx,
+            )),
         trailing,
     )
 }

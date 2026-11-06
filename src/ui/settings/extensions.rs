@@ -1,3 +1,4 @@
+// Адаптировано из Zed: crates/extensions_ui/src/components/extension_card.rs
 //! Extension manager: order, switch on and off, open the page of an
 //! extension, install one from a ZIP archive or delete it.
 
@@ -11,7 +12,7 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use super::widgets::{Tone, card, chip, disclosure, item_row, mono, section};
+use super::widgets::{Tone, card, chip, disclosure, item_row, mono, package_heading, section};
 use super::{Feedback, SettingsView};
 use crate::settings::catalog::PageId;
 use crate::ui::extensions::{self, Manifest};
@@ -52,25 +53,25 @@ impl SettingsView {
             section(
                 "Установленные",
                 Some("Чтобы изменить порядок, удерживайте строку и перетащите её.".into()),
-                None,
-                card(
-                    [
-                        reorder::List::new(
-                            "settings-extension-order",
-                            rows,
-                            |id, before, _, cx| {
-                                let known = extensions::ids();
-                                prefs::update(cx, |prefs| {
-                                    prefs
-                                        .extensions
-                                        .move_extension(&known, &id, before.as_deref())
-                                });
-                            },
-                        )
+                Some(
+                    kit::button("extensions-catalog")
+                        .faded_label("Каталог")
+                        .outline()
+                        .small()
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.open_extension_catalog(window, cx);
+                        }))
                         .into_any_element(),
-                    ],
-                    cx,
                 ),
+                reorder::List::new("settings-extension-order", rows, |id, before, _, cx| {
+                    let known = extensions::ids();
+                    prefs::update(cx, |prefs| {
+                        prefs
+                            .extensions
+                            .move_extension(&known, &id, before.as_deref())
+                    });
+                })
+                .separated(),
                 cx,
             )
             .into_any_element(),
@@ -190,114 +191,94 @@ impl SettingsView {
         let removable = extensions::folder(id).is_some();
         let confirming = self.removing.as_deref() == Some(id);
         let anchor = TooltipAnchor::default();
-        let text = h_flex()
-            .id(ElementId::Name(format!("extension-open-{id}").into()))
-            .tip_anchor(anchor.clone())
-            .flex_1()
-            .min_w_0()
-            .gap_2()
-            .flex_wrap()
-            .items_center()
-            .text_sm()
-            .cursor_pointer()
-            .pressable(cx)
-            .child(Icon::new(manifest.icon).small().text_color(if enabled {
+        let mut tags = surface_chips(manifest, cx);
+        if removable {
+            tags.push(chip("установлено", Tone::Accent, cx));
+        }
+        let text = package_heading(
+            Icon::new(manifest.icon).text_color(if enabled {
                 theme.foreground
             } else {
                 theme.muted_foreground
-            }))
-            .child(
-                caption("extension-title", manifest.title)
-                    .description(
-                        (!manifest.description.trim().is_empty())
-                            .then(|| manifest.description.into()),
-                    )
-                    .anchor(anchor),
-            )
-            .children(surface_chips(manifest, cx))
-            .when(removable, |title| {
-                title.child(chip("установлено", Tone::Accent, cx))
-            })
-            .on_click(cx.listener(move |this, _, window, cx| {
-                this.select_page(PageId::Extension(id.to_string()), window, cx)
-            }));
-        let controls = h_flex()
-            .flex_none()
-            .gap_2()
-            .items_center()
-            .map(|controls| {
-                if confirming {
-                    controls
-                        .child(
-                            kit::button(ElementId::Name(
-                                format!("extension-remove-yes-{id}").into(),
-                            ))
+            }),
+            caption("extension-title", manifest.title)
+                .description(
+                    (!manifest.description.trim().is_empty()).then(|| manifest.description.into()),
+                )
+                .anchor(anchor.clone()),
+            tags.into_iter().map(IntoElement::into_any_element),
+        )
+        .tip_anchor(anchor);
+        let controls = h_flex().flex_none().gap_2().items_center().map(|controls| {
+            if confirming {
+                controls
+                    .child(
+                        kit::button(ElementId::Name(format!("extension-remove-yes-{id}").into()))
                             .faded_label("Удалить")
                             .danger()
                             .small()
                             .on_click(
                                 cx.listener(move |this, _, _, cx| this.remove_extension(id, cx)),
                             ),
-                        )
-                        .child(
-                            kit::button(ElementId::Name(
-                                format!("extension-remove-no-{id}").into(),
-                            ))
+                    )
+                    .child(
+                        kit::button(ElementId::Name(format!("extension-remove-no-{id}").into()))
                             .faded_label("Отмена")
                             .quiet(cx)
                             .small()
-                            .on_click(cx.listener(
-                                |this, _, _, cx| {
-                                    this.removing = None;
-                                    cx.notify();
-                                },
-                            )),
-                        )
-                } else {
-                    controls
-                        .child(
-                            kit::switch(ElementId::Name(format!("extension-enabled-{id}").into()))
-                                .checked(enabled)
-                                .on_click(move |checked: &bool, _, cx| {
-                                    let checked = *checked;
-                                    prefs::update(cx, |prefs| {
-                                        prefs.extensions.set_enabled(id, checked)
-                                    });
-                                }),
-                        )
-                        .when(removable, |controls| {
-                            controls.child(
-                                kit::button(ElementId::Name(
-                                    format!("extension-remove-{id}").into(),
-                                ))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.removing = None;
+                                cx.notify();
+                            })),
+                    )
+            } else {
+                controls
+                    .child(
+                        kit::switch(ElementId::Name(format!("extension-enabled-{id}").into()))
+                            .checked(enabled)
+                            .on_click(move |checked: &bool, _, cx| {
+                                let checked = *checked;
+                                prefs::update(cx, |prefs| {
+                                    prefs.extensions.set_enabled(id, checked)
+                                });
+                            }),
+                    )
+                    .when(removable, |controls| {
+                        controls.child(
+                            kit::button(ElementId::Name(format!("extension-remove-{id}").into()))
                                 .icon(Lucide::Trash)
                                 .quiet(cx)
                                 .small()
                                 .hint("Удалить", cx)
-                                .on_click(cx.listener(
-                                    move |this, _, _, cx| {
-                                        this.removing = Some(id.to_string());
-                                        cx.notify();
-                                    },
-                                )),
-                            )
-                        })
-                }
-            })
-            .child(
-                Icon::new(IconName::ChevronRight)
-                    .small()
-                    .text_color(theme.muted_foreground),
-            );
-        let row = item_row(text, [reorder::controls(controls).into_any_element()]);
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.removing = Some(id.to_string());
+                                    cx.notify();
+                                })),
+                        )
+                    })
+            }
+        });
+        let row = item_row(
+            text,
+            [reorder::controls(controls)
+                .id(ElementId::Name(format!("extension-controls-{id}").into()))
+                .on_click(|_, _, cx| cx.stop_propagation())
+                .into_any_element()],
+        );
         h_flex()
             .id(ElementId::Name(format!("extension-row-{id}").into()))
             .w_full()
             .min_w_0()
             .relative()
-            .group("extension-surface")
-            .child(kit::surface_highlight("extension-surface", cx))
+            .surface_frame(cx)
+            .bg(theme.group_box)
+            .cursor_pointer()
+            .pressable(cx)
+            .hover(|card| card.bg(theme.list_hover))
             .child(row.w_full().min_w_0())
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.select_page(PageId::Extension(id.to_string()), window, cx)
+            }))
     }
 
     fn install_section(&self, cx: &Context<Self>) -> Div {

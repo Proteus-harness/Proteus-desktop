@@ -2,6 +2,9 @@
 //! Building blocks of settings pages: sections, cards, rows, chips, radio
 //! cards and select menus.
 
+mod package_item;
+pub(super) use package_item::package_heading;
+
 use crate::ui::kit::ButtonLabel as _;
 use crate::ui::kit::{Frame as _, RowRule as _};
 use std::collections::hash_map::DefaultHasher;

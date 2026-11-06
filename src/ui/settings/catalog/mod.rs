@@ -116,6 +116,26 @@ impl State {
     }
 }
 
+impl SettingsView {
+    /// The installed-extension manager and catalog are two views of the
+    /// same package kind. Enter the catalog with a fresh, explicit filter.
+    pub(in crate::ui::settings) fn open_extension_catalog(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.catalogs.show = Show::All;
+        self.catalogs.kind = Some(Kind::ClientExtension);
+        self.catalogs.scope = None;
+        self.catalogs.query.clear();
+        self.catalogs.search.update(cx, |input, cx| {
+            input.set_value("", window, cx);
+        });
+        self.deselect_catalog_entry(cx);
+        self.select_page(crate::settings::catalog::PageId::Catalog, window, cx);
+    }
+}
+
 /// Agent Plugins and MCP servers live in the profile; the rest in client
 /// folders.
 pub(super) fn in_profile(kind: Kind) -> bool {

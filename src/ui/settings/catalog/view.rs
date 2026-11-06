@@ -1,6 +1,7 @@
 //! Catalog page: header, toolbar, the entry list and the details beside it.
 
 use crate::ui::kit::ButtonLabel as _;
+use crate::ui::kit::Frame as _;
 use std::ops::Range;
 
 use gpui_kit::assets::IconName as Lucide;
@@ -11,7 +12,10 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use super::super::{SettingsView, widgets::hashed_id};
+use super::super::{
+    SettingsView,
+    widgets::{Tone, chip, hashed_id, package_heading},
+};
 use super::Show;
 use super::details::DETAILS_WIDTH;
 use super::items::{Item, KINDS, Status, kind_filter, kind_icon, version_label};
@@ -22,10 +26,6 @@ use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
-
-/// A row shows one line, so the rest of a long description never comes
-/// into view there.
-const ROW_TEXT: usize = 400;
 
 impl SettingsView {
     pub(in crate::ui::settings) fn catalog_page(&self, cx: &Context<Self>) -> AnyElement {
@@ -347,68 +347,62 @@ impl SettingsView {
             .as_ref()
             .is_some_and(|(source, id)| item.key() == (source, id.as_str()));
         let (source, entry) = (item.source.clone(), item.entry.clone());
-        h_flex()
-            .id(hashed_id("catalog-row", &item.key()))
-            // The list lays each row out on its own: without a width it
-            // shrinks to its text.
+        let mut facts = vec![
+            item.entry.kind.title().to_string(),
+            version_label(&entry.version),
+        ];
+        for fact in item
+            .category()
+            .into_iter()
+            .chain(Some(item.catalog.title.as_str()))
+        {
+            if !facts.iter().any(|known| known == fact) {
+                facts.push(fact.to_owned());
+            }
+        }
+        // UniformList measures one row for every entry. Keep the tag strip
+        // clipped to one line even when the details pane narrows the list.
+        let tags = h_flex()
             .w_full()
-            .px_8()
-            .when(narrow, |row| row.pr_4())
+            .min_w_0()
+            .h(prefs::scaled(20.))
+            .gap_1()
+            .items_center()
+            .overflow_hidden()
+            .whitespace_nowrap()
+            .children(facts.into_iter().map(|fact| chip(fact, Tone::Muted, cx)));
+        let heading = package_heading(
+            kind_icon(entry.kind).text_color(theme.muted_foreground),
+            div()
+                .min_w_0()
+                .h(prefs::scaled(20.))
+                .child(faded(entry.title.clone())),
+            [tags.into_any_element()],
+        );
+        let card = h_flex()
+            .id(hashed_id("catalog-row", &item.key()))
+            .w_full()
+            .min_w_0()
+            .px_4()
             .py_2p5()
             .gap_3()
             .items_center()
-            .border_b_1()
-            .border_color(theme.border.opacity(0.6))
+            .surface_frame(cx)
             .cursor_pointer()
             .map(|row| {
                 if selected {
                     row.bg(theme.list_active)
                 } else {
-                    row.hover(|row| row.bg(theme.list_hover))
+                    row.bg(theme.group_box)
+                        .hover(|row| row.bg(theme.list_hover))
                 }
             })
-            .child(kind_badge(item, cx))
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .child(
-                                div()
-                                    .min_w_0()
-                                    .text_sm()
-                                    .font_medium()
-                                    .child(faded(item.entry.title.clone())),
-                            )
-                            .child(
-                                div()
-                                    .flex_none()
-                                    .text_xs()
-                                    .text_color(theme.muted_foreground)
-                                    .child(version_label(&item.entry.version)),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .child(faded(format!(
-                                "{} · {}",
-                                item.catalog.title,
-                                item.entry
-                                    .description
-                                    .chars()
-                                    .take(ROW_TEXT)
-                                    .collect::<String>()
-                            ))),
-                    ),
-            )
+            .child(heading)
             .child(
                 div()
+                    .id(hashed_id("catalog-row-action", &item.key()))
                     .flex_none()
+                    .on_click(|_, _, cx| cx.stop_propagation())
                     .child(self.catalog_action(item, "row", profile, cx)),
             )
             .on_click(cx.listener(move |this, _, _, cx| {
@@ -422,7 +416,16 @@ impl SettingsView {
                 } else {
                     this.select_catalog_entry(source.clone(), entry.clone(), cx);
                 }
-            }))
+            }));
+        // The inset is outside the card, so its whole visible surface remains
+        // clickable and neighbouring entries have a real eight-pixel gap.
+        div()
+            .w_full()
+            .min_w_0()
+            .px_8()
+            .when(narrow, |row| row.pr_4())
+            .pb_2()
+            .child(card)
             .into_any_element()
     }
 

@@ -123,6 +123,12 @@ impl SettingsView {
     pub(super) fn go_to(&mut self, hit: &Destination, window: &mut Window, cx: &mut Context<Self>) {
         // Unfolded without animation, so the row has its place at once.
         self.open.extend(hit.open.iter().cloned());
+        if hit.page == PageId::Modules
+            && let (Some(snapshot), Some(key)) = (self.snapshot(), hit.spot.as_deref())
+            && let Some(parent) = super::modules::disclosure_for_spot(snapshot, key)
+        {
+            self.open.insert(parent);
+        }
         if hit.page == PageId::Tools && !self.tool_query.is_empty() {
             self.tool_query.clear();
             self.tool_search.update(cx, |state: &mut InputState, cx| {

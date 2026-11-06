@@ -55,6 +55,7 @@ pub(crate) struct List {
     rows: Vec<Row>,
     moved: Move,
     revision: Option<u64>,
+    separated: bool,
 }
 
 impl List {
@@ -68,11 +69,19 @@ impl List {
             rows,
             moved: Rc::new(moved),
             revision: None,
+            separated: false,
         }
     }
 
     pub fn revision(mut self, revision: u64) -> Self {
         self.revision = Some(revision);
+        self
+    }
+
+    /// Individually framed items keep their own surfaces, with an 8px gap
+    /// instead of an inset rule. Animation and drop geometry use the same gap.
+    pub fn separated(mut self) -> Self {
+        self.separated = true;
         self
     }
 }
@@ -330,7 +339,7 @@ impl RenderOnce for List {
                             cx.stop_propagation();
                         },
                     )
-                    .when(index > 0, |row| row.row_rule(cx))
+                    .when(index > 0 && !self.separated, |row| row.row_rule(cx))
                     .when(armed, |row| row.cursor_grab())
                     .when(active, |row| row.opacity(drag::SOURCE_OPACITY))
                     .on_mouse_down(MouseButton::Left, move |event, window, cx| {
@@ -449,6 +458,11 @@ impl RenderOnce for List {
                 moved: self.moved,
                 revision: self.revision,
                 installed_drag,
+                gap: if self.separated {
+                    super::prefs::scaled(8.).to_pixels(window.rem_size())
+                } else {
+                    px(0.)
+                },
             })
     }
 }
@@ -461,6 +475,7 @@ struct Arrange {
     moved: Move,
     revision: Option<u64>,
     installed_drag: Option<SharedString>,
+    gap: Pixels,
 }
 
 impl IntoElement for Arrange {
@@ -496,6 +511,7 @@ impl Element for Arrange {
         style.flex_direction = FlexDirection::Column;
         style.size.width = relative(1.).into();
         style.flex_shrink = 0.;
+        style.gap.height = self.gap.into();
         (window.request_layout(style, children.clone(), cx), children)
     }
     fn prepaint(
@@ -562,7 +578,7 @@ impl Element for Arrange {
                     window.request_animation_frame();
                 }
                 shown.insert(id.clone(), y);
-                top += heights.get(&id).copied().unwrap_or_default();
+                top += heights.get(&id).copied().unwrap_or_default() + self.gap;
             }
             shown
         });
