@@ -140,15 +140,17 @@ impl SettingsView {
             .catalog_items(installed)
             .into_iter()
             .find(|item| {
-                *item.source == source
-                    && item.entry.id == id
-                    && (item.entry.source.is_some() || item.status != Status::Installed)
+                *item.source == source && item.entry.id == id && item.status != Status::Installed
             })
             .map(|item| item.entry.clone())
         else {
             return;
         };
-        if entry.source.is_some() {
+        if entry
+            .source
+            .as_ref()
+            .is_some_and(|source| source.artifact.is_none())
+        {
             self.download_catalog_source(source, entry, cx);
         } else {
             self.install_catalog_entry(source, entry, cx);

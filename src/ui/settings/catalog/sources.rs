@@ -102,6 +102,7 @@ fn sources(view: &Entity<SettingsView>, cx: &App) -> AnyElement {
                             .on_click(move |_, _, cx| {
                                 update
                                     .update(cx, |this, cx| {
+                                        this.refresh_catalog_inventory(cx);
                                         this.refresh_catalogs(vec![updated.clone()], cx)
                                     })
                                     .ok();

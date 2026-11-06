@@ -1,9 +1,11 @@
 //! User-supplied git catalogs. Distribution is a client concern; installing
 //! an entry never adds a new agent runtime extension path.
 
+pub mod build;
 pub mod download;
 pub mod git;
 pub mod install;
+pub mod inventory;
 pub mod open;
 pub mod schema;
 pub mod skills;
@@ -77,6 +79,11 @@ pub struct Installed {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Target {
+    Component {
+        path: PathBuf,
+        command: Vec<String>,
+        exports: std::collections::BTreeMap<String, Vec<String>>,
+    },
     Folder {
         path: PathBuf,
     },
@@ -116,6 +123,7 @@ pub struct Locations {
     pub extensions: PathBuf,
     pub plugins: PathBuf,
     pub skills: PathBuf,
+    pub modules: PathBuf,
 }
 
 impl Locations {
@@ -134,6 +142,7 @@ impl Locations {
             extensions: config.join("extensions"),
             plugins: agent_home.join("plugins"),
             skills: agent_home.join("skills"),
+            modules: agent_home.join("modules"),
         })
     }
 }

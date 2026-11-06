@@ -91,7 +91,26 @@ impl SettingsView {
             &entry,
             &profile,
         )
-        .cloned();
+        .cloned()
+        .or_else(|| {
+            let present = self
+                .catalogs
+                .inventory
+                .find(&source, entry.kind, &entry.id)?;
+            let locations = Locations::local().ok()?;
+            (entry.kind == Kind::ClientExtension
+                && present.path == locations.extensions.join(&entry.id))
+            .then(|| Installed {
+                source: source.clone(),
+                entry: entry.id.clone(),
+                version: present.version.clone().unwrap_or_default(),
+                kind: entry.kind,
+                profile: None,
+                target: crate::catalog::Target::Folder {
+                    path: present.path.clone(),
+                },
+            })
+        });
         let Some((_, catalog)) = self.catalogs.loaded.iter().find(|(old, _)| *old == source) else {
             return;
         };
@@ -101,9 +120,17 @@ impl SettingsView {
             .filter(|id| extensions::folder(id).is_some())
             .map(str::to_string)
             .collect::<Vec<_>>();
+        let expected_profile = profile.clone();
         self.catalogs.busy = true;
         self.catalogs.working = Some((source.clone(), entry.id.clone()));
-        self.catalogs.message = None;
+        self.catalogs.message = Some((
+            false,
+            if entry.source.is_some() {
+                format!("Сборка и установка «{}»…", entry.title)
+            } else {
+                format!("Установка «{}»…", entry.title)
+            },
+        ));
         cx.notify();
         cx.spawn(async move |this, cx| {
             let old = previous.clone();
@@ -112,7 +139,7 @@ impl SettingsView {
                 .spawn(async move {
                     let locations = Locations::local()?;
                     let folder = [entry.path.clone()];
-                    git::with_files(&locations.cache, &source, &folder, || {
+                    let prepare = || {
                         install::prepare(
                             &locations,
                             &source,
@@ -122,7 +149,10 @@ impl SettingsView {
                             &profile,
                             &taken,
                         )
-                    })
+                    };
+                    if entry.source.is_some() { prepare() } else {
+                        git::with_files(&locations.cache, &source, &folder, prepare)
+                    }
                 })
                 .await;
             this.update(cx, |this, cx| {
@@ -130,6 +160,14 @@ impl SettingsView {
                     Ok(installed) => installed,
                     Err(error) => return this.catalog_failed(error, cx),
                 };
+                if in_profile(installed.kind)
+                    && this.snapshot().and_then(|snapshot| snapshot.target_path.as_deref())
+                        .map(std::path::Path::new) != Some(expected_profile.as_path()) {
+                    return this.catalog_failed(anyhow!("Профиль сменился во время установки; откройте каталог нужного профиля и повторите подключение"), cx);
+                }
+                if installed.kind == Kind::ProcessModule {
+                    return this.connect_catalog_component(installed, previous.as_ref(), cx);
+                }
                 if in_profile(installed.kind) {
                     let receipt = installed.clone();
                     let replacement = replacement(&installed, previous.as_ref());
@@ -145,6 +183,7 @@ impl SettingsView {
                 let kind = installed.kind;
                 prefs::update(cx, |prefs| prefs.catalogs.remember(installed));
                 this.reload_installed(kind, cx);
+                this.refresh_catalog_inventory(cx);
                 this.catalog_message(Ok("Установлено"));
                 cx.notify();
             })
@@ -199,6 +238,7 @@ impl SettingsView {
                     }
                 });
                 this.reload_installed(installed.kind, cx);
+                this.refresh_catalog_inventory(cx);
                 this.catalog_message(Ok("Удалено"));
                 cx.notify();
             })
@@ -276,6 +316,7 @@ impl SettingsView {
                 saved(cx);
                 self.accept_catalog_save(snapshot, submitted_revision, change);
                 self.load_addons(cx);
+                self.refresh_catalog_inventory(cx);
                 self.refresh_history(cx);
                 self.catalog_message(Ok(done));
                 cx.emit(SettingsEvent::Saved);
@@ -293,7 +334,7 @@ impl SettingsView {
         }
     }
 
-    fn catalog_failed(&mut self, error: anyhow::Error, cx: &mut Context<Self>) {
+    pub(super) fn catalog_failed(&mut self, error: anyhow::Error, cx: &mut Context<Self>) {
         self.catalogs.busy = false;
         self.catalog_message(Err(error));
         cx.notify();

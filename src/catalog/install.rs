@@ -1,6 +1,7 @@
 //! Per-kind installation and draft binding. Files of Agent Plugins are
 //! immutable versions: unsaved profile edits never remove a saved package.
 
+mod component;
 mod plugin;
 pub use plugin::{ZipImport, import_zip};
 
@@ -25,8 +26,10 @@ pub fn receipt<'a>(
         item.source == *source
             && item.entry == entry.id
             && item.kind == entry.kind
-            && (!matches!(entry.kind, Kind::McpServer | Kind::AgentPlugin)
-                || item.profile.as_deref() == Some(profile))
+            && (!matches!(
+                entry.kind,
+                Kind::McpServer | Kind::AgentPlugin | Kind::ProcessModule
+            ) || item.profile.as_deref() == Some(profile))
     })
 }
 
@@ -40,10 +43,11 @@ pub fn connected(installed: &Installed, draft: &Draft) -> bool {
             .iter()
             .any(|plugin| plugin.path == *path),
         Target::Folder { path } => path.is_dir(),
+        Target::Component { path, .. } => path.is_dir(),
     }
 }
 
-/// Runs on a worker thread. No shell, builds or install scripts are run.
+/// Runs on a worker thread; source packages are built before any installation is replaced.
 pub fn prepare(
     locations: &Locations,
     source: &Source,
@@ -53,15 +57,24 @@ pub fn prepare(
     profile: &Path,
     taken_extensions: &[String],
 ) -> Result<Installed> {
-    ensure!(
-        entry.source.is_none(),
-        "Это исходники; сначала скачайте и соберите выбранный пакет"
-    );
+    let entry = if entry.source.is_some() {
+        catalog
+            .entries
+            .iter()
+            .find(|current| current.id == entry.id && current.kind == entry.kind)
+            .ok_or_else(|| anyhow::anyhow!("Запись изменилась; обновите выбор"))?
+    } else {
+        entry
+    };
     let dir = schema::directory(&catalog.root, entry)?;
+    let files = if entry.source.is_some() {
+        super::build::prepare(locations, source, catalog, entry)?
+    } else {
+        Contents::folder(&dir)?
+    };
     let target = match entry.kind {
-        Kind::ProcessModule => anyhow::bail!("Процессный модуль подключается после ручной сборки"),
+        Kind::ProcessModule => component::prepare(locations, entry, &files)?,
         Kind::McpServer => {
-            let files = Contents::folder(&dir)?;
             let server: ConfiguredMcpServerConfig =
                 serde_json::from_str(files.text("server.json")?)?;
             ensure!(
@@ -75,7 +88,6 @@ pub fn prepare(
             Target::Mcp { server }
         }
         Kind::ClientExtension | Kind::Skill | Kind::AgentPlugin => {
-            let files = Contents::folder(&dir)?;
             let (root, id) = match entry.kind {
                 Kind::ClientExtension => {
                     let manifest =
@@ -147,8 +159,11 @@ pub fn prepare(
         entry: entry.id.clone(),
         version: entry.version.clone(),
         kind: entry.kind,
-        profile: matches!(entry.kind, Kind::McpServer | Kind::AgentPlugin)
-            .then(|| profile.to_owned()),
+        profile: matches!(
+            entry.kind,
+            Kind::McpServer | Kind::AgentPlugin | Kind::ProcessModule
+        )
+        .then(|| profile.to_owned()),
         target,
     })
 }

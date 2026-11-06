@@ -1451,7 +1451,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users 0.5.3",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -5651,7 +5651,7 @@ dependencies = [
 [[package]]
 name = "proteus-contracts"
 version = "0.1.0-alpha.2"
-source = "git+https://github.com/Proteus-harness/Proteus-core.git?rev=e5b9f10e9d99607856104495ab65468cbf3d7675#e5b9f10e9d99607856104495ab65468cbf3d7675"
+source = "git+https://github.com/Proteus-harness/Proteus-core.git?rev=9b07d03199d929b4ea6f6b7c9f50fd0ff7b878c9#9b07d03199d929b4ea6f6b7c9f50fd0ff7b878c9"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5678,9 +5678,9 @@ dependencies = [
 name = "proteus-native"
 version = "0.1.0-alpha.3"
 dependencies = [
- "base64 0.22.1",
  "anyhow",
  "async-channel",
+ "base64 0.22.1",
  "chrono",
  "gpui-fast",
  "gpui-kit",
@@ -5697,6 +5697,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "sha2 0.10.9",
  "ureq",
  "url",
  "uuid",
@@ -9273,7 +9274,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d6f32a0ff4a9f6f01231eb2059cc85479330739333e0e58cadf03b6af2cca10"
 dependencies = [
  "cfg-if",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]

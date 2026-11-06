@@ -45,10 +45,19 @@ impl SettingsView {
             )),
             (Status::Detached, _) => facts.push(chip("не подключено", Tone::Warning, cx)),
             (Status::Installed, _) => facts.push(chip("установлено", Tone::Success, cx)),
+            (Status::Broken, _) => facts.push(chip("ошибка пакета", Tone::Warning, cx)),
             _ => {}
         }
         let notes = [
-            if entry.source.is_some() {
+            if entry
+                .source
+                .as_ref()
+                .is_some_and(|source| source.artifact.is_some())
+            {
+                Some(
+                    "Клиент соберёт выбранный пакет и установит его. Для модуля подключение сохраняется в профиль; активные слоты и инструменты выбираются отдельно.",
+                )
+            } else if entry.source.is_some() {
                 Some(
                     "Скачивается полный workspace. Сборка выполняется вручную; команда и требования указаны ниже и в BUILD.md рядом с исходниками.",
                 )
@@ -61,15 +70,11 @@ impl SettingsView {
                     Kind::ClientExtension | Kind::Skill | Kind::ProcessModule => None,
                 }
             },
-            entry
-                .source
-                .is_none()
-                .then(|| self.catalog_install_blocked(item.source, entry.kind))
-                .flatten(),
+            self.catalog_install_blocked(item.source, entry.kind),
         ];
         let removable = item
             .installed
-            .filter(|_| item.status != Status::Available)
+            .filter(|_| item.status != Status::Available && entry.kind != Kind::ProcessModule)
             .cloned();
         div()
             .id(hashed_id("catalog-details", &item.key()))
@@ -125,6 +130,37 @@ impl SettingsView {
                         h_flex()
                             .gap_2()
                             .child(self.catalog_action(item, "details", self.profile_blocked(), cx))
+                            .children(
+                                (item.status == Status::Installed
+                                    && entry
+                                        .source
+                                        .as_ref()
+                                        .is_some_and(|source| source.artifact.is_some()))
+                                .then(|| {
+                                    let source = item.source.clone();
+                                    let entry = entry.clone();
+                                    kit::button("catalog-reinstall")
+                                        .faded_label("Переустановить")
+                                        .quiet(cx)
+                                        .small()
+                                        .disabled(
+                                            !self.catalog_idle()
+                                                || self
+                                                    .catalog_install_blocked(
+                                                        item.source,
+                                                        entry.kind,
+                                                    )
+                                                    .is_some(),
+                                        )
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.install_catalog_entry(
+                                                source.clone(),
+                                                entry.clone(),
+                                                cx,
+                                            )
+                                        }))
+                                }),
+                            )
                             .children(removable.map(|installed| {
                                 kit::button(hashed_id("catalog-remove", &item.key()))
                                     .faded_label("Удалить")
@@ -170,6 +206,11 @@ impl SettingsView {
                             .text_color(theme.muted_foreground)
                             .child(note)
                     }))
+                    .children(
+                        item.present
+                            .and_then(|package| package.problem.clone())
+                            .map(|problem| div().text_xs().text_color(theme.danger).child(problem)),
+                    )
                     .child(
                         div()
                             .text_xs()

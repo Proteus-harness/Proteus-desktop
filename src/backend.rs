@@ -156,7 +156,7 @@ impl Drop for Backend {
     }
 }
 
-fn proteus_binary() -> PathBuf {
+pub(crate) fn proteus_binary() -> PathBuf {
     if let Some(path) = std::env::var_os("PROTEUS_BIN") {
         return path.into();
     }

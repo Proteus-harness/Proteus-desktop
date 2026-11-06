@@ -47,7 +47,7 @@ gpui-kit = { version = "=0.8.1", features = [
 proteus-client-common = { path = "crates/client-common" }
 proteus-diff = { path = "crates/diff" }
 proteus-tabs = { path = "crates/tabs" }
-proteus-contracts = { git = "https://github.com/Proteus-harness/Proteus-core.git", rev = "e5b9f10e9d99607856104495ab65468cbf3d7675" }
+proteus-contracts = { git = "https://github.com/Proteus-harness/Proteus-core.git", rev = "9b07d03199d929b4ea6f6b7c9f50fd0ff7b878c9" }
 anyhow = "1"
 base64 = "0.22"
 async-channel = "2"
@@ -56,6 +56,7 @@ libc = "0.2"
 image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 roxmltree = "0.21"
 serde_yaml = "0.9"
 ureq = { version = "3", default-features = false, features = ["json"] }

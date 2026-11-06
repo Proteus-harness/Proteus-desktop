@@ -62,8 +62,12 @@ pub struct Entry {
 #[serde(deny_unknown_fields)]
 pub struct SourcePackage {
     pub path: PathBuf,
-    /// Displayed and copied for a manual build; never executed by the client.
+    /// Explicit argv executed in the exported workspace for installation.
     pub build: Vec<String>,
+    /// ZIP produced by `build`, relative to the source workspace. Missing for
+    /// source-only entries which can still be downloaded for a manual build.
+    #[serde(default)]
+    pub artifact: Option<PathBuf>,
     #[serde(default)]
     pub requirements: Vec<String>,
 }
@@ -214,8 +218,17 @@ pub fn read(root: &Path, name: &str, trees: &BTreeMap<String, String>) -> Result
                             .build
                             .iter()
                             .all(|arg| !arg.is_empty() && !arg.contains(['\0', '\n', '\r'])),
-                    "Нужна непустая команда ручной сборки"
+                    "Нужна непустая команда сборки"
                 );
+                if let Some(artifact) = &source.artifact {
+                    relative(artifact)?;
+                    ensure!(
+                        artifact
+                            .extension()
+                            .is_some_and(|extension| extension == "zip"),
+                        "Результат сборки должен быть ZIP-пакетом"
+                    );
+                }
                 ensure!(
                     source.requirements.len() <= 32
                         && source

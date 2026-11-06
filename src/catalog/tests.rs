@@ -24,6 +24,7 @@ impl Fixture {
             extensions: self.0.join("extensions"),
             plugins: self.0.join("plugins"),
             skills: self.0.join("skills"),
+            modules: self.0.join("modules"),
         }
     }
 }

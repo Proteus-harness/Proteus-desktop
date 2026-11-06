@@ -3,6 +3,7 @@ use gpui_kit::*;
 use super::super::SettingsView;
 use crate::catalog::{
     Locations, Source, git,
+    inventory::Inventory,
     schema::{self, Catalog, Entry},
 };
 use crate::ui::prefs;
@@ -10,6 +11,7 @@ use crate::ui::prefs;
 impl SettingsView {
     pub(in crate::ui::settings) fn open_catalogs(&mut self, cx: &mut Context<Self>) {
         if self.catalogs.opened {
+            self.refresh_catalog_inventory(cx);
             return;
         }
         self.catalogs.opened = true;
@@ -20,12 +22,15 @@ impl SettingsView {
         let sources = prefs::current(cx).catalogs.sources.clone();
         self.catalogs.busy = true;
         self.catalogs.working = None;
+        self.catalogs.inventory_generation += 1;
+        let inventory_generation = self.catalogs.inventory_generation;
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
                 .spawn(async move {
                     let locations = Locations::local()?;
-                    Ok::<_, anyhow::Error>(
+                    let inventory = Inventory::local();
+                    Ok::<_, anyhow::Error>((
                         sources
                             .into_iter()
                             .map(|source| {
@@ -33,13 +38,17 @@ impl SettingsView {
                                 (source, catalog)
                             })
                             .collect::<Vec<_>>(),
-                    )
+                        inventory,
+                    ))
                 })
                 .await;
             this.update(cx, |this, cx| {
                 this.catalogs.busy = false;
                 match result {
-                    Ok(catalogs) => {
+                    Ok((catalogs, inventory)) => {
+                        if this.catalogs.inventory_generation == inventory_generation {
+                            this.catalogs.inventory = inventory;
+                        }
                         let mut absent = Vec::new();
                         for (source, catalog) in catalogs {
                             if !prefs::current(cx).catalogs.sources.contains(&source) {
@@ -65,6 +74,27 @@ impl SettingsView {
                     Err(error) => this.catalog_message(Err(error)),
                 }
                 cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Re-read installation state after an install/removal or revisiting the
+    /// page. A slow earlier scan cannot overwrite a more recent inventory.
+    pub(super) fn refresh_catalog_inventory(&mut self, cx: &mut Context<Self>) {
+        self.catalogs.inventory_generation += 1;
+        let generation = self.catalogs.inventory_generation;
+        cx.spawn(async move |this, cx| {
+            let inventory = cx
+                .background_executor()
+                .spawn(async { Inventory::local() })
+                .await;
+            this.update(cx, |this, cx| {
+                if this.catalogs.inventory_generation == generation {
+                    this.catalogs.inventory = inventory;
+                    cx.notify();
+                }
             })
             .ok();
         })

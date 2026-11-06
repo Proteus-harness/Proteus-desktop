@@ -216,10 +216,11 @@ impl SettingsView {
                             .small()
                             .loading(loading)
                             .loading_icon(IconName::LoaderCircle)
-                            .disabled(loading || sources == 0)
+                            .disabled(loading || sources == 0 || !self.catalog_idle())
                             .hint("Скачать источники заново", cx)
                             .on_click(cx.listener(|this, _, _, cx| {
                                 let sources = prefs::current(cx).catalogs.sources.clone();
+                                this.refresh_catalog_inventory(cx);
                                 this.refresh_catalogs(sources, cx)
                             })),
                     )
@@ -438,7 +439,12 @@ impl SettingsView {
         profile: Option<&'static str>,
         cx: &Context<Self>,
     ) -> AnyElement {
-        if item.entry.source.is_some() {
+        if item
+            .entry
+            .source
+            .as_ref()
+            .is_some_and(|source| source.artifact.is_none())
+        {
             let (source, entry) = (item.source.clone(), item.entry.clone());
             let working = self.catalogs.busy
                 && self
@@ -463,6 +469,7 @@ impl SettingsView {
             Status::Available => "Установить",
             Status::Detached => "Подключить",
             Status::Update => "Обновить",
+            Status::Broken => "Переустановить",
             Status::Installed => {
                 let theme = cx.theme();
                 return h_flex()

@@ -13,6 +13,8 @@ use crate::catalog::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Status {
     Available,
+    /// A package exists but its metadata or required files are broken.
+    Broken,
     /// Files and receipt exist, the profile no longer references them.
     Detached,
     Update,
@@ -24,6 +26,7 @@ pub(super) struct Item<'a> {
     pub catalog: &'a Catalog,
     pub entry: &'a Entry,
     pub installed: Option<&'a Installed>,
+    pub present: Option<&'a crate::catalog::inventory::Package>,
     pub status: Status,
 }
 
@@ -107,10 +110,22 @@ impl SettingsView {
             .iter()
             .flat_map(|(source, catalog)| {
                 catalog.entries.iter().map(move |entry| {
+                    let present = self
+                        .catalogs
+                        .inventory
+                        .find(source, entry.kind, &entry.id)
+                        .filter(|package| !installed_elsewhere(installed, entry, package));
                     let installed = install::receipt(installed, source, entry, profile);
                     let status = match installed {
-                        None => Status::Available,
+                        None => presence_status(present, &entry.version),
+                        Some(_)
+                            if entry.kind == Kind::ClientExtension
+                                && present.is_some_and(|package| package.problem.is_some()) =>
+                        {
+                            Status::Broken
+                        }
                         Some(old) if !install::connected(old, &self.baseline) => Status::Detached,
+                        Some(old) if !self.catalog_module_connected(old) => Status::Detached,
                         Some(old) if old.version != entry.version => Status::Update,
                         Some(_) => Status::Installed,
                     };
@@ -119,6 +134,7 @@ impl SettingsView {
                         catalog,
                         entry,
                         installed,
+                        present,
                         status,
                     }
                 })
@@ -126,11 +142,28 @@ impl SettingsView {
             .collect()
     }
 
+    fn catalog_module_connected(&self, installed: &Installed) -> bool {
+        let crate::catalog::Target::Component { command, .. } = &installed.target else {
+            return true;
+        };
+        command.first().is_some_and(|command| {
+            self.snapshot().is_some_and(|snapshot| {
+                snapshot
+                    .plugins
+                    .iter()
+                    .any(|plugin| plugin.command == *command)
+            })
+        })
+    }
+
     /// Whether the toolbar and the search leave the entry visible.
     pub(super) fn catalog_item_shown(&self, item: &Item) -> bool {
         (match self.catalogs.show {
             Show::Overview | Show::All => true,
-            Show::Installed => matches!(item.status, Status::Installed | Status::Update),
+            Show::Installed => matches!(
+                item.status,
+                Status::Installed | Status::Update | Status::Broken
+            ),
             Show::Updates => item.status == Status::Update,
         }) && self
             .catalogs
@@ -164,6 +197,84 @@ impl SettingsView {
         }
         let (updates, installed) = overview_rows(items);
         updates.into_iter().chain(installed).collect()
+    }
+}
+
+/// A receipted third-party override is not the official bundled package,
+/// even when it deliberately uses the same manifest id.
+fn installed_elsewhere(
+    receipts: &[Installed],
+    entry: &Entry,
+    package: &crate::catalog::inventory::Package,
+) -> bool {
+    entry.kind == Kind::ClientExtension
+        && receipts.iter().any(|receipt| {
+            receipt.kind == entry.kind
+                && receipt.entry == entry.id
+                && !crate::catalog::open::OFFICIAL[1].matches(&receipt.source)
+                && matches!(&receipt.target, crate::catalog::Target::Folder { path } if *path == package.path)
+        })
+}
+
+fn presence_status(package: Option<&crate::catalog::inventory::Package>, version: &str) -> Status {
+    match package {
+        None => Status::Available,
+        Some(package) if package.problem.is_some() => Status::Broken,
+        Some(package) if package.version.as_deref().is_some_and(|old| old != version) => {
+            Status::Update
+        }
+        Some(_) => Status::Installed,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::catalog::inventory::Package;
+
+    #[test]
+    fn unknown_extension_version_is_installed_without_fabricating_update() {
+        let mut package = Package {
+            version: None,
+            path: "extension".into(),
+            problem: None,
+        };
+        assert_eq!(presence_status(Some(&package), "2.0"), Status::Installed);
+        package.version = Some("1.0".into());
+        assert_eq!(presence_status(Some(&package), "2.0"), Status::Update);
+        package.problem = Some("broken".into());
+        assert_eq!(presence_status(Some(&package), "2.0"), Status::Broken);
+        assert_eq!(presence_status(None, "2.0"), Status::Available);
+    }
+
+    #[test]
+    fn third_party_override_does_not_claim_official_installation() {
+        let package = Package {
+            version: None,
+            path: "/extensions/terminal".into(),
+            problem: None,
+        };
+        let entry: Entry = serde_json::from_value(serde_json::json!({
+            "id":"terminal", "kind":"client_extension", "title":"Terminal", "category":"panels",
+            "version":"1.0", "path":"terminal"
+        }))
+        .unwrap();
+        let mut receipt = Installed {
+            source: Source {
+                url: "https://example.invalid/other/extensions".into(),
+                branch: None,
+            },
+            entry: entry.id.clone(),
+            version: "1.0".into(),
+            kind: entry.kind,
+            profile: None,
+            target: crate::catalog::Target::Folder {
+                path: package.path.clone(),
+            },
+        };
+        assert!(installed_elsewhere(&[receipt.clone()], &entry, &package));
+        receipt.source = crate::catalog::open::OFFICIAL[1].source();
+        assert!(!installed_elsewhere(&[receipt], &entry, &package));
     }
 }
 

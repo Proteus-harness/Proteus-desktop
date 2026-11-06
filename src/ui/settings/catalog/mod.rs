@@ -2,6 +2,7 @@
 
 mod actions;
 mod apply;
+mod component;
 mod details;
 mod download;
 mod items;
@@ -21,6 +22,7 @@ use gpui_kit::*;
 use super::SettingsView;
 use crate::catalog::{
     Source,
+    inventory::Inventory,
     schema::{Catalog, Kind},
 };
 
@@ -34,6 +36,8 @@ pub(super) struct State {
     /// One catalog, or one category of it, picked on the overview.
     pub scope: Option<Scope>,
     pub loaded: Vec<(Source, Catalog)>,
+    pub inventory: Inventory,
+    pub inventory_generation: u64,
     pub selected: Option<(Source, String)>,
     pub readme: Option<Entity<crate::ui::extensions::content::FormattedText>>,
     pub readme_changes: Option<Subscription>,
@@ -98,6 +102,8 @@ impl State {
                 kind: None,
                 scope: None,
                 loaded: Vec::new(),
+                inventory: Inventory::default(),
+                inventory_generation: 0,
                 selected: None,
                 readme: None,
                 readme_changes: None,
@@ -140,5 +146,8 @@ impl SettingsView {
 /// Agent Plugins and MCP servers live in the profile; the rest in client
 /// folders.
 pub(super) fn in_profile(kind: Kind) -> bool {
-    matches!(kind, Kind::AgentPlugin | Kind::McpServer)
+    matches!(
+        kind,
+        Kind::AgentPlugin | Kind::McpServer | Kind::ProcessModule
+    )
 }
