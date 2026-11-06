@@ -58,13 +58,6 @@ def invoke(context, method, params):
         message("Assistant", {"ToolCall": {"call": call}}),
         message("Tool", {"ToolResult": {"result": result}}, tool_call_id=call_id),
     ]
-    if "--nested" in sys.argv[1:]:
-        nested = result["metadata"]["demo_nested"]
-        messages.extend([
-            message("Assistant", {"ToolCall": {"call": nested["call"]}}),
-            message("Tool", {"ToolResult": {"result": nested["result"]}},
-                    tool_call_id=nested["call"]["id"]),
-        ])
     messages.append(message("Assistant", {"Text": {"text": text}}))
     return {
         "status": "success",

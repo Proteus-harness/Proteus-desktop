@@ -34,8 +34,10 @@ def invoke(context, method, params):
     outer = params["call"]
     child = dict(outer, id="nested-terminal-" + uuid.uuid4().hex, name="exec_command")
     result = context.host_call("host.tools.execute", {"call": child})
+    # The workflow receives only its own result. Child activity/terminal must
+    # come from Core's recorded UI projection, never fabricated history parts.
     return {"result": dict(result, call_id=outer["id"], metadata={
-        "demo_nested": {"call": child, "result": result}
+        "demo_nested_call_id": child["id"]
     })}
 
 
