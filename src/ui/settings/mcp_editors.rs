@@ -2,10 +2,11 @@
 //! in `tools.mcp_servers`, built for open servers only and rebuilt from the
 //! draft when the list shifts.
 
-use std::collections::HashMap;
+use std::{cell::Cell, collections::HashMap, rc::Rc};
 
 use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use gpui_kit::*;
+use proteus_contracts::domain::ConfiguredMcpServerConfig;
 use proteus_contracts::domain::mcp_protocol_version;
 
 use super::SettingsView;
@@ -17,6 +18,8 @@ pub(super) struct McpForm {
     pub inputs: HashMap<McpText, TextInput>,
     /// Text that does not parse; the draft keeps the last valid value.
     pub errors: HashMap<McpText, SharedString>,
+    pub edited: bool,
+    index: Rc<Cell<usize>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -63,8 +66,10 @@ impl SettingsView {
         let server = &self.draft.addons.mcp_servers[ix];
         let mut inputs = HashMap::new();
         let mut subscriptions = Vec::new();
+        let index = Rc::new(Cell::new(ix));
         for field in McpText::ALL {
             let (text, hint) = (mcp_text(server, field), placeholder(field));
+            let index = index.clone();
             let (input, subscription) = if field.is_multiline() {
                 let state = cx.new(|cx| {
                     TextareaState::new(window, cx)
@@ -77,7 +82,7 @@ impl SettingsView {
                         if matches!(event, InputEvent::Change) {
                             let text = state.read(cx).value();
                             this.grow_editor(&state, &text, cx);
-                            this.mcp_text_changed(ix, field, &text, cx);
+                            this.mcp_text_changed(index.get(), field, &text, cx);
                         }
                     });
                 (TextInput::Area(state), subscription)
@@ -91,7 +96,7 @@ impl SettingsView {
                     cx.subscribe_in(&state, window, move |this, state, event, _, cx| {
                         if matches!(event, InputEvent::Change) {
                             let text = state.read(cx).value();
-                            this.mcp_text_changed(ix, field, &text, cx);
+                            this.mcp_text_changed(index.get(), field, &text, cx);
                         }
                     });
                 (TextInput::Line(state), subscription)
@@ -102,6 +107,8 @@ impl SettingsView {
         McpForm {
             inputs,
             errors: HashMap::new(),
+            edited: false,
+            index,
             _subscriptions: subscriptions,
         }
     }
@@ -115,11 +122,18 @@ impl SettingsView {
     }
 
     /// A rename carries the open disclosures of the server with it.
-    fn mcp_text_changed(&mut self, ix: usize, field: McpText, text: &str, cx: &mut Context<Self>) {
+    pub(super) fn mcp_text_changed(
+        &mut self,
+        ix: usize,
+        field: McpText,
+        text: &str,
+        cx: &mut Context<Self>,
+    ) {
         let old = self.mcp_name(ix);
         let mut result: Result<(), String> = Ok(());
         self.update_draft(cx, |draft| result = draft.set_mcp_text(ix, field, text));
         if let Some(form) = self.editors.mcp.get_mut(&ix) {
+            form.edited = true;
             match result {
                 Ok(()) => form.errors.remove(&field),
                 Err(error) => form.errors.insert(field, error.into()),
@@ -137,6 +151,40 @@ impl SettingsView {
                 }
             }
         }
+    }
+
+    /// Rebind retained callbacks when a catalog ACK changes list positions.
+    /// Untouched forms for changed/removed servers can be rebuilt; edited
+    /// forms keep their exact input entities, including invalid raw text.
+    pub(super) fn remap_mcp_editors(&mut self, before: &[ConfiguredMcpServerConfig]) {
+        let after = &self.draft.addons.mcp_servers;
+        if before == after {
+            return;
+        }
+        // A partially edited draft may contain duplicate names, even two
+        // identical parsed entries with different raw input buffers. Match
+        // every old row in order and claim each destination at most once;
+        // iterating only the open forms would misidentify an unopened twin.
+        let mut claimed = vec![false; after.len()];
+        let positions: Vec<_> = before
+            .iter()
+            .map(|server| {
+                let next = after
+                    .iter()
+                    .enumerate()
+                    .find_map(|(ix, entry)| (!claimed[ix] && entry == server).then_some(ix))?;
+                claimed[next] = true;
+                Some(next)
+            })
+            .collect();
+        self.editors.mcp = std::mem::take(&mut self.editors.mcp)
+            .into_iter()
+            .filter_map(|(ix, form)| {
+                let next = *positions.get(ix)?.as_ref()?;
+                form.index.set(next);
+                Some((next, form))
+            })
+            .collect();
     }
 
     /// Positions shift, so every form is rebuilt from the draft.

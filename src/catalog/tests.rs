@@ -7,6 +7,8 @@ use std::{
 use super::{schema::Kind, *};
 use crate::{packages::Contents, settings::Draft};
 
+mod plugin_identity;
+
 struct Fixture(PathBuf);
 impl Fixture {
     fn new() -> Self {
@@ -207,7 +209,7 @@ fn installation_binding_update_and_removal_use_the_existing_formats() {
     );
 }
 
-fn plugin_receipt(path: &str) -> Installed {
+fn plugin_receipt(path: impl Into<PathBuf>) -> Installed {
     Installed {
         source: source(Path::new("catalog")),
         entry: "plugin".into(),
@@ -220,12 +222,16 @@ fn plugin_receipt(path: &str) -> Installed {
 
 #[test]
 fn plugin_catalog_updates_preserve_the_profile_switch() {
-    let installed = plugin_receipt("plugin-v1");
+    let fixture = Fixture::new();
+    let old = fixture.0.join("plugin-v1");
+    let newer = fixture.0.join("plugin-v2");
+    fs::create_dir_all(&old).unwrap();
+    let installed = plugin_receipt(old.clone());
     for enabled in [false, true] {
-        for path in ["plugin-v1", "plugin-v2"] {
+        for path in [&old, &newer] {
             let mut draft = Draft::default();
             install::connect(&mut draft, &installed, None).unwrap();
-            draft.set_package(Path::new("plugin-v1"), enabled);
+            draft.set_package(&old, enabled);
             draft.add_package("unrelated".into());
             draft.set_package(Path::new("unrelated"), false);
             let baseline = draft.clone();
@@ -240,14 +246,11 @@ fn plugin_catalog_updates_preserve_the_profile_switch() {
                 .find(|plugin| plugin.path == Path::new("unrelated"))
                 .unwrap();
             assert!(!unrelated.enabled);
-            let current = plugins
-                .iter()
-                .find(|plugin| plugin.path == Path::new(path))
-                .unwrap();
+            let current = plugins.iter().find(|plugin| plugin.path == *path).unwrap();
             assert_eq!(current.enabled, enabled);
             assert!(install::connected(&updated, &draft));
 
-            if path != "plugin-v1" {
+            if path != &old {
                 assert!(!install::connected(&installed, &draft));
                 let saved = draft.changes(&baseline).addon_settings.unwrap();
                 assert_eq!(saved.addons.plugins, draft.addons.addons.plugins);
@@ -337,8 +340,8 @@ fn plugin_zip_and_invalid_catalog_paths_share_checked_package_io() {
     let bytes = writer.finish().unwrap().into_inner();
     let archive = fixture.0.join("plugin.zip");
     fs::write(&archive, bytes).unwrap();
-    let path = install::import_zip(&fixture.locations(), &archive).unwrap();
-    assert!(path.join("plugin.json").is_file());
+    let imported = install::import_zip(&fixture.locations(), &archive, vec![], None).unwrap();
+    assert!(imported.path.join("plugin.json").is_file());
     assert!(schema::relative(Path::new("../outside")).is_err());
     assert!(schema::relative(Path::new("/absolute")).is_err());
     assert!(schema::relative(Path::new("a/.git/config")).is_err());

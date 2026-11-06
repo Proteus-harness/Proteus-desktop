@@ -52,7 +52,7 @@ impl SettingsView {
                 Some(h_flex().flex_wrap().gap_2().child(add).child(
                     kit::button("package-zip").faded_label("Из ZIP").quiet(cx).xsmall()
                         .disabled(self.catalogs.busy || self.saving)
-                        .on_click(cx.listener(|this, _, _, cx| this.choose_package_zip(cx)))
+                        .on_click(cx.listener(|this, _, window, cx| this.choose_package_zip(window, cx)))
                 ).into_any_element()),
                 card(rows, cx),
                 cx,

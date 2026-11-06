@@ -99,6 +99,9 @@ pub struct SettingsView {
     edit_revision: u64,
     feedback: Option<Feedback>,
     feedback_timer: Option<Task<()>>,
+    /// A saved catalog delta overlaps a newer local addon edit. Keep this
+    /// visible through unrelated edits until Save or an explicit reset.
+    catalog_conflict: Option<SharedString>,
     page: PageId,
     /// Scroll positions of the visited pages.
     scrolls: HashMap<String, ScrollHandle>,
@@ -195,6 +198,7 @@ impl SettingsView {
             edit_revision: 0,
             feedback: None,
             feedback_timer: None,
+            catalog_conflict: None,
             page,
             scrolls: HashMap::new(),
             search,
@@ -261,6 +265,7 @@ impl SettingsView {
     }
 
     fn accept(&mut self, snapshot: ConfigBuilderSnapshot) {
+        self.catalog_conflict = None;
         self.baseline = Draft::from_snapshot(&snapshot);
         self.draft = self.baseline.clone();
         self.forget_editors();
@@ -279,7 +284,7 @@ impl SettingsView {
     }
 
     pub(super) fn has_unsaved_changes(&self) -> bool {
-        self.dirty() || self.saving
+        self.dirty() || self.saving || self.catalogs.busy
     }
 
     fn can_save(&self) -> bool {
@@ -305,6 +310,7 @@ impl SettingsView {
     /// Replaces the draft from outside the controls, so every editor is
     /// rebuilt from the new values.
     fn replace_draft(&mut self, draft: Draft, cx: &mut Context<Self>) {
+        self.catalog_conflict = None;
         self.draft = draft;
         self.edit_revision = self.edit_revision.wrapping_add(1);
         self.forget_editors();

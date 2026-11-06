@@ -1,6 +1,7 @@
 """Model-free workflow: exercise the real shell tool through Core."""
 import shlex
 import sys
+import time
 import uuid
 from pathlib import Path
 
@@ -36,7 +37,7 @@ def invoke(context, method, params):
     call_id = "terminal-demo-" + uuid.uuid4().hex
     command = shlex.join([sys.executable, "-u", str(Path(__file__).with_name("password.py"))])
     call = {
-        "id": call_id, "name": "exec_command",
+        "id": call_id, "name": "terminal_proxy" if "--nested" in sys.argv[1:] else "exec_command",
         "args": {"cmd": command, "tty": True,
                  "with_escalated_permissions": "--unsandboxed" in sys.argv[1:],
                  "yield_time_ms": 1000, "max_output_tokens": 2000},
@@ -45,17 +46,31 @@ def invoke(context, method, params):
     result = context.host_call("host.tools.execute", {"task": params["task"], "call": call})
     if not result.get("ok"):
         raise ProtocolError("demo command failed; inspect the exec_command tool row")
+    if "--hold-response" in sys.argv[1:]:
+        control = Path(__file__).resolve().parent.parent / "control"
+        (control / "tool-returned").write_text(call_id)
+        deadline = time.monotonic() + 60
+        while not (control / "release-response").exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
     text = ("Команда создана. Кнопка терминала у exec_command открывает тот же процесс. "
             "Для повторной проверки отправьте ещё одно сообщение.")
+    messages = [
+        message("Assistant", {"ToolCall": {"call": call}}),
+        message("Tool", {"ToolResult": {"result": result}}, tool_call_id=call_id),
+    ]
+    if "--nested" in sys.argv[1:]:
+        nested = result["metadata"]["demo_nested"]
+        messages.extend([
+            message("Assistant", {"ToolCall": {"call": nested["call"]}}),
+            message("Tool", {"ToolResult": {"result": nested["result"]}},
+                    tool_call_id=nested["call"]["id"]),
+        ])
+    messages.append(message("Assistant", {"Text": {"text": text}}))
     return {
         "status": "success",
         "result": {
             "output": {"text": text, "metadata": None},
-            "new_messages": [
-                message("Assistant", {"ToolCall": {"call": call}}),
-                message("Tool", {"ToolResult": {"result": result}}, tool_call_id=call_id),
-                message("Assistant", {"Text": {"text": text}}),
-            ],
+            "new_messages": messages,
             "history_replacement": None, "compactions": [],
         },
     }

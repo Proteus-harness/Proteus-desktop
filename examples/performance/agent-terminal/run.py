@@ -10,7 +10,7 @@ SOURCE = Path(__file__).resolve().parent
 DESKTOP = SOURCE.parents[2]
 
 
-def prepare(native, output, core, *, unsandboxed=False):
+def prepare(native, output, core, *, unsandboxed=False, nested=False, hold_response=False):
     portable = native.parent
     if not (portable / "bin/proteus").is_file():
         raise SystemExit("--native must be the ready portable launcher")
@@ -22,9 +22,9 @@ def prepare(native, output, core, *, unsandboxed=False):
         raise SystemExit("ready portable has no policy-pack executable")
     output.mkdir(parents=True, mode=0o700, exist_ok=False)
     for name in ("workspace", "config", "home", "runtime", "xdg-config", "xdg-data",
-                 "xdg-state", "xdg-cache", "fixtures", "empty-extensions"):
+                 "xdg-state", "xdg-cache", "fixtures", "empty-extensions", "control"):
         (output / name).mkdir(mode=0o700)
-    for name in ("workflow.py", "password.py"):
+    for name in ("workflow.py", "password.py", "nested.py"):
         shutil.copyfile(SOURCE / name, output / "fixtures" / name)
     shutil.copyfile(core / "examples/modules/component_runtime.py",
                     output / "fixtures/component_runtime.py")
@@ -33,20 +33,29 @@ def prepare(native, output, core, *, unsandboxed=False):
         "Отправьте любое сообщение, откройте терминал у exec_command и введите выдуманный пароль.\n"
         "Никакие пакеты не устанавливаются, модель не вызывается.\n")
     profile = output / "config/terminal-demo.toml"
+    tools = ["exec_command", "write_stdin"] + (["terminal_proxy"] if nested else [])
+    proxy = (
+        '[components.terminal-proxy]\ncommand = "python3"\nargs = ["-B", '
+        + json.dumps(str(output / "fixtures/nested.py")) + ']\n'
+        '[components.terminal-proxy.exports.tool.terminal_proxy]\n'
+    ) if nested else ''
     profile.write_text(
         '[profile]\nname = "terminal-demo"\n'
         '[modules]\nworkflow = "terminal_demo"\npolicy = "allow_all"\n'
-        '[tools]\nenabled = ["exec_command", "write_stdin"]\n'
+        + '[tools]\nenabled = ' + json.dumps(tools) + '\n'
         '[agent_control]\nsurface = "none"\nroles = []\n'
         '[components.terminal-demo]\ncommand = "python3"\nargs = ["-B", '
         + json.dumps(str(output / "fixtures/workflow.py"))
-        + (', "--unsandboxed"' if unsandboxed else '') + ']\n'
+        + (', "--unsandboxed"' if unsandboxed else '')
+        + (', "--nested"' if nested else '')
+        + (', "--hold-response"' if hold_response else '') + ']\n'
         '[components.terminal-demo.exports.workflow.terminal_demo]\n'
         '[components.shell-tool]\ncommand = ' + json.dumps(str(shell)) + '\n'
         'env_allowlist = ["HOME", "PROTEUS_HOME"]\n'
         '[components.shell-tool.exports.tool.shell_tools]\n'
         '[components.demo-policy]\ncommand = ' + json.dumps(str(policy)) + '\n'
         '[components.demo-policy.exports.policy.allow_all]\n'
+        + proxy +
         '[runtime]\nworkflow_timeout_ms = 120000\n')
     return profile
 
@@ -61,6 +70,10 @@ def main():
                         help="compare with an explicitly unsandboxed command")
     parser.add_argument("--no-extensions", action="store_true",
                         help="use an empty extension directory for a minimal comparison")
+    parser.add_argument("--nested", action="store_true",
+                        help="launch exec_command through a real tool-to-tool callback")
+    parser.add_argument("--hold-response", action="store_true",
+                        help="hold completion until control/release-response, at most 60 seconds")
     args = parser.parse_args()
     native = args.native.resolve(strict=True)
     output = args.output.resolve()
@@ -68,7 +81,8 @@ def main():
     if not args.no_extensions and not extensions.is_dir():
         raise SystemExit("ready portable has no extension directory")
     profile = prepare(native, output, args.core_source.resolve(strict=True),
-                      unsandboxed=args.unsandboxed)
+                      unsandboxed=args.unsandboxed, nested=args.nested,
+                      hold_response=args.hold_response)
     keep = {"DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS",
             "XAUTHORITY", "XDG_SESSION_TYPE", "XDG_DATA_DIRS", "FONTCONFIG_PATH", "FONTCONFIG_FILE",
             "LIBGL_ALWAYS_SOFTWARE", "WGPU_BACKEND", "ZIG"}
@@ -85,6 +99,8 @@ def main():
     (output / "prepared.json").write_text(json.dumps({"command": command, "model": None,
                                                      "extensions": str(extensions),
                                                      "sandboxed": not args.unsandboxed,
+                                                     "nested": args.nested,
+                                                     "hold_response": args.hold_response,
                                                      "synthetic": True}, indent=2) + "\n")
     if args.prepare_only:
         print(output)

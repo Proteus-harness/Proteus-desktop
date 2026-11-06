@@ -1,9 +1,12 @@
 //! Per-kind installation and draft binding. Files of Agent Plugins are
 //! immutable versions: unsaved profile edits never remove a saved package.
 
-use std::path::{Path, PathBuf};
+mod plugin;
+pub use plugin::{ZipImport, import_zip};
 
-use anyhow::{Context, Result, ensure};
+use std::path::Path;
+
+use anyhow::{Result, ensure};
 use proteus_contracts::domain::ConfiguredMcpServerConfig;
 
 use super::{
@@ -91,7 +94,7 @@ pub fn prepare(
                     (&locations.skills, entry.id.clone())
                 }
                 Kind::AgentPlugin => {
-                    plugin_name(&files)?;
+                    plugin::name(files.text("plugin.json")?)?;
                     let reusable = previous
                         .filter(|old| old.version == entry.version)
                         .and_then(|old| match &old.target {
@@ -154,24 +157,27 @@ pub fn connect(
 ) -> Result<()> {
     match &installed.target {
         Target::Folder { path } if installed.kind == Kind::AgentPlugin => {
-            let mut enabled = true;
-            if let Some(Installed {
-                target: Target::Folder { path: old },
-                ..
-            }) = previous
-            {
-                // Updating a package must preserve the profile's switch.
-                enabled = draft
-                    .addons
-                    .addons
-                    .plugins
-                    .iter()
-                    .find(|plugin| plugin.path == *old)
-                    .is_none_or(|plugin| plugin.enabled);
-                draft.remove_package(old);
-            }
-            draft.add_package(path.clone());
-            draft.set_package(path, enabled);
+            let previous = previous
+                .and_then(|old| match &old.target {
+                    Target::Folder { path } => draft
+                        .addons
+                        .addons
+                        .plugins
+                        .iter()
+                        .find(|plugin| plugin.path == *path),
+                    _ => None,
+                })
+                .or_else(|| {
+                    draft
+                        .addons
+                        .addons
+                        .plugins
+                        .iter()
+                        .find(|plugin| plugin.path == *path)
+                })
+                .cloned();
+            let binding = plugin::binding(path.clone(), previous.as_ref())?;
+            plugin::connect(draft, binding, previous.as_ref());
         }
         Target::Mcp { server } => {
             let old = previous.and_then(|old| match &old.target {
@@ -257,38 +263,4 @@ pub fn remove_files(locations: &Locations, installed: &Installed) -> Result<()> 
         std::fs::remove_dir_all(path)?;
     }
     Ok(())
-}
-
-/// The server remains the authoritative Agent Plugins validator. Here we
-/// check the manifest required to accept a local archive before writing it.
-fn plugin_name(files: &Contents) -> Result<String> {
-    let value: serde_json::Value = serde_json::from_str(files.text("plugin.json")?)?;
-    ensure!(
-        value["$schema"] == "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
-        "Нужен Agent Plugins 1.0 plugin.json"
-    );
-    let name = value["name"].as_str().context("В plugin.json нужен name")?;
-    ensure!(
-        !name.is_empty()
-            && name.len() <= 64
-            && !name.contains("..")
-            && !name.contains("--")
-            && name
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'.')
-            && name.as_bytes()[0].is_ascii_alphanumeric()
-            && name.as_bytes()[name.len() - 1].is_ascii_alphanumeric(),
-        "Неверное имя Agent Plugin"
-    );
-    Ok(name.to_owned())
-}
-
-pub fn import_zip(locations: &Locations, path: &Path) -> Result<PathBuf> {
-    let files = Contents::zip(path)?;
-    plugin_name(&files)?;
-    files.install(
-        &locations.plugins,
-        &format!("zip-{}", uuid::Uuid::new_v4()),
-        false,
-    )
 }

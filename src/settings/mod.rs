@@ -6,6 +6,7 @@ pub mod catalog;
 mod draft;
 pub mod history;
 pub mod mcp;
+pub mod reconcile;
 mod schema;
 
 pub use draft::{Draft, FieldPath};

@@ -71,6 +71,8 @@ impl SettingsView {
         if self.has_unsaved_changes() {
             let text = if self.saving {
                 "Профиль сохраняется: дождитесь завершения"
+            } else if self.catalogs.busy {
+                "Операция с пакетом выполняется: дождитесь завершения"
             } else {
                 "Есть несохранённые изменения: сохраните или сбросьте их"
             };

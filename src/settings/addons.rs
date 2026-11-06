@@ -104,6 +104,7 @@ impl Draft {
             None => plugins.push(AgentPluginConfig {
                 path,
                 enabled: true,
+                data_key: None,
             }),
         }
     }

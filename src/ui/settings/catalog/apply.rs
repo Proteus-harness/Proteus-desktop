@@ -13,7 +13,10 @@ use crate::catalog::{
     Installed, Locations, Source, git, install,
     schema::{Entry, Kind},
 };
-use crate::settings::Draft;
+use crate::settings::{
+    Draft,
+    reconcile::{CatalogChange, Replacement},
+};
 use crate::ui::{extensions, prefs};
 
 impl SettingsView {
@@ -129,8 +132,10 @@ impl SettingsView {
                 };
                 if in_profile(installed.kind) {
                     let receipt = installed.clone();
+                    let replacement = replacement(&installed, previous.as_ref());
                     return this.write_catalog_profile(
                         move |draft| install::connect(draft, &installed, previous.as_ref()),
+                        replacement,
                         move |cx| prefs::update(cx, |prefs| prefs.catalogs.remember(receipt)),
                         "Установлено · профиль сохранён",
                         cx,
@@ -175,6 +180,7 @@ impl SettingsView {
                     let receipt = installed.clone();
                     return this.write_catalog_profile(
                         move |draft| install::disconnect(draft, &installed),
+                        None,
                         move |cx| {
                             prefs::update(cx, |prefs| {
                                 prefs.catalogs.installed.retain(|old| *old != receipt)
@@ -203,9 +209,10 @@ impl SettingsView {
 
     /// Saves `change` applied to the saved profile, not to the draft, and
     /// keeps the receipt only when the profile accepted it.
-    fn write_catalog_profile(
+    pub(in crate::ui::settings) fn write_catalog_profile(
         &mut self,
         change: impl FnOnce(&mut Draft) -> Result<()>,
+        replacement: Option<Replacement>,
         saved: impl FnOnce(&mut App) + 'static,
         done: &'static str,
         cx: &mut Context<Self>,
@@ -226,6 +233,11 @@ impl SettingsView {
             return;
         }
         let request = draft.changes(&self.baseline);
+        let submitted_revision = self.edit_revision;
+        let change = CatalogChange {
+            before: self.baseline.addons.clone(),
+            replacement,
+        };
         let Some(super::super::context::Profile { api, dir }) = self.context.profile.clone() else {
             return self.catalog_failed(anyhow!("Для этого нужен открытый чат Proteus"), cx);
         };
@@ -235,23 +247,42 @@ impl SettingsView {
                 .spawn(async move { api.save_config_builder(&dir, &request) })
                 .await;
             this.update(cx, |this, cx| {
-                this.catalogs.busy = false;
-                match result {
-                    Ok(snapshot) => {
-                        saved(cx);
-                        this.accept(snapshot);
-                        this.load_addons(cx);
-                        this.refresh_history(cx);
-                        this.catalog_message(Ok(done));
-                        cx.emit(SettingsEvent::Saved);
-                    }
-                    Err(error) => this.catalog_message(Err(error.context("Профиль не сохранён"))),
-                }
-                cx.notify();
+                this.finish_catalog_profile_write(
+                    result,
+                    submitted_revision,
+                    &change,
+                    saved,
+                    done,
+                    cx,
+                );
             })
             .ok();
         })
         .detach();
+    }
+
+    pub(in crate::ui::settings) fn finish_catalog_profile_write(
+        &mut self,
+        result: Result<proteus_contracts::app_protocol::config_builder::ConfigBuilderSnapshot>,
+        submitted_revision: u64,
+        change: &CatalogChange,
+        saved: impl FnOnce(&mut App),
+        done: &'static str,
+        cx: &mut Context<Self>,
+    ) {
+        self.catalogs.busy = false;
+        match result {
+            Ok(snapshot) => {
+                saved(cx);
+                self.accept_catalog_save(snapshot, submitted_revision, change);
+                self.load_addons(cx);
+                self.refresh_history(cx);
+                self.catalog_message(Ok(done));
+                cx.emit(SettingsEvent::Saved);
+            }
+            Err(error) => self.catalog_message(Err(error.context("Профиль не сохранён"))),
+        }
+        cx.notify();
     }
 
     fn reload_installed(&mut self, kind: Kind, cx: &mut Context<Self>) {
@@ -266,5 +297,24 @@ impl SettingsView {
         self.catalogs.busy = false;
         self.catalog_message(Err(error));
         cx.notify();
+    }
+}
+
+fn replacement(installed: &Installed, previous: Option<&Installed>) -> Option<Replacement> {
+    use crate::catalog::Target;
+    match (&installed.target, &previous?.target) {
+        (Target::Folder { path: new }, Target::Folder { path: old })
+            if installed.kind == Kind::AgentPlugin =>
+        {
+            Some(Replacement::Plugin {
+                old: old.clone(),
+                new: new.clone(),
+            })
+        }
+        (Target::Mcp { server: new }, Target::Mcp { server: old }) => Some(Replacement::Mcp {
+            old: old.name.clone(),
+            new: new.name.clone(),
+        }),
+        _ => None,
     }
 }

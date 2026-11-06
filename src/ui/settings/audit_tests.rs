@@ -4,6 +4,8 @@ use crate::tabs::{ChatKey, PaneId};
 use crate::ui::extensions::OpenDocument;
 use crate::ui::workspace::Workspace;
 
+mod catalog_save;
+
 fn snapshot(provider: &str) -> ConfigBuilderSnapshot {
     ConfigBuilderSnapshot {
         writable: true,

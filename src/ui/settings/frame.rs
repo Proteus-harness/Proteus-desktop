@@ -257,10 +257,12 @@ impl SettingsView {
                 "Сохраняю и проверяю сборку…".to_string(),
                 theme.muted_foreground,
             )
-        } else if self.has_errors() {
-            ("Исправьте отмеченные значения".to_string(), theme.danger)
         } else if let Some(feedback) = self.feedback.as_ref().filter(|feedback| feedback.error) {
             (feedback.text.to_string(), theme.danger)
+        } else if let Some(conflict) = &self.catalog_conflict {
+            (conflict.to_string(), theme.danger)
+        } else if self.has_errors() {
+            ("Исправьте отмеченные значения".to_string(), theme.danger)
         } else if dirty {
             let areas = snapshot
                 .map(|snapshot| area_labels(snapshot, &self.draft.areas(&self.baseline)))
