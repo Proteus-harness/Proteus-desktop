@@ -16,6 +16,7 @@ const MAX_DOCUMENT_BYTES: u64 = 512 * 1024;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Kind {
+    ProcessModule,
     ClientExtension,
     AgentPlugin,
     Skill,
@@ -25,6 +26,7 @@ pub enum Kind {
 impl Kind {
     pub fn title(self) -> &'static str {
         match self {
+            Self::ProcessModule => "Модуль",
             Self::ClientExtension => "Расширение клиента",
             Self::AgentPlugin => "Agent Plugin",
             Self::Skill => "Skill",
@@ -51,6 +53,39 @@ pub struct Entry {
     pub category: String,
     pub version: String,
     pub path: PathBuf,
+    /// A buildable source workspace, never an installable package folder.
+    #[serde(default)]
+    pub source: Option<SourcePackage>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SourcePackage {
+    pub path: PathBuf,
+    /// Displayed and copied for a manual build; never executed by the client.
+    pub build: Vec<String>,
+    #[serde(default)]
+    pub requirements: Vec<String>,
+}
+
+impl SourcePackage {
+    pub fn command(&self) -> String {
+        self.build
+            .iter()
+            .map(|arg| {
+                if !arg.is_empty()
+                    && arg
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || b"-._/:=".contains(&byte))
+                {
+                    arg.clone()
+                } else {
+                    format!("'{}'", arg.replace('\'', "'\\''"))
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
 }
 
 #[derive(Deserialize)]
@@ -65,6 +100,8 @@ struct Index {
 #[derive(Clone)]
 pub struct Catalog {
     pub root: PathBuf,
+    /// Frozen Git snapshot selected by the user, assigned by the Git loader.
+    pub revision: Option<String>,
     pub title: String,
     pub categories: Vec<Category>,
     pub entries: Vec<Entry>,
@@ -155,6 +192,39 @@ pub fn read(root: &Path, name: &str, trees: &BTreeMap<String, String>) -> Result
                 entry.category
             );
             directory(root, &entry)?;
+            ensure!(
+                entry.kind != Kind::ProcessModule || entry.source.is_some(),
+                "Для модуля нужен source с командой сборки"
+            );
+            if let Some(source) = &entry.source {
+                relative(&source.path)?;
+                let workspace = root.join(&source.path).canonicalize()?;
+                ensure!(
+                    workspace.starts_with(root.canonicalize()?) && workspace.is_dir(),
+                    "Папка исходников выходит за пределы каталога"
+                );
+                ensure!(
+                    directory(root, &entry)?.starts_with(&workspace),
+                    "Папка записи должна находиться внутри source.path"
+                );
+                ensure!(
+                    !source.build.is_empty()
+                        && source.build.len() <= 64
+                        && source
+                            .build
+                            .iter()
+                            .all(|arg| !arg.is_empty() && !arg.contains(['\0', '\n', '\r'])),
+                    "Нужна непустая команда ручной сборки"
+                );
+                ensure!(
+                    source.requirements.len() <= 32
+                        && source
+                            .requirements
+                            .iter()
+                            .all(|text| !text.trim().is_empty()),
+                    "Неверные требования сборки"
+                );
+            }
             Ok(entry)
         })();
         match parsed {
@@ -168,6 +238,7 @@ pub fn read(root: &Path, name: &str, trees: &BTreeMap<String, String>) -> Result
     entries.retain(|entry| !duplicates.contains(&entry.id));
     Ok(Catalog {
         root: root.to_owned(),
+        revision: None,
         title: index.title,
         categories: index.categories,
         entries,
@@ -179,7 +250,12 @@ pub fn read(root: &Path, name: &str, trees: &BTreeMap<String, String>) -> Result
 pub fn readme(catalog: &Catalog, entry: &Entry) -> Result<Option<String>> {
     let dir = directory(&catalog.root, entry)?;
     let skill = entry.kind == Kind::Skill && !dir.join("README.md").exists();
-    let path = dir.join(if skill { "SKILL.md" } else { "README.md" });
+    let mut path = dir.join(if skill { "SKILL.md" } else { "README.md" });
+    if !path.exists()
+        && let Some(source) = &entry.source
+    {
+        path = catalog.root.join(&source.path).join("README.md");
+    }
     if !path.exists() {
         return Ok(None);
     }

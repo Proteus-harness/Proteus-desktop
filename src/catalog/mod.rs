@@ -1,6 +1,7 @@
 //! User-supplied git catalogs. Distribution is a client concern; installing
 //! an entry never adds a new agent runtime extension path.
 
+pub mod download;
 pub mod git;
 pub mod install;
 pub mod open;
@@ -58,6 +59,7 @@ pub fn key(text: &str) -> String {
 pub struct Preferences {
     pub sources: Vec<Source>,
     pub installed: Vec<Installed>,
+    pub official_sources_initialized: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -84,6 +86,19 @@ pub enum Target {
 }
 
 impl Preferences {
+    pub fn ensure_official_sources(&mut self) {
+        if self.official_sources_initialized {
+            return;
+        }
+        for official in &open::OFFICIAL {
+            let source = official.source();
+            if !self.sources.iter().any(|old| official.matches(old)) {
+                self.sources.push(source);
+            }
+        }
+        self.official_sources_initialized = true;
+    }
+
     pub fn remember(&mut self, installed: Installed) {
         self.installed.retain(|old| {
             old.source != installed.source

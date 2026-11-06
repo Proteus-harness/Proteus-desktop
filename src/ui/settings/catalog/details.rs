@@ -48,14 +48,24 @@ impl SettingsView {
             _ => {}
         }
         let notes = [
-            match entry.kind {
-                Kind::McpServer => Some("Сервер записывается в профиль сразу при установке."),
-                Kind::AgentPlugin => Some(
-                    "Пакет подключается к профилю сразу при установке. Его файлы остаются на диске после удаления.",
-                ),
-                Kind::ClientExtension | Kind::Skill => None,
+            if entry.source.is_some() {
+                Some(
+                    "Скачивается полный workspace. Сборка выполняется вручную; команда и требования указаны ниже и в BUILD.md рядом с исходниками.",
+                )
+            } else {
+                match entry.kind {
+                    Kind::McpServer => Some("Сервер записывается в профиль сразу при установке."),
+                    Kind::AgentPlugin => Some(
+                        "Пакет подключается к профилю сразу при установке. Его файлы остаются на диске после удаления.",
+                    ),
+                    Kind::ClientExtension | Kind::Skill | Kind::ProcessModule => None,
+                }
             },
-            self.catalog_install_blocked(item.source, entry.kind),
+            entry
+                .source
+                .is_none()
+                .then(|| self.catalog_install_blocked(item.source, entry.kind))
+                .flatten(),
         ];
         let removable = item
             .installed
@@ -130,6 +140,30 @@ impl SettingsView {
                             })),
                     )
                     .child(div().text_sm().child(entry.description.clone()))
+                    .children(entry.source.as_ref().map(|source| {
+                        let command = source.command();
+                        let copied = command.clone();
+                        v_flex()
+                            .gap_2()
+                            .children((!source.requirements.is_empty()).then(|| {
+                                div()
+                                    .text_xs()
+                                    .text_color(theme.muted_foreground)
+                                    .child(format!("Нужны: {}", source.requirements.join(", ")))
+                            }))
+                            .child(kit::code_surface(cx).child(command))
+                            .child(
+                                kit::button("catalog-copy-build")
+                                    .faded_label("Копировать команду сборки")
+                                    .quiet(cx)
+                                    .xsmall()
+                                    .on_click(move |_, _, cx| {
+                                        cx.write_to_clipboard(ClipboardItem::new_string(
+                                            copied.clone(),
+                                        ))
+                                    }),
+                            )
+                    }))
                     .children(notes.into_iter().flatten().map(|note| {
                         div()
                             .text_xs()

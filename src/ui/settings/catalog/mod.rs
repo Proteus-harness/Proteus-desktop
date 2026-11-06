@@ -3,6 +3,7 @@
 mod actions;
 mod apply;
 mod details;
+mod download;
 mod items;
 mod keys;
 mod overview;

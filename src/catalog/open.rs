@@ -1,5 +1,5 @@
-//! Public Agent Skills repositories offered in the sources dialog. They are
-//! ordinary sources: nothing is downloaded until the user adds one.
+//! Public repositories offered in the sources dialog. Official sources are
+//! added once; removing them remains a persistent user choice.
 
 use super::Source;
 
@@ -10,6 +10,13 @@ pub struct Open {
 }
 
 impl Open {
+    pub fn matches(&self, source: &Source) -> bool {
+        self.url
+            .trim_end_matches('/')
+            .trim_end_matches(".git")
+            .eq_ignore_ascii_case(source.url.trim_end_matches('/').trim_end_matches(".git"))
+    }
+
     pub fn source(&self) -> Source {
         Source {
             url: self.url.to_string(),
@@ -38,5 +45,18 @@ pub const OPEN: [Open; 4] = [
         title: "Hugging Face",
         url: "https://github.com/huggingface/skills",
         about: "Hub, датасеты, обучение моделей, Spaces",
+    },
+];
+
+pub const OFFICIAL: [Open; 2] = [
+    Open {
+        title: "Proteus Modules",
+        url: "https://github.com/Proteus-harness/Proteus-modules.git",
+        about: "Процессные модули: Tools, модели, workflow, контекст, policy и hooks",
+    },
+    Open {
+        title: "Proteus Extensions",
+        url: "https://github.com/Proteus-harness/Proteus-desktop-extensions.git",
+        about: "Панели, документы, виджеты и рендереры клиента",
     },
 ];

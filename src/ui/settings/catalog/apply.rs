@@ -289,7 +289,7 @@ impl SettingsView {
         match kind {
             Kind::ClientExtension => extensions::reload_installed(cx),
             Kind::Skill => self.load_addons(cx),
-            Kind::AgentPlugin | Kind::McpServer => {}
+            Kind::AgentPlugin | Kind::McpServer | Kind::ProcessModule => {}
         }
     }
 

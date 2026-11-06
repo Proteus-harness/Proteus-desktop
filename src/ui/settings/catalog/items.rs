@@ -55,7 +55,8 @@ impl Item<'_> {
     }
 }
 
-pub(super) const KINDS: [Kind; 4] = [
+pub(super) const KINDS: [Kind; 5] = [
+    Kind::ProcessModule,
     Kind::ClientExtension,
     Kind::AgentPlugin,
     Kind::Skill,
@@ -64,6 +65,7 @@ pub(super) const KINDS: [Kind; 4] = [
 
 pub(super) fn kind_icon(kind: Kind) -> Icon {
     Icon::new(match kind {
+        Kind::ProcessModule => Lucide::Boxes,
         Kind::ClientExtension => Lucide::Blocks,
         Kind::AgentPlugin => Lucide::Puzzle,
         Kind::Skill => Lucide::Sparkles,
@@ -84,6 +86,7 @@ pub(super) fn version_label(version: &str) -> String {
 /// Short plural for the type filter.
 pub(super) fn kind_filter(kind: Kind) -> &'static str {
     match kind {
+        Kind::ProcessModule => "Модули",
         Kind::ClientExtension => "Extensions",
         Kind::AgentPlugin => "Agent Plugins",
         Kind::Skill => "Skills",

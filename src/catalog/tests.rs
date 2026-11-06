@@ -8,6 +8,7 @@ use super::{schema::Kind, *};
 use crate::{packages::Contents, settings::Draft};
 
 mod plugin_identity;
+mod source_download;
 
 struct Fixture(PathBuf);
 impl Fixture {

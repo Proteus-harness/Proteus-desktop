@@ -13,6 +13,10 @@ impl SettingsView {
             return;
         }
         self.catalogs.opened = true;
+        let initializing = !prefs::current(cx).catalogs.official_sources_initialized;
+        if initializing {
+            prefs::update(cx, |prefs| prefs.catalogs.ensure_official_sources());
+        }
         let sources = prefs::current(cx).catalogs.sources.clone();
         self.catalogs.busy = true;
         self.catalogs.working = None;
@@ -38,12 +42,19 @@ impl SettingsView {
                     Ok(catalogs) => {
                         let mut absent = Vec::new();
                         for (source, catalog) in catalogs {
+                            if !prefs::current(cx).catalogs.sources.contains(&source) {
+                                continue;
+                            }
+                            if initializing {
+                                absent.push(source.clone());
+                            }
                             let fresh = this.catalogs.loaded.iter().any(|(old, _)| *old == source);
                             match (catalog, fresh) {
                                 (Ok(catalog), false) => {
                                     this.catalogs.loaded.push((source, catalog))
                                 }
-                                (Err(_), false) => absent.push(source),
+                                (Err(_), false) if !absent.contains(&source) => absent.push(source),
+                                (Err(_), false) => {}
                                 (_, true) => {}
                             }
                         }
@@ -197,7 +208,10 @@ impl SettingsView {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    let files = [entry.path.join("README.md"), entry.path.join("SKILL.md")];
+                    let mut files = vec![entry.path.join("README.md"), entry.path.join("SKILL.md")];
+                    if let Some(source) = &entry.source {
+                        files.push(source.path.join("README.md"));
+                    }
                     git::with_files(&Locations::local()?.cache, &task, &files, || {
                         schema::readme(&catalog, &entry)
                     })

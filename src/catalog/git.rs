@@ -20,6 +20,9 @@ use super::{
     schema::{self, Catalog, INDEX},
 };
 
+mod source_export;
+pub use source_export::export_source;
+
 const TIMEOUT: Duration = Duration::from_secs(90);
 /// The file that lists a repository without the index.
 const SKILL: &str = "SKILL.md";
@@ -34,17 +37,26 @@ struct State {
 
 /// One object of `git ls-tree`.
 struct Item {
+    mode: String,
     kind: String,
     oid: String,
     path: String,
 }
 
 fn run(args: &[&str], dir: &Path, input: Option<&[u8]>) -> Result<Vec<u8>> {
+    let out = dir.join(format!(".git-result-{}", uuid::Uuid::new_v4()));
+    let result = run_to_file(args, dir, input, &out).and_then(|()| Ok(std::fs::read(&out)?));
+    let _ = std::fs::remove_file(out);
+    result
+}
+
+/// Commands with a known bounded payload may write to disk without retaining
+/// their complete output in the client process.
+fn run_to_file(args: &[&str], dir: &Path, input: Option<&[u8]>, out: &Path) -> Result<()> {
     // Files, rather than unread pipes, prevent verbose git from blocking.
     let name = uuid::Uuid::new_v4();
-    let (log, out, feed) = (
+    let (log, feed) = (
         dir.join(format!(".git-output-{name}")),
-        dir.join(format!(".git-stdout-{name}")),
         dir.join(format!(".git-stdin-{name}")),
     );
     let result = (|| {
@@ -92,7 +104,7 @@ fn run(args: &[&str], dir: &Path, input: Option<&[u8]>) -> Result<Vec<u8>> {
             if let Some(status) = child.try_wait()? {
                 let text = std::fs::read_to_string(&log).unwrap_or_default();
                 ensure!(status.success(), "git: {}", text.trim());
-                return Ok(std::fs::read(&out)?);
+                return Ok(());
             }
             if start.elapsed() >= TIMEOUT {
                 // SAFETY: the group is the one this child leads.
@@ -103,7 +115,7 @@ fn run(args: &[&str], dir: &Path, input: Option<&[u8]>) -> Result<Vec<u8>> {
             std::thread::sleep(Duration::from_millis(40));
         }
     })();
-    for file in [log, out, feed] {
+    for file in [log, feed] {
         let _ = std::fs::remove_file(file);
     }
     result
@@ -128,7 +140,9 @@ pub fn validate(source: &Source) -> Result<()> {
 /// Reads an existing checkout without contacting its origin.
 pub fn cached(cache: &Path, source: &Source) -> Result<Catalog> {
     let state = read_state(cache, source)?;
-    schema::read(&cache.join(source.key()), &source.name(), &state.trees)
+    let mut catalog = schema::read(&cache.join(source.key()), &source.name(), &state.trees)?;
+    catalog.revision = Some(state.commit);
+    Ok(catalog)
 }
 
 pub fn refresh(cache: &Path, source: &Source) -> Result<Catalog> {
@@ -322,8 +336,9 @@ fn list(repo: &str, commit: &str, paths: &[&str], trees: bool, dir: &Path) -> Re
         .map(|record| {
             let (meta, path) = record.split_once('\t').context("Неверный вывод git")?;
             let mut meta = meta.split(' ');
-            let (_mode, kind, oid) = (meta.next(), meta.next(), meta.next());
+            let (mode, kind, oid) = (meta.next(), meta.next(), meta.next());
             Ok(Item {
+                mode: mode.context("Неверный вывод git")?.to_owned(),
                 kind: kind.context("Неверный вывод git")?.to_owned(),
                 oid: oid.context("Неверный вывод git")?.to_owned(),
                 path: path.to_owned(),
@@ -338,6 +353,34 @@ fn checkout(repo: &str, commit: &str, files: &[&Item], worktree: &Path, dir: &Pa
     if files.is_empty() {
         return Ok(());
     }
+    fetch_files(repo, files, dir)?;
+    let worktree = worktree.to_str().context("Путь к кэшу не в UTF-8")?;
+    let paths = files
+        .iter()
+        .flat_map(|item| [item.path.as_bytes(), b"\0"])
+        .flatten()
+        .copied()
+        .collect::<Vec<_>>();
+    // The index belongs exclusively to this source's private bare repo.
+    run(
+        &[
+            "--git-dir",
+            repo,
+            "--work-tree",
+            worktree,
+            "checkout",
+            "--force",
+            commit,
+            "--pathspec-from-file=-",
+            "--pathspec-file-nul",
+        ],
+        dir,
+        Some(&paths),
+    )?;
+    Ok(())
+}
+
+fn fetch_files(repo: &str, files: &[&Item], dir: &Path) -> Result<()> {
     let oids = files
         .iter()
         .map(|item| format!("{}\n", item.oid))
@@ -367,28 +410,5 @@ fn checkout(repo: &str, commit: &str, files: &[&Item], worktree: &Path, dir: &Pa
         args.extend(missing.iter().map(String::as_str));
         run(&args, dir, None)?;
     }
-    let worktree = worktree.to_str().context("Путь к кэшу не в UTF-8")?;
-    let paths = files
-        .iter()
-        .flat_map(|item| [item.path.as_bytes(), b"\0"])
-        .flatten()
-        .copied()
-        .collect::<Vec<_>>();
-    // The index belongs exclusively to this source's private bare repo.
-    run(
-        &[
-            "--git-dir",
-            repo,
-            "--work-tree",
-            worktree,
-            "checkout",
-            "--force",
-            commit,
-            "--pathspec-from-file=-",
-            "--pathspec-file-nul",
-        ],
-        dir,
-        Some(&paths),
-    )?;
     Ok(())
 }

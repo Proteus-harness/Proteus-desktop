@@ -9,7 +9,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::super::{SettingsView, widgets::hashed_id};
-use crate::catalog::open::OPEN;
+use crate::catalog::open::{OFFICIAL, OPEN};
 use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
@@ -173,9 +173,10 @@ fn sources(view: &Entity<SettingsView>, cx: &App) -> AnyElement {
 fn open_sources(view: &Entity<SettingsView>, cx: &App) -> Option<AnyElement> {
     let theme = cx.theme();
     let added = &prefs::current(cx).catalogs.sources;
-    let rows = OPEN
+    let rows = OFFICIAL
         .iter()
-        .filter(|open| !added.contains(&open.source()))
+        .chain(OPEN.iter())
+        .filter(|open| !added.iter().any(|source| open.matches(source)))
         .map(|open| {
             let view = view.downgrade();
             let source = open.source();
@@ -233,7 +234,7 @@ fn open_sources(view: &Entity<SettingsView>, cx: &App) -> Option<AnyElement> {
                     .text_xs()
                     .font_medium()
                     .text_color(theme.muted_foreground)
-                    .child("Открытые каталоги skills"),
+                    .child("Готовые источники"),
             )
             .child(
                 v_flex().surface_frame(cx).children(

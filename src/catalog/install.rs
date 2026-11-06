@@ -53,8 +53,13 @@ pub fn prepare(
     profile: &Path,
     taken_extensions: &[String],
 ) -> Result<Installed> {
+    ensure!(
+        entry.source.is_none(),
+        "Это исходники; сначала скачайте и соберите выбранный пакет"
+    );
     let dir = schema::directory(&catalog.root, entry)?;
     let target = match entry.kind {
+        Kind::ProcessModule => anyhow::bail!("Процессный модуль подключается после ручной сборки"),
         Kind::McpServer => {
             let files = Contents::folder(&dir)?;
             let server: ConfiguredMcpServerConfig =
@@ -118,7 +123,7 @@ pub fn prepare(
                     });
                     (&locations.plugins, id)
                 }
-                Kind::McpServer => unreachable!(),
+                Kind::McpServer | Kind::ProcessModule => unreachable!(),
             };
             let path = root.join(&id);
             let managed = previous.is_some_and(

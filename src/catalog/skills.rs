@@ -72,6 +72,7 @@ pub fn read(root: &Path, title: String, trees: &BTreeMap<String, String>) -> Res
     }
     Ok(Catalog {
         root: root.to_owned(),
+        revision: None,
         title,
         categories,
         entries,
@@ -144,6 +145,7 @@ fn entry(root: &Path, dir: &Path, trees: &BTreeMap<String, String>) -> Result<En
         .filter(|parent| !parent.as_os_str().is_empty())
         .map_or_else(|| ROOT.to_string(), |parent| parent.display().to_string());
     Ok(Entry {
+        source: None,
         id: front.name.clone(),
         kind: Kind::Skill,
         title: front.name,

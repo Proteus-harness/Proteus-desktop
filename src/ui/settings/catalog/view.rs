@@ -438,6 +438,27 @@ impl SettingsView {
         profile: Option<&'static str>,
         cx: &Context<Self>,
     ) -> AnyElement {
+        if item.entry.source.is_some() {
+            let (source, entry) = (item.source.clone(), item.entry.clone());
+            let working = self.catalogs.busy
+                && self
+                    .catalogs
+                    .working
+                    .as_ref()
+                    .is_some_and(|(source, id)| item.key() == (source, id.as_str()));
+            return kit::button(hashed_id("catalog-source-download", &(place, item.key())))
+                .faded_label("Скачать исходники")
+                .outline()
+                .small()
+                .loading(working)
+                .loading_icon(IconName::LoaderCircle)
+                .disabled(!self.catalog_idle() || self.catalogs.loading.contains(item.source))
+                .hint("Полный workspace и инструкция ручной сборки", cx)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.download_catalog_source(source.clone(), entry.clone(), cx)
+                }))
+                .into_any_element();
+        }
         let label = match item.status {
             Status::Available => "Установить",
             Status::Detached => "Подключить",
