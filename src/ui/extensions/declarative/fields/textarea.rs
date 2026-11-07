@@ -7,6 +7,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::super::view::{DeclarativeView, WillResize};
+use crate::ui::kit::Frame as _;
 use crate::ui::kit::Pressable as _;
 use crate::ui::{fade::faded, format::editor_preview, motion};
 
@@ -110,17 +111,26 @@ pub(in crate::ui::extensions::declarative) fn render(
         .text_sm()
         .text_color(cx.theme().muted_foreground)
         .child(preview);
+    // Keep the field's smaller opaque quad inside the outer panel's corners.
+    let area = div()
+        .w_full()
+        .p(cx.theme().radius)
+        .child(area)
+        .into_any_element();
     let body = if open || motion::moving(&key, open, cx) {
         motion::preview_reveal(key, open, cx, preview, || area)
     } else {
         preview.into_any_element()
     };
-    v_flex()
-        .w_full()
-        .min_w_0()
-        .child(header)
-        .child(body)
-        .into_any_element()
+    crate::ui::kit::surface(
+        v_flex()
+            .w_full()
+            .min_w_0()
+            .disclosure_frame(cx)
+            .child(header)
+            .child(body),
+        cx,
+    )
 }
 
 #[cfg(test)]

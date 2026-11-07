@@ -2,6 +2,7 @@
 //! comes from.
 
 use crate::ui::kit::ButtonLabel as _;
+use crate::ui::kit::Frame as _;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::*;
@@ -144,17 +145,24 @@ impl SettingsView {
                 self.extension_preview
                     .as_ref()
                     .filter(|(preview_id, _)| preview_id == id)
-                    .map(|(_, preview)| preview.view.clone().into_any_element())
+                    .map(|(_, preview)| {
+                        div()
+                            .px_4()
+                            .pb_3()
+                            .child(preview.view.clone())
+                            .into_any_element()
+                    })
                     .unwrap_or_else(|| div().into_any_element())
             });
-            parts.push(
+            parts.push(kit::surface(
                 v_flex()
                     .w_full()
-                    .gap_2()
+                    .disclosure_frame(cx)
                     .child(toggle)
                     .children(body)
                     .into_any_element(),
-            );
+                cx,
+            ));
         }
         parts.push(
             section(

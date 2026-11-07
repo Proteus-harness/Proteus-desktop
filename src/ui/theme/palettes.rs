@@ -1,6 +1,7 @@
 //! GPUI Kit theme imports with explicit builtin surface-role adaptations.
 //! SOURCES.json records the import; ROLE-MAPPING.json pins named author/port
-//! tokens used for chrome, sidebar, content, cards, popup surfaces and borders.
+//! tokens used for chrome, sidebar, content, cards, popup surfaces, disclosure
+//! and composer dock fills, plus readable normal and muted UI text.
 
 pub(super) const BUNDLED: &[&str] = &[
     include_str!("palettes/catppuccin.json"),
@@ -13,3 +14,8 @@ pub(super) const BUNDLED: &[&str] = &[
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod contrast_tests;
+#[cfg(test)]
+mod fixtures;

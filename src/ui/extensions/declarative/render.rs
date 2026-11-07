@@ -127,17 +127,24 @@ impl DeclarativeView {
                         crate::ui::motion::toggled(toggle.clone(), !opened, cx);
                         cx.notify();
                     }));
+                let inset = cx
+                    .theme()
+                    .radius
+                    .max(prefs::scaled(8.).to_pixels(cx.theme().font_size));
                 let content = self
                     .fill(children, path, cx)
                     .w_full()
-                    .px_2()
-                    .pb_2()
+                    .px(inset)
+                    .pb(inset)
                     .into_any_element();
-                v_flex()
-                    .w_full()
-                    .child(header)
-                    .children(crate::ui::motion::reveal(key, opened, cx, || content))
-                    .into_any_element()
+                kit::surface(
+                    v_flex()
+                        .w_full()
+                        .disclosure_frame(cx)
+                        .child(header)
+                        .children(crate::ui::motion::reveal(key, opened, cx, || content)),
+                    cx,
+                )
             }
             Node::Cells { columns, segments } => super::cells::cells(path, *columns, segments, cx),
             Node::Graph { id, .. } => div()

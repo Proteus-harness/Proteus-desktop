@@ -142,9 +142,9 @@ impl Render for DeclarativeBadge {
                     caret,
                 } => {
                     let (show_icon, caret) = (*show_icon, *caret);
-                    // Muted and default faces inherit the badge color, so they
-                    // brighten on hover with the rest of the status bar.
-                    let color = (!matches!(tone, Tone::Muted | Tone::Default))
+                    // Default is ordinary readable text, as in Node::Text.
+                    // Only an explicitly muted face inherits the badge tint.
+                    let color = (!matches!(tone, Tone::Muted))
                         .then(|| super::render::tone_color(*tone, cx));
                     let text = text.clone();
                     let chevron_key =

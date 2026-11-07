@@ -232,7 +232,7 @@ impl Workspace {
                     .left(prefs::scaled(SURFACE_INSET_X))
                     .right(prefs::scaled(SURFACE_INSET_X))
                     .rounded(theme.radius)
-                    .when(state.active, |surface| surface.bg(theme.background))
+                    .when(state.active, |surface| surface.bg(theme.tab_active))
                     .when(!state.active, |surface| {
                         surface.group_hover(tab_group.clone(), move |surface| surface.bg(hover))
                     }),

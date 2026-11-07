@@ -110,7 +110,14 @@ pub(super) fn nested_group(
     body: Option<AnyElement>,
     cx: &App,
 ) -> AnyElement {
-    kit::surface(group_box(cx).m_2().child(header).children(body), cx)
+    kit::surface(
+        v_flex()
+            .disclosure_frame(cx)
+            .m_2()
+            .child(header)
+            .children(body),
+        cx,
+    )
 }
 
 /// Equal side insets, without a separate rule under the chevron.

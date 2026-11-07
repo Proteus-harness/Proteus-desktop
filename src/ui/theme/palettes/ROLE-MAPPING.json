@@ -1,6 +1,6 @@
 {
   "format_version": 1,
-  "scope": "Builtin JSON only; custom themes are never projected or rewritten at runtime. Syntax/highlight and all color keys outside fields are preserved from the GPUI Kit import. Border is explicitly adapted with the surfaces so settings frames stay visible.",
+  "scope": "Builtin JSON only; custom themes are never projected or rewritten at runtime. Fields explicitly adapt authored surfaces, frames and readable UI labels. All other colors, including disabled states, and the complete syntax/highlight payload remain from the GPUI Kit import.",
   "fields": {
     "chrome": [
       "title_bar.background",
@@ -12,8 +12,7 @@
       "tab_bar.segmented.background"
     ],
     "content": [
-      "background",
-      "tab.active.background"
+      "background"
     ],
     "card": [
       "group_box.background"
@@ -26,6 +25,28 @@
     ],
     "border": [
       "border"
+    ],
+    "active_tab": [
+      "tab.active.background"
+    ],
+    "accordion": [
+      "accordion.background"
+    ],
+    "secondary": [
+      "secondary.background"
+    ],
+    "foreground": [
+      "foreground",
+      "sidebar.foreground",
+      "group_box.foreground",
+      "popover.foreground",
+      "secondary.foreground",
+      "tab.active.foreground",
+      "button.secondary.foreground"
+    ],
+    "muted_foreground": [
+      "muted.foreground",
+      "tab.foreground"
     ]
   },
   "sources": {
@@ -170,7 +191,8 @@
         "card": "surface0",
         "popover": "surface0",
         "muted": "surface0",
-        "border": "surface2 / editorHoverWidget.border"
+        "border": "surface2 / editorHoverWidget.border",
+        "active_tab": "surface0 (dark); base (light)"
       },
       "note": "Catppuccin VSCode default workbench roles; surface0 supplies card, muted and popup surfaces. Profile is a key in palette.json; use colors.<token>.hex. Border follows the official hover/suggest popup surface2 role rather than the accent-colored dropdown border."
     },
@@ -189,7 +211,8 @@
         "card": "bg_highlight",
         "popover": "bg_highlight",
         "muted": "bg_highlight",
-        "border": "border / WinSeparator"
+        "border": "border / WinSeparator",
+        "active_tab": "bg_highlight"
       },
       "note": "Named Tokyo Night palette backgrounds adapted to Proteus roles. Night deep-copies storm, then overrides bg/bg_dark/bg_dark1; bg_highlight therefore comes from storm.lua. Border adapts the neutral WinSeparator token to settings frames, not the colored FloatBorder. Values are upstream-derived black=blend(bg,0.8,#000000); no Proteus runtime blending."
     },
@@ -205,7 +228,8 @@
           "card": "dark1",
           "popover": "dark1",
           "muted": "dark1",
-          "border": "dark3 / VertSplit foreground"
+          "border": "dark3 / VertSplit foreground",
+          "active_tab": "dark1"
         },
         "light": {
           "chrome": "light1",
@@ -214,7 +238,8 @@
           "card": "light1",
           "popover": "light1",
           "muted": "light1",
-          "border": "light3 / VertSplit foreground"
+          "border": "light3 / VertSplit foreground",
+          "active_tab": "light0"
         }
       },
       "note": "Explicit Proteus contrast adaptation using named Gruvbox colors, not the default Gruvbox workbench placement. Dark spans three bg0 contrast variants; Light uses light1/light0_soft/light0. Border reuses the official VertSplit bg3 foreground as a Proteus popup/field adaptation."
@@ -232,7 +257,8 @@
         "card": "bg2",
         "popover": "bg2",
         "muted": "bg2",
-        "border": "bg5 / dropdown.border"
+        "border": "bg5 / dropdown.border",
+        "active_tab": "bg2 (dark); bg (light)"
       },
       "note": "Official VSCode medium background palette, following highContrast.ts chrome/sidebar/editor roles. Cards, muted and popup use the same palette bg2. Profile selects dark or light background/medium.ts. Border is dropdown.border=bg5. Moving the tab strip from editor to sidebar is a Proteus adaptation."
     },
@@ -249,7 +275,8 @@
           "card": "editor.lineHighlightBackground",
           "popover": "editor.lineHighlightBackground",
           "muted": "editor.lineHighlightBackground",
-          "border": "dropdown.border"
+          "border": "dropdown.border",
+          "active_tab": "editor.lineHighlightBackground"
         },
         "light": {
           "chrome": "activityBar.background",
@@ -258,7 +285,8 @@
           "card": "sideBar.background",
           "popover": "sideBar.background",
           "muted": "sideBar.background",
-          "border": "dropdown.border"
+          "border": "dropdown.border",
+          "active_tab": "editor.background"
         }
       },
       "note": "Microsoft VSCode port. Proteus reassigns Dark peekViewEditor.background inset #10192c to chrome; this is not an original Solarized three-level workbench design. Dark cards use base02, Light cards base2."
@@ -277,7 +305,8 @@
         "card": "ui.panel.bg / editorWidget.background",
         "popover": "ui.popup.bg / menu.background",
         "muted": "ui.panel.bg / editorWidget.background",
-        "border": "ui.line / dropdown.border"
+        "border": "ui.line / dropdown.border",
+        "active_tab": "ui.panel.bg / editorWidget.background (dark); surface.lift / editor.background (light)"
       },
       "note": "Official ayu-colors semantic tokens and generated VSCode JSON. Generated JSON resolves Dark surface.sunk to #010102. Panel here means ui.panel.bg (editorWidget), not VSCode panel.background. Border is ui.line; alpha comes from upstream. Moving rail from base to sunk and tab strip from lift to base are Proteus adaptations."
     }
@@ -295,9 +324,35 @@
         "card": "#ccd0da",
         "popover": "#ccd0da",
         "muted": "#ccd0da",
-        "border": "#acb0be"
+        "border": "#acb0be",
+        "active_tab": "#eff1f5",
+        "accordion": "#dce0e8",
+        "secondary": "#ccd0da",
+        "foreground": "#4c4f69",
+        "muted_foreground": "#4c4f69"
       },
-      "preserved_payload_sha256": "fbbeb3bd08c7b6bbf10352c64eaec1eb54a7a2e5b85b939d5bd0d0b678cd5300"
+      "preserved_payload_sha256": "d126205456405b5f3982610bc6931cc6585a95fcd9c762bf414800eb5e92297a",
+      "tokens": {
+        "accordion": "crust",
+        "secondary": "surface0 (input surface)",
+        "foreground": "text",
+        "muted_foreground": "text"
+      },
+      "muted_candidates": [
+        {
+          "token": "subtext0",
+          "color": "#6c6f85"
+        },
+        {
+          "token": "subtext1",
+          "color": "#5c5f77"
+        },
+        {
+          "token": "text",
+          "color": "#4c4f69"
+        }
+      ],
+      "selection_minimum_srgb_ratio": 5.1726
     },
     {
       "name": "Catppuccin Frappe",
@@ -311,9 +366,35 @@
         "card": "#414559",
         "popover": "#414559",
         "muted": "#414559",
-        "border": "#626880"
+        "border": "#626880",
+        "active_tab": "#414559",
+        "accordion": "#51576d",
+        "secondary": "#414559",
+        "foreground": "#c6d0f5",
+        "muted_foreground": "#c6d0f5"
       },
-      "preserved_payload_sha256": "a1ea76d541932b0b03f2cd01715fb40011e4409506159a05438b83a50af8d859"
+      "preserved_payload_sha256": "a8c831a95fd0ac7873e8e0e514436229619c90d26f5182d416c1864af7dea7bc",
+      "tokens": {
+        "accordion": "surface1",
+        "secondary": "GPUI Kit secondary.background",
+        "foreground": "text",
+        "muted_foreground": "text"
+      },
+      "muted_candidates": [
+        {
+          "token": "subtext0",
+          "color": "#a5adce"
+        },
+        {
+          "token": "subtext1",
+          "color": "#b5bfe2"
+        },
+        {
+          "token": "text",
+          "color": "#c6d0f5"
+        }
+      ],
+      "selection_minimum_srgb_ratio": 4.6838
     },
     {
       "name": "Catppuccin Macchiato",
@@ -327,9 +408,35 @@
         "card": "#363a4f",
         "popover": "#363a4f",
         "muted": "#363a4f",
-        "border": "#5b6078"
+        "border": "#5b6078",
+        "active_tab": "#363a4f",
+        "accordion": "#494d64",
+        "secondary": "#363a4f",
+        "foreground": "#cad3f5",
+        "muted_foreground": "#b8c0e0"
       },
-      "preserved_payload_sha256": "aeced34cef1cf32717d2a1dea14312579812f9d1e7a104d0c340c8c204b76fd1"
+      "preserved_payload_sha256": "bc85eae71859fa6e16e694ffe25c20cd45e87dd54a514818e8a0741720f215a9",
+      "tokens": {
+        "accordion": "surface1",
+        "secondary": "GPUI Kit secondary.background",
+        "foreground": "text",
+        "muted_foreground": "subtext1"
+      },
+      "muted_candidates": [
+        {
+          "token": "subtext0",
+          "color": "#a5adcb"
+        },
+        {
+          "token": "subtext1",
+          "color": "#b8c0e0"
+        },
+        {
+          "token": "text",
+          "color": "#cad3f5"
+        }
+      ],
+      "selection_minimum_srgb_ratio": 4.6085
     },
     {
       "name": "Catppuccin Mocha",
@@ -343,9 +450,35 @@
         "card": "#313244",
         "popover": "#313244",
         "muted": "#313244",
-        "border": "#585b70"
+        "border": "#585b70",
+        "active_tab": "#313244",
+        "accordion": "#45475a",
+        "secondary": "#302d41",
+        "foreground": "#cdd6f4",
+        "muted_foreground": "#bac2de"
       },
-      "preserved_payload_sha256": "05399fa2d4c5169026038f2ae11307489300d30826365b9bbe5cfa6c5db9abe2"
+      "preserved_payload_sha256": "1fa6ccd7f9f183d05b87ec2916665d4dd3ed7297b5f51c5a248c86293876c62a",
+      "tokens": {
+        "accordion": "surface1",
+        "secondary": "GPUI Kit secondary.background",
+        "foreground": "text",
+        "muted_foreground": "subtext1"
+      },
+      "muted_candidates": [
+        {
+          "token": "subtext0",
+          "color": "#a6adc8"
+        },
+        {
+          "token": "subtext1",
+          "color": "#bac2de"
+        },
+        {
+          "token": "text",
+          "color": "#cdd6f4"
+        }
+      ],
+      "selection_minimum_srgb_ratio": 5.1518
     },
     {
       "name": "Tokyo Night",
@@ -359,9 +492,35 @@
         "card": "#292e42",
         "popover": "#292e42",
         "muted": "#292e42",
-        "border": "#15161e"
+        "border": "#15161e",
+        "active_tab": "#292e42",
+        "accordion": "#0c0e14",
+        "secondary": "#292e42",
+        "foreground": "#c0caf5",
+        "muted_foreground": "#a9b1d6"
       },
-      "preserved_payload_sha256": "8b5c2f68eaef261e989da7bd7673d594675e3994c1c9055c4c97e07556627e8c"
+      "preserved_payload_sha256": "ab14a810b129d599ab8583e21db88d7c6424cfbdbb279f4e85c2ba81e45baf05",
+      "tokens": {
+        "accordion": "bg_dark1",
+        "secondary": "GPUI Kit secondary.background",
+        "foreground": "GPUI Kit foreground",
+        "muted_foreground": "fg_dark"
+      },
+      "muted_candidates": [
+        {
+          "token": "comment",
+          "color": "#737aa2"
+        },
+        {
+          "token": "fg_dark",
+          "color": "#a9b1d6"
+        },
+        {
+          "token": "fg",
+          "color": "#c0caf5"
+        }
+      ],
+      "selection_minimum_srgb_ratio": 6.3609
     },
     {
       "name": "Tokyo Storm",
@@ -375,9 +534,35 @@
         "card": "#292e42",
         "popover": "#292e42",
         "muted": "#292e42",
-        "border": "#1d202f"
+        "border": "#1d202f",
+        "active_tab": "#292e42",
+        "accordion": "#1b1e2d",
+        "secondary": "#292e42",
+        "foreground": "#c0caf5",
+        "muted_foreground": "#a9b1d6"
       },
-      "preserved_payload_sha256": "0a40a11041c3ddc3ae98a91a6d4b4431ed10579baa54c4a41609d898906ac6a4"
+      "preserved_payload_sha256": "4c1abe8596204fe116840416bdfd2d88a53daf8f5df5a1030a765af542a450de",
+      "tokens": {
+        "accordion": "bg_dark1",
+        "secondary": "GPUI Kit secondary.background",
+        "foreground": "GPUI Kit foreground",
+        "muted_foreground": "fg_dark"
+      },
+      "muted_candidates": [
+        {
+          "token": "comment",
+          "color": "#737aa2"
+        },
+        {
+          "token": "fg_dark",
+          "color": "#a9b1d6"
+        },
+        {
+          "token": "fg",
+          "color": "#c0caf5"
+        }
+      ],
+      "selection_minimum_srgb_ratio": 6.3609
     },
     {
       "name": "Tokyo Moon",
@@ -391,9 +576,35 @@
         "card": "#2f334d",
         "popover": "#2f334d",
         "muted": "#2f334d",
-        "border": "#1b1d2b"
+        "border": "#1b1d2b",
+        "active_tab": "#2f334d",
+        "accordion": "#191b29",
+        "secondary": "#2d3149",
+        "foreground": "#c0caf5",
+        "muted_foreground": "#c8d3f5"
       },
-      "preserved_payload_sha256": "1119f3829ac58c0b50b4f45eb984a1ee6d6d28f7d88a09a2a24c015c9f57f905"
+      "preserved_payload_sha256": "ea5a495d1126e6ca322d39feb6335fa30975bc07c283be521cec119a74a54e7c",
+      "tokens": {
+        "accordion": "bg_dark1",
+        "secondary": "GPUI Kit secondary.background",
+        "foreground": "GPUI Kit foreground",
+        "muted_foreground": "fg"
+      },
+      "muted_candidates": [
+        {
+          "token": "comment",
+          "color": "#737aa2"
+        },
+        {
+          "token": "fg_dark",
+          "color": "#828bb8"
+        },
+        {
+          "token": "fg",
+          "color": "#c8d3f5"
+        }
+      ],
+      "selection_minimum_srgb_ratio": 8.2819
     },
     {
       "name": "Gruvbox Light",
@@ -407,9 +618,35 @@
         "card": "#ebdbb2",
         "popover": "#ebdbb2",
         "muted": "#ebdbb2",
-        "border": "#bdae93"
+        "border": "#bdae93",
+        "active_tab": "#fbf1c7",
+        "accordion": "#d5c4a1",
+        "secondary": "#EBDBB2",
+        "foreground": "#3c3836",
+        "muted_foreground": "#504945"
       },
-      "preserved_payload_sha256": "b5ca40929af888cf37137af1d0d340d459d85a0b7728737c8ca3037f598a9f82"
+      "preserved_payload_sha256": "d1edcdd13a0840ab2274a43cdac84955fd872e9b11a997aeba652ee94dffc0da",
+      "tokens": {
+        "accordion": "light2",
+        "secondary": "GPUI Kit secondary.background",
+        "foreground": "GPUI Kit foreground",
+        "muted_foreground": "dark2"
+      },
+      "muted_candidates": [
+        {
+          "token": "dark3",
+          "color": "#665c54"
+        },
+        {
+          "token": "dark2",
+          "color": "#504945"
+        },
+        {
+          "token": "dark1",
+          "color": "#3c3836"
+        }
+      ],
+      "selection_minimum_srgb_ratio": 5.1427
     },
     {
       "name": "Gruvbox Dark",
@@ -423,9 +660,35 @@
         "card": "#3c3836",
         "popover": "#3c3836",
         "muted": "#3c3836",
-        "border": "#665c54"
+        "border": "#665c54",
+        "active_tab": "#3c3836",
+        "accordion": "#504945",
+        "secondary": "#3c3836",
+        "foreground": "#ebdbb2",
+        "muted_foreground": "#d5c4a1"
       },
-      "preserved_payload_sha256": "811c479489924904f2ef033d5c139b1ce87abc8e1107d1c6cca6328cde06f18a"
+      "preserved_payload_sha256": "1a4589831958b52f435a5ec64ad35eb6d24698ddfb98ca85df63b79b5c7cab3f",
+      "tokens": {
+        "accordion": "dark2",
+        "secondary": "dark1",
+        "foreground": "GPUI Kit foreground",
+        "muted_foreground": "light3"
+      },
+      "muted_candidates": [
+        {
+          "token": "light4",
+          "color": "#bdae93"
+        },
+        {
+          "token": "light3",
+          "color": "#d5c4a1"
+        },
+        {
+          "token": "light1",
+          "color": "#ebdbb2"
+        }
+      ],
+      "selection_minimum_srgb_ratio": 5.1427
     },
     {
       "name": "Everforest Light",
@@ -439,9 +702,27 @@
         "card": "#f4f0d9",
         "popover": "#f4f0d9",
         "muted": "#f4f0d9",
-        "border": "#e0dcc7"
+        "border": "#e0dcc7",
+        "active_tab": "#fdf6e3",
+        "accordion": "#e6e2cc",
+        "secondary": "#EEEADA",
+        "foreground": "#434f55",
+        "muted_foreground": "#434f55"
       },
-      "preserved_payload_sha256": "74839be34543c56b8d6436755c5e7824f160be782f27b0076d863db4ffa3bce0"
+      "preserved_payload_sha256": "b51ddcaabc5a722907c90b0020325f1fce66bfeeb4fcbae17d55fc9bcc7d5641",
+      "tokens": {
+        "accordion": "bg4 (light medium)",
+        "secondary": "GPUI Kit secondary.background",
+        "foreground": "bg4 (dark medium; Proteus stronger-label adaptation)",
+        "muted_foreground": "bg4 (dark medium; stronger label adaptation)"
+      },
+      "muted_candidates": [
+        {
+          "token": "bg4 (dark medium; stronger label adaptation)",
+          "color": "#434f55"
+        }
+      ],
+      "selection_minimum_srgb_ratio": 6.4765
     },
     {
       "name": "Everforest Dark",
@@ -455,9 +736,35 @@
         "card": "#343f44",
         "popover": "#343f44",
         "muted": "#343f44",
-        "border": "#4f585e"
+        "border": "#4f585e",
+        "active_tab": "#343f44",
+        "accordion": "#3d484d",
+        "secondary": "#343f44",
+        "foreground": "#d3c6aa",
+        "muted_foreground": "#d3c6aa"
       },
-      "preserved_payload_sha256": "849c48e2aef64ddc9f518b8af641c3140ffe5bb7c2f6b52dce896a9458fb3ab5"
+      "preserved_payload_sha256": "f7c8f7bd391f49ebb2a0a8750b4691cef65859115644fc72ca97db008dd13c66",
+      "tokens": {
+        "accordion": "bg3 (dark medium)",
+        "secondary": "bg2",
+        "foreground": "GPUI Kit foreground",
+        "muted_foreground": "fg"
+      },
+      "muted_candidates": [
+        {
+          "token": "grey1",
+          "color": "#859289"
+        },
+        {
+          "token": "grey2",
+          "color": "#9aa79d"
+        },
+        {
+          "token": "fg",
+          "color": "#d3c6aa"
+        }
+      ],
+      "selection_minimum_srgb_ratio": 5.5667
     },
     {
       "name": "Solarized Light",
@@ -471,9 +778,27 @@
         "card": "#eee8d5",
         "popover": "#eee8d5",
         "muted": "#eee8d5",
-        "border": "#d3af86"
+        "border": "#d3af86",
+        "active_tab": "#fdf6e3",
+        "accordion": "#ddd6c1",
+        "secondary": "#EEE8D5",
+        "foreground": "#073642",
+        "muted_foreground": "#073642"
       },
-      "preserved_payload_sha256": "e9b7b75536867d4c4b6ffd88484c78d690c1864bab39bab90dba20dadf3f1850"
+      "preserved_payload_sha256": "8a2a95529ea2ee6269dd6ff566fca0c20f42f6c8ea06a85173fc9794d7fb0e50",
+      "tokens": {
+        "accordion": "activityBar.background (Microsoft port)",
+        "secondary": "GPUI Kit secondary.background",
+        "foreground": "base02 (Proteus stronger-label adaptation)",
+        "muted_foreground": "base02 (stronger label adaptation)"
+      },
+      "muted_candidates": [
+        {
+          "token": "base02 (stronger label adaptation)",
+          "color": "#073642"
+        }
+      ],
+      "selection_minimum_srgb_ratio": 8.9534
     },
     {
       "name": "Solarized Dark",
@@ -487,9 +812,35 @@
         "card": "#073642",
         "popover": "#073642",
         "muted": "#073642",
-        "border": "#2aa19899"
+        "border": "#2aa19899",
+        "active_tab": "#073642",
+        "accordion": "#00212b",
+        "secondary": "#073642",
+        "foreground": "#fdf6e3",
+        "muted_foreground": "#93a1a1"
       },
-      "preserved_payload_sha256": "c9b5b89f638e9f51df8a6b99bbcf06168597499b166cf33f67e2d333d749d19a"
+      "preserved_payload_sha256": "7914a6aeef708f6ffcca5ca1010a12a957ff8727e31556143d59b750579b2011",
+      "tokens": {
+        "accordion": "sideBar.background (Microsoft port)",
+        "secondary": "GPUI Kit secondary.background",
+        "foreground": "GPUI Kit foreground",
+        "muted_foreground": "base1"
+      },
+      "muted_candidates": [
+        {
+          "token": "base0",
+          "color": "#839496"
+        },
+        {
+          "token": "base1",
+          "color": "#93a1a1"
+        },
+        {
+          "token": "base3",
+          "color": "#fdf6e3"
+        }
+      ],
+      "selection_minimum_srgb_ratio": 4.8615
     },
     {
       "name": "Ayu Light",
@@ -503,9 +854,27 @@
         "card": "#fafafa",
         "popover": "#ffffff",
         "muted": "#fafafa",
-        "border": "#6b7d8f1f"
+        "border": "#6b7d8f1f",
+        "active_tab": "#fcfcfc",
+        "accordion": "#CECECE",
+        "secondary": "#ECECED",
+        "foreground": "#020a12a3",
+        "muted_foreground": "#020a12a3"
       },
-      "preserved_payload_sha256": "a3a6b14edf33b77eb4732e7f8e72c8240f4ffb5525cfb9b09a5e5025345021fc"
+      "preserved_payload_sha256": "9548a2e10bb74ce63ca40c72673f29cbe907a767bb423c1aa3d42a3c1e53da35",
+      "tokens": {
+        "accordion": "GPUI Kit secondary.active.background",
+        "secondary": "GPUI Kit secondary.background",
+        "foreground": "ui.fg / editor.foreground (64% alpha)",
+        "muted_foreground": "ui.fg / editor.foreground (64% alpha)"
+      },
+      "muted_candidates": [
+        {
+          "token": "ui.fg / editor.foreground (64% alpha)",
+          "color": "#020a12a3"
+        }
+      ],
+      "selection_minimum_srgb_ratio": 5.1199
     },
     {
       "name": "Ayu Dark",
@@ -519,10 +888,44 @@
         "card": "#141821",
         "popover": "#0f131a",
         "muted": "#141821",
-        "border": "#1b1f29"
+        "border": "#1b1f29",
+        "active_tab": "#141821",
+        "accordion": "#26282f",
+        "secondary": "#1F2127",
+        "foreground": "#B3B1AD",
+        "muted_foreground": "#b3b1ad"
       },
-      "preserved_payload_sha256": "d58c495c02374b7b126a67ddf9432c344deae6869fd8a28a95b9775c253bf289"
+      "preserved_payload_sha256": "ff00d76e6fcea90d74d9cf24339613c9c063f32481eee1a4b40ae59b8810e559",
+      "tokens": {
+        "accordion": "GPUI Kit secondary.active.background",
+        "secondary": "GPUI Kit secondary.background",
+        "foreground": "GPUI Kit foreground",
+        "muted_foreground": "GPUI Kit foreground (opaque)"
+      },
+      "muted_candidates": [
+        {
+          "token": "GPUI Kit foreground (opaque)",
+          "color": "#b3b1ad"
+        }
+      ],
+      "selection_minimum_srgb_ratio": 6.874
     }
   ],
-  "preserved_payload_hash": "SHA256 of UTF-8 compact JSON with recursively sorted keys: {colors: all keys except fields, highlight: full original highlight}. This freezes syntax, accents, text and control colors independently of structural adaptation."
+  "preserved_payload_hash": "SHA256 of UTF-8 compact JSON with recursively sorted keys: {colors: all keys except fields, highlight: full original highlight}. This freezes syntax, accents, text and control colors independently of structural adaptation.",
+  "active_tab_policy": "Proteus adaptation: dark active tabs use the authored card surface, lighter than content; light active tabs retain content. The renderer reads tab.active.background directly, including custom themes.",
+  "contrast_policy": {
+    "source": "https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html",
+    "minimum_ratio": 4.5,
+    "surfaces": [
+      "background",
+      "sidebar.background",
+      "group_box.background",
+      "secondary.background",
+      "popover.background",
+      "accordion.background"
+    ],
+    "selection": "Offline only: choose the first listed authored candidate that meets 4.5:1 on every listed surface. Store one explicit color; no runtime color or brightness heuristic.",
+    "alpha": "Source-over composition in sRGB over the actual opaque background, then WCAG sRGB linearization and relative luminance. Tests resolve Theme and native HSL named tokens before conversion to Rgba.",
+    "scope": "Checks cover theme labels, muted text and secondary control fills; this is not full UI accessibility certification. Disabled-state colors are outside this adaptation."
+  }
 }

@@ -51,11 +51,9 @@ impl Chat {
                 .children(dock.map(|dock| {
                     div()
                         .mx_3()
-                        .pb_2()
-                        .mb_neg_2()
+                        .mb_1()
                         .surface_frame(cx)
-                        .rounded_b(px(0.))
-                        .bg(theme.group_box)
+                        .bg(theme.accordion)
                         .child(dock)
                 }))
                 .child(

@@ -22,12 +22,28 @@ pub(crate) fn surface(content: impl IntoElement, cx: &App) -> AnyElement {
 /// Inherits its hover target from the nearest named group, without changing
 /// that target's layout, text color, focus, or mouse handling.
 pub(crate) fn surface_highlight(group: &'static str, cx: &App) -> Div {
-    let hover = cx.theme().list_hover;
+    surface_paint(
+        group,
+        transparent_black(),
+        cx.theme().list_hover,
+        px(1.),
+        cx,
+    )
+}
+
+/// A bounded disclosure paints the containing panel's curve even when its
+/// short header cannot itself fit that radius. The content remains unpainted.
+pub(crate) fn surface_header(group: &'static str, cx: &App) -> Div {
+    let fill = cx.theme().accordion;
+    surface_paint(group, fill, fill.blend(cx.theme().list_hover), px(0.), cx)
+}
+
+fn surface_paint(group: &'static str, base: Hsla, hover: Hsla, edge: Pixels, cx: &App) -> Div {
     let radius = cx.theme().radius_lg;
     div()
         .absolute()
         .inset_0()
-        .text_color(transparent_black())
+        .text_color(base)
         .group_hover(group, move |style| style.text_color(hover))
         .child(
             canvas(
@@ -44,7 +60,7 @@ pub(crate) fn surface_highlight(group: &'static str, cx: &App) -> Div {
                                 .corner_radii(
                                     Corners::all(radius).clamp_radii_for_quad_size(frame.size),
                                 )
-                                .border_widths(px(1.))
+                                .border_widths(edge)
                         } else {
                             fill(bounds, color).corner_radii(radius)
                         };

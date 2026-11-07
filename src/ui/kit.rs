@@ -192,16 +192,31 @@ pub(crate) trait Pressable: StatefulInteractiveElement + Styled {
             .hover(|style| style.text_color(theme.foreground))
     }
 
-    /// Bounded form disclosures also highlight their shared surface.
+    /// The header shares its panel's painted curve, including at large radii.
     fn disclosure_surface(self, cx: &App) -> Self
     where
         Self: gpui_kit::ParentElement,
     {
-        self.disclosure(cx)
+        let theme = cx.theme();
+        let row = self
+            .disclosure(cx)
             .relative()
-            .rounded(cx.theme().radius_lg)
-            .group("disclosure-surface")
-            .child(surface_highlight("disclosure-surface", cx))
+            .rounded(theme.radius_lg)
+            .text_color(theme.foreground);
+        let row = if keyboard() {
+            // Focus is a text marker: a separate header quad would escape
+            // the panel's larger curve, and the canvas would cover its fill.
+            row.focus(move |style| {
+                style
+                    .bg(theme.transparent)
+                    .text_color(theme.foreground)
+                    .underline()
+            })
+        } else {
+            row
+        };
+        row.group("disclosure-surface")
+            .child(surface::surface_header("disclosure-surface", cx))
     }
 
     fn pressable(self, cx: &App) -> Self {

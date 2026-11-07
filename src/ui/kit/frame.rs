@@ -20,6 +20,16 @@ pub(crate) trait Frame: Styled + Sized {
     fn surface_frame(self, cx: &App) -> Self {
         self.frame(cx).rounded(cx.theme().radius_lg)
     }
+
+    /// A bounded disclosure owns one visible panel around its header and body,
+    /// including when that panel is nested inside a group-box card.
+    fn disclosure_frame(self, cx: &App) -> Self {
+        self.surface_frame(cx)
+            .border_0()
+            .bg(cx.theme().group_box)
+            .text_color(cx.theme().foreground)
+            .overflow_hidden()
+    }
 }
 
 impl<T: Styled> Frame for T {}
