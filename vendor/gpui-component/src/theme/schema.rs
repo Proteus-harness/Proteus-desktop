@@ -121,6 +121,7 @@ pub struct SemanticColorConfig {
     pub border: Option<SharedString>,
     pub input: Option<SharedString>,
     pub ring: Option<SharedString>,
+    pub selection: Option<SharedString>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
@@ -203,6 +204,7 @@ impl SemanticThemeConfig {
         apply_color!(border);
         apply_color!(input);
         apply_color!(ring);
+        apply_color!(selection);
 
         macro_rules! apply_pixels {
             ($config:expr, $tokens:expr, $($field:ident),+ $(,)?) => {
@@ -399,13 +401,19 @@ pub struct ThemeConfigColors {
     #[serde(rename = "danger.hover.background")]
     pub danger_hover: Option<SharedString>,
     /// Description List label background color.
-    #[serde(rename = "description_list.label.background")]
+    #[serde(
+        rename = "description_list.label.background",
+        alias = "description_list_label.background"
+    )]
     pub description_list_label: Option<SharedString>,
     /// Description List label foreground color.
-    #[serde(rename = "description_list.label.foreground")]
+    #[serde(
+        rename = "description_list.label.foreground",
+        alias = "description_list_label.foreground"
+    )]
     pub description_list_label_foreground: Option<SharedString>,
     /// Drag border color.
-    #[serde(rename = "drag.border")]
+    #[serde(rename = "drag.border", alias = "drag_border")]
     pub drag_border: Option<SharedString>,
     /// Drop target background color.
     #[serde(rename = "drop_target.background")]
@@ -429,13 +437,13 @@ pub struct ThemeConfigColors {
     #[serde(rename = "input.border")]
     pub input: Option<SharedString>,
     /// Link text color.
-    #[serde(rename = "link")]
+    #[serde(rename = "link", alias = "link.foreground")]
     pub link: Option<SharedString>,
     /// Active link text color.
-    #[serde(rename = "link.active")]
+    #[serde(rename = "link.active", alias = "link.active.foreground")]
     pub link_active: Option<SharedString>,
     /// Hover link text color.
-    #[serde(rename = "link.hover")]
+    #[serde(rename = "link.hover", alias = "link.hover.foreground")]
     pub link_hover: Option<SharedString>,
     /// Background color for List and ListItem.
     #[serde(rename = "list.background")]
@@ -480,7 +488,7 @@ pub struct ThemeConfigColors {
     #[serde(rename = "primary.hover.background")]
     pub primary_hover: Option<SharedString>,
     /// Progress bar background color.
-    #[serde(rename = "progress.bar.background")]
+    #[serde(rename = "progress.bar.background", alias = "progress_bar.background")]
     pub progress_bar: Option<SharedString>,
     /// Used for focus ring.
     #[serde(rename = "ring")]
@@ -534,7 +542,7 @@ pub struct ThemeConfigColors {
     #[serde(rename = "skeleton.background")]
     pub skeleton: Option<SharedString>,
     /// Slider bar background color.
-    #[serde(rename = "slider.background")]
+    #[serde(rename = "slider.background", alias = "slider.bar.background")]
     pub slider_bar: Option<SharedString>,
     /// Slider thumb background color.
     #[serde(rename = "slider.thumb.background")]
@@ -917,6 +925,10 @@ impl ThemeColor {
                 )
         );
         apply_color!(group_box_foreground, fallback = self.foreground);
+        apply_color!(
+            group_box_title_foreground,
+            fallback = self.group_box_foreground
+        );
         apply_color!(caret, fallback = self.primary);
         apply_color!(chart_1, fallback = self.blue.lighten(0.4));
         apply_color!(chart_2, fallback = self.blue.lighten(0.2));
@@ -1271,7 +1283,7 @@ mod tests {
     #[test]
     fn test_aurora_theme_parses_gradient_backgrounds() {
         let theme_set =
-            serde_json::from_str::<ThemeSet>(include_str!("../../../../themes/aurora.json"))
+            serde_json::from_str::<ThemeSet>(r##"{"name":"Synthetic gradients","themes":[{"name":"Aurora Light","mode":"light","colors":{"background":"#FFFFFF","button.primary.background":"linear-gradient(90deg, #1E293B, #06B6D4)","progress.bar.background":"linear-gradient(90deg, #1E293B, #06B6D4)","scrollbar.thumb.background":"linear-gradient(90deg, #1E293B, #06B6D4)","switch.background":"linear-gradient(90deg, #1E293B, #06B6D4)","switch.thumb.background":"linear-gradient(90deg, #1E293B, #06B6D4)","title_bar.background":"linear-gradient(90deg, #1E293B, #06B6D4)","status_bar.background":"linear-gradient(90deg, #1E293B, #06B6D4)"}}]}"##)
                 .unwrap();
         assert_eq!(theme_set.themes.len(), 1);
         assert!(theme_set.themes.iter().all(|theme| !theme.mode.is_dark()));
@@ -1357,5 +1369,54 @@ mod tests {
                 linear_color_stop(blue.alpha(0.3), 1.),
             )
         );
+    }
+}
+
+#[cfg(test)]
+mod audit_regressions {
+    use super::*;
+    #[test]
+    fn audit_group_box_title_and_semantic_selection_are_applied() {
+        let config: ThemeConfig = serde_json::from_str(r##"{"colors":{"group_box.title.foreground":"#ff0000","group_box.foreground":"#0000ff"}}"##).unwrap();
+        let mut colors = ThemeColor::default();
+        colors.apply_config(&config, &ThemeColor::default());
+        assert_eq!(
+            colors.group_box_title_foreground,
+            try_parse_color("#ff0000").unwrap()
+        );
+        assert_ne!(
+            colors.group_box_title_foreground,
+            colors.group_box_foreground
+        );
+        let mut theme = Theme::default();
+        let tokens = theme
+            .apply_semantic_config_str(r##"{"tokens":{"colors":{"selection":"#ff0000"}}}"##)
+            .unwrap();
+        assert_eq!(tokens.colors.selection, try_parse_color("#ff0000").unwrap());
+        assert_eq!(theme.selection, tokens.colors.selection);
+    }
+}
+
+#[cfg(test)]
+mod palette_key_regressions {
+    use super::*;
+    #[test]
+    fn audit_bundled_palette_color_keys_are_canonical_and_declared() {
+        let declared = serde_json::to_value(ThemeConfigColors::default()).unwrap();
+        let themes: serde_json::Value =
+            serde_json::from_str(include_str!("default-theme.json")).unwrap();
+        for theme in themes["themes"].as_array().unwrap() {
+            for key in theme["colors"].as_object().unwrap().keys() {
+                assert!(declared.get(key).is_some(), "undeclared key: {key}");
+            }
+        }
+        let legacy: ThemeConfigColors =
+            serde_json::from_str(r##"{"drag_border":"#ff0000","link.foreground":"#00ff00"}"##)
+                .unwrap();
+        assert_eq!(legacy.drag_border.as_deref(), Some("#ff0000"));
+        assert_eq!(legacy.link.as_deref(), Some("#00ff00"));
+        let canonical = serde_json::to_value(legacy).unwrap();
+        assert_eq!(canonical["drag.border"], "#ff0000");
+        assert!(canonical.get("drag_border").is_none());
     }
 }

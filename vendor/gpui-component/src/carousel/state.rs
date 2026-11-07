@@ -720,7 +720,7 @@ impl CarouselState {
     }
 
     fn clamp_index(&self, index: usize) -> Option<usize> {
-        (self.item_count > 0).then_some(index.min(self.item_count - 1))
+        (self.item_count > 0).then(|| index.min(self.item_count - 1))
     }
 
     fn is_loop_wrap(&self, current: usize, next: usize) -> bool {
@@ -2001,6 +2001,21 @@ mod tests {
                     Some(point(px(-200.), px(0.)))
                 );
             });
+        });
+    }
+}
+
+#[cfg(test)]
+mod audit_regressions {
+    use super::*;
+    use gpui::AppContext;
+
+    #[gpui::test]
+    fn audit_empty_carousel_selection_is_lazy(cx: &mut gpui::TestAppContext) {
+        let state = cx.update(|cx| cx.new(|_| CarouselState::new(0).with_selected_index(0)));
+        state.update(cx, |state, cx| {
+            state.set_selected_index(usize::MAX, cx);
+            assert_eq!(state.selected_index(), None);
         });
     }
 }

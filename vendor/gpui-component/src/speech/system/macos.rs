@@ -198,8 +198,19 @@ struct Session {
 }
 
 impl RecognitionSession for Session {
-    fn push_audio(&mut self, samples: &[i16], _: &mut App) {
-        self.recognition.borrow_mut().push_audio(samples);
+    fn push_audio(&mut self, samples: &[i16], cx: &mut App) {
+        let sink = {
+            let mut recognition = self.recognition.borrow_mut();
+            recognition
+                .push_audio(samples)
+                .then(|| recognition.sink.clone())
+        };
+        if let Some(sink) = sink {
+            sink.error(
+                SpeechError::recognizer(anyhow!("speech startup audio budget exceeded")),
+                cx,
+            );
+        }
     }
 
     fn finish(&mut self, _: &mut App) {
@@ -289,6 +300,9 @@ impl Recognition {
 
     /// Start recognizing, once access is granted.
     fn begin(&mut self, cx: &mut App) {
+        if self.done {
+            return;
+        }
         let events = self.events.clone();
         let handler = RcBlock::new(
             move |result: *mut SFSpeechRecognitionResult, error: *mut NSError| {
@@ -331,15 +345,22 @@ impl Recognition {
         self.sink.ready(cx);
     }
 
-    fn push_audio(&mut self, samples: &[i16]) {
+    fn push_audio(&mut self, samples: &[i16]) -> bool {
         if self.done || self.finishing {
-            return;
+            return false;
         }
         if self.task.is_some() {
             self.append(samples);
         } else {
+            const MAX_PENDING_SAMPLES: usize = 32_000;
+            if samples.len() > MAX_PENDING_SAMPLES.saturating_sub(self.pending.len()) {
+                self.pending.clear();
+                self.done = true;
+                return true;
+            }
             self.pending.extend_from_slice(samples);
         }
+        false
     }
 
     fn finish(&mut self) {

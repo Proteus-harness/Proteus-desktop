@@ -1,4 +1,10 @@
-use std::f32::consts::TAU;
+use std::{
+    f32::consts::TAU,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 
 use anyhow::anyhow;
 use cpal::{
@@ -6,7 +12,10 @@ use cpal::{
     traits::{DeviceTrait as _, HostTrait as _, StreamTrait as _},
 };
 use gpui::{App, Subscription};
-use smol::channel::{Sender, unbounded};
+use smol::channel::{Sender, bounded};
+
+const CAPTURE_QUEUE: usize = 8;
+const MAX_CAPTURE_SAMPLES: usize = 16 * 1024;
 
 use super::{AudioFormat, AudioInput, AudioSink, SpeechError};
 
@@ -44,12 +53,13 @@ impl AudioInput for Microphone {
         let config: StreamConfig = supported.into();
         let source_rate = config.sample_rate.0;
 
-        let (tx, rx) = unbounded();
+        let (tx, rx) = bounded(CAPTURE_QUEUE);
+        let overflow = Arc::new(AtomicBool::new(false));
         let stream = match sample_format {
-            SampleFormat::F32 => build_stream::<f32>(&device, &config, tx),
-            SampleFormat::I16 => build_stream::<i16>(&device, &config, tx),
-            SampleFormat::U16 => build_stream::<u16>(&device, &config, tx),
-            SampleFormat::I32 => build_stream::<i32>(&device, &config, tx),
+            SampleFormat::F32 => build_stream::<f32>(&device, &config, tx, overflow.clone()),
+            SampleFormat::I16 => build_stream::<i16>(&device, &config, tx, overflow.clone()),
+            SampleFormat::U16 => build_stream::<u16>(&device, &config, tx, overflow.clone()),
+            SampleFormat::I32 => build_stream::<i32>(&device, &config, tx, overflow.clone()),
             other => {
                 return Err(SpeechError::input(anyhow!(
                     "unsupported sample format {other}"
@@ -65,8 +75,9 @@ impl AudioInput for Microphone {
                 // The device delivers ~10 ms chunks; forward what has queued up
                 // as one push so the state updates once per batch.
                 let mut error = None;
-                for capture in
-                    std::iter::once(first).chain(std::iter::from_fn(|| rx.try_recv().ok()))
+                for capture in std::iter::once(first)
+                    .chain(std::iter::from_fn(|| rx.try_recv().ok()))
+                    .take(CAPTURE_QUEUE)
                 {
                     match capture {
                         Capture::Samples(samples) => mono.extend_from_slice(&samples),
@@ -74,6 +85,9 @@ impl AudioInput for Microphone {
                     }
                 }
 
+                if overflow.swap(false, Ordering::AcqRel) {
+                    error = Some("audio capture exceeded its bounded queue".into());
+                }
                 let samples = converter.convert(&mono);
                 mono.clear();
                 cx.update(|cx| {
@@ -105,6 +119,7 @@ fn build_stream<T>(
     device: &cpal::Device,
     config: &StreamConfig,
     tx: Sender<Capture>,
+    overflow: Arc<AtomicBool>,
 ) -> Result<cpal::Stream, SpeechError>
 where
     T: SizedSample,
@@ -115,19 +130,7 @@ where
     device
         .build_input_stream(
             config,
-            move |data: &[T], _| {
-                let mono = data
-                    .chunks(channels)
-                    .map(|frame| {
-                        frame
-                            .iter()
-                            .map(|&sample| f32::from_sample(sample))
-                            .sum::<f32>()
-                            / frame.len() as f32
-                    })
-                    .collect();
-                _ = tx.try_send(Capture::Samples(mono));
-            },
+            move |data: &[T], _| capture_samples(data, channels, &tx, &overflow),
             move |error| {
                 _ = error_tx.try_send(Capture::Error(error.to_string()));
             },
@@ -137,6 +140,58 @@ where
             cpal::BuildStreamError::DeviceNotAvailable => SpeechError::NoInputDevice,
             error => SpeechError::input(error),
         })
+}
+
+// The audio callback cannot wait for UI progress or retain unbounded batches.
+fn capture_samples<T>(data: &[T], channels: usize, tx: &Sender<Capture>, overflow: &AtomicBool)
+where
+    T: SizedSample,
+    f32: FromSample<T>,
+{
+    let channels = channels.max(1);
+    if data.len().div_ceil(channels) > MAX_CAPTURE_SAMPLES {
+        overflow.store(true, Ordering::Release);
+        let _ = tx.try_send(Capture::Error(
+            "audio callback exceeded its sample budget".into(),
+        ));
+        return;
+    }
+    let mono = data
+        .chunks(channels)
+        .map(|frame| {
+            frame
+                .iter()
+                .map(|&sample| f32::from_sample(sample))
+                .sum::<f32>()
+                / frame.len() as f32
+        })
+        .collect();
+    if tx.try_send(Capture::Samples(mono)).is_err() {
+        overflow.store(true, Ordering::Release);
+    }
+}
+
+#[cfg(test)]
+mod audit_regressions {
+    use super::*;
+    #[test]
+    fn audit_capture_queue_and_callback_sample_admission_are_bounded() {
+        let (tx, rx) = bounded(CAPTURE_QUEUE);
+        let overflow = AtomicBool::new(false);
+        for _ in 0..CAPTURE_QUEUE {
+            capture_samples(&[0f32; 8], 2, &tx, &overflow);
+        }
+        assert_eq!(rx.len(), CAPTURE_QUEUE);
+        assert!(!overflow.load(Ordering::Acquire));
+        capture_samples(&[0f32; 8], 2, &tx, &overflow);
+        assert!(overflow.swap(false, Ordering::AcqRel));
+        assert_eq!(rx.len(), CAPTURE_QUEUE);
+        while rx.try_recv().is_ok() {}
+        capture_samples(&vec![0f32; MAX_CAPTURE_SAMPLES + 1], 1, &tx, &overflow);
+        assert!(overflow.load(Ordering::Acquire));
+        assert!(matches!(rx.try_recv(), Ok(Capture::Error(_))));
+        assert!(rx.try_recv().is_err());
+    }
 }
 
 /// Converts mono `f32` audio at the device rate to interleaved `i16` audio in

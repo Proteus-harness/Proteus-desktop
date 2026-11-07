@@ -412,10 +412,10 @@ impl Render for Notification {
 
         let transition_status = self.transition_status;
         let closing = transition_status == ToastTransitionStatus::Ending;
-        let icon = match self.type_ {
-            None => self.icon.clone(),
-            Some(type_) => Some(type_.icon(cx)),
-        };
+        let icon = self
+            .icon
+            .clone()
+            .or_else(|| self.type_.map(|type_| type_.icon(cx)));
         let has_icon = icon.is_some();
         let placement = self.placement.unwrap_or(cx.theme().notification.placement);
 

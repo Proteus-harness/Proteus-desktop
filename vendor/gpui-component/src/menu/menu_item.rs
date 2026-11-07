@@ -106,9 +106,12 @@ impl RenderOnce for MenuItemElement {
             .items_center()
             .justify_between()
             .refine_style(&self.style)
-            .when_some(self.on_hover, |this, on_hover| {
-                this.on_hover(move |hovered, window, cx| (on_hover)(hovered, window, cx))
-            })
+            .when_some(
+                self.on_hover.filter(|_| !self.disabled),
+                |this, on_hover| {
+                    this.on_hover(move |hovered, window, cx| (on_hover)(hovered, window, cx))
+                },
+            )
             .when(!self.disabled, |this| {
                 // Not `group_hover` on the item's own group: GPUI styles an
                 // element before registering its group, and that fallback keeps

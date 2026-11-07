@@ -70,7 +70,7 @@ pub(crate) struct RowsCache {
     /// The sections, the item is number of rows in each section.
     pub(crate) sections: Rc<Vec<usize>>,
     pub(crate) entries_sizes: Rc<Vec<Size<Pixels>>>,
-    measured_size: MeasuredEntrySize,
+    pub(super) measured_size: MeasuredEntrySize,
 }
 
 impl RowsCache {
@@ -138,7 +138,12 @@ impl RowsCache {
     /// Empty rows section are skipped.
     pub(crate) fn next(&self, path: Option<IndexPath>) -> IndexPath {
         let Some(mut path) = path else {
-            return IndexPath::default();
+            return self
+                .entities
+                .iter()
+                .find(|entry| entry.is_entry())
+                .map(|entry| entry.index())
+                .unwrap_or_default();
         };
 
         let Some(pos) = self.position_of(&path) else {
@@ -394,5 +399,25 @@ mod tests {
             row_cache.prev(Some(IndexPath::new(2).section(2))),
             IndexPath::new(1).section(2)
         );
+    }
+}
+
+#[cfg(test)]
+mod audit_regressions {
+    use super::*;
+
+    #[test]
+    fn audit_initial_selection_uses_first_real_entry_after_empty_sections() {
+        let cache = RowsCache {
+            entities: Rc::new(vec![
+                RowEntry::SectionHeader(0),
+                RowEntry::SectionFooter(0),
+                RowEntry::SectionHeader(1),
+                RowEntry::Entry(IndexPath::new(0).section(1)),
+            ]),
+            ..Default::default()
+        };
+        assert_eq!(cache.next(None), IndexPath::new(0).section(1));
+        assert_eq!(cache.position_of(&IndexPath::default()), None);
     }
 }

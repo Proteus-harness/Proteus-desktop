@@ -28,6 +28,7 @@ use crate::wgpu_renderer::{
 };
 
 /// Reuse a target and wait for GPU completion, excluding pixel readback.
+#[cfg(feature = "test-support")]
 #[gpui::test]
 #[ignore = "manual GPU performance measurement"]
 fn rounded_overflow_frame_cost(cx: &mut gpui::TestAppContext) {
@@ -119,7 +120,7 @@ fn harness_renders_a_quad_at_the_right_pixels() {
 const TILE: u32 = 512;
 
 #[cfg(feature = "test-support")]
-#[path = "../../../../gpui/src/fast/rounded_clip_fixtures.rs"]
+#[path = "rounded_clip_fixtures.rs"]
 mod rounded_clip_tests;
 
 #[cfg(all(feature = "test-support", not(target_family = "wasm")))]
@@ -135,6 +136,7 @@ fn rounded_overflow_retained_child_follows_ancestor_clip(cx: &mut gpui::TestAppC
     });
 }
 
+#[cfg(feature = "test-support")]
 fn render_div_fixture(cx: &mut gpui::TestAppContext, build: fn() -> gpui::Div) -> (Vec<u8>, usize) {
     let mut harness = Harness::new().expect("rounded clipping regression requires a wgpu adapter");
     rounded_clip_tests::render_with(cx, build, |scene, size| {
@@ -1196,4 +1198,28 @@ pub(super) fn read_back(
         }
     }
     pixels
+}
+
+#[test]
+fn translucent_underline_applies_opacity_once() {
+    let mut harness = Harness::new().expect("underline pixel regression requires a wgpu adapter");
+    let mut scene = Scene::default();
+    scene.insert_primitive(Underline {
+        order: 0,
+        pad: 0,
+        bounds: sp(4., 4., 24., 4.),
+        content_mask: ContentMask {
+            bounds: sp(0., 0., 32., 32.),
+        },
+        color: Hsla::from(rgba(0xffffff80)),
+        thickness: ScaledPixels(4.),
+        wavy: false.into(),
+    });
+    scene.finish();
+    let pixels = harness.render(&scene, device_size(32, 32), rgba(0x000000ff));
+    let actual = pixel(&pixels, 32, 12, 6);
+    assert!(
+        (i16::from(actual[0]) - 128).abs() <= 3,
+        "half-opacity white underline: {actual:?}"
+    );
 }

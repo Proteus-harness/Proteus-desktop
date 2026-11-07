@@ -1,6 +1,6 @@
 use crate::{
     ActiveTheme, ElementExt, Placement,
-    dialog::{ANIMATION_DURATION, Dialog, DialogMotion},
+    dialog::{Dialog, DialogMotion},
     input::AnyInputState,
     native_menu::FallbackMenuOverlay,
     notification::{Notification, NotificationList},
@@ -37,7 +37,6 @@ pub(crate) struct WindowState {
     pub(crate) native_menu_overlay: Entity<FallbackMenuOverlay>,
     touch_selection_overlay: Entity<WindowTouchSelectionOverlay>,
     sheet_size: Option<DefiniteLength>,
-    pending_focus_restore: Option<WeakFocusHandle>,
     /// Source of stable dialog identities, including their rendered subtrees.
     next_dialog_id: usize,
 }
@@ -115,7 +114,6 @@ impl WindowState {
             native_menu_overlay: cx.new(|_| FallbackMenuOverlay::new()),
             touch_selection_overlay: cx.new(|cx| WindowTouchSelectionOverlay::new(window, cx)),
             sheet_size: None,
-            pending_focus_restore: None,
             next_dialog_id: 0,
         }
     }
@@ -380,13 +378,7 @@ impl WindowState {
     ) where
         F: Fn(Dialog, &mut Window, &mut App) -> Dialog + 'static,
     {
-        let mut previous_focused_handle = window.focused(cx).map(|h| h.downgrade());
-
-        // Use pending focus restore if available to maintain correct focus chain
-        // when a new dialog is opened immediately after closing another dialog.
-        if let Some(pending_handle) = self.pending_focus_restore.take() {
-            previous_focused_handle = Some(pending_handle);
-        }
+        let previous_focused_handle = window.focused(cx).map(|h| h.downgrade());
 
         let focus_handle = cx.focus_handle();
         focus_handle.focus(window, cx);
@@ -413,16 +405,44 @@ impl WindowState {
     /// `closing`, until [`WindowState::dialog_layer`] unmounts it once the
     /// transition ends. Without one, it is removed as before.
     fn close_dialog_internal(&mut self, window: &mut Window, cx: &mut App) -> Option<FocusHandle> {
-        self.focused_input = None;
+        self.close_dialog_identity(None, window, cx)
+    }
 
+    fn close_dialog_identity(
+        &mut self,
+        id: Option<usize>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Option<FocusHandle> {
         let ix = self
             .active_dialogs
             .iter()
-            .rposition(|dialog| !dialog.closing)?;
+            .rposition(|dialog| !dialog.closing && id.is_none_or(|id| dialog.id == id))?;
+        let was_topmost = !self.active_dialogs[ix + 1..]
+            .iter()
+            .any(|dialog| !dialog.closing);
+        if was_topmost {
+            self.focused_input = None;
+        }
         let previous_focused_handle = self.active_dialogs[ix]
             .previous_focused_handle
             .clone()
             .and_then(|handle| handle.upgrade());
+
+        // Reentrant callbacks can leave a newer modal above this one. Its
+        // return-focus chain must bypass the modal that is going away.
+        let closing_focus = self.active_dialogs[ix].focus_handle.clone();
+        let inherited_focus = self.active_dialogs[ix].previous_focused_handle.clone();
+        for dialog in &mut self.active_dialogs[ix + 1..] {
+            if dialog
+                .previous_focused_handle
+                .as_ref()
+                .and_then(|handle| handle.upgrade())
+                .is_some_and(|handle| closing_focus.contains(&handle, window))
+            {
+                dialog.previous_focused_handle = inherited_focus.clone();
+            }
+        }
 
         if self.active_dialogs[ix].exit_enabled.get() {
             Self::begin_dialog_exit(&mut self.active_dialogs[ix], window, cx);
@@ -430,7 +450,7 @@ impl WindowState {
             self.active_dialogs.remove(ix);
         }
 
-        previous_focused_handle
+        was_topmost.then_some(previous_focused_handle).flatten()
     }
 
     fn begin_dialog_exit(dialog: &mut ActiveDialog, window: &mut Window, cx: &mut App) {
@@ -452,42 +472,35 @@ impl WindowState {
         cx.notify();
     }
 
+    pub(crate) fn close_dialog_id(
+        &mut self,
+        id: usize,
+        window: &mut Window,
+        cx: &mut Context<'_, WindowState>,
+    ) {
+        if !self
+            .active_dialogs
+            .iter()
+            .any(|dialog| dialog.id == id && !dialog.closing)
+        {
+            return;
+        }
+        if let Some(handle) = self.close_dialog_identity(Some(id), window, cx) {
+            window.focus(&handle, cx);
+        }
+        gpui_base::TextSelection::clear(window, cx);
+        cx.notify();
+    }
+
+    #[cfg(test)]
     pub(crate) fn defer_close_dialog(
         &mut self,
         window: &mut Window,
         cx: &mut Context<'_, WindowState>,
     ) {
-        if let Some(handle) = self.close_dialog_internal(window, cx) {
-            // The dialog left behind for its exit transition must not look
-            // like a newly opened dialog later, so compare what stays open.
-            let open_dialogs = self
-                .active_dialogs
-                .iter()
-                .filter(|dialog| !dialog.closing)
-                .count();
-
-            // Save for new dialogs opened during animation to maintain focus chain
-            self.pending_focus_restore = Some(handle.downgrade());
-
-            cx.spawn_in(window, async move |this, cx| {
-                cx.background_executor().timer(*ANIMATION_DURATION).await;
-                let _ = this.update_in(cx, |this, window, cx| {
-                    let current_open_dialogs = this
-                        .active_dialogs
-                        .iter()
-                        .filter(|dialog| !dialog.closing)
-                        .count();
-                    // Only restore focus if no new dialogs were opened during animation
-                    if current_open_dialogs == open_dialogs {
-                        window.focus(&handle, cx);
-                    }
-                    this.pending_focus_restore = None;
-                });
-            })
-            .detach();
-        }
-        gpui_base::TextSelection::clear(window, cx);
-        cx.notify();
+        // Restore focus at logical close. The non-occluding exit animation
+        // must not steal focus from a later click or a newly opened modal.
+        self.close_dialog(window, cx);
     }
 
     pub fn close_all_dialogs(&mut self, window: &mut Window, cx: &mut Context<'_, WindowState>) {
@@ -769,5 +782,71 @@ impl RenderOnce for WindowStateLayers {
             .children(WindowState::sheet_layer(root.clone(), window, cx))
             .children(WindowState::dialog_layer(&root, window, cx))
             .children(WindowState::notification_layer(&root, window, cx))
+    }
+}
+
+#[cfg(test)]
+mod audit_regressions {
+    use super::*;
+    use gpui::{TestAppContext, px, size};
+
+    #[gpui::test]
+    fn audit_close_identity_preserves_reentrant_dialog_and_is_idempotent(cx: &mut TestAppContext) {
+        let cx = crate::dialog::tests::window(cx, size(px(900.), px(600.)));
+        cx.update(|window, cx| {
+            let background = cx.focus_handle();
+            background.focus(window, cx);
+            WindowState::update(window, cx, |state, window, cx| {
+                state.open_dialog(|dialog, _, _| dialog.title("A"), window, cx);
+                let a = state.active_dialogs.last().unwrap().id;
+                state.open_dialog(|dialog, _, _| dialog.title("B"), window, cx);
+                let b = state.active_dialogs.last().unwrap().id;
+                state.close_dialog_id(a, window, cx);
+                state.close_dialog_id(a, window, cx);
+                assert_eq!(
+                    state
+                        .active_dialogs
+                        .iter()
+                        .filter(|dialog| !dialog.closing)
+                        .map(|dialog| dialog.id)
+                        .collect::<Vec<_>>(),
+                    vec![b]
+                );
+                assert!(
+                    state
+                        .active_dialogs
+                        .last()
+                        .unwrap()
+                        .focus_handle
+                        .is_focused(window)
+                );
+                state.close_dialog_id(b, window, cx);
+                assert!(background.is_focused(window));
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn audit_confirm_restoration_cannot_override_later_focus(cx: &mut TestAppContext) {
+        for reduced in [false, true] {
+            let cx = crate::dialog::tests::window(cx, size(px(900.), px(600.)));
+            let later = cx.update(|window, cx| {
+                cx.set_reduce_motion(reduced);
+                let before = cx.focus_handle();
+                let later = cx.focus_handle();
+                before.focus(window, cx);
+                WindowState::update(window, cx, |state, window, cx| {
+                    state.open_dialog(|dialog, _, _| dialog.title("Confirm"), window, cx);
+                    state.defer_close_dialog(window, cx);
+                });
+                assert!(before.is_focused(window));
+                later.focus(window, cx);
+                later
+            });
+            cx.background_executor
+                .advance_clock(std::time::Duration::from_millis(300));
+            cx.run_until_parked();
+            cx.update(|window, _| assert!(later.is_focused(window)));
+        }
     }
 }

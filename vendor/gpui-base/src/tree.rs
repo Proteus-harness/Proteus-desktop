@@ -350,7 +350,7 @@ impl TreeState {
         let Some(entry) = self.entries.get(ix) else {
             return;
         };
-        if !entry.is_folder() {
+        if !entry.is_folder() || entry.is_disabled() {
             return;
         }
 
@@ -414,28 +414,37 @@ impl TreeState {
         }
     }
 
-    fn on_action_up(&mut self, _: &SelectUp, _: &mut Window, cx: &mut Context<Self>) {
+    fn move_keyboard_selection(&mut self, forward: bool, cx: &mut Context<Self>) {
+        let count = self.entries.len();
         let mut ix = self.selected_ix.unwrap_or(0);
-        ix = ix
-            .checked_sub(1)
-            .unwrap_or_else(|| self.entries.len().saturating_sub(1));
-        self.selected_ix = Some(ix);
-        self.scroll_handle
-            .scroll_to_item(ix, gpui::ScrollStrategy::Top);
+        for _ in 0..count {
+            ix = if forward {
+                (ix + 1) % count
+            } else {
+                (ix + count - 1) % count
+            };
+            if !self.entries[ix].is_disabled() {
+                self.selected_ix = Some(ix);
+                self.scroll_handle.scroll_to_item(
+                    ix,
+                    if forward {
+                        gpui::ScrollStrategy::Bottom
+                    } else {
+                        gpui::ScrollStrategy::Top
+                    },
+                );
+                cx.notify();
+                return;
+            }
+        }
+        self.selected_ix = None;
         cx.notify();
     }
-
+    fn on_action_up(&mut self, _: &SelectUp, _: &mut Window, cx: &mut Context<Self>) {
+        self.move_keyboard_selection(false, cx);
+    }
     fn on_action_down(&mut self, _: &SelectDown, _: &mut Window, cx: &mut Context<Self>) {
-        let mut ix = self.selected_ix.unwrap_or(0);
-        ix = if ix + 1 < self.entries.len() {
-            ix + 1
-        } else {
-            0
-        };
-        self.selected_ix = Some(ix);
-        self.scroll_handle
-            .scroll_to_item(ix, gpui::ScrollStrategy::Bottom);
-        cx.notify();
+        self.move_keyboard_selection(true, cx);
     }
 
     fn on_entry_click(&mut self, ix: usize, cx: &mut Context<Self>) {

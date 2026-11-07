@@ -639,7 +639,12 @@ fn parse_node(
                 Some(BlockNode::List {
                     children,
                     ordered,
-                    start: None,
+                    start: ordered
+                        .then(|| {
+                            attr_value(&attrs, local_name!("start"))
+                                .and_then(|value| value.parse().ok())
+                        })
+                        .flatten(),
                     span: None,
                 })
             }
@@ -918,6 +923,42 @@ mod tests {
             };
             assert!(paragraph.children.iter().all(|node| node.custom.is_none()));
         }
+    }
+
+    #[test]
+    fn authored_attribute_values_and_ordered_start_survive_cleanup() {
+        for (source, expected) in [
+            (
+                r#"<a href="https://example.com/a&gt;b">go</a>"#,
+                "https://example.com/a>b",
+            ),
+            (
+                r#"<a href="https://example.com/&amp;copy;">go</a>"#,
+                "https://example.com/&copy;",
+            ),
+        ] {
+            let doc = super::parse(source, &mut NodeContext::default()).unwrap();
+            let BlockNode::Paragraph(p) = &doc.blocks[0] else {
+                panic!("expected paragraph");
+            };
+            assert_eq!(p.text(), "go");
+            let link = p
+                .children
+                .iter()
+                .flat_map(|node| &node.marks)
+                .find_map(|(_, mark)| mark.link.as_ref())
+                .unwrap();
+            assert_eq!(link.url.as_ref(), expected);
+        }
+        let doc = super::parse(
+            "<ol start=3><li>three</li><li>four</li></ol>",
+            &mut NodeContext::default(),
+        )
+        .unwrap();
+        assert!(matches!(
+            &doc.blocks[0],
+            BlockNode::List { start: Some(3), .. }
+        ));
     }
 
     #[test]

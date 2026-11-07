@@ -588,6 +588,7 @@ impl Dialog {
         self
     }
 
+    #[cfg(test)]
     fn defer_close_dialog(window: &mut Window, cx: &mut App) {
         WindowState::update(window, cx, |root, window, cx| {
             root.defer_close_dialog(window, cx);
@@ -707,6 +708,7 @@ impl RenderOnce for Dialog {
 
         // The newest dialog still open owns Escape, the backdrop, and the
         // focus trap; a closing dialog keeps its layer only to finish leaving.
+        let dialog_id = self.id;
         let topmost = WindowState::read(window, cx)
             .active_dialogs
             .iter()
@@ -753,17 +755,15 @@ impl RenderOnce for Dialog {
                                 !closing && on_cancel(event, window, cx)
                             })
                             .on_close(move |event, window, cx| on_close(event, window, cx))
-                            .request_close(move |deferred, window, cx| {
+                            .request_close(move |_deferred, window, cx| {
                                 // A dialog already leaving must not close
                                 // whatever sits below it.
                                 if closing {
                                     return;
                                 }
-                                if deferred {
-                                    Self::defer_close_dialog(window, cx);
-                                } else {
-                                    window.close_dialog(cx);
-                                }
+                                WindowState::update(window, cx, |root, window, cx| {
+                                    root.close_dialog_id(dialog_id, window, cx);
+                                });
                             })
                             .popup(
                                 gpui_base::Positioner::corner(

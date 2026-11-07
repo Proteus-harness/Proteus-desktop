@@ -657,6 +657,7 @@ fn code_source_segments(
     code: &str,
     span: Option<Span>,
     source_offset: usize,
+    fenced: bool,
 ) -> Vec<SourceSegment> {
     let Some(span) = span else {
         return Vec::new();
@@ -679,7 +680,7 @@ fn code_source_segments(
             (character, len)
         })
         .filter(|(_, len)| *len >= 3);
-    let (body_start, body_end) = if let Some((fence, fence_len)) = fence {
+    let (body_start, body_end) = if let Some((fence, fence_len)) = fence.filter(|_| fenced) {
         let start = raw.find('\n').map_or(raw.len(), |newline| newline + 1);
         let last_line = raw.rfind('\n').map_or(start, |newline| newline + 1);
         let closing = raw[last_line..].trim();
@@ -824,7 +825,7 @@ fn parse_paragraph(
             });
             paragraph.push(
                 InlineNode::new(text.clone())
-                    .source_segments(code_source_segments(source, &text, span, cx.offset))
+                    .source_segments(code_source_segments(source, &text, span, cx.offset, false))
                     .marks(vec![(0..text.len(), TextMark::default().code())]),
             );
         }
@@ -886,7 +887,7 @@ fn parse_paragraph(
             });
             paragraph.push(
                 InlineNode::new(text.clone())
-                    .source_segments(code_source_segments(source, &text, span, cx.offset))
+                    .source_segments(code_source_segments(source, &text, span, cx.offset, false))
                     .marks(vec![(0..text.len(), TextMark::default())]),
             );
         }
@@ -1036,7 +1037,7 @@ fn ast_to_node(source: &str, value: mdast::Node, cx: &mut NodeContext) -> BlockN
         },
         Node::Code(raw) => {
             let span = new_span(raw.position, cx);
-            let segments = code_source_segments(source, &raw.value, span, cx.offset);
+            let segments = code_source_segments(source, &raw.value, span, cx.offset, true);
             BlockNode::CodeBlock(
                 CodeBlock::new(raw.value.into(), raw.lang.map(Into::into), span)
                     .with_meta(raw.meta.map(Into::into))
@@ -1055,7 +1056,7 @@ fn ast_to_node(source: &str, value: mdast::Node, cx: &mut NodeContext) -> BlockN
         }
         Node::Math(val) => {
             let span = new_span(val.position, cx);
-            let segments = code_source_segments(source, &val.value, span, cx.offset);
+            let segments = code_source_segments(source, &val.value, span, cx.offset, false);
             BlockNode::CodeBlock(
                 CodeBlock::new(val.value.into(), None, span).source_segments(segments),
             )
@@ -1075,7 +1076,7 @@ fn ast_to_node(source: &str, value: mdast::Node, cx: &mut NodeContext) -> BlockN
         },
         Node::MdxFlowExpression(val) => {
             let span = new_span(val.position, cx);
-            let segments = code_source_segments(source, &val.value, span, cx.offset);
+            let segments = code_source_segments(source, &val.value, span, cx.offset, false);
             BlockNode::CodeBlock(
                 CodeBlock::new(val.value.into(), Some("mdx".into()), span)
                     .source_segments(segments),
@@ -2571,5 +2572,25 @@ mod tests {
                 symbol: "TSLA.US".to_string()
             })
         );
+    }
+}
+
+#[cfg(test)]
+mod inline_code_audit_tests {
+    use super::*;
+    #[test]
+    fn triple_backtick_inline_span_keeps_source_mapping() {
+        let raw = "```code```";
+        let segments = code_source_segments(
+            raw,
+            "code",
+            Some(Span {
+                start: 0,
+                end: raw.len(),
+            }),
+            0,
+            false,
+        );
+        assert!(segments.iter().any(|segment| &raw[segment.source.clone()] == "code" && segment.rendered == (0..4)));
     }
 }

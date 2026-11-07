@@ -5008,13 +5008,15 @@ impl<M: InputModeKind> EntityInputHandler for InputBaseState<M> {
         _cx: &mut Context<Self>,
     ) -> Option<usize> {
         let last_layout = self.last_layout.as_ref()?;
-        let line_point = self.last_bounds?.localize(&point)?;
-
+        let local_point = self.last_bounds?.localize(&point)?;
+        let mut y = last_layout.visible_top;
         for (vi, line) in last_layout.lines.iter().enumerate() {
             let offset = last_layout.visible_line_byte_offsets[vi];
+            let line_point = local_point - gpui::point(last_layout.line_number_width, y);
             if let Some(utf8_index) = line.index_for_position(line_point, last_layout) {
                 return Some(self.offset_to_utf16(offset + utf8_index));
             }
+            y += line.size(last_layout.line_height).height;
         }
 
         None
@@ -12305,10 +12307,10 @@ impl InputBaseState<crate::input::TextareaMode> {
             LayoutMode::AutoGrow {
                 max_rows: max_r,
                 rows: r,
-                ..
+                min_rows,
             } => {
-                *r = rows;
-                *max_r = rows;
+                *r = rows.max(*min_rows);
+                *max_r = rows.max(*min_rows);
             }
         }
         self
@@ -12321,10 +12323,10 @@ impl InputBaseState<crate::input::TextareaMode> {
             LayoutMode::AutoGrow {
                 rows: value,
                 max_rows,
-                ..
+                min_rows,
             } => {
-                *value = rows;
-                *max_rows = rows;
+                *value = rows.max(*min_rows);
+                *max_rows = rows.max(*min_rows);
             }
         }
         cx.notify();

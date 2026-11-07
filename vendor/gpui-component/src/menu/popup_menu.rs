@@ -880,6 +880,13 @@ impl PopupMenu {
     }
 
     fn activate(&mut self, event: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if !self
+            .selected_index
+            .and_then(|index| self.menu_items.get(index))
+            .is_some_and(PopupMenuItem::is_clickable)
+        {
+            return;
+        }
         match self.selected_index {
             Some(index) => {
                 let item = self.menu_items.get(index);
@@ -933,6 +940,13 @@ impl PopupMenu {
     }
 
     fn set_selected_index(&mut self, ix: usize, cx: &mut Context<Self>) {
+        if !self
+            .menu_items
+            .get(ix)
+            .is_some_and(PopupMenuItem::is_clickable)
+        {
+            return;
+        }
         if self.selected_index != Some(ix) {
             self.selected_index = Some(ix);
             self.scroll_handle.scroll_to_item(ix);
@@ -956,13 +970,18 @@ impl PopupMenu {
         }
 
         let last_clickable_ix = self.clickable_menu_items().last().map(|(ix, _)| ix);
-        self.set_selected_index(last_clickable_ix.unwrap_or(0), cx);
+        if let Some(index) = last_clickable_ix {
+            self.set_selected_index(index, cx);
+        }
     }
 
     fn select_down(&mut self, _: &SelectDown, _: &mut Window, cx: &mut Context<Self>) {
         cx.stop_propagation();
         let Some(ix) = self.selected_index else {
-            self.set_selected_index(0, cx);
+            let first = self.clickable_menu_items().next().map(|(index, _)| index);
+            if let Some(index) = first {
+                self.set_selected_index(index, cx);
+            }
             return;
         };
 
@@ -976,7 +995,10 @@ impl PopupMenu {
             return;
         }
 
-        self.set_selected_index(0, cx);
+        let first = self.clickable_menu_items().next().map(|(index, _)| index);
+        if let Some(index) = first {
+            self.set_selected_index(index, cx);
+        }
     }
 
     fn select_left(&mut self, _: &SelectLeft, window: &mut Window, cx: &mut Context<Self>) {
@@ -1022,10 +1044,20 @@ impl PopupMenu {
     }
 
     fn _select_submenu(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if !self
+            .selected_index
+            .and_then(|index| self.menu_items.get(index))
+            .is_some_and(PopupMenuItem::is_clickable)
+        {
+            return false;
+        }
         if let Some(active_submenu) = self.active_submenu() {
             // Focus the submenu, so that can be handle the action.
             active_submenu.update(cx, |view, cx| {
-                view.set_selected_index(0, cx);
+                let first = view.clickable_menu_items().next().map(|(index, _)| index);
+                if let Some(index) = first {
+                    view.set_selected_index(index, cx);
+                }
                 view.focus_handle.focus(window, cx);
             });
             cx.notify();
@@ -1262,7 +1294,12 @@ impl PopupMenu {
             .items_center()
             .selected(selected)
             .on_hover(cx.listener(move |this, hovered, window, cx| {
-                if *hovered {
+                if *hovered
+                    && this
+                        .menu_items
+                        .get(ix)
+                        .is_some_and(PopupMenuItem::is_clickable)
+                {
                     // Pointing elsewhere closes the open submenu; take back
                     // the focus the keyboard may have moved into it.
                     if this.selected_index != Some(ix)
@@ -1619,5 +1656,58 @@ mod tests {
         );
         assert_eq!(PopupMenuItem::separator().a11y_label(), None);
         assert_eq!(PopupMenuItem::element(|_, _| div()).a11y_label(), None);
+    }
+}
+
+#[cfg(test)]
+mod audit_regressions {
+    use super::*;
+
+    #[gpui::test]
+    fn audit_disabled_actions_cannot_confirm_or_capture_initial_navigation(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        use std::cell::Cell;
+        cx.update(crate::init);
+        let calls = Rc::new(Cell::new(0));
+        let window = cx.add_empty_window();
+        window.update(|window, cx| {
+            for custom in [false, true] {
+                let calls = calls.clone();
+                let item = if custom {
+                    PopupMenuItem::element(|_, _| div())
+                } else {
+                    PopupMenuItem::new("Disabled")
+                };
+                let menu = cx.new(|cx| {
+                    PopupMenu::new(cx)
+                        .item(
+                            item.disabled(true)
+                                .on_click(move |_, _, _| calls.set(calls.get() + 1)),
+                        )
+                        .item(PopupMenuItem::new("Enabled"))
+                });
+                menu.update(cx, |menu, cx| {
+                    menu.selected_index = Some(0);
+                    menu.activate(&ClickEvent::default(), window, cx);
+                    menu.selected_index = None;
+                    menu.select_down(&SelectDown, window, cx);
+                    assert_eq!(menu.selected_index, Some(1));
+                    menu.set_selected_index(0, cx);
+                    assert_eq!(menu.selected_index, Some(1));
+                    menu.select_down(&SelectDown, window, cx);
+                    assert_eq!(menu.selected_index, Some(1));
+                });
+            }
+            let menu = cx.new(|cx| {
+                PopupMenu::new(cx).item(PopupMenuItem::new("Only disabled").disabled(true))
+            });
+            menu.update(cx, |menu, cx| {
+                menu.select_down(&SelectDown, window, cx);
+                menu.select_up(&SelectUp, window, cx);
+                assert!(menu.selected_index.is_none());
+            });
+        });
+        assert_eq!(calls.get(), 0);
     }
 }

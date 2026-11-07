@@ -71,7 +71,7 @@ pub(crate) struct LspOverlays {
     diagnostic: Option<Entity<DiagnosticPopover>>,
     completion_signature: OverlaySignature,
     code_action_signature: OverlaySignature,
-    hover_signature: Option<std::ops::Range<usize>>,
+    hover_signature: Option<(std::ops::Range<usize>, u64)>,
     diagnostic_signature: Option<std::rc::Rc<gpui_base::input::DiagnosticEntry>>,
     /// Highlighter last copied onto the completion menu.
     ///
@@ -89,7 +89,7 @@ pub(crate) struct LspSnapshot {
     completion: OverlaySignature,
     completion_start: Option<usize>,
     code_action: OverlaySignature,
-    hover: Option<std::ops::Range<usize>>,
+    hover: Option<(std::ops::Range<usize>, u64)>,
     diagnostic: Option<std::rc::Rc<gpui_base::input::DiagnosticEntry>>,
     cursor: usize,
 }
@@ -181,7 +181,7 @@ impl OverlayMode for crate::input::EditorMode {
             },
             hover: state
                 .hover_popover()
-                .map(|popover| popover.symbol_range.clone()),
+                .map(|popover| (popover.symbol_range.clone(), popover.revision)),
             diagnostic: state.diagnostic_popover(),
             cursor: state.cursor(),
         })
@@ -263,8 +263,8 @@ impl OverlayMode for crate::input::EditorMode {
             });
         }
 
-        // A hover popover is anchored to one symbol, so a new range means new
-        // content and the same range means the same content.
+        // Content can be replaced for the same symbol; the engine revision
+        // invalidates the facade without cloning documentation on every frame.
         if snapshot.hover != lsp.hover_signature {
             lsp.hover_signature = snapshot.hover.clone();
             let popover = state
@@ -467,6 +467,50 @@ mod tests {
         ) -> impl IntoElement {
             div()
         }
+    }
+
+    #[gpui::test]
+    fn audit_same_range_hover_replacement_updates_contents_without_retaining_editor(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(crate::init);
+        let window = cx.add_empty_window();
+        let (weak, hover) = window.update(|window, cx| {
+            let state = cx.new(|cx| crate::input::EditorState::new(window, cx));
+            let mut host = InputOverlayHost::new(state.clone(), window, cx);
+            for content in ["before", "after"] {
+                state.update(cx, |state, cx| {
+                    state.present_hover(
+                        0..3,
+                        Hover {
+                            contents: HoverContents::Scalar(MarkedString::String(content.into())),
+                            range: None,
+                        },
+                        cx,
+                    )
+                });
+                host.sync(&state, window, cx);
+                assert_eq!(
+                    host.lsp
+                        .as_ref()
+                        .unwrap()
+                        .hover
+                        .as_ref()
+                        .unwrap()
+                        .read(cx)
+                        .hover
+                        .contents,
+                    HoverContents::Scalar(MarkedString::String(content.into()))
+                );
+            }
+            (
+                state.downgrade(),
+                host.lsp.as_ref().unwrap().hover.clone().unwrap(),
+            )
+        });
+        cx.run_until_parked();
+        assert!(weak.upgrade().is_none());
+        drop(hover);
     }
 
     /// Asking for search again, while it is already open, must re-select the query.

@@ -76,6 +76,7 @@ pub(super) fn init(cx: &mut App) {
 pub struct ThemeRegistry {
     themes_dir: PathBuf,
     default_themes: HashMap<ThemeMode, Rc<ThemeConfig>>,
+    directory_default_backups: HashMap<ThemeMode, Rc<ThemeConfig>>,
     themes: HashMap<SharedString, Rc<ThemeConfig>>,
     has_custom_themes: bool,
 }
@@ -270,18 +271,31 @@ impl ThemeRegistry {
             }
         }
 
+        self.apply_directory_themes(&themes);
+        Ok(())
+    }
+
+    fn apply_directory_themes(&mut self, themes: &[ThemeConfig]) {
+        self.default_themes
+            .extend(self.directory_default_backups.drain());
+        self.has_custom_themes = false;
         self.themes.clear();
         for theme in self.default_themes.values() {
             self.themes
                 .insert(theme.name.clone(), Rc::new((**theme).clone()));
         }
 
-        for theme in themes.iter() {
+        for theme in themes {
             if self.themes.contains_key(&theme.name) {
                 continue;
             }
 
             if theme.is_default {
+                if let Some(previous) = self.default_themes.get(&theme.mode).cloned() {
+                    self.directory_default_backups
+                        .entry(theme.mode)
+                        .or_insert(previous);
+                }
                 self.default_themes
                     .insert(theme.mode, Rc::new(theme.clone()));
             }
@@ -290,7 +304,31 @@ impl ThemeRegistry {
             self.themes
                 .insert(theme.name.clone(), Rc::new(theme.clone()));
         }
+    }
+}
 
-        Ok(())
+#[cfg(test)]
+mod audit_regressions {
+    use super::*;
+
+    #[test]
+    fn audit_watched_default_edit_and_removal_restore_the_baseline() {
+        let mut registry = ThemeRegistry::default();
+        registry.init_default_themes();
+        let baseline = registry.default_dark_theme().clone();
+        let mut custom = (*baseline).clone();
+        custom.name = "Directory Dark".into();
+        custom.is_default = true;
+        registry.apply_directory_themes(&[custom.clone()]);
+        assert_eq!(registry.default_dark_theme().name, custom.name);
+        assert!(registry.has_custom_themes);
+        custom.name = "Edited Dark".into();
+        registry.apply_directory_themes(&[custom.clone()]);
+        assert!(!registry.themes.contains_key("Directory Dark"));
+        assert_eq!(registry.default_dark_theme().name, "Edited Dark");
+        registry.apply_directory_themes(&[]);
+        assert!(!registry.has_custom_themes);
+        assert_eq!(registry.default_dark_theme().name, baseline.name);
+        assert!(!registry.themes.contains_key("Edited Dark"));
     }
 }

@@ -112,30 +112,41 @@ impl Label {
                 let search_lower = matched_str.to_lowercase();
                 let full_text_lower = full_text.to_lowercase();
 
+                let mut spans = Vec::new();
+                let mut folded_offset = 0;
+                for (offset, character) in full_text.char_indices() {
+                    let lowered_len: usize = character.to_lowercase().map(char::len_utf8).sum();
+                    spans.push((
+                        folded_offset..folded_offset + lowered_len,
+                        offset..offset + character.len_utf8(),
+                    ));
+                    folded_offset += lowered_len;
+                }
+                let source_range = |start: usize, end: usize| {
+                    let first = spans.iter().find(|(folded, _)| folded.contains(&start))?;
+                    let last = spans
+                        .iter()
+                        .find(|(folded, _)| folded.contains(&end.saturating_sub(1)))?;
+                    Some(first.1.start..last.1.end)
+                };
                 if matched.is_prefix() {
-                    // For prefix matching, only check if the text starts with the search term
                     if full_text_lower.starts_with(&search_lower) {
-                        ranges.push(0..matched_str.len());
+                        if let Some(range) = source_range(0, search_lower.len()) {
+                            ranges.push(range);
+                        }
                     }
                 } else {
-                    // For full matching, find all occurrences
                     let mut search_start = 0;
                     while let Some(pos) = full_text_lower[search_start..].find(&search_lower) {
-                        let match_start = search_start + pos;
-                        let match_end = match_start + matched_str.len();
-
-                        if match_end <= full_text.len() {
-                            ranges.push(match_start..match_end);
+                        let start = search_start + pos;
+                        if let Some(range) = source_range(start, start + search_lower.len()) {
+                            if ranges.last() != Some(&range) {
+                                ranges.push(range);
+                            }
                         }
-
-                        search_start = match_start + 1;
-                        while !full_text.is_char_boundary(search_start)
-                            && search_start < full_text.len()
-                        {
-                            search_start += 1;
-                        }
-
-                        if search_start >= full_text.len() {
+                        search_start =
+                            start + full_text_lower[start..].chars().next().unwrap().len_utf8();
+                        if search_start >= full_text_lower.len() {
                             break;
                         }
                     }
@@ -430,5 +441,20 @@ mod tests {
         // Test as_str method for prefix
         let prefix_match = HighlightsMatch::Prefix("test".into());
         assert_eq!(prefix_match.as_str(), "test");
+    }
+}
+
+#[cfg(test)]
+mod audit_regressions {
+    use super::*;
+
+    #[test]
+    fn audit_unicode_case_expansion_maps_back_to_source_boundaries() {
+        let label = Label::new("İa İb").highlights("i");
+        assert_eq!(label.highlight_ranges("İa İb".len()), vec![0..2, 4..6]);
+        let label = Label::new("İa").highlights(HighlightsMatch::Prefix("i".into()));
+        assert_eq!(label.highlight_ranges("İa".len()), vec![0..2]);
+        let label = Label::new("Ka").highlights("k");
+        assert_eq!(label.highlight_ranges("Ka".len()), vec![0..3]);
     }
 }

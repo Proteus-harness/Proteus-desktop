@@ -170,6 +170,13 @@ impl From<ThemeStyle> for HighlightStyle {
                 FontWeightContent::ExtraBold => gpui::FontWeight::EXTRA_BOLD,
                 FontWeightContent::Black => gpui::FontWeight::BLACK,
             }),
+            underline: matches!(style.font_style.as_ref(), Some(FontStyle::Underline)).then_some(
+                gpui::UnderlineStyle {
+                    thickness: gpui::px(1.),
+                    color: style.color,
+                    wavy: false,
+                },
+            ),
             font_style: style.font_style.map(|s| match s {
                 FontStyle::Normal => gpui::FontStyle::Normal,
                 FontStyle::Italic => gpui::FontStyle::Italic,
@@ -352,80 +359,21 @@ impl SyntaxColors {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Hash, JsonSchema, Serialize, Deserialize)]
-pub struct StatusColors {
-    // Minimal stub
-}
-
-impl StatusColors {
-    pub fn error(&self, _cx: &gpui::App) -> gpui::Hsla {
-        gpui::Hsla::default()
-    }
-
-    pub fn error_background(&self, _cx: &gpui::App) -> gpui::Hsla {
-        gpui::Hsla::default()
-    }
-
-    pub fn error_border(&self, _cx: &gpui::App) -> gpui::Hsla {
-        gpui::Hsla::default()
-    }
-
-    pub fn warning(&self, _cx: &gpui::App) -> gpui::Hsla {
-        gpui::Hsla::default()
-    }
-
-    pub fn warning_background(&self, _cx: &gpui::App) -> gpui::Hsla {
-        gpui::Hsla::default()
-    }
-
-    pub fn warning_border(&self, _cx: &gpui::App) -> gpui::Hsla {
-        gpui::Hsla::default()
-    }
-
-    pub fn info(&self, _cx: &gpui::App) -> gpui::Hsla {
-        gpui::Hsla::default()
-    }
-
-    pub fn info_background(&self, _cx: &gpui::App) -> gpui::Hsla {
-        gpui::Hsla::default()
-    }
-
-    pub fn info_border(&self, _cx: &gpui::App) -> gpui::Hsla {
-        gpui::Hsla::default()
-    }
-
-    pub fn success(&self, _cx: &gpui::App) -> gpui::Hsla {
-        gpui::Hsla::default()
-    }
-
-    pub fn success_background(&self, _cx: &gpui::App) -> gpui::Hsla {
-        gpui::Hsla::default()
-    }
-
-    pub fn success_border(&self, _cx: &gpui::App) -> gpui::Hsla {
-        gpui::Hsla::default()
-    }
-
-    pub fn hint(&self, _cx: &gpui::App) -> gpui::Hsla {
-        gpui::Hsla::default()
-    }
-
-    pub fn hint_background(&self, _cx: &gpui::App) -> gpui::Hsla {
-        gpui::Hsla::default()
-    }
-
-    pub fn hint_border(&self, _cx: &gpui::App) -> gpui::Hsla {
-        gpui::Hsla::default()
-    }
-}
+pub use super::status_colors::StatusColors;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash, JsonSchema, Serialize, Deserialize)]
 pub struct HighlightThemeStyle {
+    #[serde(rename = "editor.background")]
     pub editor_background: Option<gpui::Hsla>,
+    #[serde(rename = "editor.foreground")]
     pub editor_foreground: Option<gpui::Hsla>,
+    #[serde(rename = "editor.active_line.background")]
     pub editor_active_line: Option<gpui::Hsla>,
+    #[serde(rename = "editor.line_number")]
     pub editor_line_number: Option<gpui::Hsla>,
+    #[serde(rename = "editor.active_line_number")]
     pub editor_active_line_number: Option<gpui::Hsla>,
+    #[serde(rename = "editor.invisible")]
     pub editor_invisible: Option<gpui::Hsla>,
     #[serde(rename = "editor.gutter.background")]
     pub editor_gutter_background: Option<gpui::Hsla>,

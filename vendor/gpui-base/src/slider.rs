@@ -379,15 +379,14 @@ impl SliderState {
         };
 
         let value = self.percentage_to_value(percentage);
-        let value = (value / step).round() * step;
-
+        let value =
+            (self.min + ((value - self.min) / step).round() * step).clamp(self.min, self.max);
         if is_start {
-            self.percentage.start = percentage;
             self.value.set_start(value);
         } else {
-            self.percentage.end = percentage;
             self.value.set_end(value);
         }
+        self.update_thumb_pos();
         cx.emit(SliderEvent::Change(self.value));
         cx.notify();
     }
@@ -531,7 +530,11 @@ impl RenderOnce for Slider {
                         state.update(cx, |state, cx| {
                             let value =
                                 (state.value().end() + state.step_value()).min(state.max_value());
-                            state.set_value(value, window, cx);
+                            let mut adjusted = state.value();
+                            adjusted.set_end(value);
+                            state.set_value(adjusted, window, cx);
+                            cx.emit(SliderEvent::Change(state.value()));
+                            cx.emit(SliderEvent::Release(state.value()));
                         });
                     }
                 })
@@ -541,7 +544,11 @@ impl RenderOnce for Slider {
                         state.update(cx, |state, cx| {
                             let value =
                                 (state.value().end() - state.step_value()).max(state.min_value());
-                            state.set_value(value, window, cx);
+                            let mut adjusted = state.value();
+                            adjusted.set_end(value);
+                            state.set_value(adjusted, window, cx);
+                            cx.emit(SliderEvent::Change(state.value()));
+                            cx.emit(SliderEvent::Release(state.value()));
                         });
                     }
                 })

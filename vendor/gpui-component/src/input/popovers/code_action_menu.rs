@@ -22,7 +22,7 @@ use crate::{
 };
 
 struct MenuDelegate {
-    menu: Entity<CodeActionMenu>,
+    menu: WeakEntity<CodeActionMenu>,
     items: Vec<Rc<CodeActionItem>>,
     selected_ix: usize,
 }
@@ -131,7 +131,7 @@ impl ListDelegate for MenuDelegate {
             return;
         };
 
-        self.menu.update(cx, |this, cx| {
+        let _ = self.menu.update(cx, |this, cx| {
             this.select_item(&item, window, cx);
         });
     }
@@ -159,7 +159,7 @@ impl CodeActionMenu {
         cx.new(|cx| {
             let view = cx.entity();
             let menu = MenuDelegate {
-                menu: view,
+                menu: view.downgrade(),
                 items: vec![],
                 selected_ix: 0,
             };
@@ -202,7 +202,7 @@ impl CodeActionMenu {
         })
         .detach();
 
-        self.hide(cx);
+        self.dismiss(cx);
     }
 
     pub(crate) fn handle_action(
@@ -239,7 +239,7 @@ impl CodeActionMenu {
     }
 
     fn on_action_escape(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-        self.hide(cx);
+        self.dismiss(cx);
     }
 
     fn on_action_up(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -254,9 +254,14 @@ impl CodeActionMenu {
         });
     }
 
-    /// Hide the completion menu and reset the trigger start offset.
+    /// Hide this presentation without dismissing newer engine action results.
     pub(crate) fn hide(&mut self, cx: &mut Context<Self>) {
         self.open = false;
+        cx.notify();
+    }
+
+    fn dismiss(&mut self, cx: &mut Context<Self>) {
+        self.hide(cx);
         let state = self.state.clone();
         cx.spawn(async move |_, cx| {
             let _ = state.update(cx, |state, cx| state.dismiss_code_action_overlay(cx));
@@ -328,5 +333,52 @@ impl Render for CodeActionMenu {
             },
         ))
         .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod audit_regressions {
+    use super::*;
+
+    #[gpui::test]
+    fn audit_code_action_menu_and_list_release_without_external_owners(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(crate::init);
+        let window = cx.add_empty_window();
+        let (menu, list) = window.update(|window, cx| {
+            let editor = cx.new(|cx| EditorState::new(window, cx));
+            let menu = CodeActionMenu::new(editor, window, cx);
+            (menu.downgrade(), menu.read(cx).list.downgrade())
+        });
+        cx.run_until_parked();
+        assert!(menu.upgrade().is_none());
+        assert!(list.upgrade().is_none());
+    }
+
+    #[gpui::test]
+    fn audit_hidden_old_code_actions_cannot_close_new_results(cx: &mut gpui::TestAppContext) {
+        cx.update(crate::init);
+        let window = cx.add_empty_window();
+        let editor = window.update(|window, cx| {
+            let editor = cx.new(|cx| EditorState::new(window, cx));
+            let menu = CodeActionMenu::new(editor.clone(), window, cx);
+            menu.update(cx, |menu, cx| menu.hide(cx));
+            editor.update(cx, |editor, cx| {
+                editor.present_code_actions(
+                    vec![CodeActionItem {
+                        action: lsp_types::CodeAction {
+                            title: "new".into(),
+                            ..Default::default()
+                        },
+                        provider_id: "test".into(),
+                    }],
+                    cx,
+                )
+            });
+            editor
+        });
+        cx.run_until_parked();
+        assert!(editor.read_with(cx, |editor, _| editor.code_action_menu_state().open));
     }
 }

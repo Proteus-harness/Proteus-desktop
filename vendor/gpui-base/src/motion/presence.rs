@@ -71,6 +71,9 @@ impl Presence {
             return stable_sample(self.present);
         }
 
+        if snapshot.from == target && snapshot.target == target {
+            return stable_sample(self.present);
+        }
         let elapsed = now.saturating_duration_since(snapshot.started_at);
         let (progress, status) = self.transition.progress(elapsed, snapshot.duration);
         let sampled = interpolate(

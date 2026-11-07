@@ -65,14 +65,10 @@ impl Parser {
     /// parameter is ignored and the resulting command will not retain the
     /// terminator information.
     ///
-    /// # Panics
-    ///
-    /// Panics if libghostty returns a null command, which is an internal
-    /// invariant violation.
     pub fn end(&mut self, terminator: u8) -> Command<'_> {
         let raw = unsafe { ffi::ghostty_osc_end(self.0.as_raw(), terminator) };
         Command {
-            inner: Object::new(raw).expect("command must not be null"),
+            inner: Object::new(raw).ok(),
             _parser: PhantomData,
         }
     }
@@ -89,7 +85,7 @@ impl Drop for Parser {
 /// The command can be queried for its type and associated data.
 #[derive(Debug)]
 pub struct Command<'p> {
-    inner: Object<ffi::OscCommandImpl>,
+    inner: Option<Object<ffi::OscCommandImpl>>,
     _parser: PhantomData<&'p Parser>,
 }
 
@@ -107,10 +103,16 @@ impl<'p> Command<'p> {
         use ffi::OscCommandData as Data;
         use ffi::OscCommandType as Type;
 
-        let raw_type = unsafe { ffi::ghostty_osc_command_type(self.inner.as_raw()) };
+        let raw_type = unsafe { ffi::ghostty_osc_command_type(self.inner.as_ref()?.as_raw()) };
         Some(match raw_type {
             Type::CHANGE_WINDOW_TITLE => CommandType::ChangeWindowTitle {
-                title: self.get(Data::CHANGE_WINDOW_TITLE_STR)?,
+                title: {
+                    let raw: *const std::ffi::c_char = self.get(Data::CHANGE_WINDOW_TITLE_STR)?;
+                    if raw.is_null() {
+                        return None;
+                    }
+                    unsafe { std::ffi::CStr::from_ptr(raw) }.to_str().ok()?
+                },
             },
             Type::CHANGE_WINDOW_ICON => CommandType::ChangeWindowIcon,
             Type::SEMANTIC_PROMPT => CommandType::SemanticPrompt,
@@ -148,7 +150,11 @@ impl<'p> Command<'p> {
     fn get<T>(&self, tag: ffi::OscCommandData::Type) -> Option<T> {
         let mut value = MaybeUninit::<T>::zeroed();
         let result = unsafe {
-            ffi::ghostty_osc_command_data(self.inner.as_raw(), tag, value.as_mut_ptr().cast())
+            ffi::ghostty_osc_command_data(
+                self.inner.as_ref()?.as_raw(),
+                tag,
+                value.as_mut_ptr().cast(),
+            )
         };
 
         if result {
@@ -197,4 +203,24 @@ pub enum CommandType<'p> {
     KittyDndProtocol,
     HierarchicalContext,
     ProgramStatus,
+}
+
+#[cfg(test)]
+mod audit_tests {
+    use super::*;
+    #[test]
+    fn invalid_command_and_title_use_the_c_contract() {
+        let mut parser = Parser::new().unwrap();
+        for byte in b"not-a-command" {
+            parser.next_byte(*byte);
+        }
+        assert!(matches!(parser.end(7).command_type(), CommandType::Invalid));
+        parser.reset();
+        for byte in b"0;title sentinel" {
+            parser.next_byte(*byte);
+        }
+        assert!(
+            matches!(parser.end(7).command_type(), CommandType::ChangeWindowTitle { title } if title == "title sentinel")
+        );
+    }
 }

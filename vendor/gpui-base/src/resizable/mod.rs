@@ -213,7 +213,7 @@ impl ResizableState {
         let Some(panel) = self.panels.get(panel_ix) else {
             return true;
         };
-        self.sizes.get(panel_ix).map(|size| size.as_f32()) == Some(PANEL_MIN_SIZE.as_f32())
+        !panel.measured
             || panel.bounds != bounds
             || panel.size_range != *size_range
             || panel.fixed != fixed
@@ -232,10 +232,11 @@ impl ResizableState {
         // This check is only necessary to stop the very first panel from resizing on its own
         // it needs to be passed when the panel is freshly created so we get the initial size,
         // but its also fine when it sometimes passes later.
-        if self.sizes[panel_ix].as_f32() == PANEL_MIN_SIZE.as_f32() {
+        if !self.panels[panel_ix].measured && self.sizes[panel_ix] == PANEL_MIN_SIZE {
             self.sizes[panel_ix] = size;
             self.panels[panel_ix].size = Some(size);
         }
+        self.panels[panel_ix].measured = true;
         self.panels[panel_ix].bounds = bounds;
         self.panels[panel_ix].size_range = size_range;
         cx.notify();
@@ -439,6 +440,7 @@ impl EventEmitter<ResizablePanelEvent> for ResizableState {}
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ResizablePanelState {
+    measured: bool,
     pub size: Option<Pixels>,
     pub size_range: Range<Pixels>,
     bounds: Bounds<Pixels>,
@@ -1143,5 +1145,35 @@ mod tests {
         let panel = cx.debug_bounds("sized-panel").unwrap();
         assert_eq!(panel.size.width, px(400.));
         assert_eq!(panel.size.height, px(40.));
+    }
+}
+
+#[cfg(test)]
+mod measurement_audit_tests {
+    use super::*;
+    use gpui::AppContext as _;
+    #[gpui::test]
+    fn measured_minimum_stabilizes_without_overwriting_explicit_sizes(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let entity = cx.new(|_| ResizableState::default());
+        entity.update(cx, |state, cx| {
+            state.panels = vec![
+                ResizablePanelState::default(),
+                ResizablePanelState::default(),
+            ];
+            state.sizes = vec![PANEL_MIN_SIZE, px(300.)];
+            let bounds = Bounds::new(
+                gpui::point(px(0.), px(0.)),
+                gpui::size(PANEL_MIN_SIZE, px(100.)),
+            );
+            let range = PANEL_MIN_SIZE..Pixels::MAX;
+            assert!(state.panel_size_changes(0, bounds, &range, false));
+            state.update_panel_size(0, bounds, range.clone(), false, cx);
+            assert!(!state.panel_size_changes(0, bounds, &range, false));
+            let wide = Bounds::new(bounds.origin, gpui::size(px(1620.), px(100.)));
+            state.update_panel_size(1, wide, range, false, cx);
+            assert_eq!(state.sizes[1], px(300.));
+        });
     }
 }

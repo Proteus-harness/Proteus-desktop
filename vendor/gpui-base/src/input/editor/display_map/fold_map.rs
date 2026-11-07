@@ -167,11 +167,19 @@ impl FoldMap {
         self.candidates = candidates;
 
         // Remove any folded ranges that are no longer in candidates
-        self.folded.retain(|fold| {
-            self.candidates
-                .iter()
-                .any(|c| c.start_line == fold.start_line)
-        });
+        let old = self.folded.clone();
+        self.folded = old
+            .iter()
+            .filter_map(|fold| {
+                self.candidates
+                    .iter()
+                    .find(|candidate| candidate.start_line == fold.start_line)
+                    .cloned()
+            })
+            .collect();
+        if self.folded != old {
+            self.needs_rebuild = true;
+        }
     }
 
     /// Merge new candidates extracted from an edited region into existing candidates.
@@ -442,5 +450,21 @@ mod tests {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod candidate_audit_tests {
+    use super::*;
+    #[test]
+    fn replacing_candidates_invalidates_projection_and_refreshes_end() {
+        let mut map = FoldMap::new();
+        map.set_candidates(vec![FoldRange::new(0, 3), FoldRange::new(5, 8)]);
+        map.set_folded(0, true);
+        map.set_folded(5, true);
+        map.needs_rebuild = false;
+        map.set_candidates(vec![FoldRange::new(0, 4)]);
+        assert!(map.needs_rebuild);
+        assert_eq!(map.folded, vec![FoldRange::new(0, 4)]);
     }
 }

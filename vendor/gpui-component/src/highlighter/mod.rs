@@ -1,4 +1,5 @@
 mod language_name;
+mod status_colors;
 pub use gpui_base::input::{
     Diagnostic, DiagnosticEntry, DiagnosticRelatedInformation, DiagnosticSet, DiagnosticSeverity,
     DiagnosticSummary, DiagnosticTag, RelatedInformation,
@@ -46,3 +47,23 @@ pub use registry::*;
 mod wasm_stub;
 #[cfg(not(feature = "tree-sitter"))]
 pub use wasm_stub::*;
+
+#[cfg(test)]
+mod audit_regressions {
+    use super::*;
+    #[test]
+    fn audit_theme_underline_and_dotted_editor_keys_survive_both_backends() {
+        let style: ThemeStyle =
+            serde_json::from_str(r#"{"color":null,"font_style":"underline","font_weight":null}"#)
+                .unwrap();
+        let highlight: gpui::HighlightStyle = style.into();
+        assert!(highlight.underline.is_some());
+        let mut value = serde_json::to_value(HighlightThemeStyle::default()).unwrap();
+        value["editor.background"] = serde_json::to_value(gpui::hsla(0.25, 0.3, 0.4, 1.)).unwrap();
+        let parsed: HighlightThemeStyle = serde_json::from_value(value).unwrap();
+        let expected: gpui::Hsla =
+            serde_json::from_value(serde_json::to_value(gpui::hsla(0.25, 0.3, 0.4, 1.)).unwrap())
+                .unwrap();
+        assert_eq!(parsed.editor_background, Some(expected));
+    }
+}

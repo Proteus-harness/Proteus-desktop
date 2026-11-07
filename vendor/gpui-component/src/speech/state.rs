@@ -9,6 +9,7 @@ use super::{
 
 /// Default time [`SpeechState::stop`] waits for the final result.
 const DEFAULT_STOP_TIMEOUT: Duration = Duration::from_secs(3);
+const START_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Where a [`SpeechState`] is in its session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -58,6 +59,7 @@ struct Session {
     capture: Option<Subscription>,
     recognition: Box<dyn RecognitionSession>,
     _stop_timeout: Option<Task<()>>,
+    _start_timeout: Option<Task<()>>,
 }
 
 /// The state of a speech input: captures audio from an [`AudioInput`], feeds it
@@ -226,6 +228,19 @@ impl SpeechState {
             capture: Some(capture),
             recognition,
             _stop_timeout: None,
+            _start_timeout: Some(cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(START_TIMEOUT).await;
+                let _ = this.update(cx, |this, cx| {
+                    if this.is_session(id) && this.status == SpeechStatus::Connecting {
+                        this.on_error(
+                            SpeechError::recognizer(anyhow::anyhow!(
+                                "speech authorization/start timed out"
+                            )),
+                            cx,
+                        );
+                    }
+                });
+            })),
         });
         cx.emit(SpeechEvent::Started);
         cx.notify();
@@ -299,6 +314,9 @@ impl SpeechState {
     pub(super) fn on_ready(&mut self, cx: &mut Context<Self>) {
         if self.status == SpeechStatus::Connecting {
             self.status = SpeechStatus::Recording;
+            if let Some(session) = self.session.as_mut() {
+                session._start_timeout = None;
+            }
             cx.notify();
         }
     }
@@ -507,6 +525,23 @@ mod tests {
                 })
                 .collect()
         }
+    }
+
+    #[gpui::test]
+    fn audit_connecting_speech_has_a_start_deadline(cx: &mut TestAppContext) {
+        let f = Fixture::new(FakeRecognizer::default(), cx);
+        f.state.update(cx, |state, cx| state.start(cx));
+        cx.run_until_parked();
+        assert_eq!(f.status(cx), SpeechStatus::Connecting);
+        cx.background_executor
+            .advance_clock(START_TIMEOUT + Duration::from_millis(1));
+        cx.run_until_parked();
+        assert_eq!(f.status(cx), SpeechStatus::Idle);
+        assert!(
+            f.take_events()
+                .iter()
+                .any(|event| event.contains("timed out"))
+        );
     }
 
     #[gpui::test]

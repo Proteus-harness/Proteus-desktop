@@ -628,6 +628,8 @@ impl Theme {
         self.border = colors.border;
         self.input = colors.input;
         self.ring = colors.ring;
+        self.selection = colors.selection;
+        self.tokens.selection = colors.selection.into();
 
         self.tokens.background = colors.background.into();
         self.tokens.popover = colors.surface.into();
@@ -697,6 +699,7 @@ mod semantic_token_tests {
         let mut tokens = theme.semantic_tokens();
         tokens.colors.primary = Hsla::default().alpha(0.25);
         tokens.colors.destructive = Hsla::default().alpha(0.75);
+        tokens.colors.selection = Hsla::default().alpha(0.18);
         tokens.radius.md = px(10.);
 
         theme.apply_semantic_tokens(&tokens);
@@ -704,6 +707,8 @@ mod semantic_token_tests {
         assert_eq!(theme.primary, tokens.colors.primary);
         assert_eq!(theme.tokens.primary.color, tokens.colors.primary);
         assert_eq!(theme.danger, tokens.colors.destructive);
+        assert_eq!(theme.selection, tokens.colors.selection);
+        assert_eq!(theme.tokens.selection.color, tokens.colors.selection);
         assert_eq!(theme.radius, px(10.));
         assert_eq!(theme.button_primary, component_color);
     }

@@ -96,7 +96,10 @@ impl Bytes {
     }
 
     /// Allocate `len` bytes with the allocator a callback received.
-    pub fn new_with_alloc(alloc: &Allocator, len: usize) -> Result<Self> {
+    /// # Safety
+    /// Allocated bytes must be released or transferred back to libghostty before
+    /// the callback allocator and its backing state expire.
+    pub unsafe fn new_with_alloc(alloc: &Allocator, len: usize) -> Result<Self> {
         // SAFETY: The allocator is valid for the duration of the callback.
         unsafe { Self::new_inner(alloc.as_raw(), len) }
     }
@@ -104,6 +107,7 @@ impl Bytes {
     unsafe fn new_inner(alloc: *const ffi::Allocator, len: usize) -> Result<Self> {
         let raw = unsafe { ffi::ghostty_alloc(alloc, len) };
         let ptr = NonNull::new(raw).ok_or(Error::OutOfMemory)?;
+        unsafe { ptr.as_ptr().write_bytes(0, len) };
         Ok(unsafe { Self::from_raw_parts(ptr, len, alloc) })
     }
 
@@ -174,5 +178,13 @@ impl<'a> IntoIterator for &'a Bytes {
 
     fn into_iter(self) -> Self::IntoIter {
         self.deref().iter()
+    }
+}
+
+#[cfg(test)]
+mod audit_tests {
+    #[test]
+    fn fresh_safe_allocation_is_initialized() {
+        assert_eq!(super::Bytes::new(4096).unwrap().to_vec(), vec![0; 4096]);
     }
 }

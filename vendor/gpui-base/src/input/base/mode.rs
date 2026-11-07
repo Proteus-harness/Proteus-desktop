@@ -101,7 +101,7 @@ impl LayoutMode {
         LayoutMode::AutoGrow {
             rows: min_rows,
             min_rows,
-            max_rows,
+            max_rows: max_rows.max(min_rows),
         }
     }
 

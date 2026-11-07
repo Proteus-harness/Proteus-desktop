@@ -146,12 +146,22 @@ impl InputBaseState<EditorMode> {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        for edit in text_edits {
-            let start = self.text.position_to_offset(&edit.range.start);
-            let end = self.text.position_to_offset(&edit.range.end);
-
-            let range_utf16 = self.range_to_utf16(&(start..end));
-            self.replace_text_in_range_silent(Some(range_utf16), &edit.new_text, window, cx);
+        let mut edits = text_edits
+            .iter()
+            .map(|edit| {
+                let start = self.text.position_to_offset(&edit.range.start);
+                let end = self.text.position_to_offset(&edit.range.end);
+                (self.range_to_utf16(&(start..end)), &edit.new_text)
+            })
+            .collect::<Vec<_>>();
+        // All ranges refer to the same original document. Stable ordering
+        // preserves the provider's order for same-position insertions.
+        edits.sort_by_key(|(range, _)| (range.start, range.end));
+        if edits.windows(2).any(|pair| pair[0].0.end > pair[1].0.start) {
+            return;
+        }
+        for (range, text) in edits.into_iter().rev() {
+            self.replace_text_in_range_silent(Some(range), text, window, cx);
         }
     }
 }

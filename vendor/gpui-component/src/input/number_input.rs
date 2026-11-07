@@ -20,7 +20,7 @@ use rust_i18n::t;
 #[derive(IntoElement)]
 pub struct NumberInput {
     state: Entity<InputState>,
-    placeholder: SharedString,
+    placeholder: Option<SharedString>,
     size: Size,
     prefix: Option<AnyElement>,
     suffix: Option<AnyElement>,
@@ -37,7 +37,7 @@ impl NumberInput {
         Self {
             state: state.clone(),
             size: Size::default(),
-            placeholder: SharedString::default(),
+            placeholder: None,
             prefix: None,
             suffix: None,
             appearance: true,
@@ -50,7 +50,7 @@ impl NumberInput {
 
     /// Set the placeholder text of the number input.
     pub fn placeholder(mut self, placeholder: impl Into<SharedString>) -> Self {
-        self.placeholder = placeholder.into();
+        self.placeholder = Some(placeholder.into());
         self
     }
 
@@ -122,6 +122,13 @@ impl Styled for NumberInput {
 
 impl RenderOnce for NumberInput {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        if let Some(placeholder) = &self.placeholder {
+            self.state.update(cx, |state, cx| {
+                if state.presentation().placeholder() != placeholder {
+                    state.set_placeholder(placeholder.clone(), window, cx);
+                }
+            });
+        }
         let focused = self.state.read(cx).focus_handle(cx).is_focused(window) && !self.disabled;
         let (bg, _) = input_style(self.disabled, cx);
         let border_color = if self.disabled {
@@ -321,5 +328,46 @@ mod tests {
             step_value("1000", StepAction::Increment, 1., None, Some(100.)),
             None
         );
+    }
+}
+
+#[cfg(test)]
+mod audit_regressions {
+    use super::*;
+    use gpui::{AppContext as _, Context, Render, TestAppContext};
+    struct Probe {
+        input: Entity<InputState>,
+        placeholder: &'static str,
+    }
+    impl Render for Probe {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            NumberInput::new(&self.input).placeholder(self.placeholder)
+        }
+    }
+    #[gpui::test]
+    fn audit_number_input_placeholder_is_forwarded_including_explicit_clear(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(crate::init);
+        let (probe, cx) = cx.add_window_view(|window, cx| Probe {
+            input: cx.new(|cx| InputState::new(window, cx)),
+            placeholder: "Count",
+        });
+        for placeholder in ["Count", ""] {
+            probe.update(cx, |probe, cx| {
+                probe.placeholder = placeholder;
+                cx.notify();
+            });
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            assert_eq!(
+                probe.read_with(cx, |probe, cx| probe
+                    .input
+                    .read(cx)
+                    .presentation()
+                    .placeholder()
+                    .to_string()),
+                placeholder
+            );
+        }
     }
 }

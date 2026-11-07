@@ -552,19 +552,15 @@ where
         self.w.write_all(b"=")?;
 
         let b = value.as_bytes();
-        let (unquoted, double, _) =
-            b.iter()
-                .fold((true, false, false), |(unquoted, double, single), &c| {
-                    let (double, single) = (double || c == b'"', single || c == b'\'');
-                    let unquoted =
-                        unquoted && !double && !single && c != b'=' && !c.is_ascii_whitespace();
-
-                    (unquoted, double, single)
-                });
-
+        // Already decoded by html5ever: an unquoted attribute may contain
+        // neither syntax delimiters nor character-reference introducers.
+        let unquoted = b.iter().all(|c| {
+            !c.is_ascii_whitespace()
+                && !matches!(*c, b'\"' | b'\'' | b'=' | b'>' | b'<' | b'&' | b'`')
+        });
         if unquoted {
             self.w.write_all(b)
-        } else if double {
+        } else if b.contains(&b'"') {
             self.write_attribute_value(b, b"'", reserved_entity_with_apos)
         } else {
             self.write_attribute_value(b, b"\"", reserved_entity)
@@ -581,11 +577,7 @@ where
 
         let b = v.as_ref();
 
-        if self.collapse_whitespace {
-            self.write_collapse_whitespace(b, f, Some(false))
-        } else {
-            self.w.write_all(b)
-        }?;
+        self.write(b, f)?;
 
         self.w.write_all(quote)
     }

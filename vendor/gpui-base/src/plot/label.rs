@@ -24,11 +24,16 @@ fn shape_label(
     text: &SharedString,
     font_size: Pixels,
     color: Hsla,
+    weight: Option<FontWeight>,
     window: &mut Window,
 ) -> ShapedLine {
+    let mut font = window.text_style().font();
+    if let Some(weight) = weight {
+        font.weight = weight;
+    }
     let text_run = TextRun {
         len: text.len(),
-        font: window.text_style().font(),
+        font,
         color,
         background_color: None,
         underline: None,
@@ -55,6 +60,7 @@ pub fn measure_text_width(text: &SharedString, font_size: Pixels, window: &mut W
             l: 0.,
             a: 1.,
         },
+        None,
         window,
     )
     .width()
@@ -173,13 +179,13 @@ impl PlotLabel {
             origin,
             color,
             font_size,
-            font_weight: _,
+            font_weight,
             align,
         } in self.0.iter()
         {
             let origin = origin_point(origin.x, origin.y, bounds.origin);
 
-            let line = shape_label(text, *font_size, *color, window);
+            let line = shape_label(text, *font_size, *color, Some(*font_weight), window);
             let origin = match align {
                 TextAlign::Left => origin,
                 TextAlign::Right => origin - point(line.width(), px(0.)),

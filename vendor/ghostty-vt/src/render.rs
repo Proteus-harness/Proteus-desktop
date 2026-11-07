@@ -698,6 +698,9 @@ impl CellIteration<'_> {
     /// The buffer must be at least [`CellIteration::graphemes_len`] elements.
     /// The base codepoint is written first, followed by any extra codepoints.
     pub fn graphemes_buf(&self, buf: &mut [char]) -> Result<()> {
+        if buf.len() < self.graphemes_len()? {
+            return Err(Error::InvalidValue);
+        }
         let result = unsafe {
             ffi::ghostty_render_state_row_cells_get(
                 self.iter.0.as_raw(),
@@ -869,4 +872,30 @@ pub enum CursorVisualStyle {
     Underline = ffi::RenderStateCursorVisualStyle::UNDERLINE,
     /// Hollow block cursor.
     BlockHollow = ffi::RenderStateCursorVisualStyle::BLOCK_HOLLOW,
+}
+
+#[cfg(test)]
+mod audit_tests {
+    use super::*;
+    #[test]
+    fn undersized_grapheme_buffer_fails_before_native_write() {
+        let mut terminal = Terminal::new(crate::TerminalOptions {
+            cols: 8,
+            rows: 2,
+            ..Default::default()
+        })
+        .unwrap();
+        terminal.vt_write("a\u{301}".as_bytes());
+        let mut state = RenderState::new().unwrap();
+        let snapshot = state.update(&terminal).unwrap();
+        let mut rows = RowIterator::new().unwrap();
+        let mut row = rows.update(&snapshot).unwrap();
+        let row = row.next().unwrap();
+        let mut cells = CellIterator::new().unwrap();
+        let mut iter = cells.update(row).unwrap();
+        let cell = iter.next().unwrap();
+        assert!(cell.graphemes_len().unwrap() > 0);
+        assert!(cell.graphemes_buf(&mut []).is_err());
+        assert!(!cell.graphemes().unwrap().is_empty());
+    }
 }

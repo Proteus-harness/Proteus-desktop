@@ -3,7 +3,7 @@ use gpui::{App, Context, MouseMoveEvent, Task, Window};
 use instant::Duration;
 use ropey::Rope;
 
-use crate::input::{EditorMode, HoverPopoverState, InputBaseState, RopeExt};
+use crate::input::{EditorMode, InputBaseState, RopeExt};
 
 /// Hover provider
 ///
@@ -69,10 +69,7 @@ impl InputBaseState<EditorMode> {
                             let end = editor.text.position_to_offset(&range.end);
                             symbol_range = start..end;
                         }
-                        editor.extras.hover_popover = Some(HoverPopoverState {
-                            symbol_range,
-                            hover,
-                        });
+                        editor.present_hover(symbol_range, hover, cx);
                     }
                     None => {
                         editor.extras.hover_popover = None;

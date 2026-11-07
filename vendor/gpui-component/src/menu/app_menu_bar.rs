@@ -11,7 +11,7 @@ use gpui::{
     App, AppContext as _, ClickEvent, Context, DismissEvent, Entity, FocusHandle, Focusable,
     InteractiveElement as _, IntoElement, KeyBinding, MouseButton, OwnedMenu, ParentElement,
     Render, Role, ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Subscription,
-    Window, anchored, deferred, div, prelude::FluentBuilder, px,
+    WeakEntity, Window, anchored, deferred, div, prelude::FluentBuilder, px,
 };
 
 const CONTEXT: &str = "AppMenuBar";
@@ -145,7 +145,7 @@ impl Render for AppMenuBar {
 
 /// A menu in the menu bar.
 pub(super) struct AppMenu {
-    menu_bar: Entity<AppMenuBar>,
+    menu_bar: WeakEntity<AppMenuBar>,
     ix: usize,
     name: SharedString,
     menu: OwnedMenu,
@@ -164,7 +164,7 @@ impl AppMenu {
         let name = menu.name.clone();
         cx.new(|_| Self {
             ix,
-            menu_bar,
+            menu_bar: menu_bar.downgrade(),
             name,
             menu: menu.clone(),
             popup_menu: None,
@@ -174,7 +174,9 @@ impl AppMenu {
 
     /// Whether this menu's popup is the one the menu bar currently has open.
     fn is_open(&self, cx: &App) -> bool {
-        self.menu_bar.read(cx).selected_index == Some(self.ix)
+        self.menu_bar
+            .upgrade()
+            .is_some_and(|menu_bar| menu_bar.read(cx).selected_index == Some(self.ix))
     }
 
     fn build_popup_menu(
@@ -182,7 +184,10 @@ impl AppMenu {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Entity<PopupMenu> {
-        let action_context = self.menu_bar.read(cx).action_context.clone();
+        let action_context = self
+            .menu_bar
+            .upgrade()
+            .and_then(|menu_bar| menu_bar.read(cx).action_context.clone());
         let popup_menu = match self.popup_menu.as_ref() {
             None => {
                 let items = self.menu.items.clone();
@@ -223,7 +228,7 @@ impl AppMenu {
     ) {
         self._subscription.take();
         self.popup_menu.take();
-        self.menu_bar.update(cx, |state, cx| {
+        let _ = self.menu_bar.update(cx, |state, cx| {
             state.on_cancel(&Cancel, window, cx);
         });
     }
@@ -254,7 +259,10 @@ impl AppMenu {
             return;
         }
 
-        let has_activated_menu = self.menu_bar.read(cx).has_activated_menu();
+        let has_activated_menu = self
+            .menu_bar
+            .upgrade()
+            .is_some_and(|menu_bar| menu_bar.read(cx).has_activated_menu());
         if !has_activated_menu {
             return;
         }
@@ -373,5 +381,33 @@ mod tests {
             menu_bar.set_selected_index(Some(0), window, cx);
             assert_eq!(menu_bar.action_context.as_ref(), Some(&second_focus));
         });
+    }
+}
+
+#[cfg(test)]
+mod audit_regressions {
+    use super::*;
+
+    #[gpui::test]
+    fn audit_app_menu_backreference_does_not_retain_the_bar(cx: &mut gpui::TestAppContext) {
+        cx.update(crate::init);
+        let weak = cx.update(|cx| {
+            let bar = cx.new(|_| AppMenuBar {
+                menus: vec![],
+                selected_index: None,
+                action_context: None,
+                scroll_handle: ScrollHandle::new(),
+            });
+            let menu = OwnedMenu {
+                name: "Test".into(),
+                items: vec![],
+                disabled: false,
+            };
+            let child = AppMenu::new(0, &menu, bar.clone(), cx);
+            bar.update(cx, |bar, _| bar.menus.push(child));
+            bar.downgrade()
+        });
+        cx.run_until_parked();
+        assert!(weak.upgrade().is_none());
     }
 }

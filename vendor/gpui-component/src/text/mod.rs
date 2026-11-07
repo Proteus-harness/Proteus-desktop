@@ -19,7 +19,7 @@ pub use style::TextViewStyle;
 #[cfg(any(feature = "tree-sitter", feature = "syntect"))]
 use std::cell::RefCell;
 #[cfg(feature = "tree-sitter")]
-use std::collections::HashMap;
+mod code_highlighter_cache;
 
 use gpui::Styled as _;
 #[cfg(feature = "tree-sitter")]
@@ -28,7 +28,7 @@ use gpui_base::input::{InputEdit, Point, RopeExt as _};
 use ropey::Rope;
 
 #[cfg(feature = "tree-sitter")]
-use crate::highlighter::{LanguageRegistry, SyntaxHighlighter};
+use crate::highlighter::LanguageRegistry;
 
 #[cfg(test)]
 mod window_selection;
@@ -90,24 +90,24 @@ pub(crate) fn component_code_block_highlighter(
 + 'static {
     move |block| {
         thread_local! {
-            static HIGHLIGHTERS: RefCell<HashMap<gpui::SharedString, SyntaxHighlighter>> =
-                RefCell::new(HashMap::new());
+            static HIGHLIGHTERS: RefCell<code_highlighter_cache::CodeHighlighterCache> = RefCell::new(Default::default());
         }
-
         let Some(lang) = block.lang() else {
+            return Vec::new();
+        };
+        let Some(config) = LanguageRegistry::singleton().language(lang.as_ref()) else {
             return Vec::new();
         };
         let code = block.code();
         HIGHLIGHTERS.with(|cache| {
             let mut cache = cache.borrow_mut();
-            let highlighter = cache
-                .entry(lang.clone())
-                .or_insert_with(|| SyntaxHighlighter::new(lang.as_ref()));
-            if let Some(config) = LanguageRegistry::singleton().language(lang.as_ref())
-                && highlighter.language() != &config.name
-            {
-                *highlighter = SyntaxHighlighter::new(lang.as_ref());
-            }
+            let Some(highlighter) = cache.prepare(
+                config.name.clone(),
+                LanguageRegistry::singleton().generation(),
+                code.len(),
+            ) else {
+                return Vec::new();
+            };
 
             let old_end_byte = highlighter.text().len();
             let old_end_position = highlighter.text().offset_to_point(old_end_byte);

@@ -389,7 +389,7 @@ where
 
     if cx.reduce_motion() {
         return MotionValue {
-            value: keyframes.sample(1.0),
+            value: keyframes.sample(timing.final_progress()),
             status: MotionStatus::Finished,
         };
     }
@@ -1092,6 +1092,14 @@ mod tests {
             cx.run_until_parked();
             *self.samples.borrow().last().unwrap()
         }
+    }
+
+    #[gpui::test]
+    fn initially_absent_presence_does_not_start_an_exit(cx: &mut TestAppContext) {
+        let fixture = PresenceFixture::open(cx, false);
+        let sample = *fixture.samples.borrow().last().unwrap();
+        assert_eq!(sample.phase, PresencePhase::Absent);
+        assert!(!sample.should_render());
     }
 
     #[gpui::test]

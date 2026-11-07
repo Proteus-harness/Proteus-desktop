@@ -154,7 +154,11 @@ impl RenderOnce for InputGroup {
         let presentation = GroupPresentation {
             size: self.size,
             disabled,
-            readonly: self.readonly,
+            readonly: self.readonly
+                || self
+                    .control
+                    .as_ref()
+                    .is_some_and(|input| input.is_readonly()),
             inline_start: has(InputGroupAddonAlignment::InlineStart),
             inline_end: has(InputGroupAddonAlignment::InlineEnd),
             block_start: has(InputGroupAddonAlignment::BlockStart),
@@ -738,3 +742,26 @@ fn addon_child(mut child: AnyElement) -> AnyElement {
 mod tests;
 
 mod button_element;
+
+#[cfg(test)]
+mod audit_regressions {
+    use super::*;
+    use gpui::{AppContext as _, Context, Entity, Render, TestAppContext};
+    struct Probe(Entity<crate::input::InputState>);
+    impl Render for Probe {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            InputGroup::new("readonly").input(Input::new(&self.0).readonly(true))
+        }
+    }
+    #[gpui::test]
+    fn audit_group_preserves_child_readonly(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let (probe, cx) = cx.add_window_view(|window, cx| {
+            Probe(cx.new(|cx| crate::input::InputState::new(window, cx)))
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(probe.read_with(cx, |probe, cx| {
+            probe.0.read(cx).presentation().is_readonly()
+        }));
+    }
+}

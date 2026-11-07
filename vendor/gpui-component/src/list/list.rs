@@ -304,16 +304,25 @@ where
         self.set_searching(true, window, cx);
         let search = self.delegate.perform_search(&query, window, cx);
 
-        if self.rows_cache.len() > 0 {
-            self._set_selected_index(Some(IndexPath::default()), window, cx);
-        } else {
-            self._set_selected_index(None, window, cx);
-        }
+        self._set_selected_index(None, window, cx);
 
         self._search_task = cx.spawn_in(window, async move |this, window| {
             search.await;
 
-            _ = this.update_in(window, |this, _, _| {
+            _ = this.update_in(window, |this, window, cx| {
+                let measured = this.rows_cache.measured_size;
+                this.rows_cache.prepare_if_needed(
+                    this.delegate.sections_count(cx),
+                    measured,
+                    cx,
+                    |section, cx| this.delegate.items_count(section, cx),
+                );
+                let first = this
+                    .rows_cache
+                    .first_entry_position()
+                    .and_then(|position| this.rows_cache.get(position))
+                    .map(|entry| entry.index());
+                this._set_selected_index(first, window, cx);
                 this.scroll_handle.scroll_to_item(0, ScrollStrategy::Top);
                 this.last_query = Some(query);
             });
@@ -390,6 +399,10 @@ where
         let Some(ix) = self.selected_index else {
             return;
         };
+
+        if self.rows_cache.position_of(&ix).is_none() {
+            return;
+        }
 
         self.delegate
             .set_selected_index(self.selected_index, window, cx);

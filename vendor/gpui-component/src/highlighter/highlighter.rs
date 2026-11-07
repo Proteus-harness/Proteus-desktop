@@ -47,6 +47,7 @@ pub struct SyntaxHighlighter {
 
     /// The last parsed source text.
     text: Rope,
+    background_pending: bool,
     parser: Parser,
     /// The last parsed tree.
     tree: Option<Tree>,
@@ -407,6 +408,7 @@ impl SyntaxHighlighter {
             local_def_value_capture_index: None,
             local_ref_capture_index: None,
             text: Rope::new(),
+            background_pending: false,
             parser: Parser::new(),
             tree: None,
             injection_layers: Vec::new(),
@@ -530,6 +532,7 @@ impl SyntaxHighlighter {
             local_def_value_capture_index,
             local_ref_capture_index,
             text: Rope::new(),
+            background_pending: false,
             parser,
             tree: None,
             injection_layers: Vec::new(),
@@ -553,6 +556,7 @@ impl SyntaxHighlighter {
         }
         self.edit_injection_layers(edit.as_ref());
         self.text = text.clone();
+        self.background_pending = true;
     }
 
     /// Keep the injection layers in step with `edit`, the way `Tree::edit`
@@ -589,10 +593,11 @@ impl SyntaxHighlighter {
     /// Highlight the given text, returning a map from byte ranges to highlight captures.
     ///
     /// Uses incremental parsing by `edit` to efficiently update the highlighter's state.
-    /// When `timeout` is `Some`, aborts if parsing exceeds the given duration
-    /// and returns `false`. On timeout the old tree is preserved so highlighting
+    /// When `timeout` is `Some`, returns `false` if the host parse times out
+    /// or injection parsing is deferred to the background. On host timeout the old tree is preserved so highlighting
     /// still works with stale data, but `self.text` is updated so that the
-    /// caller can send the current text to a background parse.
+    /// caller can send the current text to a background parse. Injection work
+    /// is deferred wholesale when a foreground budget is supplied.
     /// When `timeout` is `None`, parsing runs to completion and always returns `true`.
     pub fn update(
         &mut self,
@@ -612,13 +617,14 @@ impl SyntaxHighlighter {
         text: &Rope,
         timeout: Option<Duration>,
     ) -> bool {
-        if self.text.eq(text) {
-            return true;
+        if self.text.eq(text) && (!self.background_pending || timeout.is_some()) {
+            return !self.background_pending;
         }
 
         // If there's no grammar for the language, just update the text.
         if self.parser.language().is_none() {
             self.text = text.clone();
+            self.background_pending = false;
             return true;
         }
 
@@ -675,13 +681,23 @@ impl SyntaxHighlighter {
             // Restore the old tree so highlighting continues with stale data.
             self.tree = Some(old_tree);
             self.text = text.clone();
+            self.background_pending = true;
             return false;
         }
 
         let new_tree = new_tree.unwrap();
         self.tree = Some(new_tree.clone());
         self.text = text.clone();
+        // Injections have their own query traversal and per-layer parsers.
+        // None of that unbounded aggregate work belongs in a foreground pass:
+        // retain the valid host tree and let the editor background task finish
+        // injections. A synchronous host deadline must cover the whole pass.
+        if timeout.is_some() && self.injections_query.is_some() {
+            self.background_pending = true;
+            return false;
+        }
         self.parse_injection_layers(&new_tree);
+        self.background_pending = false;
         true
     }
 
@@ -1001,6 +1017,7 @@ impl SyntaxHighlighter {
 
         self.tree = Some(tree);
         self.injection_layers = injection_layers;
+        self.background_pending = false;
     }
 
     /// Parse injection layers after the main tree is updated.
@@ -1980,5 +1997,32 @@ $x = 1;
             vec![(2..2, red), (4..6, green)],
             vec![(0..4, clean), (4..6, green), (6..10, clean)],
         );
+    }
+}
+
+#[cfg(test)]
+mod audit_regressions {
+    use super::*;
+
+    #[cfg(all(feature = "tree-sitter-html", feature = "tree-sitter-javascript"))]
+    #[test]
+    fn audit_foreground_injections_defer_and_remain_pending_until_background_apply() {
+        let mut highlighter = SyntaxHighlighter::new("html");
+        let text = Rope::from("<script>const answer = 42;</script>");
+        assert!(!highlighter.update(None, &text, Some(Duration::from_secs(1))));
+        assert!(highlighter.tree().is_some());
+        assert!(
+            !highlighter.update(None, &text, Some(Duration::from_secs(1))),
+            "unchanged foreground must not cancel pending injection work"
+        );
+        let tree = highlighter.tree().unwrap().clone();
+        let layers = SyntaxHighlighter::compute_injection_layers(
+            highlighter.injection_parse_data().unwrap(),
+            &tree,
+            &text,
+        );
+        assert!(!layers.is_empty());
+        highlighter.apply_background_tree(tree, &text, layers);
+        assert!(highlighter.update(None, &text, Some(Duration::from_secs(1))));
     }
 }

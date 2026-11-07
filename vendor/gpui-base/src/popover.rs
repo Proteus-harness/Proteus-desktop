@@ -100,7 +100,7 @@ impl PopoverState {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.open == opening {
+        if self.open == opening && (!opening || self.dismiss_subscription.is_some()) {
             return;
         }
         if opening {
@@ -317,9 +317,8 @@ impl RenderOnce for Popover {
         state.update(cx, |state, cx| {
             state.track_focus(self.tracked_focus_handle);
             state.set_on_open_change(self.on_open_change);
-            if let Some(open) = self.open {
-                state.sync_open(open, window, cx);
-            }
+            let open = self.open.unwrap_or_else(|| state.is_open());
+            state.sync_open(open, window, cx);
         });
 
         let open = state.read(cx).is_open();

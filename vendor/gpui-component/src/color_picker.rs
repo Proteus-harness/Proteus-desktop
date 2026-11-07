@@ -499,6 +499,7 @@ impl RenderOnce for ColorPicker {
             })
             .child(
                 Popover::new("popover")
+                    .anchor(self.anchor)
                     .open(open)
                     .w_72()
                     .on_open_change(move |open: &bool, _, cx| {

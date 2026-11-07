@@ -247,7 +247,7 @@ impl RenderOnce for Field {
         } else {
             self.props.label_width
         };
-        let has_label = self.label_indent;
+        let has_label = self.label.is_some() || self.label_indent;
 
         #[inline]
         fn wrap_div(layout: Axis) -> Div {

@@ -61,7 +61,7 @@ use crate::{
 
 struct ContextMenuDelegate {
     query: SharedString,
-    menu: Entity<CompletionMenu>,
+    menu: WeakEntity<CompletionMenu>,
     items: Vec<Rc<CompletionItem>>,
     selected_ix: usize,
     highlight: Rc<CompletionHighlighter>,
@@ -210,7 +210,7 @@ impl ListDelegate for ContextMenuDelegate {
             return;
         };
 
-        self.menu.update(cx, |this, cx| {
+        let _ = self.menu.update(cx, |this, cx| {
             this.select_item(&item, window, cx);
         });
     }
@@ -242,7 +242,7 @@ impl CompletionMenu {
             let view = cx.entity();
             let menu = ContextMenuDelegate {
                 query: SharedString::default(),
-                menu: view,
+                menu: view.downgrade(),
                 items: vec![],
                 selected_ix: 0,
                 highlight: Rc::new(gpui_base::input::highlight_prefix),
@@ -563,5 +563,26 @@ mod tests {
             assert_eq!(completion.items[0].label, "const");
         });
         drop(menu);
+    }
+}
+
+#[cfg(test)]
+mod audit_regressions {
+    use super::*;
+
+    #[gpui::test]
+    fn audit_completion_menu_and_list_release_without_external_owners(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(crate::init);
+        let window = cx.add_empty_window();
+        let (menu, list) = window.update(|window, cx| {
+            let editor = cx.new(|cx| EditorState::new(window, cx));
+            let menu = CompletionMenu::new(editor, window, cx);
+            (menu.downgrade(), menu.read(cx).list.downgrade())
+        });
+        cx.run_until_parked();
+        assert!(menu.upgrade().is_none());
+        assert!(list.upgrade().is_none());
     }
 }

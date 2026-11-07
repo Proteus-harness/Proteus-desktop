@@ -357,6 +357,7 @@ pub struct EditorExtras {
     pub(crate) inline_completion: InlineCompletion,
     pub(crate) context_menu_content: ContextMenuContent,
     pub(crate) hover_popover: Option<HoverPopoverState>,
+    pub(crate) hover_revision: u64,
     pub(crate) hover_definition: HoverDefinition,
     pub(crate) context_menu_task: Task<anyhow::Result<()>>,
 }
@@ -370,6 +371,7 @@ impl Default for EditorExtras {
             inline_completion: InlineCompletion::default(),
             context_menu_content: ContextMenuContent::default(),
             hover_popover: None,
+            hover_revision: 0,
             hover_definition: HoverDefinition::default(),
             context_menu_task: Task::ready(Ok(())),
         }

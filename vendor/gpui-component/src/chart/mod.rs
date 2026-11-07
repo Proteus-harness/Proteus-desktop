@@ -279,7 +279,9 @@ pub(crate) fn labeled_items(
             }
             labeled
         }
-        None => (0..len).map(|i| (i + 1) % tick_margin == 0).collect(),
+        None => (0..len)
+            .map(|i| (i + 1) % tick_margin.max(1) == 0)
+            .collect(),
     }
 }
 
@@ -906,5 +908,16 @@ mod tests {
         assert!(!built.get());
         assert!(tooltip.title_for_test().is_none());
         assert!(tooltip.rows_for_test().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod audit_regressions {
+    use super::*;
+
+    #[test]
+    fn audit_zero_tick_margin_means_every_category_without_division_by_zero() {
+        assert_eq!(labeled_items(3, None, 0), vec![true, true, true]);
+        assert_eq!(labeled_items(0, None, 0), Vec::<bool>::new());
     }
 }

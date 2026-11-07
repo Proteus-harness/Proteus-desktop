@@ -1,4 +1,4 @@
-use crate::input::EditorMode;
+use crate::input::{EditorMode, RopeExt};
 use anyhow::Result;
 use gpui::{App, Context, EntityInputHandler, Pixels, Task, Window, px};
 use lsp_types::{
@@ -553,7 +553,13 @@ impl InputBaseState<EditorMode> {
         };
 
         let cursor = self.cursor();
-        let range_utf16 = self.range_to_utf16(&(cursor..cursor));
+        let range = completion_item
+            .range
+            .map(|range| {
+                self.text.position_to_offset(&range.start)..self.text.position_to_offset(&range.end)
+            })
+            .unwrap_or(cursor..cursor);
+        let range_utf16 = self.range_to_utf16(&range);
         let completion_text = completion_item.insert_text;
         self.replace_text_in_range_silent(Some(range_utf16), &completion_text, window, cx);
         true

@@ -167,7 +167,7 @@ impl Attribute<'_> {
         use ffi::SgrAttributeTag as Tag;
         Ok(match value.tag {
             Tag::UNSET => Self::Unset,
-            Tag::UNKNOWN => Self::Unknown(unsafe { value.value.unknown }.into()),
+            Tag::UNKNOWN => Self::Unknown(unsafe { Unknown::from_raw(value.value.unknown) }),
             Tag::BOLD => Self::Bold,
             Tag::RESET_BOLD => Self::ResetBold,
             Tag::ITALIC => Self::Italic,
@@ -222,15 +222,23 @@ pub struct Unknown<'p> {
     pub partial: &'p [u16],
 }
 
-impl From<ffi::SgrUnknown> for Unknown<'_> {
-    fn from(value: ffi::SgrUnknown) -> Self {
+impl Unknown<'_> {
+    unsafe fn from_raw(value: ffi::SgrUnknown) -> Self {
         // SAFETY: We trust libghostty to give us two valid slices
         // of u16s that last at least as long as the current iteration,
         // which is guaranteed by Rust's mutation XOR sharability property
         // (e.g. one cannot reset the parser when this object still
         // borrows the parser mutably).
-        let full = unsafe { std::slice::from_raw_parts(value.full_ptr, value.full_len) };
-        let partial = unsafe { std::slice::from_raw_parts(value.partial_ptr, value.partial_len) };
+        let full = if value.full_len == 0 {
+            &[]
+        } else {
+            unsafe { std::slice::from_raw_parts(value.full_ptr, value.full_len) }
+        };
+        let partial = if value.partial_len == 0 {
+            &[]
+        } else {
+            unsafe { std::slice::from_raw_parts(value.partial_ptr, value.partial_len) }
+        };
         Self { full, partial }
     }
 }

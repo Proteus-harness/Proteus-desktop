@@ -1,0 +1,20 @@
+{
+  "zed_commit": "96984225abc235519e66b5c6c9ed23b87621f868",
+  "files": [
+    {
+      "path": "lilex/Lilex-Regular.ttf",
+      "source": "zed/assets/fonts/lilex/Lilex-Regular.ttf",
+      "sha256": "8a467ad5a1941dc7c9cebaee34e3ed9364a73b48393034e363e4b528bd711d04"
+    },
+    {
+      "path": "lilex/Lilex-Bold.ttf",
+      "source": "zed/assets/fonts/lilex/Lilex-Bold.ttf",
+      "sha256": "3369214e2ecddb45ae5024b11d45dd637e99e9d2127ab729817d41d72b8a9c68"
+    },
+    {
+      "path": "ibm-plex-sans/IBMPlexSans-Regular.ttf",
+      "source": "zed/assets/fonts/ibm-plex-sans/IBMPlexSans-Regular.ttf",
+      "sha256": "975dcda37d80f038dcd143c22e33ca2d97a0cc5a929aace1c749153b0fe1afa5"
+    }
+  ]
+}

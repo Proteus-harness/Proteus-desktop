@@ -1375,12 +1375,15 @@ impl Element for Scrollbar {
         state.set(inner);
 
         let mut states = vec![];
-        let mut has_both = self.axis.is_both();
+        let has_both = self.axis.is_both();
         let scroll_size = self
             .scroll_size
             .unwrap_or(self.scroll_handle.content_size());
         let scroll_viewport_size = self.scroll_viewport_size.unwrap_or(hitbox.size);
 
+        let has_both = has_both
+            && scroll_size.width > scroll_viewport_size.width
+            && scroll_size.height > scroll_viewport_size.height;
         for axis in self.axis.all().into_iter() {
             let is_vertical = axis.is_vertical();
             let track_width = self
@@ -1415,7 +1418,6 @@ impl Element for Scrollbar {
 
             // Hide scrollbar, if the scroll area is smaller than the container.
             if scroll_area_size <= scroll_viewport_size {
-                has_both = false;
                 continue;
             }
 

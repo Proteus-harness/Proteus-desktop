@@ -37,14 +37,14 @@ impl Default for SheetSettings {
     }
 }
 
-/// Sheet component that slides in from the side of the window.
+/// Fixed-size sheet that slides in from the side of the window.
+/// Configure its extent with `size`; no interactive resize API is advertised.
 #[derive(IntoElement)]
 pub struct Sheet {
     pub(crate) focus_handle: FocusHandle,
     pub(crate) placement: Placement,
     pub(crate) size: DefiniteLength,
     pub(crate) selection_scope: TextSelectionScopeId,
-    resizable: bool,
     on_close: Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>,
     title: Option<AnyElement>,
     footer: Option<AnyElement>,
@@ -62,7 +62,6 @@ impl Sheet {
             placement: Placement::Right,
             size: DefiniteLength::Absolute(px(350.).into()),
             selection_scope: TextSelectionScopeId::default(),
-            resizable: true,
             title: None,
             footer: None,
             style: StyleRefinement::default(),
@@ -88,12 +87,6 @@ impl Sheet {
     /// Sets the size of the sheet, default is 350px.
     pub fn size(mut self, size: impl Into<DefiniteLength>) -> Self {
         self.size = size.into();
-        self
-    }
-
-    /// Sets whether the sheet is resizable, default is `true`.
-    pub fn resizable(mut self, resizable: bool) -> Self {
-        self.resizable = resizable;
         self
     }
 

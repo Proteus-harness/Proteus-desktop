@@ -191,8 +191,11 @@ impl<T> Area<T> {
     ) {
         let mut key = ShapeKey::new((self.curve, self.y0.map(f32::to_bits)));
         for v in self.data.iter() {
-            if let (Some(x), Some(y)) = ((self.x)(v), (self.y1)(v)) {
-                key.f32(x).f32(y);
+            for coordinate in [(self.x)(v), (self.y1)(v)] {
+                key.f32(if coordinate.is_some() { 1.0 } else { 0.0 });
+                if let Some(coordinate) = coordinate {
+                    key.f32(coordinate);
+                }
             }
         }
         let key = key.finish();

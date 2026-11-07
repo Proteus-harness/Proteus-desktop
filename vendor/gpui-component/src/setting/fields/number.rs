@@ -52,6 +52,8 @@ impl NumberField {
 struct State {
     input: Entity<InputState>,
     initial_value: f64,
+    options: NumberFieldOptions,
+    setter: Rc<dyn Fn(f64, &mut App)>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -103,8 +105,9 @@ impl SettingFieldRender for NumberField {
                                 // clamps it on blur), but the setting only ever
                                 // receives a value inside `min..=max`.
                                 if let Ok(parsed) = text.parse::<f64>() {
-                                    let clamped = parsed.clamp(num_options.min, num_options.max);
-                                    set_value(clamped, cx);
+                                    let clamped =
+                                        parsed.clamp(state.options.min, state.options.max);
+                                    (state.setter)(clamped, cx);
                                     state.initial_value = clamped;
                                 }
                             });
@@ -116,6 +119,8 @@ impl SettingFieldRender for NumberField {
                 State {
                     input,
                     initial_value: value,
+                    options: num_options.clone(),
+                    setter: set_value.clone(),
                     _subscriptions,
                 }
             },
@@ -125,6 +130,8 @@ impl SettingFieldRender for NumberField {
         // underlying setting changed externally.
         let sync_options = self.options.clone();
         state_entity.update(cx, |state, cx| {
+            state.options = sync_options.clone();
+            state.setter = set_value.clone();
             state.input.update(cx, |input, cx| {
                 input.set_step(Some(sync_options.step.into()), window, cx);
                 input.set_min(Some(sync_options.min), window, cx);
@@ -153,5 +160,82 @@ impl SettingFieldRender for NumberField {
             })
             .refine_style(style)
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod audit_regressions {
+    use super::*;
+    use crate::setting::fields::SettingField;
+    use gpui::{Context, Render, TestAppContext};
+    use std::cell::Cell;
+    struct Probe {
+        maximum: f64,
+        target: Rc<Cell<f64>>,
+        input: Option<Entity<InputState>>,
+    }
+    impl Render for Probe {
+        fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let options = NumberFieldOptions {
+                min: 0.,
+                max: self.maximum,
+                step: 1.,
+            };
+            let target = self.target.clone();
+            let field: Rc<dyn AnySettingField> = Rc::new(SettingField::number_input(
+                options.clone(),
+                |_| 0.,
+                move |value, _| target.set(value),
+            ));
+            let element = NumberField::new(Some(&options), "Count".into()).render(
+                field,
+                &RenderOptions::new(),
+                &StyleRefinement::default(),
+                window,
+                cx,
+            );
+            let state = window
+                .use_keyed_state("number-state-0-0-0", cx, |_, _| -> State { unreachable!() });
+            self.input = Some(state.read(cx).input.clone());
+            element
+        }
+    }
+    #[gpui::test]
+    fn audit_retained_number_field_uses_latest_bounds_and_setter(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let first = Rc::new(Cell::new(-1.));
+        let second = Rc::new(Cell::new(-1.));
+        let target = first.clone();
+        let (probe, cx) = cx.add_window_view(|_, _| Probe {
+            maximum: 10.,
+            target,
+            input: None,
+        });
+        for (maximum, target) in [
+            (10., first.clone()),
+            (100., second.clone()),
+            (10., second.clone()),
+        ] {
+            let expected_target = target.clone();
+            probe.update(cx, |probe, cx| {
+                probe.maximum = maximum;
+                probe.target = target;
+                cx.notify();
+            });
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            let input = probe.read_with(cx, |probe, _| probe.input.clone().unwrap());
+            cx.update(|window, cx| {
+                input.update(cx, |input, cx| {
+                    input.set_value("50", window, cx);
+                    cx.emit(InputEvent::Change);
+                });
+            });
+            cx.run_until_parked();
+            assert_eq!(
+                expected_target.get(),
+                if maximum == 100. { 50. } else { 10. }
+            );
+        }
+        assert_eq!(first.get(), 10.);
     }
 }

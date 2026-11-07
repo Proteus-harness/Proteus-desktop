@@ -179,10 +179,7 @@ impl DivInspector {
     }
 
     fn edit_json(&mut self, code: &str, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.json_state.editing {
-            self.json_state.editing = true;
-            return;
-        }
+        self.json_state.editing = true;
 
         match serde_json::from_str::<StyleRefinement>(code) {
             Ok(new_style) => {
@@ -201,10 +198,7 @@ impl DivInspector {
     }
 
     fn edit_rust(&mut self, code: &str, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.rust_state.editing {
-            self.rust_state.editing = true;
-            return;
-        }
+        self.rust_state.editing = true;
 
         let (new_style, diagnostics) = rust_to_style(self.unconvertible_style.clone(), code);
         self.rust_state.state.update(cx, |state, cx| {

@@ -50,6 +50,7 @@ the first build, `GHOSTTY_ZIG_SYSTEM_DIR` for offline package resolution.
 
 ## License
 
-Apache-2.0. Ghostty's terminfo source and shell integration scripts are MIT
-(see `LICENSE-GHOSTTY`). Files adapted from libghostty-vt say so in their
+Apache-2.0 for the Rust wrapper. Ghostty resources retain their per-file notices:
+terminfo is MIT (`LICENSE-GHOSTTY`); bash integration, zsh `.zshenv` and
+`ghostty-integration` include Kitty-derived GPL-3.0-or-later code. Files adapted from libghostty-vt say so in their
 header.

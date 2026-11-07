@@ -49,6 +49,8 @@ impl CodeActionMenuState {
 pub struct HoverPopoverState {
     pub symbol_range: Range<usize>,
     pub hover: Hover,
+    /// Content epoch, including same-range replacement and reopen.
+    pub revision: u64,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -101,9 +103,11 @@ impl InputBaseState<EditorMode> {
         hover: Hover,
         cx: &mut Context<Self>,
     ) {
+        self.extras.hover_revision = self.extras.hover_revision.wrapping_add(1);
         self.extras.hover_popover = Some(HoverPopoverState {
             symbol_range,
             hover,
+            revision: self.extras.hover_revision,
         });
         cx.notify();
     }

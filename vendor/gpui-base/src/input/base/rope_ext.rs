@@ -63,7 +63,7 @@ impl<'a> Iterator for RopeLines<'a> {
 
     #[inline]
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
-        self.row = self.row.saturating_add(n);
+        self.row = self.row.saturating_add(n).min(self.end_row);
         self.next()
     }
 
@@ -328,17 +328,18 @@ impl RopeExt for Rope {
     }
 
     fn position_to_offset(&self, pos: &Position) -> usize {
+        if pos.line as usize >= self.lines_len() {
+            return self.len();
+        }
         let line = self.slice_line(pos.line as usize);
-        // Clamp out-of-range columns, then use Ropey's index to avoid rescanning long lines.
         self.line_start_offset(pos.line as usize)
-            + line.char_to_byte_idx((pos.character as usize).min(line.len_chars()))
+            + line.utf16_to_byte_idx((pos.character as usize).min(line.len_utf16()))
     }
 
     fn offset_to_position(&self, offset: usize) -> Position {
         let point = self.offset_to_point(offset);
         let line = self.slice_line(point.row);
-        let offset = line.utf16_to_byte_idx(line.byte_to_utf16_idx(point.column));
-        let character = line.slice(..offset).chars().count();
+        let character = line.byte_to_utf16_idx(point.column);
         Position::new(point.row as u32, character as u32)
     }
 
@@ -542,7 +543,7 @@ mod tests {
         let rope = Rope::from("a 中文🎉 test\nRope");
         assert_eq!(rope.position_to_offset(&Position::new(0, 3)), "a 中".len());
         assert_eq!(
-            rope.position_to_offset(&Position::new(0, 5)),
+            rope.position_to_offset(&Position::new(0, 6)),
             "a 中文🎉".len()
         );
         assert_eq!(
@@ -560,7 +561,7 @@ mod tests {
         );
         assert_eq!(
             rope.offset_to_position("a 中文🎉".len()),
-            Position::new(0, 5)
+            Position::new(0, 6)
         );
     }
 
@@ -715,5 +716,26 @@ mod tests {
         assert_eq!(rope.offset_to_char_index(5), 3);
         assert_eq!(rope.offset_to_char_index(6), 4);
         assert_eq!(rope.offset_to_char_index(10), 5);
+    }
+}
+
+#[cfg(test)]
+mod audit_regressions {
+    use super::*;
+    #[test]
+    fn exhausted_line_iterator_reports_zero_remaining() {
+        let rope = Rope::from("a");
+        let mut lines = rope.iter_lines();
+        assert!(lines.nth(2).is_none());
+        assert_eq!(lines.len(), 0);
+        assert_eq!(lines.size_hint(), (0, Some(0)));
+    }
+    #[test]
+    fn lsp_columns_count_utf16_units() {
+        let rope = Rope::from("a😀bc");
+        assert_eq!(rope.position_to_offset(&Position::new(0, 3)), 5);
+        assert_eq!(rope.offset_to_position(5), Position::new(0, 3));
+        assert_eq!(rope.position_to_offset(&Position::new(9, 0)), rope.len());
+        assert_eq!(rope.position_to_offset(&Position::new(0, 999)), rope.len());
     }
 }

@@ -1351,6 +1351,7 @@ impl DockArea {
             return;
         };
         let Some(size) = pane.dock.live_size() else {
+            cx.emit(DockEvent::LayoutChanged);
             return;
         };
         pane.dock.set_live_size(None);
@@ -1363,6 +1364,7 @@ impl DockArea {
             pane.dock.set_open(open);
             self.reconcile(window, cx);
         }
+        cx.emit(DockEvent::LayoutChanged);
         cx.notify();
     }
 }

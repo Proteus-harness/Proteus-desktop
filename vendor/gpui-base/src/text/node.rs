@@ -1149,21 +1149,31 @@ impl MarkdownSource {
         if start >= end {
             return;
         }
-        let mut cursor = start;
-        for (range, mark) in marks {
-            let lo = range.start.max(start);
-            let hi = range.end.min(end);
-            if lo >= hi {
-                continue;
-            }
-            if cursor < lo {
-                self.push_str(&text[cursor..lo]);
-            }
-            self.push_marked(&text[lo..hi], mark);
-            cursor = hi;
+        let mut boundaries = vec![start, end];
+        for (range, _) in marks {
+            boundaries.extend([range.start.clamp(start, end), range.end.clamp(start, end)]);
         }
-        if cursor < end {
-            self.push_str(&text[cursor..end]);
+        boundaries.sort_unstable();
+        boundaries.dedup();
+        for pair in boundaries.windows(2) {
+            let (lo, hi) = (pair[0], pair[1]);
+            let mut combined = TextMark::default();
+            for (range, mark) in marks {
+                if range.start <= lo && range.end >= hi {
+                    combined.bold |= mark.bold;
+                    combined.italic |= mark.italic;
+                    combined.strikethrough |= mark.strikethrough;
+                    combined.underline |= mark.underline;
+                    combined.code |= mark.code;
+                    if mark.link.is_some() {
+                        combined.link = mark.link.clone();
+                    }
+                    if mark.highlight.is_some() {
+                        combined.highlight = mark.highlight;
+                    }
+                }
+            }
+            self.push_marked(&text[lo..hi], &combined);
         }
     }
 
@@ -2027,6 +2037,7 @@ struct TableColumnWidths {
     rem_size: Pixels,
     mono_family: SharedString,
     inline_code: HighlightStyle,
+    inline_code_style: gpui::StyleRefinement,
     /// Maxima from ordinary text only. Custom cells may shrink after an update.
     widths: Vec<f32>,
     custom_cells: Vec<(usize, usize)>,
@@ -3353,6 +3364,7 @@ fn measure_table_columns(
                     && cached.rem_size == rem_size
                     && cached.mono_family == mono_family
                     && cached.inline_code == inline_code
+                    && &cached.inline_code_style == node_cx.style.inline_code_style()
                     && cached
                         .text_system
                         .upgrade()
@@ -3369,6 +3381,7 @@ fn measure_table_columns(
             rem_size,
             mono_family,
             inline_code,
+            inline_code_style: node_cx.style.inline_code_style().clone(),
             widths,
             custom_cells,
         });
@@ -6062,5 +6075,23 @@ mod tests {
         let second = CodeBlock::new("let value = 2;".into(), Some("rust".into()), None::<Span>);
 
         assert_ne!(first, second);
+    }
+}
+
+#[cfg(test)]
+mod source_overlap_audit_tests {
+    use super::*;
+    #[test]
+    fn overlapping_marks_serialize_each_text_byte_once() {
+        let mut source = MarkdownSource::default();
+        source.push_text(
+            "left middle right",
+            &[
+                (5..11, TextMark::default().italic()),
+                (0..17, TextMark::default().bold()),
+            ],
+            0..17,
+        );
+        assert_eq!(source.finish(), "**left *middle* right**");
     }
 }

@@ -151,6 +151,14 @@ impl Timing {
         }
     }
 
+    pub(super) fn final_progress(&self) -> f32 {
+        let count = match self.iterations {
+            IterationCount::Finite(count) => count,
+            IterationCount::Infinite => 1,
+        };
+        self.after_sample(count).directed_progress
+    }
+
     fn after_sample(&self, count: u64) -> TimingSample {
         let iteration = count.saturating_sub(1);
         TimingSample {
@@ -170,5 +178,23 @@ impl Timing {
             PlaybackDirection::AlternateReverse => iteration % 2 == 0,
         };
         if reverse { 1.0 - progress } else { progress }
+    }
+}
+
+#[cfg(test)]
+mod endpoint_audit_tests {
+    use super::*;
+    #[test]
+    fn reduced_endpoint_matches_final_finite_iteration() {
+        let reverse = Timing::new(Duration::from_secs(1)).direction(PlaybackDirection::Reverse);
+        assert_eq!(reverse.final_progress(), 0.0);
+        let alternate = Timing::new(Duration::from_secs(1))
+            .direction(PlaybackDirection::Alternate)
+            .iterations(IterationCount::Finite(2));
+        assert_eq!(alternate.final_progress(), 0.0);
+        assert_eq!(
+            alternate.final_progress(),
+            alternate.sample(Duration::from_secs(3)).directed_progress
+        );
     }
 }

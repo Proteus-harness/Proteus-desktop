@@ -349,6 +349,8 @@ pub struct VirtualListFrameState {
 /// them across a frame is a reference count, not a copy of every item.
 #[derive(Default, Clone)]
 pub struct ItemSizeLayout {
+    axis: Option<Axis>,
+    gap: Pixels,
     items_sizes: Rc<Vec<Size<Pixels>>>,
     content_size: Size<Pixels>,
     sizes: Rc<[Pixels]>,
@@ -474,7 +476,12 @@ impl Element for VirtualList {
                             .along(self.axis)
                             .to_pixels(font_size.into(), rem_size);
 
-                        if state.items_sizes != self.item_sizes {
+                        if state.items_sizes != self.item_sizes
+                            || state.axis != Some(self.axis)
+                            || state.gap != gap
+                        {
+                            state.axis = Some(self.axis);
+                            state.gap = gap;
                             state.items_sizes = self.item_sizes.clone();
                             // Prepare each item's size by axis
                             state.sizes = self
@@ -540,7 +547,7 @@ impl Element for VirtualList {
                                                     }
                                                 },
                                             );
-                                            size.height = known_dimensions.width.unwrap_or(
+                                            size.height = known_dimensions.height.unwrap_or(
                                                 match available_space.height {
                                                     AvailableSpace::Definite(x) => x,
                                                     AvailableSpace::MinContent

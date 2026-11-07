@@ -89,7 +89,10 @@ pub struct PlacementIterator {
 /// borrowed from the storage with lifetime `'t` and remains valid until
 /// the next mutating terminal call.
 #[derive(Debug)]
-pub struct PlacementIteration<'t>(&'t mut PlacementIterator);
+pub struct PlacementIteration<'t>(
+    &'t mut PlacementIterator,
+    std::marker::PhantomData<&'t Graphics<'t>>,
+);
 
 /// Methods related to the [Kitty graphics protocol](crate::kitty::graphics).
 impl Terminal {
@@ -291,7 +294,7 @@ impl PlacementIterator {
 
     /// Update the placement iterator with the given graphics storage,
     /// returning a new placement iteration.
-    pub fn update(&mut self, graphics: &Graphics<'_>) -> Result<PlacementIteration<'_>> {
+    pub fn update<'t>(&'t mut self, graphics: &'t Graphics<'_>) -> Result<PlacementIteration<'t>> {
         let result = unsafe {
             ffi::ghostty_kitty_graphics_get(
                 graphics.inner.as_raw(),
@@ -300,7 +303,7 @@ impl PlacementIterator {
             )
         };
         from_result(result)?;
-        Ok(PlacementIteration(self))
+        Ok(PlacementIteration(self, std::marker::PhantomData))
     }
 }
 
@@ -752,7 +755,7 @@ impl DecodePng for RustPngDecoder {
 
         let info = frame.next_frame(&mut self.buf).ok()?;
 
-        let mut bytes = Bytes::new_with_alloc(alloc, info.buffer_size()).ok()?;
+        let mut bytes = unsafe { Bytes::new_with_alloc(alloc, info.buffer_size()) }.ok()?;
         bytes.copy_from_slice(&self.buf[..info.buffer_size()]);
         frame.finish().ok()?;
 

@@ -1377,11 +1377,29 @@ fn parse_content(
         source.push_str(&options.pending_text);
     }
 
-    let new_document = match format {
+    let mut new_document = match format {
         TextViewFormat::Markdown => format::markdown::parse(&source, &mut node_cx),
         TextViewFormat::Html => format::html::parse(&source, &mut node_cx),
     }?;
 
+    if options.append
+        && matches!(format, TextViewFormat::Markdown)
+        && (!node_cx.link_refs.is_empty() || !content.node_cx.link_refs.is_empty())
+    {
+        // Reference definitions affect blocks outside the last-block slice.
+        // Reparse only documents with that global dependency, keeping ordinary
+        // streaming text on the incremental path.
+        let full = format!("{}{}", content.document.source, options.pending_text);
+        node_cx = NodeContext {
+            markdown_extensions: options.markdown_extensions.clone(),
+            ..NodeContext::default()
+        };
+        new_document = format::markdown::parse(&full, &mut node_cx)?;
+        content.document = new_document;
+        content.node_cx = node_cx;
+        return Ok(content);
+    }
+    content.node_cx = node_cx;
     if options.append {
         content.document.source =
             format!("{}{}", content.document.source, options.pending_text).into();
@@ -3822,5 +3840,45 @@ mod tests {
                 );
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod reference_definition_audit_tests {
+    use super::*;
+    #[test]
+    fn incremental_reference_definitions_refresh_the_whole_document() {
+        let initial = UpdateOptions {
+            revision: 1,
+            pending_text: "[docs][r]\n\nlater paragraph".into(),
+            append: false,
+            mode: ParseMode::Replace,
+            markdown_extensions: Arc::default(),
+        };
+        let content =
+            parse_content(TextViewFormat::Markdown, ParsedContent::default(), &initial).unwrap();
+        let update = UpdateOptions {
+            revision: 2,
+            pending_text: "\n\n[r]: https://example.com".into(),
+            append: true,
+            mode: ParseMode::Compatible,
+            markdown_extensions: Arc::default(),
+        };
+        let content = parse_content(TextViewFormat::Markdown, content, &update).unwrap();
+        assert_eq!(
+            content.node_cx.link_refs.get("r").unwrap().url.as_ref(),
+            "https://example.com"
+        );
+        let full = UpdateOptions {
+            revision: 3,
+            pending_text: content.document.source.to_string(),
+            append: false,
+            mode: ParseMode::Replace,
+            markdown_extensions: Arc::default(),
+        };
+        let expected =
+            parse_content(TextViewFormat::Markdown, ParsedContent::default(), &full).unwrap();
+        assert!(content.document == expected.document);
+        assert_eq!(content.node_cx.link_refs, expected.node_cx.link_refs);
     }
 }

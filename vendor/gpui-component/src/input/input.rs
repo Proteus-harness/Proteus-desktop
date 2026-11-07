@@ -257,6 +257,10 @@ impl Input {
         &self.state
     }
 
+    pub(crate) fn is_readonly(&self) -> bool {
+        self.readonly
+    }
+
     pub(crate) fn is_disabled(&self) -> bool {
         self.disabled
     }

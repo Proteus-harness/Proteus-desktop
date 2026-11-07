@@ -579,6 +579,9 @@ where
 
     /// Sets the selected col to the given index.
     pub fn set_selected_col(&mut self, col_ix: usize, cx: &mut Context<Self>) {
+        if !self.col_selectable || !self.selectable_column(col_ix) {
+            return;
+        }
         self.selection_mode = SelectionMode::Column;
         self.selected_col = Some(col_ix);
         if let Some(col_ix) = self.selected_col {
@@ -619,6 +622,12 @@ where
     /// });
     /// ```
     pub fn set_selected_cell(&mut self, row_ix: usize, col_ix: usize, cx: &mut Context<Self>) {
+        if !self.cell_selectable
+            || row_ix >= self.delegate.rows_count(cx)
+            || !self.selectable_column(col_ix)
+        {
+            return;
+        }
         self.selection_mode = SelectionMode::Cell;
         self.selected_cell = Some((row_ix, col_ix));
         self.right_clicked_cell = None;
@@ -836,7 +845,10 @@ where
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.cell_selectable {
+        if !self.cell_selectable
+            || row_ix >= self.delegate.rows_count(cx)
+            || !self.selectable_column(col_ix)
+        {
             return;
         }
 
@@ -897,7 +909,10 @@ where
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.cell_selectable {
+        if !self.cell_selectable
+            || row_ix >= self.delegate.rows_count(cx)
+            || !self.selectable_column(col_ix)
+        {
             return;
         }
 
@@ -963,8 +978,10 @@ where
                 };
                 self.set_selected_cell(new_row, col_ix, cx);
             } else {
-                // No cell selected, select first cell
-                self.set_selected_cell(0, 0, cx);
+                // No cell selected, choose the first selectable column.
+                if let Some(column) = self.adjacent_selectable_column(None, false) {
+                    self.set_selected_cell(0, column, cx);
+                }
             }
             return;
         }
@@ -1008,8 +1025,10 @@ where
                 };
                 self.set_selected_cell(new_row, col_ix, cx);
             } else {
-                // No cell selected, select first cell
-                self.set_selected_cell(0, 0, cx);
+                // No cell selected, choose the first selectable column.
+                if let Some(column) = self.adjacent_selectable_column(None, false) {
+                    self.set_selected_cell(0, column, cx);
+                }
             }
             return;
         }
@@ -1039,17 +1058,6 @@ where
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // Cell selection mode: move to first cell in current row
-        if self.selection_mode.is_cell() {
-            if let Some((row_ix, _)) = self.selected_cell {
-                self.set_selected_cell(row_ix, 0, cx);
-            } else {
-                // No cell selected, select first cell of first row
-                self.set_selected_cell(0, 0, cx);
-            }
-            return;
-        }
-
         // Row selection mode: Home goes to the first row, as in a list
         if self.selection_mode.is_row() && self.row_selectable {
             if self.delegate.rows_count(cx) > 0 {
@@ -1058,8 +1066,23 @@ where
             return;
         }
 
+        let Some(first) = (0..self.col_groups.len()).find(|index| self.selectable_column(*index))
+        else {
+            return;
+        };
+        // Cell selection mode: move to first cell in current row
+        if self.selection_mode.is_cell() {
+            if let Some((row_ix, _)) = self.selected_cell {
+                self.set_selected_cell(row_ix, first, cx);
+            } else {
+                // No cell selected, select first cell of first row
+                self.set_selected_cell(0, first, cx);
+            }
+            return;
+        }
+
         // Column selection mode
-        self.set_selected_col(0, cx);
+        self.set_selected_col(first, cx);
     }
 
     pub(super) fn action_select_last_column(
@@ -1068,19 +1091,6 @@ where
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let columns_count = self.delegate.columns_count(cx);
-
-        // Cell selection mode: move to last cell in current row
-        if self.selection_mode.is_cell() {
-            if let Some((row_ix, _)) = self.selected_cell {
-                self.set_selected_cell(row_ix, columns_count.saturating_sub(1), cx);
-            } else {
-                // No cell selected, select last cell of first row
-                self.set_selected_cell(0, columns_count.saturating_sub(1), cx);
-            }
-            return;
-        }
-
         // Row selection mode: End goes to the last row, as in a list
         if self.selection_mode.is_row() && self.row_selectable {
             let rows_count = self.delegate.rows_count(cx);
@@ -1090,8 +1100,26 @@ where
             return;
         }
 
+        let Some(last) = (0..self.col_groups.len())
+            .rev()
+            .find(|index| self.selectable_column(*index))
+        else {
+            return;
+        };
+
+        // Cell selection mode: move to last cell in current row
+        if self.selection_mode.is_cell() {
+            if let Some((row_ix, _)) = self.selected_cell {
+                self.set_selected_cell(row_ix, last, cx);
+            } else {
+                // No cell selected, select last cell of first row
+                self.set_selected_cell(0, last, cx);
+            }
+            return;
+        }
+
         // Column selection mode
-        self.set_selected_col(columns_count.saturating_sub(1), cx);
+        self.set_selected_col(last, cx);
     }
 
     pub(super) fn action_select_page_up(
@@ -1108,8 +1136,10 @@ where
                 let target = row_ix.saturating_sub(step);
                 self.set_selected_cell(target, col_ix, cx);
             } else {
-                // No cell selected, select first cell
-                self.set_selected_cell(0, 0, cx);
+                // No cell selected, choose the first selectable column.
+                if let Some(column) = self.adjacent_selectable_column(None, false) {
+                    self.set_selected_cell(0, column, cx);
+                }
             }
             return;
         }
@@ -1143,8 +1173,10 @@ where
                 let target = (row_ix + step).min(max_row);
                 self.set_selected_cell(target, col_ix, cx);
             } else {
-                // No cell selected, select first cell
-                self.set_selected_cell(0, 0, cx);
+                // No cell selected, choose the first selectable column.
+                if let Some(column) = self.adjacent_selectable_column(None, false) {
+                    self.set_selected_cell(0, column, cx);
+                }
             }
             return;
         }
@@ -1159,42 +1191,67 @@ where
         self.set_selected_row(target, cx);
     }
 
+    fn selectable_column(&self, column: usize) -> bool {
+        self.col_groups
+            .get(column)
+            .is_some_and(|group| group.column.selectable)
+    }
+
+    fn adjacent_selectable_column(&self, current: Option<usize>, reverse: bool) -> Option<usize> {
+        let count = self.col_groups.len();
+        if count == 0 {
+            return None;
+        }
+        let Some(current) = current.filter(|current| *current < count) else {
+            return (0..count).find(|index| self.selectable_column(*index));
+        };
+        for step in 1..=count {
+            let next = if reverse {
+                if step > current {
+                    if !self.loop_selection {
+                        break;
+                    }
+                    (current + count - step) % count
+                } else {
+                    current - step
+                }
+            } else {
+                let next = current.checked_add(step)?;
+                if next >= count && !self.loop_selection {
+                    break;
+                }
+                next % count
+            };
+            if self.selectable_column(next) {
+                return Some(next);
+            }
+        }
+        self.selectable_column(current).then_some(current)
+    }
+
+    fn move_column_selection(&mut self, reverse: bool, cx: &mut Context<Self>) {
+        if self.selection_mode.is_cell() {
+            if !self.cell_selectable || self.delegate.rows_count(cx) == 0 {
+                return;
+            }
+            let current = self.selected_cell.map(|(_, column)| column);
+            if let Some(column) = self.adjacent_selectable_column(current, reverse) {
+                self.set_selected_cell(self.selected_cell.map_or(0, |(row, _)| row), column, cx);
+            }
+        } else if self.col_selectable {
+            if let Some(column) = self.adjacent_selectable_column(self.selected_col, reverse) {
+                self.set_selected_col(column, cx);
+            }
+        }
+    }
+
     pub(super) fn action_select_prev_col(
         &mut self,
         _: &SelectPrevColumn,
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let columns_count = self.delegate.columns_count(cx);
-
-        // Cell selection mode: move left within the same row
-        if self.selection_mode.is_cell() {
-            if let Some((row_ix, col_ix)) = self.selected_cell {
-                let new_col = if col_ix > 0 {
-                    col_ix.saturating_sub(1)
-                } else if self.loop_selection {
-                    columns_count.saturating_sub(1)
-                } else {
-                    col_ix
-                };
-                self.set_selected_cell(row_ix, new_col, cx);
-            } else {
-                // No cell selected, select first cell
-                self.set_selected_cell(0, 0, cx);
-            }
-            return;
-        }
-
-        // Column selection mode
-        let mut selected_col = self.selected_col.unwrap_or(0);
-        if selected_col > 0 {
-            selected_col = selected_col.saturating_sub(1);
-        } else {
-            if self.loop_selection {
-                selected_col = columns_count.saturating_sub(1);
-            }
-        }
-        self.set_selected_col(selected_col, cx);
+        self.move_column_selection(true, cx);
     }
 
     pub(super) fn action_select_next_col(
@@ -1203,37 +1260,7 @@ where
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let columns_count = self.delegate.columns_count(cx);
-
-        // Cell selection mode: move right within the same row
-        if self.selection_mode.is_cell() {
-            if let Some((row_ix, col_ix)) = self.selected_cell {
-                let new_col = if col_ix < columns_count.saturating_sub(1) {
-                    col_ix + 1
-                } else if self.loop_selection {
-                    0
-                } else {
-                    col_ix
-                };
-                self.set_selected_cell(row_ix, new_col, cx);
-            } else {
-                // No cell selected, select first cell
-                self.set_selected_cell(0, 0, cx);
-            }
-            return;
-        }
-
-        // Column selection mode
-        let mut selected_col = self.selected_col.unwrap_or(0);
-        if selected_col < columns_count.saturating_sub(1) {
-            selected_col += 1;
-        } else {
-            if self.loop_selection {
-                selected_col = 0;
-            }
-        }
-
-        self.set_selected_col(selected_col, cx);
+        self.move_column_selection(false, cx);
     }
 
     /// Scroll table when mouse position is near the edge of the table bounds.
@@ -1393,6 +1420,7 @@ where
         self.delegate.move_column(col_ix, to_ix, window, cx);
         let col_group = self.col_groups.remove(col_ix);
         self.col_groups.insert(to_ix, col_group);
+        self.update_header_layout(cx);
 
         cx.emit(TableEvent::MoveColumn(col_ix, to_ix));
         cx.notify();
@@ -3044,6 +3072,83 @@ mod tests {
                     widths(table),
                     [px(80.), px(20.), px(20.), px(20.), px(20.), px(100.)]
                 );
+            })
+            .unwrap();
+    }
+}
+
+#[cfg(test)]
+mod audit_regressions {
+    use super::*;
+    use gpui::{App, TestAppContext};
+    struct Delegate {
+        count: usize,
+    }
+    impl TableDelegate for Delegate {
+        fn columns_count(&self, _: &App) -> usize {
+            self.count
+        }
+        fn rows_count(&self, _: &App) -> usize {
+            self.count
+        }
+        fn column(&self, index: usize, _: &App) -> Column {
+            Column::new(index.to_string(), index.to_string())
+                .width(px((index + 1) as f32 * 100.))
+                .selectable(index != 1)
+        }
+        fn group_headers(&self, _: &App) -> Option<Vec<Vec<ColumnGroup>>> {
+            Some(vec![vec![
+                ColumnGroup::new("group", 2),
+                ColumnGroup::new("other", 1),
+            ]])
+        }
+        fn render_td(
+            &mut self,
+            _: usize,
+            _: usize,
+            _: &mut Window,
+            _: &mut Context<TableState<Self>>,
+        ) -> impl IntoElement {
+            div()
+        }
+    }
+
+    #[gpui::test]
+    fn audit_table_click_and_keyboard_share_selection_policy(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let window = cx.add_window(|window, cx| {
+            TableState::new(Delegate { count: 3 }, window, cx).cell_selectable(true)
+        });
+        window
+            .update(cx, |table, window, cx| {
+                table.set_selected_cell(0, 0, cx);
+                table.set_selected_cell(0, 1, cx);
+                assert_eq!(table.selected_cell, Some((0, 0)));
+                table.on_cell_click(&ClickEvent::default(), 0, 1, window, cx);
+                assert_eq!(table.selected_cell, Some((0, 0)));
+                table.move_column_selection(false, cx);
+                assert_eq!(table.selected_cell, Some((0, 2)));
+                table.move_column_selection(true, cx);
+                assert_eq!(table.selected_cell, Some((0, 0)));
+                table.col_selectable = false;
+                table.selection_mode = SelectionMode::Column;
+                table.selected_col = None;
+                table.move_column_selection(false, cx);
+                assert_eq!(table.selected_col, None);
+                assert_eq!(table.header_layout[0][0].width, px(300.));
+                table.move_column(0, 2, window, cx);
+                assert_eq!(table.header_layout[0][0].width, px(500.));
+            })
+            .unwrap();
+        let empty = cx.add_window(|window, cx| {
+            TableState::new(Delegate { count: 0 }, window, cx).cell_selectable(true)
+        });
+        empty
+            .update(cx, |table, _, cx| {
+                table.selection_mode = SelectionMode::Cell;
+                table.move_column_selection(false, cx);
+                table.set_selected_cell(0, 0, cx);
+                assert_eq!(table.selected_cell, None);
             })
             .unwrap();
     }

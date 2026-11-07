@@ -217,7 +217,7 @@ impl Colorize for Hsla {
         }
 
         Hsla {
-            h: lerp_hue(self.h * 360., other.h * 360., factor) / 360.,
+            h: lerp_hue(self.h * 360., other.h * 360., inv) / 360.,
             s: self.s * factor + other.s * inv,
             l: self.l * factor + other.l * inv,
             a: self.a * factor + other.a * inv,
@@ -306,7 +306,7 @@ impl Colorize for Hsla {
     fn parse_hex(hex: &str) -> Result<Self> {
         let hex = hex.trim_start_matches('#');
         let len = hex.len();
-        if len != 6 && len != 8 {
+        if (len != 6 && len != 8) || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             return Err(anyhow::anyhow!("invalid hex color"));
         }
 
@@ -1006,7 +1006,8 @@ mod tests {
 
         assert_eq!(red.mix(blue, 0.5).to_hex(), "#FF00FF");
         assert_eq!(green.mix(red, 0.5).to_hex(), "#FFFF00");
-        assert_eq!(blue.mix(yellow, 0.2).to_hex(), "#0098FF");
+        // The first color has 20% weight, including its hue.
+        assert_eq!(blue.mix(yellow, 0.2).to_hex(), "#65FF00");
     }
 
     #[test]
@@ -1133,5 +1134,28 @@ mod tests {
                 gpui::linear_color_stop(crate::blue_600(), 0.75)
             )
         );
+    }
+}
+
+#[cfg(test)]
+mod audit_regressions {
+    use super::*;
+
+    #[test]
+    fn audit_hex_unicode_is_an_error_and_hsl_mix_keeps_its_endpoints() {
+        for value in ["€abc", "éabcd", "éabcde", "＃ffff", "xx0000"] {
+            assert!(Hsla::parse_hex(value).is_err(), "{value}");
+        }
+        let first = gpui::hsla(0.1, 0.2, 0.3, 0.4);
+        let second = gpui::hsla(0.7, 0.6, 0.5, 0.8);
+        let zero = first.mix(second, 0.);
+        let one = first.mix(second, 1.);
+        for (actual, expected) in [(zero, second), (one, first)] {
+            assert!((actual.h - expected.h).abs() < 0.00001);
+            assert_eq!(
+                (actual.s, actual.l, actual.a),
+                (expected.s, expected.l, expected.a)
+            );
+        }
     }
 }

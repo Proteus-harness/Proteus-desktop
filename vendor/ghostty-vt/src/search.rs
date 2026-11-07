@@ -50,7 +50,7 @@ use std::mem::MaybeUninit;
 /// terminal is dropped, calls that need it return [`Error::InvalidValue`]
 /// and reads return what the search last saw.
 #[derive(Debug)]
-pub struct Search(Object<ffi::SearchImpl>);
+pub struct Search(Object<ffi::SearchImpl>, ffi::Terminal);
 
 impl Search {
     /// Create a search bound to a terminal.
@@ -62,7 +62,14 @@ impl Search {
         let result =
             unsafe { ffi::ghostty_search_new(std::ptr::null(), &raw mut raw, terminal.as_raw()) };
         from_result(result)?;
-        Ok(Self(Object::new(raw)?))
+        Ok(Self(Object::new(raw)?, terminal.as_raw()))
+    }
+
+    fn check_terminal(&self, terminal: &Terminal) -> Result<()> {
+        if self.1 != terminal.as_raw() {
+            return Err(Error::InvalidValue);
+        }
+        Ok(())
     }
 
     fn set<T>(&mut self, option: ffi::SearchOption::Type, value: Option<&T>) -> Result<()> {
@@ -161,7 +168,8 @@ impl Search {
     }
 
     /// The selected match, or `None` when nothing is selected.
-    pub fn selected_match<'t>(&self, _terminal: &'t Terminal) -> Result<Option<Selection<'t>>> {
+    pub fn selected_match<'t>(&self, terminal: &'t Terminal) -> Result<Option<Selection<'t>>> {
+        self.check_terminal(terminal)?;
         let mut value = ffi::sized!(ffi::Selection);
         let result = unsafe {
             ffi::ghostty_search_get(
@@ -193,9 +201,10 @@ impl Search {
 
     fn selections<'t>(
         &self,
-        _terminal: &'t Terminal,
+        terminal: &'t Terminal,
         data: ffi::SearchData::Type,
     ) -> Result<Vec<Selection<'t>>> {
+        self.check_terminal(terminal)?;
         let mut buffer = ffi::SelectionBuffer {
             ptr: std::ptr::null_mut(),
             cap: 0,
@@ -312,4 +321,18 @@ pub enum Scroll {
     IfNeeded = ffi::SearchScroll::IF_NEEDED,
     /// Never scroll the viewport.
     None = ffi::SearchScroll::NONE,
+}
+
+#[cfg(test)]
+mod audit_tests {
+    use super::*;
+    #[test]
+    fn snapshot_requires_its_own_terminal() {
+        let first = Terminal::new(crate::TerminalOptions::default()).unwrap();
+        let second = Terminal::new(crate::TerminalOptions::default()).unwrap();
+        let search = Search::new(&first).unwrap();
+        assert!(search.selected_match(&second).is_err());
+        assert!(search.matches(&second).is_err());
+        assert!(search.viewport_matches(&second).is_err());
+    }
 }

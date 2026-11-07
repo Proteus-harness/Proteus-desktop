@@ -181,8 +181,10 @@ where
 
                         let changes = Self::selection_changes(multiple, &selection, ix, &item);
 
-                        let before_indices: Vec<IndexPath> =
-                            selection.iter().map(|(ix, _)| *ix).collect();
+                        let before_values: Vec<_> = selection
+                            .iter()
+                            .map(|(_, item)| item.value().clone())
+                            .collect();
 
                         // on_will_change is called directly — entity-handle access would
                         // re-enter the ListState lock that defer_in holds for this callback.
@@ -191,9 +193,11 @@ where
                             .delegate
                             .on_will_change(&mut selection, &changes);
 
-                        let after_indices: Vec<IndexPath> =
-                            selection.iter().map(|(ix, _)| *ix).collect();
-                        let changed = before_indices != after_indices;
+                        let after_values: Vec<_> = selection
+                            .iter()
+                            .map(|(_, item)| item.value().clone())
+                            .collect();
+                        let changed = before_values != after_values;
                         let should_close = changed && !multiple;
 
                         let new_selection = weak_confirm.update(cx, |this, cx| {
@@ -457,7 +461,10 @@ where
         let changes = Self::selection_changes(self.multiple, &self.state.selection, ix, &item);
 
         let mut selection = self.state.selection.clone();
-        let before_indices: Vec<IndexPath> = selection.iter().map(|(ix, _)| *ix).collect();
+        let before_values: Vec<_> = selection
+            .iter()
+            .map(|(_, item)| item.value().clone())
+            .collect();
 
         self.state.list.update(cx, |list, _cx| {
             list.delegate_mut()
@@ -465,8 +472,11 @@ where
                 .on_will_change(&mut selection, &changes);
         });
 
-        let after_indices: Vec<IndexPath> = selection.iter().map(|(ix, _)| *ix).collect();
-        let changed = before_indices != after_indices;
+        let after_values: Vec<_> = selection
+            .iter()
+            .map(|(_, item)| item.value().clone())
+            .collect();
+        let changed = before_values != after_values;
         let should_close = changed && !self.multiple;
 
         self.state.selection = selection;
@@ -1396,6 +1406,45 @@ mod tests {
             state.update(cx, |s, cx| s.remove_selected_index(IndexPath::new(0), cx));
             assert_eq!(state.read(cx).selected_values(), &["Vue"]);
         });
+    }
+
+    #[gpui::test]
+    fn audit_filtered_single_selection_emits_change_when_row_index_is_unchanged(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(crate::init);
+        let cx = cx.add_empty_window();
+        let (state, collector) = cx.update(|window, cx| {
+            let state = cx.new(|cx| {
+                ComboboxState::new(
+                    SearchableVec::new(vec!["Rust", "Go"]),
+                    vec![IndexPath::new(0)],
+                    window,
+                    cx,
+                )
+            });
+            let collector = cx.new(|cx| TestComboboxEventCollector::new(&state, cx));
+            state.update(cx, |state, cx| {
+                state.state.list.update(cx, |list, cx| {
+                    let _ = list
+                        .delegate_mut()
+                        .delegate
+                        .perform_search("Go", window, cx);
+                });
+                state.set_open(true, cx);
+                state.handle_item_select(IndexPath::new(0), window, cx);
+            });
+            (state, collector)
+        });
+        cx.run_until_parked();
+        state.read_with(cx, |state, _| {
+            assert_eq!(state.selected_values(), vec!["Go"]);
+            assert!(!state.state.open);
+        });
+        assert_eq!(
+            collector.read_with(cx, |collector, _| collector.event_count.get()),
+            2
+        );
     }
 
     #[gpui::test]
