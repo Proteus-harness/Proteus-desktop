@@ -120,7 +120,6 @@ impl Chat {
             .child(
                 kit::button(SharedString::from(format!("question-skip-{rid}")))
                     .faded_label("Пропустить")
-                    .outline()
                     .small()
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.skip_question(&skip, window, cx)
@@ -171,14 +170,9 @@ impl Chat {
             .text_xs()
             .map(|badge| {
                 if selected {
-                    badge
-                        .border_color(theme.primary)
-                        .bg(theme.primary)
-                        .text_color(theme.primary_foreground)
+                    badge.bg(theme.primary).text_color(theme.primary_foreground)
                 } else {
-                    badge
-                        .border_color(theme.border)
-                        .text_color(theme.muted_foreground)
+                    badge.bg(theme.secondary).text_color(theme.muted_foreground)
                 }
             })
             .child((ix + 1).to_string());

@@ -1,6 +1,7 @@
 // Адаптировано из Zed: crates/settings_ui/src/components/input_field.rs
 // (thin input frames), crates/editor/src/element/mouse.rs (wheel bubbling).
 // Popup surfaces follow Zed: crates/ui/src/traits/styled_ext.rs (elevated).
+// Filled buttons follow Zed: crates/ui/src/components/button/button_like.rs.
 //! gpui-kit controls as the client builds them. A focused control is ringed
 //! only while the keyboard drives the window, so one focused by a click or
 //! by the client itself stays plain. Hints are the tooltips of controls,
@@ -28,7 +29,7 @@ mod setting_reset;
 mod settings_row;
 mod surface;
 pub(crate) use controls::{Clipboard, Switch};
-pub(crate) use frame::{Frame, RowRule, record_first_child};
+pub(crate) use frame::{Frame, RowRule, record_first_child, surface_hover, surface_selected};
 pub(crate) use icon_button::icon_button;
 pub(crate) use selection::SelectionCopyMenu;
 pub(crate) use setting_reset::setting_reset;
@@ -92,6 +93,8 @@ pub(crate) fn button(id: impl Into<ElementId>) -> Button {
     use gpui_kit::IntoElement as _;
     button_hints(
         Button::new(id)
+            .border_0()
+            .shadow_none()
             .focus_ring(KEYBOARD.get())
             .render_label(|label, clipped, _, _| {
                 super::fade::faded(label)
@@ -111,13 +114,17 @@ pub(crate) fn checkbox(id: impl Into<ElementId>) -> Checkbox {
     Checkbox::new(id).focus_ring(KEYBOARD.get())
 }
 
-/// Ordinary single-line fields retain their thin input border on focus.
+/// Keep the native field's fill and geometry, with no decorative edge.
+/// The theme's input color also supplies dark-mode fills, so hide only this
+/// instance's border instead of making that shared token transparent.
 pub(crate) fn input(state: &gpui_kit::Entity<InputState>) -> Input {
-    Input::new(state).focus_bordered(false)
+    Input::new(state)
+        .focus_bordered(false)
+        .border_color(gpui_kit::transparent_black())
 }
 
-/// One opaque popup, with an actual thin border and clipped child paint.
-/// Menus use the same flat outline as fields and cards, without an outer shadow.
+/// One opaque popup with clipped child paint. Menus share the flat surface of
+/// fields and cards, without a decorative outline or outer shadow.
 pub(crate) fn popup_surface(cx: &App) -> gpui_kit::Div {
     use gpui_kit::{Styled as _, div};
     div()
@@ -141,8 +148,8 @@ pub(crate) fn code_surface(cx: &App) -> gpui_kit::Div {
         .text_xs()
 }
 
-/// Textarea has no public focus-ring opt-out, so keep its native appearance
-/// and restore only the thin border after disabling its bordered focus style.
+/// Textarea has no public focus-ring opt-out. Keep its native appearance and
+/// reserve the shared transparent edge after disabling its bordered focus style.
 pub(crate) fn textarea(state: &gpui_kit::Entity<TextareaState>, cx: &App) -> Textarea {
     Textarea::new(state).bordered(false).frame(cx)
 }

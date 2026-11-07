@@ -96,7 +96,6 @@ impl SettingsView {
                 .child(
                     kit::button("addons-retry")
                         .faded_label("Повторить")
-                        .outline()
                         .xsmall()
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.load_addons(cx);

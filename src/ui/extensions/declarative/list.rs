@@ -17,7 +17,7 @@ use std::rc::Rc;
 
 /// Chips shown before the «+k» one, Zed's `MAX_HISTORY_TAG_CHIPS`.
 const CHIPS: usize = 3;
-/// Zed's commit avatar: 14 px and a 1 px border.
+/// Zed's commit avatar: 14 px and a transparent 1 px layout edge.
 const AVATAR: f32 = 14.;
 
 pub(super) type List = Rows<ListRows>;
@@ -51,7 +51,7 @@ impl Kind for ListRows {
 
     fn draw(&self, row: &Row, index: usize, ring: bool, cx: &App) -> Stateful<Div> {
         let theme = cx.theme();
-        let (muted, border) = (theme.muted_foreground, theme.border);
+        let muted = theme.muted_foreground;
         let hidden = row.chips.len().saturating_sub(CHIPS);
         let anchor = TooltipAnchor::default();
         let chips = (!row.chips.is_empty()).then(|| {
@@ -92,7 +92,7 @@ impl Kind for ListRows {
                     .justify_center()
                     .rounded(px(3.))
                     .border_1()
-                    .border_color(border)
+                    .border_color(theme.transparent)
                     .bg(theme.secondary)
                     .child(Icon::new(icon).xsmall())
             }));
@@ -175,7 +175,7 @@ fn avatar(cx: &App) -> Div {
         .justify_center()
         .rounded_full()
         .border_1()
-        .border_color(theme.border)
+        .border_color(theme.transparent)
         .bg(theme.muted)
         .child(
             Icon::new(Lucide::User)

@@ -16,7 +16,7 @@ pub(super) fn avatar(name: &str, size: f32, cx: &App) -> Div {
         .justify_center()
         .rounded_full()
         .border_1()
-        .border_color(cx.theme().border)
+        .border_color(cx.theme().transparent)
         .bg(cx.theme().secondary)
         .text_size(prefs::scaled(size * 0.45))
         .text_color(cx.theme().muted_foreground)

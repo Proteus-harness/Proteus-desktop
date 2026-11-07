@@ -51,12 +51,12 @@ pub(super) fn diff_stat(added: u64, deleted: u64, cx: &App) -> Div {
     crate::ui::diff::stat(added as usize, deleted as usize, cx)
 }
 
-/// A muted number in a thin frame.
+/// A muted number on the same flat fill as label chips.
 pub(super) fn chip(count: usize, cx: &App) -> Div {
     frame(cx).flex_none().child(count.to_string())
 }
 
-/// A muted label in the same frame, such as a tag; like Zed's truncating
+/// A muted label on the same fill, such as a tag; like Zed's truncating
 /// `Chip` it gives way when the row is short of room.
 pub(super) fn label_chip(label: impl Into<SharedString>, cx: &App) -> Div {
     let anchor = TooltipAnchor::default();
@@ -73,7 +73,7 @@ fn frame(cx: &App) -> Div {
         .px_1()
         .rounded(px(3.))
         .border_1()
-        .border_color(theme.border)
+        .border_color(theme.transparent)
         .bg(theme.secondary)
         .text_xs()
         .line_height(prefs::scaled(14.))

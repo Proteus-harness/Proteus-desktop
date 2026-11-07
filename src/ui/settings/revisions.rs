@@ -47,7 +47,6 @@ impl SettingsView {
                         .child(
                             kit::button("history-retry")
                                 .faded_label("Повторить")
-                                .outline()
                                 .small()
                                 .on_click(cx.listener(|this, _, _, cx| this.load_history(cx))),
                         )
@@ -100,7 +99,6 @@ impl SettingsView {
                     .child(
                         kit::button(ElementId::Name(format!("revision-{}", revision.id).into()))
                             .faded_label(label)
-                            .outline()
                             .xsmall()
                             .disabled(!enabled)
                             .on_click(cx.listener(move |this, _, _, cx| {

@@ -120,7 +120,7 @@ pub(super) fn button(
         });
     let button = match variant {
         Variant::Primary => button.primary(),
-        Variant::Default => button.outline(),
+        Variant::Default => button,
         Variant::Ghost => button.quiet(cx),
         Variant::Danger => button.danger(),
     };
@@ -135,7 +135,7 @@ pub(super) fn button(
     let arrow = kit::button(ElementId::Name(format!("decl-arrow-{path}").into())).small();
     let arrow = match variant {
         Variant::Primary => arrow.primary(),
-        Variant::Default => arrow.outline(),
+        Variant::Default => arrow,
         Variant::Ghost => arrow.quiet(cx),
         Variant::Danger => arrow.danger(),
     };

@@ -97,7 +97,7 @@ impl LaneRows {
                             .px_1()
                             .rounded(prefs::scaled(3.))
                             .border_1()
-                            .border_color(color.opacity(0.4))
+                            .border_color(cx.theme().transparent)
                             .bg(color.opacity(0.08))
                             .text_xs()
                             .text_color(color)

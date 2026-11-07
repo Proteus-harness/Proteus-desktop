@@ -347,10 +347,10 @@ impl SettingsView {
             .cursor_pointer()
             .map(|row| {
                 if selected {
-                    row.bg(theme.list_active)
+                    row.bg(kit::surface_selected(cx))
                 } else {
                     row.bg(theme.group_box)
-                        .hover(|row| row.bg(theme.list_hover))
+                        .hover(|row| row.bg(kit::surface_hover(cx)))
                 }
             })
             .child(heading)
@@ -408,7 +408,6 @@ impl SettingsView {
                     .is_some_and(|(source, id)| item.key() == (source, id.as_str()));
             return kit::button(hashed_id("catalog-source-download", &(place, item.key())))
                 .faded_label("Скачать исходники")
-                .outline()
                 .small()
                 .loading(working)
                 .loading_icon(IconName::LoaderCircle)
@@ -467,7 +466,7 @@ impl SettingsView {
                 ) {
                     button.primary()
                 } else {
-                    button.outline()
+                    button
                 }
             })
             .loading(working)

@@ -1,9 +1,10 @@
 // Адаптировано из Zed: crates/ui/src/traits/styled_ext.rs (surface borders).
-//! The neutral outline of controls and containers. Backgrounds and state
-//! colours belong to the caller; width, default radius and depth are shared.
+// Filled states follow crates/ui/src/components/button/button_like.rs.
+//! Flat controls and containers share their radius and a transparent layout
+//! edge. Callers can tint that edge for a semantic state without resizing it.
 
 use gpui_kit::component::ActiveTheme as _;
-use gpui_kit::{App, Bounds, ParentElement, Pixels, Styled, Window, div, px};
+use gpui_kit::{App, Bounds, Hsla, ParentElement, Pixels, Styled, Window, div, px};
 use std::{cell::Cell, rc::Rc};
 
 use super::super::prefs;
@@ -11,7 +12,7 @@ use super::super::prefs;
 pub(crate) trait Frame: Styled + Sized {
     fn frame(self, cx: &App) -> Self {
         self.border_1()
-            .border_color(cx.theme().border)
+            .border_color(cx.theme().transparent)
             .rounded(cx.theme().radius)
             .shadow_none()
     }
@@ -24,6 +25,20 @@ pub(crate) trait Frame: Styled + Sized {
 }
 
 impl<T: Styled> Frame for T {}
+
+/// Filled cards keep their own surface on hover and selection. A translucent
+/// list highlight would replace the fill and make them sink into the page.
+pub(crate) fn surface_hover(cx: &App) -> Hsla {
+    cx.theme()
+        .group_box
+        .blend(cx.theme().group_box_foreground.opacity(0.06))
+}
+
+pub(crate) fn surface_selected(cx: &App) -> Hsla {
+    cx.theme()
+        .group_box
+        .blend(cx.theme().group_box_foreground.opacity(0.12))
+}
 
 /// Record the first child's outer layout box from its containing Div.
 /// ElementExt::on_prepaint measures an added canvas inside the frame instead.

@@ -3,7 +3,7 @@ use super::*;
 use crate::agents::codex::RpcError;
 use crate::ui::kit::{self, ButtonLabel as _, Frame as _, Hint as _};
 use gpui_kit::component::button::ButtonVariants as _;
-use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::input::InputState;
 use gpui_kit::component::*;
 use serde_json::json;
 
@@ -279,7 +279,7 @@ impl Chat {
                                 .get("options")
                                 .is_none_or(|options| options.is_null())
                         {
-                            body = body.child(Input::new(&input).small());
+                            body = body.child(kit::input(&input).small());
                         }
                         card = card.child(body);
                     }
@@ -364,7 +364,6 @@ impl Chat {
                         actions = actions.child(
                             kit::button(SharedString::from(format!("codex-choice-{rid}-{index}")))
                                 .faded_label(label.clone())
-                                .outline()
                                 .small()
                                 .disabled(responding)
                                 .on_click(cx.listener(move |this, _, _, cx| {
@@ -386,7 +385,6 @@ impl Chat {
                         actions = actions.child(
                             kit::button(SharedString::from(format!("codex-unsupported-{rid}")))
                                 .faded_label("Отклонить запрос")
-                                .outline()
                                 .small()
                                 .disabled(responding)
                                 .on_click(cx.listener(move |this, _, _, cx| {

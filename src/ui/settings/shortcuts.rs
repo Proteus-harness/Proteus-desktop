@@ -73,7 +73,6 @@ impl SettingsView {
         let reset_all = (!shortcuts.is_empty()).then(|| {
             kit::button("shortcuts-reset-all")
                 .faded_label("Сбросить все")
-                .outline()
                 .xsmall()
                 .on_click(|_, _, cx| prefs::update(cx, |prefs| prefs.shortcuts.reset_all()))
                 .into_any_element()

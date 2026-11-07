@@ -59,7 +59,6 @@ impl SettingsView {
                             .child(
                                 kit::button("extension-back")
                                     .faded_label("К списку расширений")
-                                    .outline()
                                     .small()
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.select_page(PageId::Extensions, window, cx)
@@ -357,7 +356,6 @@ impl SettingsView {
                         h_flex().child(
                             kit::button("extension-page-remove")
                                 .faded_label("Удалить…")
-                                .outline()
                                 .small()
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     this.removing = Some(id.to_string());

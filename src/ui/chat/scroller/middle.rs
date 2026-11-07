@@ -167,7 +167,7 @@ pub(super) fn indicator(
         .justify_center()
         .rounded(cx.theme().radius_full())
         .border_1()
-        .border_color(cx.theme().border)
+        .border_color(cx.theme().transparent)
         .bg(cx.theme().popover)
         .text_color(cx.theme().muted_foreground)
         .child(Icon::new(IconName::ChevronUp).xsmall())

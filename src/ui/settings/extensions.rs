@@ -56,7 +56,6 @@ impl SettingsView {
                 Some(
                     kit::button("extensions-catalog")
                         .faded_label("Каталог")
-                        .outline()
                         .small()
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.open_extension_catalog(window, cx);
@@ -274,7 +273,7 @@ impl SettingsView {
             .bg(theme.group_box)
             .cursor_pointer()
             .pressable(cx)
-            .hover(|card| card.bg(theme.list_hover))
+            .hover(|card| card.bg(kit::surface_hover(cx)))
             .child(row.w_full().min_w_0())
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.select_page(PageId::Extension(id.to_string()), window, cx)
@@ -317,7 +316,6 @@ impl SettingsView {
                         .child(
                             kit::button("extensions-zip-choose")
                                 .faded_label("Выбрать ZIP…")
-                                .outline()
                                 .small()
                                 .on_click(cx.listener(|this, _, _, cx| this.choose_archive(cx))),
                         ),

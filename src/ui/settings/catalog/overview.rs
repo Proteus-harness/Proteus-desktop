@@ -206,7 +206,6 @@ impl SettingsView {
                                 &(source.key(), &id),
                             ))
                             .faded_label(format!("{title} · {count}"))
-                            .outline()
                             .xsmall()
                             .on_click(cx.listener(
                                 move |this, _, _, cx| {
@@ -375,7 +374,7 @@ fn card(id: ElementId, cx: &App) -> Stateful<Div> {
         .surface_frame(cx)
         .bg(theme.group_box)
         .cursor_pointer()
-        .hover(|card| card.bg(theme.list_hover))
+        .hover(|card| card.bg(kit::surface_hover(cx)))
         .pressable(cx)
 }
 

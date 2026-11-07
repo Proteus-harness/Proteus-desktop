@@ -159,8 +159,7 @@ impl DeclarativeView {
                         .min_w_0()
                         .max_w_full()
                         .faded_label(label.clone())
-                        .px_1p5()
-                        .outline(),
+                        .px_1p5(),
                     true,
                     move |menu: PopupMenu, _, _| {
                         options.iter().fold(menu, |menu, option| {
@@ -672,7 +671,8 @@ impl DeclarativeView {
                     .px_1p5()
                     .rounded(cx.theme().radius / 2.)
                     .border_1()
-                    .border_color(color.opacity(0.4))
+                    .border_color(cx.theme().transparent)
+                    .bg(color.opacity(0.08))
                     .text_xs()
                     .text_color(color)
                     .child(label.clone())

@@ -277,7 +277,6 @@ fn render_approval(request: &AppApprovalRequest, cx: &mut Context<Chat>) -> AnyE
                     kit::button(SharedString::from(format!("deny-{deny_id}")))
                         .faded_label("Отклонить")
                         .child(key_hint("Esc"))
-                        .outline()
                         .small()
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.resolve_approval(

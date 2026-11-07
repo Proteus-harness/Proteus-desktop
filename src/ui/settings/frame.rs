@@ -39,7 +39,6 @@ impl SettingsView {
                             .child(
                                 kit::button("settings-open-proteus")
                                     .faded_label("Открыть чат Proteus")
-                                    .outline()
                                     .small()
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         let workspace = this.workspace.clone();
@@ -75,7 +74,6 @@ impl SettingsView {
                             .child(
                                 kit::button("settings-retry")
                                     .faded_label("Повторить")
-                                    .outline()
                                     .small()
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.load(cx);

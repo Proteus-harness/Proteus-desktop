@@ -263,8 +263,8 @@ pub(in crate::ui) fn popup(
             } else {
                 surface.max_w(limit.width)
             };
-            // The panel paints the shared edge. With zero overlap it stays
-            // visible, so drawing it again here would make a double rule.
+            // Join the flat surfaces without rounding their shared edge or
+            // adding an extra rule over any structural panel divider.
             match resolved_placement {
                 Placement::Top => surface.border_b_0().rounded_bl(px(0.)).rounded_br(px(0.)),
                 Placement::Bottom => surface.border_t_0().rounded_tl(px(0.)).rounded_tr(px(0.)),

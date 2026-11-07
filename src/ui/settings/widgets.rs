@@ -346,13 +346,11 @@ pub(super) fn radio_card(
         .pressable(cx)
         .map(|card| {
             if selected {
-                card.border_color(theme.primary.opacity(0.6))
-                    .bg(theme.sidebar_accent)
-                    .text_color(theme.sidebar_accent_foreground)
+                card.bg(kit::surface_selected(cx))
+                    .text_color(theme.group_box_foreground)
             } else {
-                card.border_color(theme.border)
-                    .bg(theme.group_box)
-                    .hover(|card| card.bg(theme.list_hover))
+                card.bg(theme.group_box)
+                    .hover(|card| card.bg(kit::surface_hover(cx)))
             }
         })
         .child(dot)
@@ -410,7 +408,7 @@ pub(super) struct MenuOption<T> {
     pub checked: bool,
 }
 
-/// Outline button opening a single-choice list; `select` receives its value.
+/// Filled button opening a single-choice list; `select` receives its value.
 pub(super) fn select_menu<T: Clone + 'static>(
     id: ElementId,
     label: impl Into<SharedString>,
@@ -425,7 +423,6 @@ pub(super) fn select_menu<T: Clone + 'static>(
         kit::button(id)
             .faded_label(label)
             .px_1p5()
-            .outline()
             .small()
             .min_w_0()
             .max_w_full(),

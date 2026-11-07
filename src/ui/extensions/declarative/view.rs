@@ -363,7 +363,6 @@ impl DeclarativeView {
             .child(
                 kit::button("declarative-restart")
                     .small()
-                    .outline()
                     .faded_label("Перезапустить")
                     .on_click(cx.listener(|this, _, window, cx| {
                         let runtime = this.runtime.clone();

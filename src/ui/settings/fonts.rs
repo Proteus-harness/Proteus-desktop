@@ -237,7 +237,6 @@ impl Render for FontControl {
                     .faded_label(value)
                     .accessibility_label(self.target.label())
                     .px_1p5()
-                    .outline()
                     .min_w_0()
                     .w_full()
                     .child(motion::menu_chevron(

@@ -92,9 +92,7 @@ impl Render for JumpButton {
             )
             .hint("К последним сообщениям", cx)
             .rounded(cx.theme().radius_full())
-            .border_1()
-            .border_color(cx.theme().border)
-            .bg(cx.theme().background)
+            .bg(cx.theme().secondary)
             .on_click(move |_, _, cx| {
                 let _ = scroller.update(cx, |_, cx| cx.emit(LatestRequested));
             });

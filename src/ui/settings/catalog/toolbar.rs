@@ -69,7 +69,6 @@ impl SettingsView {
                             } else {
                                 format!("Источники · {sources}")
                             })
-                            .outline()
                             .small()
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.open_catalog_sources(window, cx)
@@ -163,7 +162,6 @@ impl SettingsView {
                         kit::button("catalog-scope")
                             .faded_label(self.catalog_scope_title(scope))
                             .icon(Icon::new(IconName::Close))
-                            .outline()
                             .xsmall()
                             .ml_2()
                             .hint("Показать все источники", cx)
