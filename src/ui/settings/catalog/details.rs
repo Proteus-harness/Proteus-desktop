@@ -8,7 +8,7 @@ use gpui_kit::*;
 
 use super::super::{
     SettingsView,
-    widgets::{Tone, chip, hashed_id},
+    widgets::{self, Tone, chip, hashed_id},
 };
 use super::items::{Item, Status, version_label};
 use super::view::kind_badge;
@@ -17,7 +17,7 @@ use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
 
-pub(super) const DETAILS_WIDTH: f32 = 420.;
+pub(super) const DETAILS_WIDTH: f32 = 380.;
 
 impl SettingsView {
     /// `full` gives the pane the whole width when the list beside it
@@ -44,7 +44,6 @@ impl SettingsView {
                 cx,
             )),
             (Status::Detached, _) => facts.push(chip("не подключено", Tone::Warning, cx)),
-            (Status::Installed, _) => facts.push(chip("установлено", Tone::Success, cx)),
             (Status::Broken, _) => facts.push(chip("ошибка пакета", Tone::Warning, cx)),
             _ => {}
         }
@@ -54,9 +53,13 @@ impl SettingsView {
                 .as_ref()
                 .is_some_and(|source| source.artifact.is_some())
             {
-                Some(
-                    "Клиент соберёт выбранный пакет и установит его. Для модуля подключение сохраняется в профиль; активные слоты и инструменты выбираются отдельно.",
-                )
+                Some(match entry.kind {
+                    Kind::ProcessModule => {
+                        "После установки выберите инструменты или реализацию слота в профиле."
+                    }
+                    Kind::ClientExtension => "Расширение применяется сразу после установки.",
+                    _ => "Пакет собирается локально.",
+                })
             } else if entry.source.is_some() {
                 Some(
                     "Скачивается полный workspace. Сборка выполняется вручную; команда и требования указаны ниже и в BUILD.md рядом с исходниками.",
@@ -93,7 +96,7 @@ impl SettingsView {
                 v_flex()
                     .px_6()
                     .py_5()
-                    .gap_4()
+                    .gap_3()
                     .child(
                         h_flex()
                             .gap_3()
@@ -106,13 +109,15 @@ impl SettingsView {
                                     .child(
                                         div().text_lg().font_semibold().child(entry.title.clone()),
                                     )
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(theme.muted_foreground)
-                                            .font_family(theme.mono_font_family.clone())
-                                            .child(entry.id.clone()),
-                                    ),
+                                    .when(entry.title != entry.id, |header| {
+                                        header.child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(theme.muted_foreground)
+                                                .font_family(theme.mono_font_family.clone())
+                                                .child(entry.id.clone()),
+                                        )
+                                    }),
                             )
                             .child(
                                 kit::button("catalog-details-close")
@@ -128,6 +133,9 @@ impl SettingsView {
                     .child(h_flex().flex_wrap().gap_1p5().children(facts))
                     .child(
                         h_flex()
+                            .w_full()
+                            .items_center()
+                            .justify_between()
                             .gap_2()
                             .child(self.catalog_action(item, "details", self.profile_blocked(), cx))
                             .children(
@@ -179,26 +187,61 @@ impl SettingsView {
                     .children(entry.source.as_ref().map(|source| {
                         let command = source.command();
                         let copied = command.clone();
+                        let key = format!("catalog-build-{}-{}", item.source.key(), entry.id);
+                        let open = self.is_open(&key);
+                        let owner = cx.weak_entity();
+                        let toggle_key = key.clone();
                         v_flex()
                             .gap_2()
                             .children((!source.requirements.is_empty()).then(|| {
                                 div()
                                     .text_xs()
                                     .text_color(theme.muted_foreground)
-                                    .child(format!("Нужны: {}", source.requirements.join(", ")))
+                                    .child(format!(
+                                        "Для сборки: {}",
+                                        source.requirements.join(" · ")
+                                    ))
                             }))
-                            .child(kit::code_surface(cx).child(command))
                             .child(
-                                kit::button("catalog-copy-build")
-                                    .faded_label("Копировать команду сборки")
-                                    .quiet(cx)
-                                    .xsmall()
-                                    .on_click(move |_, _, cx| {
-                                        cx.write_to_clipboard(ClipboardItem::new_string(
-                                            copied.clone(),
-                                        ))
-                                    }),
+                                widgets::disclosure(
+                                    hashed_id("catalog-build-details", &item.key()),
+                                    open,
+                                    "Команда сборки",
+                                    false,
+                                    move |cx| {
+                                        let _ = owner.update(cx, |this, cx| {
+                                            this.toggle_open(&toggle_key, cx)
+                                        });
+                                    },
+                                    cx,
+                                )
+                                .px_0()
+                                .py_1(),
                             )
+                            .children(self.reveal(&key, cx, || {
+                                kit::code_surface(cx)
+                                    .child(
+                                        h_flex()
+                                            .gap_2()
+                                            .items_start()
+                                            .child(div().flex_1().min_w_0().child(command))
+                                            .child(
+                                                kit::button("catalog-copy-build")
+                                                    .icon(IconName::Copy)
+                                                    .quiet(cx)
+                                                    .xsmall()
+                                                    .hint("Копировать команду", cx)
+                                                    .on_click(move |_, _, cx| {
+                                                        cx.write_to_clipboard(
+                                                            ClipboardItem::new_string(
+                                                                copied.clone(),
+                                                            ),
+                                                        )
+                                                    }),
+                                            ),
+                                    )
+                                    .into_any_element()
+                            }))
                     }))
                     .children(notes.into_iter().flatten().map(|note| {
                         div()

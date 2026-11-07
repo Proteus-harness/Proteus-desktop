@@ -229,6 +229,7 @@ impl SettingsView {
         };
         let catalog = catalog.clone();
         self.catalogs.selected = Some((source.clone(), entry.id.clone()));
+        self.catalogs.closing = None;
         self.catalogs.readme = None;
         self.catalogs.readme_changes = None;
         cx.notify();
@@ -275,9 +276,9 @@ impl SettingsView {
     }
 
     pub(in crate::ui::settings) fn deselect_catalog_entry(&mut self, cx: &mut Context<Self>) {
-        self.catalogs.selected = None;
-        self.catalogs.readme = None;
-        self.catalogs.readme_changes = None;
+        if let Some(selected) = self.catalogs.selected.take() {
+            self.catalogs.closing = Some(selected);
+        }
         cx.notify();
     }
 

@@ -39,7 +39,7 @@ pub(super) use number::Number;
 pub(super) use popup::{Popup, PopupPanel, popup, restore_focus};
 pub(super) use reveal::PopupOrigin;
 pub(super) use shimmer::Shimmer;
-pub(super) use slide::{Slide, glide};
+pub(super) use slide::{Slide, blend, glide};
 pub(super) use spinner::Spinner;
 pub(super) use transition::PageTransition;
 pub(super) use wave_dots::wave_dots;

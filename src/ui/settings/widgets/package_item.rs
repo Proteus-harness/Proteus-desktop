@@ -20,7 +20,7 @@ pub(in crate::ui::settings) fn package_heading(
         .min_w_0()
         .gap_3()
         .items_center()
-        .child(icon.size(prefs::scaled(24.)).flex_none())
+        .child(package_icon(icon))
         .child(
             v_flex()
                 .flex_1()
@@ -31,4 +31,14 @@ pub(in crate::ui::settings) fn package_heading(
                     text.child(h_flex().min_w_0().flex_wrap().gap_1().children(tags))
                 }),
         )
+}
+
+/// One icon column spans the title and metadata on every package surface.
+pub(in crate::ui::settings) fn package_icon(icon: Icon) -> Div {
+    h_flex()
+        .size(prefs::scaled(36.))
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .child(icon.size(prefs::scaled(20.)).flex_none())
 }

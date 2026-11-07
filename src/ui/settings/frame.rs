@@ -22,7 +22,7 @@ use crate::ui::prefs;
 const COLUMN_WIDTH: f32 = 720.;
 
 impl SettingsView {
-    pub(super) fn render_frame(&self, cx: &Context<Self>) -> AnyElement {
+    pub(super) fn render_frame(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         if self.page.is_agent() {
             match &self.state {
                 LoadState::Unavailable => {
@@ -109,7 +109,7 @@ impl SettingsView {
                 .into_any_element();
         }
         if self.page == PageId::Catalog {
-            return self.catalog_page(cx);
+            return self.catalog_page(window, cx);
         }
         let snapshot = self.snapshot();
         let handle = self.page_scroll();

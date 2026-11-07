@@ -1,3 +1,4 @@
+// Адаптировано из Zed: crates/extensions_ui/src/components/extension_card.rs (fixed card geometry and trailing actions).
 //! Catalog page: header, toolbar, the entry list and the details beside it.
 
 use crate::ui::kit::ButtonLabel as _;
@@ -14,21 +15,49 @@ use gpui_kit::*;
 
 use super::super::{
     SettingsView,
-    widgets::{Tone, chip, hashed_id, package_heading},
+    widgets::{Tone, chip, hashed_id, package_heading, package_icon},
 };
-use super::Show;
 use super::details::DETAILS_WIDTH;
-use super::items::{Item, KINDS, Status, kind_filter, kind_icon, version_label};
+use super::items::{Item, Status, kind_icon, version_label};
 use crate::catalog::open::OPEN;
-use crate::settings::catalog::{PageId, page_description, page_title};
-use crate::ui::Spinner;
 use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
+use crate::ui::{Spinner, motion};
 
 impl SettingsView {
-    pub(in crate::ui::settings) fn catalog_page(&self, cx: &Context<Self>) -> AnyElement {
+    pub(in crate::ui::settings) fn catalog_page(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let opened = self.catalogs.selected.is_some();
+        let phase = motion::blend(
+            "catalog-details-motion".into(),
+            opened,
+            motion::BASE,
+            window,
+            cx,
+        );
+        if !opened
+            && phase == 0.
+            && let Some(closing) = self.catalogs.closing.clone()
+        {
+            let owner = cx.weak_entity();
+            cx.defer(move |cx| {
+                let _ = owner.update(cx, |this, cx| {
+                    if this.catalogs.selected.is_none()
+                        && this.catalogs.closing.as_ref() == Some(&closing)
+                    {
+                        this.catalogs.closing = None;
+                        this.catalogs.readme = None;
+                        this.catalogs.readme_changes = None;
+                        cx.notify();
+                    }
+                });
+            });
+        }
         let theme = cx.theme();
         let sources = &prefs::current(cx).catalogs.sources;
         let installed = &prefs::current(cx).catalogs.installed;
@@ -41,18 +70,31 @@ impl SettingsView {
             .iter()
             .filter(|item| self.catalog_item_shown(item))
             .collect::<Vec<_>>();
-        let selected = self.catalogs.selected.as_ref().and_then(|(source, id)| {
-            items
-                .iter()
-                .find(|item| item.source == source && item.entry.id == *id)
-        });
+        let selected = self
+            .catalogs
+            .selected
+            .as_ref()
+            .or(self.catalogs.closing.as_ref())
+            .filter(|_| phase > 0.)
+            .and_then(|(source, id)| {
+                items
+                    .iter()
+                    .find(|item| item.source == source && item.entry.id == *id)
+            });
         let loading = &self.catalogs.loading;
         let width = self.catalogs.width.clone();
         // Until the first layout the page is taken for wide.
         let measured = if width.get() > 0. { width.get() } else { 1200. };
-        let full = measured < DETAILS_WIDTH * 2.;
+        let full = measured < 960.;
+        let extent = if motion::moves() {
+            phase
+        } else if phase > 0. {
+            1.
+        } else {
+            0.
+        };
         let list_width = if selected.is_some() && !full {
-            measured - DETAILS_WIDTH
+            measured - DETAILS_WIDTH * extent
         } else {
             measured
         };
@@ -93,6 +135,7 @@ impl SettingsView {
             div()
                 .id("catalog-list")
                 .relative()
+                .pt_3()
                 .flex_1()
                 .min_w_0()
                 .h_full()
@@ -118,19 +161,48 @@ impl SettingsView {
                 .vertical_scrollbar(&self.catalogs.scroll)
                 .into_any_element()
         };
+        let mode_key = format!(
+            "{:?}-{:?}-{}-{}-{}-{}",
+            self.catalogs.show,
+            self.catalogs.kind,
+            self.catalogs
+                .scope
+                .as_ref()
+                .map(|scope| scope.source.key())
+                .unwrap_or_default(),
+            self.catalogs
+                .scope
+                .as_ref()
+                .and_then(|scope| scope.category.as_deref())
+                .unwrap_or_default(),
+            self.catalogs.query.is_empty(),
+            items.is_empty()
+        );
+        let body = motion::switch_in(
+            div().size_full().min_w_0().child(body),
+            hashed_id("catalog-mode", &mode_key),
+        );
         let page = v_flex()
             .size_full()
             .child(self.catalog_header(sources.len(), cx))
             .child(self.catalog_toolbar(updates, cx))
             .children(self.catalogs.message.as_ref().map(|(error, text)| {
                 h_flex()
-                    .px_8()
+                    .px_6()
                     .pb_3()
                     .gap_2()
                     .items_start()
                     .text_sm()
-                    .text_color(if *error { theme.danger } else { theme.success })
-                    .child(
+                    .text_color(if *error {
+                        theme.danger
+                    } else if self.catalogs.busy {
+                        theme.muted_foreground
+                    } else {
+                        theme.success
+                    })
+                    .child(if self.catalogs.busy && !*error {
+                        Spinner::new().small().into_any_element()
+                    } else {
                         Icon::new(if *error {
                             IconName::TriangleAlert
                         } else {
@@ -138,8 +210,9 @@ impl SettingsView {
                         })
                         .small()
                         .flex_none()
-                        .mt_0p5(),
-                    )
+                        .mt_0p5()
+                        .into_any_element()
+                    })
                     .child(div().flex_1().min_w_0().child(text.clone()))
             }))
             .when(!loading.is_empty(), |page| {
@@ -149,7 +222,7 @@ impl SettingsView {
                     .collect::<Vec<_>>();
                 page.child(
                     h_flex()
-                        .px_8()
+                        .px_6()
                         .pb_3()
                         .gap_2()
                         .items_center()
@@ -165,8 +238,37 @@ impl SettingsView {
                     .min_h_0()
                     .border_t_1()
                     .border_color(theme.border)
-                    .when(!(selected.is_some() && full), |row| row.child(body))
-                    .children(selected.map(|item| self.catalog_details(item, full, cx)))
+                    .relative()
+                    .overflow_hidden()
+                    .child(div().flex_1().min_w_0().h_full().child(body))
+                    .children(selected.map(|item| {
+                        let width = if full { measured } else { DETAILS_WIDTH };
+                        let content = motion::switch_in(
+                            div()
+                                .w(prefs::scaled(width))
+                                .flex_none()
+                                .h_full()
+                                .child(self.catalog_details(item, full, cx)),
+                            hashed_id("catalog-detail-content", &item.key()),
+                        );
+                        h_flex()
+                            .id("catalog-details-slot")
+                            .flex_none()
+                            .h_full()
+                            .overflow_hidden()
+                            .w(prefs::scaled(width * extent))
+                            .opacity(phase)
+                            .bg(theme.background)
+                            .when(full, |pane| pane.absolute().top_0().right_0().occlude())
+                            .when(!opened, |pane| {
+                                pane.capture_any_mouse_down(|_, window, cx| {
+                                    window.prevent_default();
+                                    cx.stop_propagation();
+                                })
+                                .capture_any_mouse_up(|_, _, cx| cx.stop_propagation())
+                            })
+                            .child(content)
+                    }))
                     .on_prepaint(move |bounds, window, _| {
                         let next = prefs::unscaled(bounds.size.width, window);
                         if (width.get() - next).abs() > 1. {
@@ -178,166 +280,10 @@ impl SettingsView {
         self.catalog_page_keys(page, cx).into_any_element()
     }
 
-    fn catalog_header(&self, sources: usize, cx: &Context<Self>) -> impl IntoElement + use<> {
-        let theme = cx.theme();
-        let loading = !self.catalogs.loading.is_empty();
-        h_flex()
-            .px_8()
-            .pt_6()
-            .pb_4()
-            .gap_4()
-            .items_start()
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .gap_1()
-                    .child(
-                        div()
-                            .text_xl()
-                            .font_semibold()
-                            .child(page_title(self.snapshot(), &PageId::Catalog)),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(theme.muted_foreground)
-                            .child(page_description(self.snapshot(), &PageId::Catalog)),
-                    ),
-            )
-            .child(
-                h_flex()
-                    .flex_none()
-                    .gap_2()
-                    .child(
-                        kit::button("catalog-refresh-all")
-                            .icon(Icon::new(Lucide::RefreshCw))
-                            .quiet(cx)
-                            .small()
-                            .loading(loading)
-                            .loading_icon(IconName::LoaderCircle)
-                            .disabled(loading || sources == 0 || !self.catalog_idle())
-                            .hint("Скачать источники заново", cx)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                let sources = prefs::current(cx).catalogs.sources.clone();
-                                this.refresh_catalog_inventory(cx);
-                                this.refresh_catalogs(sources, cx)
-                            })),
-                    )
-                    .child(
-                        kit::button("catalog-sources")
-                            .icon(Icon::new(Lucide::GitBranch))
-                            .faded_label(if sources == 0 {
-                                "Источники".to_string()
-                            } else {
-                                format!("Источники · {sources}")
-                            })
-                            .outline()
-                            .small()
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.open_catalog_sources(window, cx)
-                            })),
-                    ),
-            )
-    }
-
-    fn catalog_toolbar(&self, updates: usize, cx: &Context<Self>) -> impl IntoElement + use<> {
-        let show = |id: &'static str, show: Show, label: String| {
-            kit::button(id)
-                .faded_label(label)
-                .quiet(cx)
-                .small()
-                .selected(self.catalogs.show == show)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.catalogs.show = show;
-                    cx.notify();
-                }))
-        };
-        let kind = |id: ElementId, kind: Option<_>, label: &'static str| {
-            kit::button(id)
-                .faded_label(label)
-                .when_some(kind, |button, kind| button.icon(kind_icon(kind)))
-                .quiet(cx)
-                .xsmall()
-                .selected(self.catalogs.kind == kind)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.catalogs.kind = kind;
-                    cx.notify();
-                }))
-        };
-        v_flex()
-            .px_8()
-            .pb_3()
-            .gap_2()
-            .child(
-                h_flex()
-                    .gap_3()
-                    .items_center()
-                    .child(
-                        Self::catalog_search_keys(div()).flex_1().min_w_0().child(
-                            crate::ui::search::field(&self.catalogs.search)
-                                .small()
-                                .cleanable(true),
-                        ),
-                    )
-                    .child(
-                        h_flex()
-                            .flex_none()
-                            .gap_1()
-                            .child(show(
-                                "catalog-show-overview",
-                                Show::Overview,
-                                "Обзор".into(),
-                            ))
-                            .child(show("catalog-show-all", Show::All, "Все".into()))
-                            .child(show(
-                                "catalog-show-installed",
-                                Show::Installed,
-                                "Установленные".into(),
-                            ))
-                            .child(show(
-                                "catalog-show-updates",
-                                Show::Updates,
-                                if updates == 0 {
-                                    "Обновления".into()
-                                } else {
-                                    format!("Обновления · {updates}")
-                                },
-                            )),
-                    ),
-            )
-            .child(
-                h_flex()
-                    .flex_wrap()
-                    .gap_1()
-                    .child(kind("catalog-kind-all".into(), None, "Все типы"))
-                    .children(KINDS.into_iter().map(|item| {
-                        kind(
-                            ElementId::Name(format!("catalog-kind-{item:?}").into()),
-                            Some(item),
-                            kind_filter(item),
-                        )
-                    }))
-                    .children(self.catalogs.scope.as_ref().map(|scope| {
-                        kit::button("catalog-scope")
-                            .faded_label(self.catalog_scope_title(scope))
-                            .icon(Icon::new(IconName::Close))
-                            .outline()
-                            .xsmall()
-                            .ml_2()
-                            .hint("Показать все источники", cx)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.catalogs.scope = None;
-                                cx.notify();
-                            }))
-                    })),
-            )
-    }
-
     pub(super) fn catalog_row(
         &self,
         item: &Item,
-        narrow: bool,
+        _narrow: bool,
         profile: Option<&'static str>,
         cx: &Context<Self>,
     ) -> AnyElement {
@@ -348,14 +294,23 @@ impl SettingsView {
             .as_ref()
             .is_some_and(|(source, id)| item.key() == (source, id.as_str()));
         let (source, entry) = (item.source.clone(), item.entry.clone());
-        let mut facts = vec![
-            item.entry.kind.title().to_string(),
-            version_label(&entry.version),
-        ];
+        let mut facts = vec![version_label(&entry.version)];
+        if self.catalogs.kind.is_none() {
+            facts.push(item.entry.kind.title().to_string());
+        }
         for fact in item
             .category()
+            .filter(|_| {
+                !self
+                    .catalogs
+                    .scope
+                    .as_ref()
+                    .is_some_and(|scope| scope.category.is_some())
+            })
             .into_iter()
-            .chain(Some(item.catalog.title.as_str()))
+            .chain(
+                (!_narrow && self.catalogs.scope.is_none()).then_some(item.catalog.title.as_str()),
+            )
         {
             if !facts.iter().any(|known| known == fact) {
                 facts.push(fact.to_owned());
@@ -423,8 +378,7 @@ impl SettingsView {
         div()
             .w_full()
             .min_w_0()
-            .px_8()
-            .when(narrow, |row| row.pr_4())
+            .px_6()
             .pb_2()
             .child(card)
             .into_any_element()
@@ -473,6 +427,14 @@ impl SettingsView {
             Status::Installed => {
                 let theme = cx.theme();
                 return h_flex()
+                    .w(prefs::scaled(120.))
+                    .map(|row| {
+                        if place == "details" {
+                            row.justify_start()
+                        } else {
+                            row.justify_end()
+                        }
+                    })
                     .gap_1()
                     .items_center()
                     .text_xs()
@@ -495,10 +457,14 @@ impl SettingsView {
                 .is_some_and(|(source, id)| item.key() == (source, id.as_str()));
         let (source, entry) = (item.source.clone(), item.entry.clone());
         kit::button(hashed_id("catalog-install", &(place, item.key())))
+            .w(prefs::scaled(120.))
             .faded_label(label)
             .small()
             .map(|button| {
-                if item.status == Status::Update {
+                if matches!(
+                    item.status,
+                    Status::Available | Status::Update | Status::Detached
+                ) {
                     button.primary()
                 } else {
                     button.outline()
@@ -574,17 +540,10 @@ impl SettingsView {
     }
 }
 
-/// Icon of the entry kind on a tinted square.
+/// The same icon column as package rows, on the inspector's quiet badge.
 pub(super) fn kind_badge(item: &Item, cx: &App) -> impl IntoElement + use<> {
     let theme = cx.theme();
-    div()
-        .flex_none()
-        .size(prefs::scaled(32.))
-        .flex()
-        .items_center()
-        .justify_center()
+    package_icon(kind_icon(item.entry.kind).text_color(theme.muted_foreground))
         .rounded(theme.radius)
         .bg(theme.muted)
-        .text_color(theme.muted_foreground)
-        .child(kind_icon(item.entry.kind).small())
 }

@@ -1,3 +1,4 @@
+// Адаптировано из Zed: crates/extensions_ui/src/components/extension_card.rs (shared heading/action grid).
 //! Start screen of the catalog: updates and installed entries first, then
 //! the types and the sources with their categories to narrow the list by.
 //! The whole list only opens once a search, a filter or a scope asks for it.
@@ -10,13 +11,17 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use super::super::{SettingsView, widgets::hashed_id};
+use super::super::{
+    SettingsView,
+    widgets::{hashed_id, package_heading},
+};
 use super::items::{Item, KINDS, OVERVIEW_ROWS, Status, kind_filter, kind_icon, overview_rows};
 use super::{Scope, Show};
 use crate::catalog::{Source, schema::Catalog};
 use crate::settings::catalog::plural;
 use crate::ui::fade::faded;
 use crate::ui::kit::{self, Pressable as _};
+use crate::ui::prefs;
 
 impl SettingsView {
     pub(super) fn catalog_overview(
@@ -57,8 +62,7 @@ impl SettingsView {
         if sections.is_empty() {
             sections.push(
                 div()
-                    .px_8()
-                    .pt_5()
+                    .px_6()
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
                     .child(
@@ -68,10 +72,13 @@ impl SettingsView {
             );
         }
         // The page padding takes its share before the columns.
-        let columns = |least: f32, most: u16| ((width - 64.) / least).clamp(1., most as f32) as u16;
+        let columns = |least: f32, most: u16| {
+            // Two equal 24px gutters and the 12px card gap share this width.
+            ((width - 48. + 12.) / (least + 12.)).clamp(1., most as f32) as u16
+        };
         sections.extend(self.overview_kinds(items, columns(200., 4), cx));
         sections.push(
-            self.overview_sources(items, columns(320., 3), cx)
+            self.overview_sources(items, columns(280., 3), cx)
                 .into_any_element(),
         );
         div()
@@ -84,7 +91,9 @@ impl SettingsView {
                 v_flex()
                     .id("catalog-overview-sections")
                     .size_full()
+                    .pt_4()
                     .pb_6()
+                    .gap_6()
                     .overflow_y_scroll()
                     .track_scroll(&self.catalogs.overview)
                     .children(sections),
@@ -111,23 +120,22 @@ impl SettingsView {
         if kinds.len() < 2 {
             return None;
         }
+        let columns = columns.min(kinds.len() as u16);
         let cards = kinds.into_iter().map(|(kind, count)| {
             card(
                 ElementId::Name(format!("catalog-overview-kind-{kind:?}").into()),
                 cx,
             )
             .child(
-                h_flex()
-                    .gap_3()
-                    .items_center()
-                    .child(kind_icon(kind).small())
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .child(div().text_sm().font_medium().child(kind_filter(kind)))
-                            .child(muted(plural(count, "запись", "записи", "записей"), cx)),
-                    ),
+                package_heading(
+                    kind_icon(kind).text_color(cx.theme().muted_foreground),
+                    div()
+                        .min_w_0()
+                        .h(prefs::scaled(20.))
+                        .child(faded(kind_filter(kind))),
+                    [muted(plural(count, "запись", "записи", "записей"), cx).into_any_element()],
+                )
+                .flex_none(),
             )
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.catalogs.kind = Some(kind);
@@ -139,10 +147,11 @@ impl SettingsView {
                 .child(heading("Типы", cx))
                 .child(
                     div()
-                        .px_8()
+                        .px_6()
                         .grid()
                         .grid_cols(columns)
-                        .gap_2()
+                        .gap_3()
+                        .items_stretch()
                         .children(cards),
                 )
                 .into_any_element(),
@@ -155,77 +164,72 @@ impl SettingsView {
         columns: u16,
         cx: &Context<Self>,
     ) -> impl IntoElement + use<> {
-        let cards =
-            self.catalogs.loaded.iter().map(|(source, catalog)| {
-                let count = plural(
-                    items.iter().filter(|item| item.source == source).count(),
-                    "запись",
-                    "записи",
-                    "записей",
-                );
-                let name = source.name();
-                // A repository without an index is titled by its name already.
-                let about = if catalog.title == name {
-                    count
-                } else {
-                    format!("{name} · {count}")
-                };
-                let categories = categories(catalog);
-                let scope = |category: Option<String>| Scope {
-                    source: source.clone(),
-                    category,
-                };
-                let whole = scope(None);
-                card(hashed_id("catalog-overview-source", &source.key()), cx)
-                    .child(
-                        h_flex()
-                            .gap_3()
-                            .items_center()
-                            .child(Icon::new(Lucide::GitBranch).small())
-                            .child(
-                                v_flex()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .font_medium()
-                                            .child(faded(catalog.title.clone())),
-                                    )
-                                    .child(muted(about, cx)),
-                            ),
+        let columns = usize::from(columns).min(self.catalogs.loaded.len()).max(1) as u16;
+        let cards = self.catalogs.loaded.iter().map(|(source, catalog)| {
+            let count = plural(
+                items.iter().filter(|item| item.source == source).count(),
+                "запись",
+                "записи",
+                "записей",
+            );
+            let name = source.name();
+            // A repository without an index is titled by its name already.
+            let about = if catalog.title == name {
+                count
+            } else {
+                format!("{name} · {count}")
+            };
+            let categories = categories(catalog);
+            let scope = |category: Option<String>| Scope {
+                source: source.clone(),
+                category,
+            };
+            let whole = scope(None);
+            card(hashed_id("catalog-overview-source", &source.key()), cx)
+                .child(
+                    package_heading(
+                        Icon::new(Lucide::GitBranch).text_color(cx.theme().muted_foreground),
+                        div()
+                            .min_w_0()
+                            .h(prefs::scaled(20.))
+                            .child(faded(catalog.title.clone())),
+                        [muted(about, cx).into_any_element()],
                     )
-                    .when(categories.len() > 1, |card| {
-                        card.child(h_flex().flex_wrap().gap_1().children(
-                            categories.into_iter().map(|(id, title, count)| {
-                                let scope = scope(Some(id.clone()));
-                                kit::button(hashed_id(
-                                    "catalog-overview-category",
-                                    &(source.key(), &id),
-                                ))
-                                .faded_label(format!("{title} · {count}"))
-                                .outline()
-                                .xsmall()
-                                .on_click(cx.listener(
-                                    move |this, _, _, cx| {
-                                        this.catalogs.scope = Some(scope.clone());
-                                        cx.notify();
-                                    },
-                                ))
-                            }),
-                        ))
-                    })
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.catalogs.scope = Some(whole.clone());
-                        cx.notify();
-                    }))
-            });
+                    .flex_none(),
+                )
+                .when(categories.len() > 1, |card| {
+                    card.child(h_flex().w_full().min_w_0().flex_wrap().gap_2().children(
+                        categories.into_iter().map(|(id, title, count)| {
+                            let scope = scope(Some(id.clone()));
+                            kit::button(hashed_id(
+                                "catalog-overview-category",
+                                &(source.key(), &id),
+                            ))
+                            .faded_label(format!("{title} · {count}"))
+                            .outline()
+                            .xsmall()
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.catalogs.scope = Some(scope.clone());
+                                    cx.notify();
+                                },
+                            ))
+                        }),
+                    ))
+                })
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.catalogs.scope = Some(whole.clone());
+                    cx.notify();
+                }))
+        });
         v_flex().child(heading("Источники", cx)).child(
             div()
-                .px_8()
+                .px_6()
                 .grid()
                 .grid_cols(columns)
                 .gap_3()
+                .items_stretch()
                 .children(cards),
         )
     }
@@ -316,10 +320,11 @@ fn category_title(catalog: &Catalog, id: &str) -> String {
 }
 
 fn heading(title: &'static str, cx: &App) -> impl IntoElement + use<> {
-    div()
-        .px_8()
-        .pt_5()
-        .pb_2()
+    h_flex()
+        .px_6()
+        .h_6()
+        .mb_3()
+        .items_center()
         .text_xs()
         .font_semibold()
         .text_color(cx.theme().muted_foreground)
@@ -331,13 +336,11 @@ fn section(title: &'static str, count: usize, show: Show, cx: &Context<SettingsV
     let theme = cx.theme();
     v_flex().child(
         h_flex()
-            .px_8()
-            .pt_5()
-            .pb_2()
+            .px_6()
+            .h_6()
+            .mb_3()
             .gap_2()
             .items_center()
-            .border_b_1()
-            .border_color(theme.border.opacity(0.6))
             .child(
                 div()
                     .flex_1()
@@ -366,17 +369,21 @@ fn card(id: ElementId, cx: &App) -> Stateful<Div> {
     v_flex()
         .id(id)
         .min_w_0()
-        .px_3()
-        .py_2p5()
-        .gap_2()
+        .px_4()
+        .py_3()
+        .gap_3()
         .surface_frame(cx)
+        .bg(theme.group_box)
         .cursor_pointer()
         .hover(|card| card.bg(theme.list_hover))
         .pressable(cx)
 }
 
-fn muted(text: String, cx: &App) -> impl IntoElement + use<> {
+fn muted(text: String, cx: &App) -> Div {
     div()
+        .w_full()
+        .min_w_0()
+        .h(prefs::scaled(20.))
         .text_xs()
         .text_color(cx.theme().muted_foreground)
         .child(faded(text))

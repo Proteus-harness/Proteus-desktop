@@ -3,7 +3,7 @@
 //! cards and select menus.
 
 mod package_item;
-pub(super) use package_item::package_heading;
+pub(super) use package_item::{package_heading, package_icon};
 
 use crate::ui::kit::ButtonLabel as _;
 use crate::ui::kit::{Frame as _, RowRule as _};

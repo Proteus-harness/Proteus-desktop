@@ -9,6 +9,7 @@ mod items;
 mod keys;
 mod overview;
 mod sources;
+mod toolbar;
 mod view;
 mod zip;
 
@@ -39,6 +40,8 @@ pub(super) struct State {
     pub inventory: Inventory,
     pub inventory_generation: u64,
     pub selected: Option<(Source, String)>,
+    /// A single outgoing pane stays alive only until its closing animation ends.
+    pub closing: Option<(Source, String)>,
     pub readme: Option<Entity<crate::ui::extensions::content::FormattedText>>,
     pub readme_changes: Option<Subscription>,
     pub busy: bool,
@@ -105,6 +108,7 @@ impl State {
                 inventory: Inventory::default(),
                 inventory_generation: 0,
                 selected: None,
+                closing: None,
                 readme: None,
                 readme_changes: None,
                 busy: false,

@@ -559,7 +559,7 @@ impl Render for SettingsView {
                     .flex_1()
                     .min_w_0()
                     .h_full()
-                    .child(self.render_frame(cx)),
+                    .child(self.render_frame(window, cx)),
             )
     }
 }

@@ -60,34 +60,135 @@ pub(in crate::ui) fn glide(
     window: &mut Window,
     cx: &mut App,
 ) -> f32 {
+    progress(id, open, duration, super::moves(), window, cx)
+}
+
+/// Reversible opacity progress. Reduced motion keeps this fade, while disabled
+/// animations or the system reduce-motion flag settle immediately. The first
+/// frame under `id` shows the requested state, just like `glide`.
+pub(in crate::ui) fn blend(
+    id: ElementId,
+    open: bool,
+    duration: Duration,
+    window: &mut Window,
+    cx: &mut App,
+) -> f32 {
+    progress(id, open, duration, super::plays(), window, cx)
+}
+
+fn progress(
+    id: ElementId,
+    open: bool,
+    duration: Duration,
+    enabled: bool,
+    window: &mut Window,
+    cx: &mut App,
+) -> f32 {
     let target = if open { 1. } else { 0. };
-    let state = window.use_keyed_state(id, cx, |_, _| SlideState {
-        progress: target,
-        at: None,
-    });
+    let state = window.use_keyed_state(id, cx, |_, _| SlideState::new(target));
+    let animate = enabled && !cx.reduce_motion();
     let now = Instant::now();
-    let progress = state.update(cx, |state, _| {
-        if !super::moves() {
-            state.progress = target;
-        }
-        if state.progress == target {
-            state.at = None;
-            return target;
-        }
-        let elapsed = state
-            .at
-            .map_or(0., |at| now.duration_since(at).as_secs_f32().min(0.05));
-        state.at = Some(now);
-        let step = elapsed / duration.as_secs_f32();
-        state.progress = if target > state.progress {
-            (state.progress + step).min(target)
-        } else {
-            (state.progress - step).max(target)
-        };
-        state.progress
-    });
-    if progress != target {
+    let (progress, running) =
+        state.update(cx, |state, _| state.sample(target, duration, now, animate));
+    if running {
         window.request_animation_frame();
     }
-    progress * progress * (3. - 2. * progress)
+    progress
+}
+
+impl SlideState {
+    fn new(progress: f32) -> Self {
+        Self { progress, at: None }
+    }
+
+    /// Keep the current position on reversal, and stop scheduling frames once
+    /// settled. Bound a delayed frame's step so resuming a window stays smooth.
+    fn sample(
+        &mut self,
+        target: f32,
+        duration: Duration,
+        now: Instant,
+        animate: bool,
+    ) -> (f32, bool) {
+        if !animate || duration.is_zero() {
+            self.progress = target;
+        }
+        if self.progress == target {
+            self.at = None;
+            return (target, false);
+        }
+        let elapsed = self.at.map_or(0., |at| {
+            now.saturating_duration_since(at).as_secs_f32().min(0.05)
+        });
+        self.at = Some(now);
+        let step = elapsed / duration.as_secs_f32();
+        self.progress = if target > self.progress {
+            (self.progress + step).min(target)
+        } else {
+            (self.progress - step).max(target)
+        };
+        let running = self.progress != target;
+        if !running {
+            self.at = None;
+        }
+        (
+            self.progress * self.progress * (3. - 2. * self.progress),
+            running,
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::motion::BASE;
+
+    #[::core::prelude::v1::test]
+    fn reversal_keeps_the_visible_position_and_resumes_from_it() {
+        let now = Instant::now();
+        let mut state = SlideState::new(0.);
+        assert_eq!(state.sample(1., BASE, now, true), (0., true));
+        let opening = state.sample(1., BASE, now + BASE / 4, true).0;
+        assert!(opening > 0. && opening < 1.);
+        // A new target does not restart at an endpoint in the same frame.
+        assert_eq!(state.sample(0., BASE, now + BASE / 4, true).0, opening);
+        let closing = state.sample(0., BASE, now + BASE / 2, true).0;
+        assert!(closing < opening);
+        assert_eq!(state.sample(1., BASE, now + BASE / 2, true).0, closing);
+        assert!(state.sample(1., BASE, now + BASE * 3 / 4, true).0 > closing);
+    }
+
+    #[::core::prelude::v1::test]
+    fn completed_transitions_do_not_keep_requesting_frames() {
+        let now = Instant::now();
+        let mut state = SlideState::new(0.);
+        assert_eq!(state.sample(0., BASE, now, true), (0., false));
+        state.sample(1., BASE, now, true);
+        for frame in 1..=10 {
+            state.sample(1., BASE, now + BASE * frame / 4, true);
+        }
+        assert_eq!(state.sample(1., BASE, now + BASE * 3, true), (1., false));
+        assert!(state.at.is_none());
+    }
+
+    #[::core::prelude::v1::test]
+    fn disabling_motion_during_a_transition_settles_without_more_frames() {
+        let now = Instant::now();
+        let mut state = SlideState::new(0.);
+        state.sample(1., BASE, now, true);
+        state.sample(1., BASE, now + BASE / 4, true);
+        assert_eq!(state.sample(1., BASE, now + BASE / 4, false), (1., false));
+        assert_eq!(state.sample(0., BASE, now + BASE / 4, false), (0., false));
+        assert!(state.at.is_none());
+    }
+
+    #[::core::prelude::v1::test]
+    fn zero_duration_finishes_in_the_first_frame() {
+        let mut state = SlideState::new(0.);
+        assert_eq!(
+            state.sample(1., Duration::ZERO, Instant::now(), true),
+            (1., false)
+        );
+        assert!(state.at.is_none());
+    }
 }
