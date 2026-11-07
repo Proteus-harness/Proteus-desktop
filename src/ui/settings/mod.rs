@@ -46,6 +46,8 @@ use gpui_kit::component::*;
 use gpui_kit::*;
 use proteus_contracts::app_protocol::config_builder::{ConfigBuilderSnapshot, ConfigHistory};
 
+use crate::ui::kit::WorkspaceSurface as _;
+
 use crate::settings::Draft;
 use crate::settings::catalog::PageId;
 use crate::settings::mcp::mcp_problems;
@@ -528,8 +530,15 @@ impl Render for SettingsView {
         self.prepare_editors(window, cx);
         self.scrolls.entry(spot::page_key(&self.page)).or_default();
         crate::ui::motion::drive(window, cx);
+        let (radius, chrome, panel, background) = (
+            cx.theme().radius_lg,
+            cx.theme().status_bar,
+            cx.theme().sidebar,
+            cx.theme().background,
+        );
         let screen = h_flex()
             .size_full()
+            .bg(panel)
             .key_context(super::SETTINGS_CONTEXT)
             .track_focus(&self.focus_handle);
         self.settings_keys(screen, cx)
@@ -559,8 +568,11 @@ impl Render for SettingsView {
                     .flex_1()
                     .min_w_0()
                     .h_full()
-                    .child(self.render_frame(window, cx)),
+                    .bg(background)
+                    .child(self.render_frame(window, cx))
+                    .workspace_surface(radius, panel),
             )
+            .workspace_surface(radius, chrome)
     }
 }
 

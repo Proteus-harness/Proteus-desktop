@@ -28,6 +28,7 @@ mod selection;
 mod setting_reset;
 mod settings_row;
 mod surface;
+mod workspace_surface;
 pub(crate) use controls::{Clipboard, Switch};
 pub(crate) use frame::{Frame, RowRule, record_first_child, surface_hover, surface_selected};
 pub(crate) use icon_button::icon_button;
@@ -35,10 +36,15 @@ pub(crate) use selection::SelectionCopyMenu;
 pub(crate) use setting_reset::setting_reset;
 pub(crate) use settings_row::{SettingsRow, settings_row};
 pub(crate) use surface::{surface, surface_highlight};
+pub(crate) use workspace_surface::WorkspaceSurface;
 
 /// Shared button captions and quiet surfaces. Icons, sizes, focus and
 /// keyboard behavior stay native.
 pub(crate) trait ButtonLabel {
+    /// A thin theme-colored edge identifies a dropdown without replacing its
+    /// authored fill or the native hover, focus and disabled behavior.
+    fn selector(self, cx: &App) -> Self;
+
     /// Transparent at rest; the same hover and committed fill as list rows,
     /// without the native Ghost variant's extra dark-mode attenuation.
     fn quiet(self, cx: &App) -> Self;
@@ -49,6 +55,10 @@ pub(crate) trait ButtonLabel {
 }
 
 impl ButtonLabel for Button {
+    fn selector(self, cx: &App) -> Self {
+        self.border_1().border_color(cx.theme().border)
+    }
+
     fn quiet(self, cx: &App) -> Self {
         self.custom(
             ButtonCustomVariant::new(cx)
@@ -93,6 +103,7 @@ pub(crate) fn button(id: impl Into<ElementId>) -> Button {
     use gpui_kit::IntoElement as _;
     button_hints(
         Button::new(id)
+            .secondary()
             .border_0()
             .shadow_none()
             .focus_ring(KEYBOARD.get())

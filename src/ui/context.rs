@@ -5,7 +5,7 @@
 //! its own element. This one is placed like the dropdowns: below the
 //! element, flipped above it when there is no room, sliding in the same way.
 
-use super::{motion, prefs};
+use super::{kit::ButtonLabel as _, motion, prefs};
 use gpui_kit::component::button::Button;
 use gpui_kit::component::menu::PopupMenu;
 use gpui_kit::component::*;
@@ -121,7 +121,7 @@ impl RenderOnce for ContextMenu {
             Trigger::Element(element) => element,
             Trigger::Button(button, caret) => button
                 .when(caret, |b| {
-                    b.child(motion::menu_chevron(
+                    b.selector(cx).child(motion::menu_chevron(
                         ElementId::Name(format!("{:?}:chevron", self.id).into()),
                         menu_open,
                         cx.theme().muted_foreground,

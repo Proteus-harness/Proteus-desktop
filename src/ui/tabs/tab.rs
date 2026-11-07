@@ -1,3 +1,4 @@
+// Адаптировано из Zed: crates/ui/src/components/tab.rs, crates/workspace/src/pane.rs.
 //! One tab of a strip: its look, clicks, drag and context menu. Pinned
 //! tabs are compact and have no close button.
 
@@ -21,7 +22,11 @@ use crate::ui::tip::{Tip as _, TooltipAnchor};
 use crate::ui::workspace::Workspace;
 use crate::ui::{drag, extensions};
 
-pub(super) const BAR_HEIGHT: f32 = 38.;
+pub(in crate::ui) const BAR_HEIGHT: f32 = 38.;
+/// Inset the painted surface, keeping the full strip height as the hit target.
+const SURFACE_INSET_Y: f32 = 4.;
+const SURFACE_INSET_X: f32 = 2.;
+const SURFACE_HEIGHT: f32 = BAR_HEIGHT - SURFACE_INSET_Y * 2.;
 /// Widest a tab gets, in px at 100% scale.
 pub(super) const MAX_WIDTH: f32 = 240.;
 
@@ -63,7 +68,7 @@ impl Render for DraggedTab {
         );
         drag::lifted(
             h_flex()
-                .h(prefs::scaled(BAR_HEIGHT))
+                .h(prefs::scaled(SURFACE_HEIGHT))
                 .w(width)
                 .min_w(width)
                 .flex_none()
@@ -168,7 +173,7 @@ impl Workspace {
         let theme = cx.theme();
         let label = self.tab_label(id, cx);
         let tab_group = SharedString::from(format!("tab-{id}"));
-        let (hover, primary, foreground) = (theme.list_hover, theme.primary, theme.foreground);
+        let (hover, foreground) = (theme.list_hover, theme.sidebar_foreground);
         let lifted = drag::is_source(&format!("tab:{id}"), cx);
         let icon = match self.chat_state(id, cx) {
             Some(ChatState::Busy(_)) => Spinner::new().xsmall().into_any_element(),
@@ -212,18 +217,31 @@ impl Workspace {
             .cursor_pointer()
             .map(|tab| {
                 if state.active {
-                    tab.bg(theme.tab_active)
-                        .text_color(theme.tab_active_foreground)
+                    tab.text_color(theme.foreground)
                 } else {
-                    tab.text_color(theme.tab_foreground)
-                        .hover(move |style| style.bg(hover).text_color(foreground))
+                    tab.text_color(theme.sidebar_foreground)
+                        .hover(move |style| style.text_color(foreground))
                 }
             })
             .when(lifted, |tab| tab.opacity(drag::SOURCE_OPACITY))
+            .child(
+                div()
+                    .absolute()
+                    .top(prefs::scaled(SURFACE_INSET_Y))
+                    .bottom(prefs::scaled(SURFACE_INSET_Y))
+                    .left(prefs::scaled(SURFACE_INSET_X))
+                    .right(prefs::scaled(SURFACE_INSET_X))
+                    .rounded(theme.radius)
+                    .when(state.active, |surface| surface.bg(theme.background))
+                    .when(!state.active, |surface| {
+                        surface.group_hover(tab_group.clone(), move |surface| surface.bg(hover))
+                    }),
+            )
             .child(icon)
             .child(
                 div()
                     .min_w_0()
+                    .when(state.active && state.focused, |title| title.font_medium())
                     .when(state.preview, |title| title.italic())
                     .child(crate::ui::fade::caption("tab-caption", label.title).anchor(anchor)),
             )
@@ -253,17 +271,6 @@ impl Workspace {
                 .on_mouse_down(
                     MouseButton::Middle,
                     cx.listener(move |this, _, window, cx| this.close_tab(&middle_id, window, cx)),
-                )
-            })
-            .when(state.active && state.focused, |tab| {
-                tab.child(
-                    div()
-                        .absolute()
-                        .left_0()
-                        .right_0()
-                        .top_0()
-                        .h(px(2.))
-                        .bg(primary),
                 )
             })
             .when_some(tooltip, |tab, text| tab.tip_text(text))

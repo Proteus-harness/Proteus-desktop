@@ -237,7 +237,7 @@ impl SettingsView {
                     .flex_1()
                     .min_h_0()
                     .border_t_1()
-                    .border_color(theme.border)
+                    .border_color(theme.transparent)
                     .relative()
                     .overflow_hidden()
                     .child(div().flex_1().min_w_0().h_full().child(body))

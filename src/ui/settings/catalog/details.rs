@@ -88,7 +88,7 @@ impl SettingsView {
                     pane.w(prefs::scaled(DETAILS_WIDTH))
                         .flex_none()
                         .border_l_1()
-                        .border_color(theme.border)
+                        .border_color(theme.transparent)
                 }
             })
             .h_full()
@@ -264,7 +264,7 @@ impl SettingsView {
                         div()
                             .pt_4()
                             .border_t_1()
-                            .border_color(theme.border)
+                            .border_color(theme.transparent)
                             .child(state.clone())
                     })),
             )

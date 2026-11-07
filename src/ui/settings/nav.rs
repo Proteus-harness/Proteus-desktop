@@ -295,7 +295,7 @@ impl SettingsView {
                     .py_3()
                     .gap_0p5()
                     .border_t_1()
-                    .border_color(theme.sidebar_border)
+                    .border_color(theme.transparent)
                     .text_xs()
                     .child(div().text_color(theme.muted_foreground).child("Профиль"))
                     .child(

@@ -1,0 +1,78 @@
+{
+  "repository": "https://github.com/longbridge/gpui-kit",
+  "commit": "46bf6d498fa101a3b11cc64e6d8c20d28d17b720",
+  "license": "Apache-2.0",
+  "adaptations": {
+    "color_key_mapping": {
+      "panel.background": "sidebar.background",
+      "action_bar.background": "status_bar.background",
+      "window_border": "window.border",
+      "link.foreground": "link",
+      "link.active.foreground": "link.active",
+      "link.hover.foreground": "link.hover"
+    },
+    "note": "Only semantic key names adapted to the vendored ThemeConfigColors schema; upstream color values are preserved.",
+    "removed_metadata": [
+      "$schema (upstream schema is not the vendored component schema)"
+    ]
+  },
+  "files": [
+    {
+      "path": "catppuccin.json",
+      "upstream_path": "themes/catppuccin.json",
+      "url": "https://github.com/longbridge/gpui-kit/blob/46bf6d498fa101a3b11cc64e6d8c20d28d17b720/themes/catppuccin.json",
+      "variants": [
+        "Catppuccin Latte",
+        "Catppuccin Frappe",
+        "Catppuccin Macchiato",
+        "Catppuccin Mocha"
+      ]
+    },
+    {
+      "path": "tokyonight.json",
+      "upstream_path": "themes/tokyonight.json",
+      "url": "https://github.com/longbridge/gpui-kit/blob/46bf6d498fa101a3b11cc64e6d8c20d28d17b720/themes/tokyonight.json",
+      "variants": [
+        "Tokyo Night",
+        "Tokyo Storm",
+        "Tokyo Moon"
+      ]
+    },
+    {
+      "path": "gruvbox.json",
+      "upstream_path": "themes/gruvbox.json",
+      "url": "https://github.com/longbridge/gpui-kit/blob/46bf6d498fa101a3b11cc64e6d8c20d28d17b720/themes/gruvbox.json",
+      "variants": [
+        "Gruvbox Light",
+        "Gruvbox Dark"
+      ]
+    },
+    {
+      "path": "everforest.json",
+      "upstream_path": "themes/everforest.json",
+      "url": "https://github.com/longbridge/gpui-kit/blob/46bf6d498fa101a3b11cc64e6d8c20d28d17b720/themes/everforest.json",
+      "variants": [
+        "Everforest Light",
+        "Everforest Dark"
+      ]
+    },
+    {
+      "path": "solarized.json",
+      "upstream_path": "themes/solarized.json",
+      "url": "https://github.com/longbridge/gpui-kit/blob/46bf6d498fa101a3b11cc64e6d8c20d28d17b720/themes/solarized.json",
+      "variants": [
+        "Solarized Light",
+        "Solarized Dark"
+      ]
+    },
+    {
+      "path": "ayu.json",
+      "upstream_path": "themes/ayu.json",
+      "url": "https://github.com/longbridge/gpui-kit/blob/46bf6d498fa101a3b11cc64e6d8c20d28d17b720/themes/ayu.json",
+      "variants": [
+        "Ayu Light",
+        "Ayu Dark"
+      ]
+    }
+  ]
+}

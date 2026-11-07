@@ -114,6 +114,11 @@ def install_desktop_notices(target, desktop):
         destination = target / "Proteus-desktop" / font / name
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(desktop / font / name, destination)
+    palettes = "src/ui/theme/palettes"
+    for name in ("LICENSE-APACHE.upstream", "SOURCES.json"):
+        destination = target / "Proteus-desktop" / palettes / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(desktop / palettes / name, destination)
 
 
 NOTICE_README = (
@@ -127,6 +132,8 @@ NOTICE_README = (
         "provenance below Proteus-desktop/vendor/.\n"
         "Ghostty VT is MIT licensed; its Rust bindings use Apache-2.0. Their\n"
         "copyright notices and pinned source provenance are included there.\n"
+        "Bundled GPUI Kit palettes retain their upstream license and pinned\n"
+        "source list below Proteus-desktop/src/ui/theme/palettes/.\n"
         "The release sources archive also contains the four exact Proteus source snapshots.\n"
     )
 

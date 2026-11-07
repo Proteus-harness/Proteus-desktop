@@ -78,7 +78,11 @@ const fn text(field: Preference, title: &'static str, about: Option<&'static str
 }
 
 const THEME: RowText = text(Preference::Theme, "Тема", None);
-const DARK_PALETTE: RowText = text(Preference::DarkPalette, "Тёмная палитра", None);
+const DARK_PALETTE: RowText = text(
+    Preference::DarkPalette,
+    "Тёмная палитра",
+    Some("Готовые палитры Catppuccin, Tokyo Night, Gruvbox, Everforest, Solarized и Ayu."),
+);
 const LIGHT_PALETTE: RowText = text(
     Preference::LightPalette,
     "Светлая палитра",

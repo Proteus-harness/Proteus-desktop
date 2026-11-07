@@ -30,7 +30,7 @@ impl Workspace {
             .items_center()
             .bg(theme.status_bar)
             .border_r_1()
-            .border_color(theme.status_bar_border)
+            .border_color(theme.transparent)
             .text_color(theme.muted_foreground)
             .child(self.render_panel_buttons(cx))
             .children(self.render_badge_strip(BadgePlace::RailStart, cx))

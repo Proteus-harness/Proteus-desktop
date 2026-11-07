@@ -17,7 +17,7 @@ pub(super) fn title_bar<L: IntoElement, R: IntoElement>(
     cx: &mut App,
 ) -> impl IntoElement + use<L, R> {
     let theme = cx.theme();
-    let (background, border) = (theme.title_bar, theme.title_bar_border);
+    let (background, border) = (theme.title_bar, theme.transparent);
     let decorated = matches!(window.window_decorations(), Decorations::Client { .. });
     let moving = window.use_state(cx, |_, _| Cell::new(false));
     let (down, up, out, drag) = (moving.clone(), moving.clone(), moving.clone(), moving);

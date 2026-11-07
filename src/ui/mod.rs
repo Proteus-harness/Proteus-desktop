@@ -1,4 +1,4 @@
-use crate::ui::kit::ButtonLabel as _;
+use crate::ui::kit::{ButtonLabel as _, WorkspaceSurface as _};
 mod actions;
 mod badges;
 mod chat;
@@ -234,6 +234,11 @@ impl Render for Workspace {
                 self.sync_window_title(window, cx);
                 self.sync_badges(window, cx);
                 let rail = self.render_rail(cx);
+                let (radius, chrome, panel) = (
+                    cx.theme().radius_lg,
+                    cx.theme().status_bar,
+                    cx.theme().sidebar,
+                );
                 let main = match self.settings.clone() {
                     Some(settings) => motion::switch_in(
                         div().flex_1().min_w_0().h_full().child(settings),
@@ -248,8 +253,10 @@ impl Render for Workspace {
                                 .flex_1()
                                 .min_w_0()
                                 .h_full()
+                                .bg(panel)
                                 .children(sidebar)
-                                .child(tabs),
+                                .child(tabs)
+                                .workspace_surface(radius, chrome),
                             "chat-screen",
                         )
                         .into_any_element()
@@ -261,6 +268,7 @@ impl Render for Workspace {
                         .flex_1()
                         .min_h_0()
                         .w_full()
+                        .bg(chrome)
                         .child(rail)
                         .child(main),
                 )

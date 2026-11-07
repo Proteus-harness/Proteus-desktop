@@ -84,6 +84,7 @@ pub(super) fn pressable_badge(
     host: &Host,
     press: Option<Press>,
     drag_start: Option<Press>,
+    selector: bool,
     cx: &App,
 ) -> impl IntoElement + use<> {
     let theme = cx.theme();
@@ -108,6 +109,9 @@ pub(super) fn pressable_badge(
         .when(rail, |badge| badge.size_8().px_0())
         .id(ElementId::Name(format!("badge-{id}").into()))
         .rounded(theme.radius)
+        .when(selector, |badge| {
+            badge.border_1().border_color(theme.border)
+        })
         .text_color(theme.muted_foreground)
         .when_some(press, |badge, press| {
             badge

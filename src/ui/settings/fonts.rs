@@ -232,6 +232,7 @@ impl Render for FontControl {
             }))
             .child(
                 kit::button("font-trigger")
+                    .selector(cx)
                     .track_focus(&self.focus)
                     .small()
                     .faded_label(value)

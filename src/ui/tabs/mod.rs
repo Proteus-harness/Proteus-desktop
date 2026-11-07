@@ -16,6 +16,7 @@ mod view;
 pub(super) use drop::TabDrop;
 pub(super) use motion::TabMotion;
 pub(super) use split::{SplitDrag, SplitResize};
+pub(super) use tab::BAR_HEIGHT;
 
 use gpui_kit::*;
 

@@ -4,6 +4,7 @@
 
 mod fonts;
 mod interaction;
+mod palettes;
 
 use std::rc::Rc;
 
@@ -25,6 +26,11 @@ pub(super) fn init(cx: &mut App) {
     registry
         .load_themes_from_str(BUNDLED)
         .expect("bundled themes are valid");
+    for source in palettes::BUNDLED {
+        registry
+            .load_themes_from_str(source)
+            .expect("bundled palettes are valid");
+    }
     let mut problems = Vec::new();
     if let Some(dir) = preferences::config_dir().map(|dir| dir.join("themes"))
         && let Ok(entries) = std::fs::read_dir(&dir)
@@ -96,7 +102,7 @@ fn pick(name: &str, mode: ThemeMode, fallback: &str, cx: &App) -> Option<Rc<Them
         .get(name)
         .filter(|theme| theme.mode == mode)
         .or_else(|| themes.get(fallback))
-        .map(interaction::normalize)
+        .cloned()
 }
 
 /// Russian names of the themes that come with the client.

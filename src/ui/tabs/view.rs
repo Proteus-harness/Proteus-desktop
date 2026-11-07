@@ -1,5 +1,5 @@
 // Адаптировано из Zed: crates/workspace/src/pane.rs (update_active_tab)
-use crate::ui::kit::ButtonLabel as _;
+use crate::ui::kit::{ButtonLabel as _, WorkspaceSurface as _};
 use std::time::Instant;
 
 use gpui_kit::component::*;
@@ -62,7 +62,7 @@ impl Workspace {
 
     /// Panes placed where they are while they glide to a new arrangement.
     /// Each keeps its final size and is clipped by its moving frame, so
-    /// contents do not reflow on every frame; dividers are thin lines.
+    /// contents do not reflow on every frame; layout seams stay transparent.
     fn render_moving_panes(
         &mut self,
         frames: &[Frame],
@@ -70,7 +70,7 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let line = cx.theme().border;
+        let line = cx.theme().transparent;
         let half = split::DIVIDER / 2.;
         let mut area = div().relative().size_full();
         for frame in frames {
@@ -262,7 +262,13 @@ impl Workspace {
             },
             None => self.render_empty_pane(id, cx).into_any_element(),
         };
-        let body = div().relative().flex_1().min_h_0().child(content);
+        let body = div()
+            .relative()
+            .flex_1()
+            .min_h_0()
+            .bg(cx.theme().background)
+            .child(content)
+            .workspace_surface(cx.theme().radius_lg, cx.theme().sidebar);
         v_flex()
             .relative()
             .size_full()

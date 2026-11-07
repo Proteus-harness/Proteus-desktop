@@ -1,6 +1,6 @@
 //! Shared dividers for sidebars, split panes and data columns.
-//! Only the one-pixel line is painted; a seven-pixel invisible grip makes
-//! resizing accessible without changing the visual weight. Every source
+//! Static seams stay transparent. A resizable seam keeps a faint one-pixel
+//! line and a seven-pixel grip, with a brighter hover/drag mark. Every source
 //! must call `drag::start` with its own stable key in the drag constructor.
 
 use super::{drag, prefs};
@@ -13,20 +13,39 @@ pub(super) const WIDTH: f32 = 1.;
 const GRIP: f32 = 7.;
 const MARK: f32 = WIDTH;
 
-/// A separator without interaction, using the same weight and theme.
+/// An unpainted layout seam; neighbouring surface fills provide separation.
 pub(super) fn line(axis: Axis, cx: &App) -> Div {
     match axis {
         Axis::Row => div().w(prefs::scaled(WIDTH)).h_full(),
         Axis::Column => div().h(prefs::scaled(WIDTH)).w_full(),
     }
     .flex_none()
-    .bg(cx.theme().border)
+    .bg(cx.theme().transparent)
 }
 
-/// A divider: a hairline in the layout under `grip`. The grip is drawn
+/// A functional, quiet hairline in the layout under `grip`. The grip is drawn
 /// after everything else, so the next neighbour does not cover it.
 pub(super) fn resizable(axis: Axis, grip: Stateful<Div>, cx: &App) -> Div {
-    line(axis, cx).relative().child(deferred(grip))
+    line(axis, cx)
+        .bg(cx.theme().border.opacity(0.35))
+        .relative()
+        .child(deferred(grip))
+}
+
+/// Join a sidebar to the equally colored tab strip above the content.
+/// Keep the functional resize seam and its grip below that shared header.
+pub(super) fn resizable_below(grip: Stateful<Div>, header: Rems, cx: &App) -> Div {
+    line(Axis::Row, cx)
+        .relative()
+        .child(
+            div()
+                .absolute()
+                .top(header)
+                .bottom_0()
+                .w_full()
+                .bg(cx.theme().border.opacity(0.35)),
+        )
+        .child(deferred(grip.top(header)))
 }
 
 /// The strip over a divider wider than its hairline that takes the

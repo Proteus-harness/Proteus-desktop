@@ -4,10 +4,8 @@
 //! edge. Callers can tint that edge for a semantic state without resizing it.
 
 use gpui_kit::component::ActiveTheme as _;
-use gpui_kit::{App, Bounds, Hsla, ParentElement, Pixels, Styled, Window, div, px};
+use gpui_kit::{App, Bounds, Hsla, ParentElement, Pixels, Styled, Window};
 use std::{cell::Cell, rc::Rc};
-
-use super::super::prefs;
 
 pub(crate) trait Frame: Styled + Sized {
     fn frame(self, cx: &App) -> Self {
@@ -26,18 +24,14 @@ pub(crate) trait Frame: Styled + Sized {
 
 impl<T: Styled> Frame for T {}
 
-/// Filled cards keep their own surface on hover and selection. A translucent
-/// list highlight would replace the fill and make them sink into the page.
+/// Layer the theme's authored interaction colors over the card's own fill.
+/// A translucent highlight must not replace the surface beneath it.
 pub(crate) fn surface_hover(cx: &App) -> Hsla {
-    cx.theme()
-        .group_box
-        .blend(cx.theme().group_box_foreground.opacity(0.06))
+    cx.theme().group_box.blend(cx.theme().list_hover)
 }
 
 pub(crate) fn surface_selected(cx: &App) -> Hsla {
-    cx.theme()
-        .group_box
-        .blend(cx.theme().group_box_foreground.opacity(0.12))
+    cx.theme().group_box.blend(cx.theme().list_active)
 }
 
 /// Record the first child's outer layout box from its containing Div.
@@ -52,23 +46,13 @@ pub(crate) fn record_first_child(
     }
 }
 
-/// A quiet rule between settings rows. The transparent border reserves the
-/// same hairline of space without changing the row's padding or hit target.
-/// The painted line follows the content inset, including inside nested groups.
+/// Preserve the existing hairline of layout space between settings rows,
+/// without painting a decorative separator over their containing surface.
 pub(crate) trait RowRule: Styled + ParentElement + Sized {
     fn row_rule(self, cx: &App) -> Self {
         self.relative()
             .border_t_1()
             .border_color(cx.theme().transparent)
-            .child(
-                div()
-                    .absolute()
-                    .top_0()
-                    .left(prefs::scaled(16.))
-                    .right(prefs::scaled(16.))
-                    .h(px(1.))
-                    .bg(cx.theme().border.opacity(0.6)),
-            )
     }
 }
 

@@ -286,7 +286,7 @@ impl SettingsView {
             .gap_3()
             .items_center()
             .border_t_1()
-            .border_color(theme.border)
+            .border_color(theme.transparent)
             .bg(theme.background)
             .child(
                 v_flex()

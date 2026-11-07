@@ -22,7 +22,7 @@ pub(crate) fn surface(content: impl IntoElement, cx: &App) -> AnyElement {
 /// Inherits its hover target from the nearest named group, without changing
 /// that target's layout, text color, focus, or mouse handling.
 pub(crate) fn surface_highlight(group: &'static str, cx: &App) -> Div {
-    let hover = cx.theme().foreground.opacity(0.06);
+    let hover = cx.theme().list_hover;
     let radius = cx.theme().radius_lg;
     div()
         .absolute()

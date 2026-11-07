@@ -173,6 +173,10 @@ class MetadataTests(unittest.TestCase):
             font.mkdir(parents=True)
             for name in ("OFL.txt", "UPSTREAM.md"):
                 (font / name).write_text("synthetic Noto " + name)
+            palettes = roots[0] / "src/ui/theme/palettes"
+            palettes.mkdir(parents=True)
+            for name in ("LICENSE-APACHE.upstream", "SOURCES.json"):
+                (palettes / name).write_text("synthetic palettes " + name)
             portable = base / "portable"
             install_notices(portable, *roots)
             self.assertEqual((portable / "share/licenses/Proteus-core/LICENSE").read_text(), "core")
@@ -192,6 +196,11 @@ class MetadataTests(unittest.TestCase):
                 self.assertEqual(
                     (portable / "share/licenses/Proteus-desktop/assets/fonts/noto-color-emoji" / name).read_text(),
                     "synthetic Noto " + name,
+                )
+            for name in ("LICENSE-APACHE.upstream", "SOURCES.json"):
+                self.assertEqual(
+                    (portable / "share/licenses/Proteus-desktop/src/ui/theme/palettes" / name).read_text(),
+                    "synthetic palettes " + name,
                 )
 
 

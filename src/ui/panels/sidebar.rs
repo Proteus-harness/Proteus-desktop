@@ -101,7 +101,11 @@ impl Workspace {
                     .text_color(theme.sidebar_foreground)
                     .child(content),
             )
-            .child(divider::resizable(Axis::Row, grip, cx));
+            .child(divider::resizable_below(
+                grip,
+                prefs::scaled(crate::ui::tabs::BAR_HEIGHT),
+                cx,
+            ));
         // The panel keeps its width and slides out from under the rail, so
         // its content does not reflow while it opens or closes.
         let slot = h_flex()

@@ -38,18 +38,7 @@ impl Workspace {
             .relative()
             .h(prefs::scaled(BAR_HEIGHT))
             .flex_none()
-            .bg(theme.tab_bar)
-            // The divider is drawn under the tabs, so the active tab opens
-            // into its content.
-            .child(
-                div()
-                    .absolute()
-                    .left_0()
-                    .right_0()
-                    .bottom_0()
-                    .h(px(1.))
-                    .bg(theme.border),
-            )
+            .bg(theme.sidebar)
             .child(
                 h_flex()
                     .id(("tab-strip", id.0 as usize))
