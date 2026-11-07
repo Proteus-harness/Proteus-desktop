@@ -54,7 +54,7 @@ def manifest(desktop, core, modules, extensions):
         "desktop_protocol": desktop_protocol(desktop),
         "desktop_features": desktop_features(desktop),
         "runtime_requirements": {
-            "node": ">=22.18", "python": ">=3", "git": "system",
+            "node": ">=22.18", "python": ">=3.11", "git": "system",
             "ripgrep": "system", "bubblewrap": "Linux restricted profiles only",
             "desktop": "Linux graphical session and GPUI shared libraries",
         },

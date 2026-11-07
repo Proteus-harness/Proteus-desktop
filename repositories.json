@@ -1,14 +1,14 @@
 {
   "harness": {
     "url": "https://github.com/Proteus-harness/Proteus-core.git",
-    "rev": "152e32407fc9dfea292a45c42f15671daba1723c",
+    "rev": "4c6735f306939a1912b22b11bf17f9b65ff15ad8",
     "env": "PROTEUS_HARNESS_SOURCE",
     "local": "../Proteus-core",
     "marker": "crates/proteus-core/Cargo.toml"
   },
   "modules": {
     "url": "https://github.com/Proteus-harness/Proteus-modules.git",
-    "rev": "af2b6300f37ab9d9ae59bfefac6fcda908859b13",
+    "rev": "09733943af6acdf5b7b28acfef06db0cffffe4ef",
     "env": "PROTEUS_MODULES_SOURCE",
     "local": "../Proteus-modules",
     "marker": "Cargo.toml"
