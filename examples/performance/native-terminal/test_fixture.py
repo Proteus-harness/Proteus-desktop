@@ -162,11 +162,12 @@ with client.open(Request(origin + "/events" + query, headers={"Authorization": "
             self.runner.wait(timeout=12)
         self.temporary.cleanup()
 
-    def launch(self):
+    def launch(self, extra_bootstrap=""):
         output = self.root / "case"
         bootstrap = '''
 import run
 run.helpers.launched_executable = lambda pid: {"synthetic_native_pid": pid}
+''' + extra_bootstrap + '''
 try:
     run.main()
 except (OSError, RuntimeError, ValueError, TimeoutError) as exc:
@@ -204,6 +205,20 @@ except (OSError, RuntimeError, ValueError, TimeoutError) as exc:
         report, log = self.finish(output, native, child)
         self.assertEqual(self.runner.returncode, 0, log)
         self.assertEqual(report["status"], "stopped")
+
+    def test_stop_failure_marks_receipt_failed_and_still_reaps_child(self):
+        output, native, child = self.launch('''
+original_stop = run.helpers.stop_native
+def failing_stop(process):
+    original_stop(process)
+    raise OSError("injected stop failure")
+run.helpers.stop_native = failing_stop
+''')
+        (output / "control/stop").touch()
+        report, log = self.finish(output, native, child)
+        self.assertEqual(self.runner.returncode, 1, log)
+        self.assertEqual(report["status"], "failed")
+        self.assertIn("injected stop failure", report["teardown_error"])
 
     def test_unrequested_exit_fails_and_reaps_orphan(self):
         output, native, child = self.launch()

@@ -25,6 +25,15 @@ workload и все исходные результаты. Сам процесс 
 процессов каждые 10 мс и считает суммарные RSS/PSS/Swap peaks и CPU time.
 Sampled peak может пропустить более короткий пик; self VmHWM сохраняется
 отдельно как сообщение Linux `/proc`, без подмены sampled tree peak.
+Недоступные memory-поля живого процесса теперь завершают попытку как
+неполную, а не превращаются в нулевую «полную» выборку. Запуск требует
+`--runs >= 1` и нового report path. Timeout, ошибка sampler и прерывание
+проходят через owned process-group/subreaper teardown с обязательным reap,
+включая отдельную PTY process group. Регрессии запускаются без engine/GUI:
+
+```bash
+python3 -m unittest discover -s examples/performance/terminal -p 'test_*.py'
+```
 
 После измерения fixture закрывает терминал и ждёт освобождения PTY. Эти
 показатели относятся к engine/PTY process и его shell/awk. GPUI, Codex и

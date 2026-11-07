@@ -224,7 +224,7 @@ with build_opener(ProxyHandler({})).open(request, timeout=5) as stream:
                 self.runner.wait(timeout=5)
         self.temporary.cleanup()
 
-    def launch(self):
+    def launch(self, extra_bootstrap=""):
         output = self.root / "case"
         # All runner lifecycle, fixture, process sampler and process-group
         # teardown execute unchanged in a separate OS process. The synthetic
@@ -233,6 +233,7 @@ with build_opener(ProxyHandler({})).open(request, timeout=5) as stream:
         bootstrap = '''
 import run
 run.helpers.launched_executable = lambda pid: {"synthetic_native_pid": pid}
+''' + extra_bootstrap + '''
 try:
     run.main()
 except (OSError, RuntimeError, ValueError, TimeoutError) as exc:
@@ -289,6 +290,22 @@ except (OSError, RuntimeError, ValueError, TimeoutError) as exc:
         self.assertEqual(result, 0, log)
         self.assertEqual(report["status"], "stopped")
         self.assertNotIn("error", report)
+
+    def test_final_sampler_failure_still_closes_server_and_writes_failed_report(self):
+        output, pid = self.launch('''
+Tree, Recorder = run.sampler()
+class FailingRecorder(Recorder):
+    def sample(self):
+        if self.phase == "teardown":
+            raise OSError("injected final sample failure")
+        return super().sample()
+run.sampler = lambda: (Tree, FailingRecorder)
+''')
+        (output / "control/stop").touch()
+        result, report, log = self.finish(output, pid)
+        self.assertEqual(result, 1, log)
+        self.assertEqual(report["status"], "failed")
+        self.assertIn("injected final sample failure", report["teardown_error"])
 
     def test_sigterm_after_ready_still_succeeds_and_reaps_native(self):
         output, pid = self.launch()

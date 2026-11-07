@@ -125,6 +125,7 @@ class SubagentFixture(Fixture):
                     if child["session"]["session_dir"] == directory), None)
         require(key is not None, "History target must be an exact bound child directory")
         with self.lock:
+            require(key != "A" or self.bound_a, "Child A is not bound yet")
             child = self.children[key]
             before = query.get("before", [None])[0]
             require(before is None or before.isascii() and before.isdigit(), "Invalid before position")
@@ -147,11 +148,12 @@ class SubagentFixture(Fixture):
     def finish_a(self):
         """One durable append plus parent notification; never change parent session."""
         with self.lock:
+            require(self.bound_a, "finishA requires a bound child")
             require(not self.finished_a, "finishA already applied")
             child = self.children["A"]
             child["base"] = {"revision": child["revision"], "common_prefix": len(child["messages"])}
             child["revision"] = "child-A-revision-2"
-            child["messages"].append(transcript_message("CHILD A FINAL · final saved assistant answer", 10150))
+            child["messages"].append(transcript_message("CHILD A FINAL · final saved assistant answer", 10000 + len(child["messages"])))
             self.finished_a = True
             self.transcript[1]["subagent"].update(status="completed", iterations=4)
             self.runtime("SubagentFinished", {"role": ROLE, "status": "completed", "iterations": 4,

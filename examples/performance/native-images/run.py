@@ -105,6 +105,7 @@ def run(args):
         state["pid"] = process.pid
         Tree, Recorder = sampler()
         tree = Tree(process.pid, root_group="gui")
+        state["root_start_ticks"] = tree.root_start
         recorder = Recorder(tree, args.output / "samples.jsonl")
         recorder.mark("startup")
         record()
@@ -147,24 +148,20 @@ def run(args):
         state.update(status="failed", error=f"{type(exc).__name__}: {exc}")
         raise
     finally:
-        try:
-            fixture.stopping.set()
-            if process:
-                helpers.stop_native(process)
-        finally:
-            if recorder:
-                recorder.mark("teardown")
-                recorder.sample()
-                recorder.close()
-                state["tree_totals"] = tree.totals()
-            try:
-                fixture.close()
-            finally:
-                state["elapsed_s"] = time.monotonic() - started
-                record()
-                save(args.output / "report.json", state)
-                for sig, handler in previous.items():
-                    signal.signal(sig, handler)
+        fixture.stopping.set()
+        steps = [("stop_native", lambda: helpers.stop_native(process) if process else None)]
+        if recorder:
+            steps.extend([("sampler_mark", lambda: recorder.mark("teardown")),
+                          ("sampler_sample", recorder.sample), ("sampler_close", recorder.close),
+                          ("tree_totals", lambda: state.update(tree_totals=tree.totals()))])
+        helpers.teardown(state, steps + [
+            ("fixture_close", lambda: helpers.close_fixture(fixture)),
+            *[(f"restore_signal_{sig}", lambda sig=sig, handler=handler: signal.signal(sig, handler))
+              for sig, handler in previous.items()],
+            ("elapsed", lambda: state.update(elapsed_s=time.monotonic() - started)),
+            ("state_receipt", record),
+            ("report_receipt", lambda: save(args.output / "report.json", state)),
+        ])
 
 
 def main():

@@ -93,6 +93,32 @@ class FixtureTests(unittest.TestCase):
         self.assertEqual(len(self.read("/sessions")), 3)
         self.assertEqual(self.fixture.main.snapshot(), before)
 
+    def test_delete_then_create_preserves_surviving_identity_and_subscription(self):
+        def create():
+            result = self.read("/new-session", {"id":"new", "source_session_dir":self.fixture.main.session})
+            return self.fixture.sessions[result["output"]["session_dir"]]
+        first, survivor = create(), create()
+        stop = self.fixture.subscription_stop[survivor.session]
+        snapshot = survivor.snapshot()
+        self.read("/delete-session", {"id":"delete", "session_dir":first.session})
+        added = create()
+        self.assertNotEqual(added.session, survivor.session)
+        self.assertNotEqual(added.session_id, survivor.session_id)
+        self.assertNotEqual(added.thread_id, survivor.thread_id)
+        self.assertEqual(self.fixture.sessions[survivor.session].snapshot(), snapshot)
+        self.assertIs(self.fixture.subscription_stop[survivor.session], stop)
+        self.assertFalse(stop.is_set())
+        with self.assertRaisesRegex(RuntimeError, "already exists"):
+            self.fixture.add(survivor.name, 99)
+
+    def test_deleting_initial_session_does_not_reuse_its_survivors_number(self):
+        survivor = next(state for state in self.fixture.sessions.values() if state.name == "childA")
+        self.read("/delete-session", {"id":"delete", "session_dir":self.fixture.main.session})
+        result = self.read("/new-session", {"id":"new", "workspace":survivor.workspace})
+        added = self.fixture.sessions[result["output"]["session_dir"]]
+        self.assertNotEqual(added.session_id, survivor.session_id)
+        self.assertEqual(len(self.fixture.sessions), 3)
+
     def test_files_listing_and_content_follow_addressed_root_and_child_cwd(self):
         main = self.fixture.main
         child = next(state for state in self.fixture.sessions.values() if state.name == "childA")

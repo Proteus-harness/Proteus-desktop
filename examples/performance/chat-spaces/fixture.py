@@ -76,16 +76,22 @@ class ChatSpacesFixture(base.Fixture):
         super().__init__(self.output / "workspace", self.output / "sessions/A", token, [])
         self.sessions = {}
         self.subscription_stop = {}
+        self.next_number = 1
         self.main = self.add("A", 1)
         self.add("B", 2)
         self.add("childA", 3, workspace=self.output / "child-workspace",
                  parent=self.main.session_id)
 
     def add(self, name, number, **kwargs):
-        state = Session(self.output, name, number, **kwargs)
         with self.lock:
+            target = str(self.output / "sessions" / name)
+            base.require(target not in self.sessions, "Synthetic session path already exists")
+            base.require(all(state.session_id != identifier(number) for state in self.sessions.values()),
+                         "Synthetic session identity already exists")
+            state = Session(self.output, name, number, **kwargs)
             self.sessions[state.session] = state
             self.subscription_stop[state.session] = threading.Event()
+            self.next_number = max(self.next_number, number + 1)
         return state
 
     def start(self):
@@ -186,8 +192,8 @@ class ChatSpacesFixture(base.Fixture):
             base.require(set(body) <= {"id", "source_session_dir", "workspace"},
                          "Unexpected new-session fields")
             with self.lock:
-                number = len(self.sessions) + 1
-                base.require(number <= 16, "Synthetic session limit reached")
+                number = self.next_number
+                base.require(len(self.sessions) < 16, "Synthetic session limit reached")
                 source = self.sessions.get(body.get("source_session_dir"))
                 workspace = body.get("workspace") or (source.workspace if source else self.main.workspace)
                 # Never create or write outside this fixture, even when UI sends a folder.

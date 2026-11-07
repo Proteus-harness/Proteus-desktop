@@ -192,6 +192,31 @@ class WireTests(unittest.TestCase):
         self.assertFalse(state["native_verified"])
         self.assertNotIn(self.fixture.token, (output / "launch.json").read_text())
 
+    def test_final_sampler_failure_still_closes_fixture_and_records_error(self):
+        output = self.root / "sampler-failed"
+        bootstrap = '''
+import run
+Tree, Recorder = run.sampler()
+class FailingRecorder(Recorder):
+    def sample(self):
+        if self.phase == "teardown":
+            raise OSError("injected final sample failure")
+        return super().sample()
+run.sampler = lambda: (Tree, FailingRecorder)
+run.main()
+'''
+        result = subprocess.run([sys.executable, "-c", bootstrap, "--native", "/bin/false",
+                                 "--output", str(output), "--timeout", "10"],
+                                cwd=HERE, capture_output=True, text=True, timeout=10)
+        self.assertNotEqual(result.returncode, 0)
+        state = json.loads((output / "report.json").read_text())
+        self.assertEqual(state["status"], "failed")
+        self.assertIn("injected final sample failure", state["teardown_error"])
+        self.assertIn("Native exited without a stop request", state["error"])
+        self.assertFalse(Path(f'/proc/{state["pid"]}').exists())
+        with self.assertRaises(OSError):
+            build_opener(ProxyHandler({})).open(state["origin"] + "/bootstrap", timeout=1)
+
     def test_sampler_redacts_token(self):
         Tree, _ = sampler()
         process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(5)",

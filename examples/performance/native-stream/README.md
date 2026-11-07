@@ -542,6 +542,22 @@ Transport не различает причины одинаковых HTTP-за�
 единственность панели проверяются в реальном окне. Дочерних runtime/subscriptions
 должно быть **ноль**.
 
+Для проверки позднего binding запустите тот же runner с `--deferred-a`.
+До `touch OUTPUT/control/bindA` A отсутствует в каталоге и даже точный
+`/history/page` для A отвергается; `finishA` до binding тоже недопустим.
+После `bindA` появляется та же точная session identity, пока задача ещё
+выполняется. Откройте A и создайте `control/appendA`: runner удаляет control
+после применения, поэтому его можно создавать повторно. Каждый append
+добавляет одно уникальное сообщение, не посылая родительское событие о тексте.
+После N append история содержит 150+N сообщений; revision `child-A-live-(150+N)`
+ссылается на предыдущую revision с `base.common_prefix=149+N`.
+Затем `control/finishA` даёт 151+N сообщений, уникальный final message ID и
+`base.common_prefix=150+N`, ссылаясь на последнюю live revision. Например,
+после двух append и finish итог 153 сообщения, а common_prefix=152.
+Это отдельный сценарий: приведённые выше 151/150 и точные счётчики refresh
+относятся к default без append; для live-прогонов снимайте checkpoints
+перед каждым действием и проверяйте соответствующий прирост.
+
 `state.json` обновляет audit, именованные checkpoints, hashes launcher/ELF и
 исходников; `trace.json` содержит запросы и SSE, `launch.json` — приватные
 argv/env и синтетический token. HOME/XDG/session изолированы, расширения пустые.

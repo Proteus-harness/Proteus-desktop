@@ -23,6 +23,22 @@ def sha(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
+def canonical_files(root):
+    """Re-enumerate the complete durable set, including new/deleted blobs."""
+    root = Path(root)
+    return {str(path.relative_to(root)): sha(path) for path in root.rglob('*')
+            if path.is_file() and (path.name == 'journal.jsonl' or 'blobs' in path.relative_to(root).parts)}
+
+
+def validate_canonical(root, expected):
+    actual = canonical_files(root)
+    if actual != expected:
+        added = sorted(actual.keys() - expected.keys())
+        deleted = sorted(expected.keys() - actual.keys())
+        changed = sorted(key for key in actual.keys() & expected.keys() if actual[key] != expected[key])
+        raise AssertionError(f'read-only startup mutated canonical data: added={added}, deleted={deleted}, changed={changed}')
+
+
 def save(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + '\n')
 
@@ -162,8 +178,7 @@ def run_case(args, case, workspace, config, restart, expected):
     target.mkdir()
     log = target / 'native.log'
     journal = next((case / 'config/sessions').rglob('journal.jsonl'))
-    canonical = {str(path.relative_to(journal.parent)):sha(path) for path in journal.parent.rglob('*')
-                 if path.is_file() and (path.name == 'journal.jsonl' or 'blobs' in path.relative_to(journal.parent).parts)}
+    canonical = canonical_files(journal.parent)
     before = canonical['journal.jsonl']
     environment = os.environ.copy()
     environment.update(PROTEUS_BIN=str(args.core), PROTEUS_STARTUP_TRACE='1',
@@ -233,7 +248,7 @@ def run_case(args, case, workspace, config, restart, expected):
             finally:
                 recorder.mark('teardown')
                 terminate(process, tree)
-    assert all(sha(journal.parent / path) == original for path, original in canonical.items()), 'read-only startup mutated canonical data'
+    validate_canonical(journal.parent, canonical)
     idle = [row for row in samples if row['phase'] == 'idle']
     assert len(idle) >= 2, 'insufficient steady samples'
     stages, history = traces(log)

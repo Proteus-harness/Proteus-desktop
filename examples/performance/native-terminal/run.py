@@ -127,21 +127,16 @@ def run(args):
         raise
     finally:
         fixture.stopping.set()
-        try:
-            if process:
-                helpers.stop_native(process)
-        finally:
-            try:
-                state["reaped_children"] = reap_adopted()
-            finally:
-                try:
-                    fixture.close()
-                finally:
-                    state["elapsed_s"] = time.monotonic() - started
-                    record()
-                    save(args.output / "report.json", state)
-                    for sig, handler in previous.items():
-                        signal.signal(sig, handler)
+        helpers.teardown(state, [
+            ("stop_native", lambda: helpers.stop_native(process) if process else None),
+            ("reap_children", lambda: state.update(reaped_children=reap_adopted())),
+            ("fixture_close", lambda: helpers.close_fixture(fixture)),
+            *[(f"restore_signal_{sig}", lambda sig=sig, handler=handler: signal.signal(sig, handler))
+              for sig, handler in previous.items()],
+            ("elapsed", lambda: state.update(elapsed_s=time.monotonic() - started)),
+            ("state_receipt", record),
+            ("report_receipt", lambda: save(args.output / "report.json", state)),
+        ])
 
 
 def main():

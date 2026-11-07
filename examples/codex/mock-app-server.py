@@ -12,6 +12,7 @@ import os
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
 
 if "--version" in sys.argv:
@@ -235,7 +236,7 @@ for line in sys.stdin:
             if thread in stop:
                 raise ValueError("Synthetic thread already active")
             sequence += 1
-            turn = f"fixture:turn/{sequence}"
+            turn = f"fixture:turn/{uuid.uuid4()}"
             text = "\n".join(part.get("text", "") for part in params.get("input", []))
             cancel = threading.Event()
             stop[thread] = (turn, cancel)

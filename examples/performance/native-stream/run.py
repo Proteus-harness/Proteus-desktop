@@ -65,6 +65,26 @@ def stop_native(process):
     raise RuntimeError("Native process did not exit")
 
 
+def close_fixture(fixture):
+    if fixture.thread.ident is None:
+        fixture.server.server_close()
+    else:
+        fixture.close()
+
+
+def teardown(state, steps):
+    """Attempt every owned cleanup/report step, even when instrumentation fails."""
+    errors = []
+    for name, operation in steps:
+        try:
+            operation()
+        except BaseException as exc:
+            errors.append(f"{name}: {type(exc).__name__}: {exc}")
+            state.update(status="failed", teardown_error="; ".join(errors), teardown_errors=list(errors))
+    if errors:
+        raise RuntimeError("Fixture teardown failed: " + "; ".join(errors))
+
+
 def advance(args):
     state = json.loads((args.output / "state.json").read_text())
     if state["status"] != "running":

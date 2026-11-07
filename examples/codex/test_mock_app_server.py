@@ -107,6 +107,24 @@ class DelayedFixtureTests(unittest.TestCase):
         peer.rpc("initialize", {})
         return peer
 
+    def test_persistent_resumed_thread_never_reuses_turn_or_item_ids(self):
+        turns = []
+        for _ in range(2):
+            peer = Peer({"PROTEUS_CODEX_FIXTURE_STATE": str(self.state)})
+            try:
+                peer.rpc("initialize", {})
+                peer.rpc("thread/resume", {"threadId": "fixture:thread/main"})
+                turn = peer.rpc("turn/start", {"threadId": "fixture:thread/main",
+                    "input": [{"type": "text", "text": "restart fixture"}]})["turn"]["id"]
+                peer.wait(lambda value: value.get("method") == "turn/completed")
+                turns.append(turn)
+            finally:
+                peer.close()
+        self.assertEqual(len(set(turns)), 2)
+        history = json.loads(self.state.read_text())["fixture:thread/main"]["history"]
+        ids = [row["item"]["id"] for row in history]
+        self.assertEqual(len(ids), len(set(ids)))
+
     def test_fast_resume_passes_delayed_resume_and_log_contains_only_metadata(self):
         peer = self.launch({"thread/resume|fixture:thread/main": 0.35})
         peer.send({"id": "slow-a", "method": "thread/resume", "params": {"threadId": "fixture:thread/main"}})

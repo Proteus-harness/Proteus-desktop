@@ -11,14 +11,16 @@ KEYS = ("Rss", "Pss", "Private_Clean", "Private_Dirty", "Anonymous", "SwapPss")
 HEADER = re.compile(r"^[0-9a-f]+-[0-9a-f]+\s+\S+\s+\S+\s+\S+\s+\d+\s*(.*)$")
 
 
-def collect(run):
+def collect(run, proc_root=Path("/proc")):
     state = json.loads((run / "state.json").read_text())
     if state["status"] != "running":
         raise ValueError("Capture without --stop, then collect before teardown")
     if not state["cleared"]:
         raise ValueError("Wait for the fixture's cleared capture before collecting mappings")
-    proc = Path("/proc") / str(state["pid"])
+    proc = proc_root / str(state["pid"])
     identity = (proc / "stat").read_text().rsplit(")", 1)[1].split()[19]
+    if "root_start_ticks" not in state or int(identity) != state["root_start_ticks"]:
+        raise ValueError("Native identity does not match the recorded launch")
     exe = (proc / "exe").resolve(strict=True)
     if hashlib.sha256(exe.read_bytes()).hexdigest() != state["executable_sha256"]:
         raise ValueError("Native executable changed")

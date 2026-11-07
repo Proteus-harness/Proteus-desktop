@@ -13,6 +13,48 @@ from subagent_demo import SubagentFixture, check_fixture
 
 
 class SubagentTests(unittest.TestCase):
+    def test_live_appends_followed_by_finish_keep_unique_child_ids(self):
+        for appends in (1, 3):
+            with self.subTest(appends=appends), TemporaryDirectory() as directory:
+                fixture = SubagentFixture(Path(directory), "test", deferred_a=True).start()
+                try:
+                    fixture.bind_a()
+                    for _ in range(appends):
+                        fixture.append_a()
+                    before = fixture.children["A"]["revision"]
+                    fixture.finish_a()
+                    child = fixture.children["A"]
+                    ids = [row["message_id"] for row in child["messages"]]
+                    self.assertEqual(len(ids), 151 + appends)
+                    self.assertEqual(len(ids), len(set(ids)))
+                    self.assertEqual(child["base"], {"revision":before, "common_prefix":150 + appends})
+                    self.assertIn("CHILD A FINAL", child["messages"][-1]["text"])
+                finally:
+                    fixture.close()
+
+    def test_deferred_child_history_is_unreadable_until_bound(self):
+        with TemporaryDirectory() as directory:
+            fixture = SubagentFixture(Path(directory), "test", deferred_a=True).start()
+            try:
+                target = fixture.children["A"]["session"]["session_dir"]
+                with self.assertRaises(HTTPError) as rejected:
+                    self.request(fixture, "/history/page", session_dir=target)
+                rejected.exception.close()
+                with self.assertRaisesRegex(RuntimeError, "requires a bound"):
+                    fixture.finish_a()
+                self.assertTrue(fixture.errors)
+            finally:
+                fixture.close()
+            # Invalid requests intentionally stop this strict oracle. A fresh
+            # valid run binds before reading and keeps the same supported flow.
+            fixture = SubagentFixture(Path(directory) / "bound", "test", deferred_a=True).start()
+            try:
+                fixture.bind_a()
+                target = fixture.children["A"]["session"]["session_dir"]
+                self.assertEqual(self.request(fixture, "/history/page", session_dir=target)["total"], 150)
+            finally:
+                fixture.close()
+
     def request(self, fixture, path, *, body=None, **query):
         request = Request(fixture.origin + path + ("?" + urlencode(query) if query else ""),
                           data=None if body is None else json.dumps(body).encode(),
