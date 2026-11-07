@@ -23,7 +23,7 @@ use ghostty_vt::terminal::{
     ClipboardWritePolicy, CompressionMode, CompressionResult, Event, Mode, Options, ScrollViewport,
 };
 use ghostty_vt::{RenderState, Terminal as Vt};
-use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
+use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 
 use super::{Base, Grid, Screen, Signal, Spawned, paste_bytes};
 
@@ -49,6 +49,7 @@ struct Shared {
     input_bytes: AtomicUsize,
     frame_credit: AtomicBool,
     shutdown: AtomicBool,
+    exited: AtomicBool,
     done: AtomicBool,
     wake: UnixStream,
 }
@@ -120,6 +121,7 @@ impl Terminal {
             input_bytes: AtomicUsize::new(0),
             frame_credit: AtomicBool::new(true),
             shutdown: AtomicBool::new(false),
+            exited: AtomicBool::new(false),
             done: AtomicBool::new(false),
             wake,
         });
@@ -131,20 +133,15 @@ impl Terminal {
             .name("ghostty-pty".into())
             .spawn(move || {
                 let result = run(
-                    process.master.as_ref(),
-                    &owned,
-                    incoming,
-                    receiver,
-                    &errors,
-                    &redraw_tx,
-                    ready,
+                    process, &owned, incoming, receiver, &errors, &redraw_tx, ready,
                 );
-                drop(process);
                 owned.done.store(true, Ordering::Release);
                 if let Err(error) = result {
                     let _ = errors.try_send(Signal::Failed(format!("Ghostty: {error:#}")));
                 }
-                let _ = errors.send_blocking(Signal::Exited);
+                if !owned.exited.swap(true, Ordering::AcqRel) {
+                    let _ = errors.send_blocking(Signal::Exited);
+                }
             })
             .context("не удалось запустить Ghostty")?;
         let initialization = started.recv_timeout(Duration::from_secs(10));
@@ -171,6 +168,9 @@ impl Terminal {
     }
 
     pub fn key(&self, key: super::Key<'_>) -> bool {
+        if self.shared.exited.load(Ordering::Acquire) {
+            return false;
+        }
         let Some(key) = input::KeyInput::new(key) else {
             return false;
         };
@@ -183,6 +183,9 @@ impl Terminal {
     }
 
     fn enqueue(&self, input: Input) {
+        if self.shared.exited.load(Ordering::Acquire) {
+            return;
+        }
         let len = input.reserved();
         if len == 0 {
             return;
@@ -270,7 +273,7 @@ fn size(grid: Grid) -> PtySize {
 }
 
 fn run(
-    master: &dyn MasterPty,
+    process: Process,
     shared: &Shared,
     incoming: mpsc::Receiver<Input>,
     mut wake: UnixStream,
@@ -281,8 +284,11 @@ fn run(
     let init = || -> Result<_> {
         let grid = shared.view.lock().unwrap().grid;
         let vt = configured_vt(grid, BASE)?;
-        let fd = master.as_raw_fd().context("PTY не предоставляет fd")?;
-        // SAFETY: the master remains owned by this actor until run returns.
+        let fd = process
+            .master
+            .as_raw_fd()
+            .context("PTY не предоставляет fd")?;
+        // SAFETY: this actor owns the master until it observes PTY EOF.
         let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
         if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
             return Err(io::Error::last_os_error().into());
@@ -299,6 +305,7 @@ fn run(
             return Err(error);
         }
     };
+    let mut process = Some(process);
     let mut queue = VecDeque::<(Vec<u8>, usize, usize)>::new();
     let mut encoder = ghostty_vt::key::Encoder::new()?;
     let mut key_event = ghostty_vt::key::Event::new()?;
@@ -319,6 +326,10 @@ fn run(
         }
         while let Ok(input) = incoming.try_recv() {
             let reserved = input.reserved();
+            if process.is_none() {
+                shared.input_bytes.fetch_sub(reserved, Ordering::AcqRel);
+                continue;
+            }
             let bytes = match input {
                 Input::Bytes(bytes) => bytes,
                 Input::Key(key) => key.encode(&vt, &mut encoder, &mut key_event)?,
@@ -344,7 +355,19 @@ fn run(
         if grid != wanted_grid {
             grid = wanted_grid;
             vt.resize(grid.columns as u16, grid.rows as u16, 1, 1)?;
-            master.resize(size(grid))?;
+            if let Some(process) = &process {
+                if let Err(error) = process.master.resize(size(grid)) {
+                    // A slave can close between a size request and its final
+                    // readable bytes. Let the read path drain that EOF.
+                    if error
+                        .downcast_ref::<io::Error>()
+                        .and_then(io::Error::raw_os_error)
+                        != Some(libc::EIO)
+                    {
+                        return Err(error);
+                    }
+                }
+            }
             dirty = true;
         }
         if base != wanted_base {
@@ -361,14 +384,19 @@ fn run(
             vt.scroll_viewport(ScrollViewport::Delta(-(scroll as isize)));
             dirty = true;
         }
-        effects(
-            &mut vt,
-            signals,
-            &mut queue,
-            &mut reply_bytes,
-            &mut held,
-            &mut held_since,
-        )?;
+        if process.is_some() {
+            effects(
+                &mut vt,
+                signals,
+                &mut queue,
+                &mut reply_bytes,
+                &mut held,
+                &mut held_since,
+            )?;
+        } else {
+            // Retained rendering cannot send terminal replies to a closed PTY.
+            vt.events().for_each(drop);
+        }
         // A bounded write burst gives output a chance to progress during pastes.
         let mut written = 0usize;
         while let Some((bytes, offset, reserved)) = queue.front_mut() {
@@ -382,6 +410,11 @@ fn run(
                 }
                 if error.kind() == io::ErrorKind::Interrupted {
                     continue;
+                }
+                if matches!(error.raw_os_error(), Some(libc::EIO | libc::EPIPE)) {
+                    // Pending input must not hide output already waiting when
+                    // the slave closes. The read loop owns EOF and cleanup.
+                    break;
                 }
                 return Err(error.into());
             }
@@ -404,7 +437,7 @@ fn run(
         }
         let mut eof = false;
         // Avoid a producer keeping this loop forever while resize/input waits.
-        for _ in 0..4 {
+        for _ in 0..if process.is_some() { 4 } else { 0 } {
             let n = unsafe { libc::read(fd, read.as_mut_ptr().cast(), read.len()) };
             if n == 0 {
                 eof = true;
@@ -440,12 +473,18 @@ fn run(
             Ordering::Release,
         );
         let allow_frame = !held || held_since.elapsed() > Duration::from_millis(250);
-        if dirty
-            && allow_frame
-            && last_frame.elapsed() >= FRAME_TIME
-            && shared.frame_credit.swap(false, Ordering::AcqRel)
+        // EOF is a terminal boundary, not a replaceable animation frame: publish
+        // all parsed bytes even when the UI has spent its credit or output is held.
+        if (dirty || eof)
+            && (eof
+                || (allow_frame
+                    && last_frame.elapsed() >= FRAME_TIME
+                    && shared.frame_credit.swap(false, Ordering::AcqRel)))
         {
-            let screen = snapshot::snapshot(&vt, &mut render, &mut rows, &mut cells, base)?;
+            let mut screen = snapshot::snapshot(&vt, &mut render, &mut rows, &mut cells, base)?;
+            if eof || process.is_none() {
+                screen.cursor = None;
+            }
             let old = std::mem::replace(&mut shared.view.lock().unwrap().screen, screen);
             drop(old);
             let _ = redraw.try_send(());
@@ -453,7 +492,16 @@ fn run(
             dirty = false;
         }
         if eof {
-            break;
+            shared.exited.store(true, Ordering::Release);
+            for (_, _, reserved) in queue.drain(..) {
+                shared.input_bytes.fetch_sub(reserved, Ordering::AcqRel);
+            }
+            reply_bytes = 0;
+            // Reap and close the PTY now. The existing actor keeps only the
+            // bounded VT for read-only scroll/resize/theme until its view drops.
+            drop(process.take());
+            held = false;
+            let _ = signals.send_blocking(Signal::Exited);
         }
         let activity = vt.compression_activity()?;
         if activity != compression_activity {
@@ -491,7 +539,7 @@ fn run(
         };
         let mut fds = [
             libc::pollfd {
-                fd,
+                fd: if process.is_some() { fd } else { -1 },
                 events: libc::POLLIN | if queue.is_empty() { 0 } else { libc::POLLOUT },
                 revents: 0,
             },

@@ -130,8 +130,14 @@ impl TerminalView {
                     let finished = matches!(signal, Signal::Exited | Signal::Failed(_));
                     let alive = this.update(cx, |this, cx| {
                         match signal {
-                            Signal::Exited => this.state.finish(None),
-                            Signal::Failed(error) => this.state.finish(Some(error)),
+                            Signal::Exited => {
+                                this.state.finish(None);
+                                this.notice = None;
+                            }
+                            Signal::Failed(error) => {
+                                this.state.finish(Some(error));
+                                this.notice = None;
+                            }
                             Signal::InputRejected(error) => this.notice = Some(error),
                             Signal::Title(_) | Signal::Bell => return,
                         }
@@ -208,9 +214,11 @@ impl TerminalView {
         let rows = ((area.height.as_f32() - 2. * PADDING) / cell.height.as_f32()).floor();
         let grid = Grid::new(columns.max(0.) as usize, rows.max(0.) as usize);
         match &mut self.state {
-            State::Running(terminal) => terminal.resize(grid),
+            State::Running(terminal)
+            | State::Failed(_, Some(terminal))
+            | State::Exited(Some(terminal)) => terminal.resize(grid),
             State::Waiting => self.start(grid, cx),
-            State::Failed(_, _) | State::Exited(_) => {}
+            State::Failed(_, None) | State::Exited(None) => {}
         }
     }
 }
@@ -248,7 +256,9 @@ impl Render for TerminalView {
         .size_full();
         let base = div()
             .id("terminal")
-            .size_full()
+            .w_full()
+            .flex_1()
+            .min_h_0()
             .relative()
             .overflow_hidden()
             .track_focus(&self.focus)
@@ -268,9 +278,9 @@ impl Render for TerminalView {
 
         let notice = |text: String, cx: &mut Context<Self>| {
             v_flex()
-                .absolute()
-                .bottom(px(PADDING))
-                .left(px(PADDING))
+                .flex_none()
+                .items_start()
+                .p(px(PADDING))
                 .gap_2()
                 .text_color(muted)
                 .child(text)
@@ -285,10 +295,15 @@ impl Render for TerminalView {
         let rendered = match self.state.terminal() {
             None => base,
             Some(terminal) => {
-                let screen = terminal.snapshot(Base {
+                let mut screen = terminal.snapshot(Base {
                     foreground: rgb_bytes(foreground),
                     background: rgb_bytes(background),
                 });
+                if !matches!(self.state, State::Running(_)) {
+                    // Unfocused live terminals show an outline cursor; an
+                    // exited process has no cursor at all.
+                    screen.cursor = None;
+                }
                 base.child(cells::screen(
                     &screen,
                     cell,
@@ -297,19 +312,19 @@ impl Render for TerminalView {
                 ))
             }
         };
-        let rendered = match &self.state {
-            State::Failed(error, _) => rendered.child(notice(format!("Терминал: {error}"), cx)),
-            State::Exited(_) => rendered.child(notice("Процесс оболочки завершился.".into(), cx)),
-            _ => rendered,
+        // Status occupies its own layout space. An overlay here would cover
+        // the last output lines precisely when the shell has finished.
+        let terminal = v_flex().size_full().bg(background).child(rendered);
+        let terminal = match &self.state {
+            State::Failed(error, _) => terminal.child(notice(format!("Терминал: {error}"), cx)),
+            State::Exited(_) => terminal.child(notice("Процесс оболочки завершился.".into(), cx)),
+            _ => terminal,
         };
-        rendered.when_some(self.notice.clone(), |this, text| {
+        terminal.when_some(self.notice.clone(), |this, text| {
             this.child(
                 div()
-                    .absolute()
-                    .bottom(px(PADDING))
-                    .left(px(PADDING))
-                    .right(px(PADDING))
-                    .bg(background)
+                    .flex_none()
+                    .p(px(PADDING))
                     .text_color(muted)
                     .child(text),
             )

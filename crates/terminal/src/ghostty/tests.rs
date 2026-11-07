@@ -165,6 +165,7 @@ fn input_admission_counts_bytes_before_queueing() {
         input_bytes: AtomicUsize::new(0),
         frame_credit: AtomicBool::new(false),
         shutdown: AtomicBool::new(false),
+        exited: AtomicBool::new(false),
         done: AtomicBool::new(false),
         wake,
     });
@@ -392,5 +393,136 @@ fn exited_shell_cleans_reparented_jobs_in_its_owned_pty_session() {
         std::thread::sleep(Duration::from_millis(10));
     }
     drop(spawned.terminal);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn eof_publishes_held_final_output_and_retains_readonly_scrollback_after_reaping() {
+    let root = std::env::current_dir()
+        .unwrap()
+        .join("target/terminal-fixtures")
+        .join(format!(
+            "exit-frame-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+    std::fs::create_dir_all(&root).unwrap();
+    let mut spawned = Terminal::spawn_shell(&root, Grid::new(60, 5), Some("/bin/sh")).unwrap();
+    let super::super::Terminal::Ghostty(terminal) = &spawned.terminal else {
+        unreachable!()
+    };
+    let shared = terminal.shared.clone();
+    spawned
+        .terminal
+        .write(b"stty -echo; echo $$ > shell.pid; printf '\\033[2J\\033[Hready\\n'\r".to_vec());
+    wait_screen(&spawned.terminal, |screen| {
+        root.join("shell.pid").exists() && screen.text().contains("ready")
+    });
+    let pid: u32 = std::fs::read_to_string(root.join("shell.pid"))
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let started = std::fs::read_to_string(format!("/proc/{pid}/stat"))
+        .unwrap()
+        .rsplit_once(')')
+        .unwrap()
+        .1
+        .split_whitespace()
+        .nth(19)
+        .unwrap()
+        .to_owned();
+    shared.frame_credit.store(false, Ordering::Release);
+    spawned.terminal.write(b"printf '\\033[?2026h'; i=0; while [ $i -lt 120 ]; do printf 'exit-row-%s\\n' $i; i=$((i+1)); done; printf 'FINAL_EOF_OUTPUT\\n'; exit 0\r".to_vec());
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match spawned.signals.try_recv() {
+            Ok(Signal::Exited) => break,
+            Ok(Signal::Failed(error)) => panic!("{error}"),
+            _ => {
+                assert!(Instant::now() < deadline, "shell did not exit");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+    }
+    // Do not request a new frame credit: the terminal boundary must have
+    // published this final output despite the held rendering and hidden view.
+    let screen = shared.view.lock().unwrap().screen.clone();
+    assert!(
+        screen.text().contains("FINAL_EOF_OUTPUT"),
+        "{}",
+        screen.text()
+    );
+    assert_eq!(screen.cursor, None);
+    assert!(shared.exited.load(Ordering::Acquire));
+    assert!(!shared.done.load(Ordering::Acquire));
+    assert!(
+        !std::fs::read_to_string(format!("/proc/{pid}/stat"))
+            .ok()
+            .is_some_and(|stat| {
+                stat.rsplit_once(')').unwrap().1.split_whitespace().nth(19)
+                    == Some(started.as_str())
+            }),
+        "the owned shell must be reaped before Exited is published"
+    );
+    assert!(!matches!(spawned.signals.try_recv(), Ok(Signal::Exited)));
+    spawned
+        .terminal
+        .write(b"must-not-reach-a-new-process\r".to_vec());
+    assert!(!spawned.terminal.key(super::super::Key {
+        key: "a",
+        text: Some("a"),
+        ctrl: false,
+        alt: false,
+        shift: false,
+    }));
+    assert_eq!(shared.input_bytes.load(Ordering::Acquire), 0);
+    spawned.terminal.scroll(80);
+    let scrolled = wait_screen(&spawned.terminal, |screen| {
+        screen.scrolled > 0 && !screen.text().contains("FINAL_EOF_OUTPUT")
+    });
+    assert!(scrolled.text().contains("exit-row-"));
+    assert_eq!(scrolled.cursor, None);
+    spawned.terminal.resize(Grid::new(45, 7));
+    let resized = wait_screen(&spawned.terminal, |screen| {
+        screen.columns == 45 && screen.rows.len() == 7
+    });
+    assert_eq!(resized.cursor, None);
+    let changed_base = Base {
+        foreground: [1, 230, 23],
+        background: [20, 30, 40],
+    };
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let screen = spawned.terminal.snapshot(changed_base);
+        if screen
+            .rows
+            .iter()
+            .flatten()
+            .any(|run| run.style.foreground == changed_base.foreground)
+        {
+            assert_eq!(screen.cursor, None);
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "retained screen ignored the theme change"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    drop(spawned.terminal);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !shared.done.load(Ordering::Acquire) {
+        assert!(
+            Instant::now() < deadline,
+            "read-only actor did not stop with its view"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!matches!(spawned.signals.try_recv(), Ok(Signal::Exited)));
     std::fs::remove_dir_all(root).unwrap();
 }
