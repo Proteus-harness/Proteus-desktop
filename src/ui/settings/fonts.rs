@@ -232,7 +232,7 @@ impl Render for FontControl {
             }))
             .child(
                 kit::button("font-trigger")
-                    .selector(cx)
+                    .settings_selector(cx)
                     .track_focus(&self.focus)
                     .small()
                     .faded_label(value)
@@ -325,7 +325,7 @@ impl Render for FontControl {
         root.child(motion::popup(
             body,
             "font-popup-motion",
-            frame.selector(),
+            frame.selector().align_end(),
             cx,
         ))
     }

@@ -1,0 +1,528 @@
+{
+  "format_version": 1,
+  "scope": "Builtin JSON only; custom themes are never projected or rewritten at runtime. Syntax/highlight and all color keys outside fields are preserved from the GPUI Kit import. Border is explicitly adapted with the surfaces so settings frames stay visible.",
+  "fields": {
+    "chrome": [
+      "title_bar.background",
+      "status_bar.background"
+    ],
+    "sidebar": [
+      "sidebar.background",
+      "tab_bar.background",
+      "tab_bar.segmented.background"
+    ],
+    "content": [
+      "background",
+      "tab.active.background"
+    ],
+    "card": [
+      "group_box.background"
+    ],
+    "popover": [
+      "popover.background"
+    ],
+    "muted": [
+      "muted.background"
+    ],
+    "border": [
+      "border"
+    ]
+  },
+  "sources": {
+    "cat-readme": {
+      "repository": "https://github.com/catppuccin/vscode",
+      "commit": "befc9e6fc41980f4241408f7049755d47c06ff45",
+      "path": "README.md",
+      "sha256": "cde1a5a7f0c2bb43d426e3caf18fae291a2e483c61abd712bb47ca3ad45a52a9",
+      "url": "https://github.com/catppuccin/vscode/blob/befc9e6fc41980f4241408f7049755d47c06ff45/README.md"
+    },
+    "tok-night": {
+      "repository": "https://github.com/folke/tokyonight.nvim",
+      "commit": "cdc07ac78467a233fd62c493de29a17e0cf2b2b6",
+      "path": "lua/tokyonight/colors/night.lua",
+      "sha256": "a8d87bf7aeb44617de4168d26fd9c1167bf3e7278acb0e155855caf6267b9c2d",
+      "url": "https://github.com/folke/tokyonight.nvim/blob/cdc07ac78467a233fd62c493de29a17e0cf2b2b6/lua/tokyonight/colors/night.lua"
+    },
+    "tok-storm": {
+      "repository": "https://github.com/folke/tokyonight.nvim",
+      "commit": "cdc07ac78467a233fd62c493de29a17e0cf2b2b6",
+      "path": "lua/tokyonight/colors/storm.lua",
+      "sha256": "a96775b3b2bae3da751322806f7daaf2f8c9242cf4b52493732c62dc45c8894c",
+      "url": "https://github.com/folke/tokyonight.nvim/blob/cdc07ac78467a233fd62c493de29a17e0cf2b2b6/lua/tokyonight/colors/storm.lua"
+    },
+    "tok-moon": {
+      "repository": "https://github.com/folke/tokyonight.nvim",
+      "commit": "cdc07ac78467a233fd62c493de29a17e0cf2b2b6",
+      "path": "lua/tokyonight/colors/moon.lua",
+      "sha256": "16ea5a874f8833b0204da774153988e576a9d76ee1373e827f03d000c96483a5",
+      "url": "https://github.com/folke/tokyonight.nvim/blob/cdc07ac78467a233fd62c493de29a17e0cf2b2b6/lua/tokyonight/colors/moon.lua"
+    },
+    "gruvbox": {
+      "repository": "https://github.com/morhetz/gruvbox",
+      "commit": "ef8864bb42bf244f0295d1c5a403b27e3d139695",
+      "path": "colors/gruvbox.vim",
+      "sha256": "55116926ba2b625837d9ae89349a5688d60d0b32acdbd8887e1c0d225f079c3d",
+      "url": "https://github.com/morhetz/gruvbox/blob/ef8864bb42bf244f0295d1c5a403b27e3d139695/colors/gruvbox.vim"
+    },
+    "ever-dark": {
+      "repository": "https://github.com/sainnhe/everforest-vscode",
+      "commit": "b17f8affe9096f18d209caf2fc26322490e55857",
+      "path": "src/palette/dark/background/medium.ts",
+      "sha256": "ab9dcb108ac905b34187d6de2242625809baed3de921cd8b08c743abb287ee12",
+      "url": "https://github.com/sainnhe/everforest-vscode/blob/b17f8affe9096f18d209caf2fc26322490e55857/src/palette/dark/background/medium.ts"
+    },
+    "ever-light": {
+      "repository": "https://github.com/sainnhe/everforest-vscode",
+      "commit": "b17f8affe9096f18d209caf2fc26322490e55857",
+      "path": "src/palette/light/background/medium.ts",
+      "sha256": "227823c44f2507208317c1e4fd69fc16afd83341dd7d840332d2a2c533d35789",
+      "url": "https://github.com/sainnhe/everforest-vscode/blob/b17f8affe9096f18d209caf2fc26322490e55857/src/palette/light/background/medium.ts"
+    },
+    "ever-workbench": {
+      "repository": "https://github.com/sainnhe/everforest-vscode",
+      "commit": "b17f8affe9096f18d209caf2fc26322490e55857",
+      "path": "src/workbench/highContrast.ts",
+      "sha256": "cd78eeded950f97bdfa2ad8d44aad069c5be1c117642d216c6d0292cc0b86bb9",
+      "url": "https://github.com/sainnhe/everforest-vscode/blob/b17f8affe9096f18d209caf2fc26322490e55857/src/workbench/highContrast.ts"
+    },
+    "solar-dark": {
+      "repository": "https://github.com/microsoft/vscode",
+      "commit": "366f292cd74138a3b5308e8cf2b43d6ff5b9458d",
+      "path": "extensions/theme-solarized-dark/themes/solarized-dark-color-theme.json",
+      "sha256": "920e68b8a62e3e6581cee8d7900af1772865e5fe2b9efe5904baa4a8a89bc445",
+      "url": "https://github.com/microsoft/vscode/blob/366f292cd74138a3b5308e8cf2b43d6ff5b9458d/extensions/theme-solarized-dark/themes/solarized-dark-color-theme.json"
+    },
+    "solar-light": {
+      "repository": "https://github.com/microsoft/vscode",
+      "commit": "366f292cd74138a3b5308e8cf2b43d6ff5b9458d",
+      "path": "extensions/theme-solarized-light/themes/solarized-light-color-theme.json",
+      "sha256": "7c10e85f312c79dfccfa97fe97bb74c3d716a35f55e9701b30bc57e725ce1b44",
+      "url": "https://github.com/microsoft/vscode/blob/366f292cd74138a3b5308e8cf2b43d6ff5b9458d/extensions/theme-solarized-light/themes/solarized-light-color-theme.json"
+    },
+    "ayu-dark": {
+      "repository": "https://github.com/ayu-theme/vscode-ayu",
+      "commit": "605c9c8504682854d77adc0b630742182a86676b",
+      "path": "ayu-dark.json",
+      "sha256": "8d2d2ca525d8a5bd516e86fcbb41d6956f9fc43395921e8f06a7eceba780d8de",
+      "url": "https://github.com/ayu-theme/vscode-ayu/blob/605c9c8504682854d77adc0b630742182a86676b/ayu-dark.json"
+    },
+    "ayu-light": {
+      "repository": "https://github.com/ayu-theme/vscode-ayu",
+      "commit": "605c9c8504682854d77adc0b630742182a86676b",
+      "path": "ayu-light.json",
+      "sha256": "10b4655242f94804b5f32c8d2b051a15cdd596e2deb1fb03f158f5bbd20d5002",
+      "url": "https://github.com/ayu-theme/vscode-ayu/blob/605c9c8504682854d77adc0b630742182a86676b/ayu-light.json"
+    },
+    "ayu-dark-yaml": {
+      "repository": "https://github.com/ayu-theme/ayu-colors",
+      "commit": "c6e86054896ef10c69ba899dc11fdad0e004d4d3",
+      "path": "themes/dark.yaml",
+      "sha256": "331e54ec29839cfad80039663b56fbe669b67b3c8fbfac530d1c41f5e453b040",
+      "url": "https://github.com/ayu-theme/ayu-colors/blob/c6e86054896ef10c69ba899dc11fdad0e004d4d3/themes/dark.yaml"
+    },
+    "ayu-light-yaml": {
+      "repository": "https://github.com/ayu-theme/ayu-colors",
+      "commit": "c6e86054896ef10c69ba899dc11fdad0e004d4d3",
+      "path": "themes/light.yaml",
+      "sha256": "e0b99c9254be89ed3ca1f1097278dfa9be90e39a3cf0456ac7a00ed9b737a8af",
+      "url": "https://github.com/ayu-theme/ayu-colors/blob/c6e86054896ef10c69ba899dc11fdad0e004d4d3/themes/light.yaml"
+    },
+    "cat-palette": {
+      "repository": "https://github.com/catppuccin/palette",
+      "commit": "07d02aa110ef9eb7e7427afca5c73ba9cf7f8ebd",
+      "path": "palette.json",
+      "sha256": "4bc114bb6b3c9a9c9e156564aa84625aef32c5da514d9dd431cf1fcad433a05f",
+      "url": "https://github.com/catppuccin/palette/blob/07d02aa110ef9eb7e7427afca5c73ba9cf7f8ebd/palette.json"
+    },
+    "cat-ui": {
+      "repository": "https://github.com/catppuccin/vscode",
+      "commit": "befc9e6fc41980f4241408f7049755d47c06ff45",
+      "path": "packages/catppuccin-vsc/src/theme/uiColors.ts",
+      "sha256": "7f8a447ce4e3ae36cd74c5ad2275ff86e256fd8a1efadb9793c6647763f98be6",
+      "url": "https://github.com/catppuccin/vscode/blob/befc9e6fc41980f4241408f7049755d47c06ff45/packages/catppuccin-vsc/src/theme/uiColors.ts"
+    },
+    "tok-init": {
+      "repository": "https://github.com/folke/tokyonight.nvim",
+      "commit": "cdc07ac78467a233fd62c493de29a17e0cf2b2b6",
+      "path": "lua/tokyonight/colors/init.lua",
+      "sha256": "1b47ec0b2ff532c4d1e653bddb3e95c106586522e392c03e05e13bb5c597c619",
+      "url": "https://github.com/folke/tokyonight.nvim/blob/cdc07ac78467a233fd62c493de29a17e0cf2b2b6/lua/tokyonight/colors/init.lua"
+    },
+    "tok-borders": {
+      "repository": "https://github.com/folke/tokyonight.nvim",
+      "commit": "cdc07ac78467a233fd62c493de29a17e0cf2b2b6",
+      "path": "lua/tokyonight/groups/base.lua",
+      "sha256": "ae1877f1781cfaeed95746d4b4e121d82ba21c3fd661506b8b9ce3e8e5ea8f13",
+      "url": "https://github.com/folke/tokyonight.nvim/blob/cdc07ac78467a233fd62c493de29a17e0cf2b2b6/lua/tokyonight/groups/base.lua"
+    }
+  },
+  "families": {
+    "catppuccin": {
+      "sources": [
+        "cat-palette",
+        "cat-readme",
+        "cat-ui"
+      ],
+      "tokens": {
+        "chrome": "crust",
+        "sidebar": "mantle",
+        "content": "base",
+        "card": "surface0",
+        "popover": "surface0",
+        "muted": "surface0",
+        "border": "surface2 / editorHoverWidget.border"
+      },
+      "note": "Catppuccin VSCode default workbench roles; surface0 supplies card, muted and popup surfaces. Profile is a key in palette.json; use colors.<token>.hex. Border follows the official hover/suggest popup surface2 role rather than the accent-colored dropdown border."
+    },
+    "tokyonight": {
+      "sources": [
+        "tok-night",
+        "tok-storm",
+        "tok-moon",
+        "tok-init",
+        "tok-borders"
+      ],
+      "tokens": {
+        "chrome": "bg_dark1",
+        "sidebar": "bg_dark",
+        "content": "bg",
+        "card": "bg_highlight",
+        "popover": "bg_highlight",
+        "muted": "bg_highlight",
+        "border": "border / WinSeparator"
+      },
+      "note": "Named Tokyo Night palette backgrounds adapted to Proteus roles. Night deep-copies storm, then overrides bg/bg_dark/bg_dark1; bg_highlight therefore comes from storm.lua. Border adapts the neutral WinSeparator token to settings frames, not the colored FloatBorder. Values are upstream-derived black=blend(bg,0.8,#000000); no Proteus runtime blending."
+    },
+    "gruvbox": {
+      "sources": [
+        "gruvbox"
+      ],
+      "tokens": {
+        "dark": {
+          "chrome": "dark0_hard",
+          "sidebar": "dark0",
+          "content": "dark0_soft",
+          "card": "dark1",
+          "popover": "dark1",
+          "muted": "dark1",
+          "border": "dark3 / VertSplit foreground"
+        },
+        "light": {
+          "chrome": "light1",
+          "sidebar": "light0_soft",
+          "content": "light0",
+          "card": "light1",
+          "popover": "light1",
+          "muted": "light1",
+          "border": "light3 / VertSplit foreground"
+        }
+      },
+      "note": "Explicit Proteus contrast adaptation using named Gruvbox colors, not the default Gruvbox workbench placement. Dark spans three bg0 contrast variants; Light uses light1/light0_soft/light0. Border reuses the official VertSplit bg3 foreground as a Proteus popup/field adaptation."
+    },
+    "everforest": {
+      "sources": [
+        "ever-dark",
+        "ever-light",
+        "ever-workbench"
+      ],
+      "tokens": {
+        "chrome": "bg0",
+        "sidebar": "bg1",
+        "content": "bg",
+        "card": "bg2",
+        "popover": "bg2",
+        "muted": "bg2",
+        "border": "bg5 / dropdown.border"
+      },
+      "note": "Official VSCode medium background palette, following highContrast.ts chrome/sidebar/editor roles. Cards, muted and popup use the same palette bg2. Profile selects dark or light background/medium.ts. Border is dropdown.border=bg5. Moving the tab strip from editor to sidebar is a Proteus adaptation."
+    },
+    "solarized": {
+      "sources": [
+        "solar-dark",
+        "solar-light"
+      ],
+      "tokens": {
+        "dark": {
+          "chrome": "peekViewEditor.background",
+          "sidebar": "sideBar.background",
+          "content": "editor.background",
+          "card": "editor.lineHighlightBackground",
+          "popover": "editor.lineHighlightBackground",
+          "muted": "editor.lineHighlightBackground",
+          "border": "dropdown.border"
+        },
+        "light": {
+          "chrome": "activityBar.background",
+          "sidebar": "sideBar.background",
+          "content": "editor.background",
+          "card": "sideBar.background",
+          "popover": "sideBar.background",
+          "muted": "sideBar.background",
+          "border": "dropdown.border"
+        }
+      },
+      "note": "Microsoft VSCode port. Proteus reassigns Dark peekViewEditor.background inset #10192c to chrome; this is not an original Solarized three-level workbench design. Dark cards use base02, Light cards base2."
+    },
+    "ayu": {
+      "sources": [
+        "ayu-dark",
+        "ayu-light",
+        "ayu-dark-yaml",
+        "ayu-light-yaml"
+      ],
+      "tokens": {
+        "chrome": "surface.sunk / titleBar.activeBackground",
+        "sidebar": "surface.base / sideBar.background",
+        "content": "surface.lift / editor.background",
+        "card": "ui.panel.bg / editorWidget.background",
+        "popover": "ui.popup.bg / menu.background",
+        "muted": "ui.panel.bg / editorWidget.background",
+        "border": "ui.line / dropdown.border"
+      },
+      "note": "Official ayu-colors semantic tokens and generated VSCode JSON. Generated JSON resolves Dark surface.sunk to #010102. Panel here means ui.panel.bg (editorWidget), not VSCode panel.background. Border is ui.line; alpha comes from upstream. Moving rail from base to sunk and tab strip from lift to base are Proteus adaptations."
+    }
+  },
+  "variants": [
+    {
+      "name": "Catppuccin Latte",
+      "file": "catppuccin.json",
+      "family": "catppuccin",
+      "profile": "latte",
+      "roles": {
+        "chrome": "#dce0e8",
+        "sidebar": "#e6e9ef",
+        "content": "#eff1f5",
+        "card": "#ccd0da",
+        "popover": "#ccd0da",
+        "muted": "#ccd0da",
+        "border": "#acb0be"
+      },
+      "preserved_payload_sha256": "fbbeb3bd08c7b6bbf10352c64eaec1eb54a7a2e5b85b939d5bd0d0b678cd5300"
+    },
+    {
+      "name": "Catppuccin Frappe",
+      "file": "catppuccin.json",
+      "family": "catppuccin",
+      "profile": "frappe",
+      "roles": {
+        "chrome": "#232634",
+        "sidebar": "#292c3c",
+        "content": "#303446",
+        "card": "#414559",
+        "popover": "#414559",
+        "muted": "#414559",
+        "border": "#626880"
+      },
+      "preserved_payload_sha256": "a1ea76d541932b0b03f2cd01715fb40011e4409506159a05438b83a50af8d859"
+    },
+    {
+      "name": "Catppuccin Macchiato",
+      "file": "catppuccin.json",
+      "family": "catppuccin",
+      "profile": "macchiato",
+      "roles": {
+        "chrome": "#181926",
+        "sidebar": "#1e2030",
+        "content": "#24273a",
+        "card": "#363a4f",
+        "popover": "#363a4f",
+        "muted": "#363a4f",
+        "border": "#5b6078"
+      },
+      "preserved_payload_sha256": "aeced34cef1cf32717d2a1dea14312579812f9d1e7a104d0c340c8c204b76fd1"
+    },
+    {
+      "name": "Catppuccin Mocha",
+      "file": "catppuccin.json",
+      "family": "catppuccin",
+      "profile": "mocha",
+      "roles": {
+        "chrome": "#11111b",
+        "sidebar": "#181825",
+        "content": "#1e1e2e",
+        "card": "#313244",
+        "popover": "#313244",
+        "muted": "#313244",
+        "border": "#585b70"
+      },
+      "preserved_payload_sha256": "05399fa2d4c5169026038f2ae11307489300d30826365b9bbe5cfa6c5db9abe2"
+    },
+    {
+      "name": "Tokyo Night",
+      "file": "tokyonight.json",
+      "family": "tokyonight",
+      "profile": "night",
+      "roles": {
+        "chrome": "#0c0e14",
+        "sidebar": "#16161e",
+        "content": "#1a1b26",
+        "card": "#292e42",
+        "popover": "#292e42",
+        "muted": "#292e42",
+        "border": "#15161e"
+      },
+      "preserved_payload_sha256": "8b5c2f68eaef261e989da7bd7673d594675e3994c1c9055c4c97e07556627e8c"
+    },
+    {
+      "name": "Tokyo Storm",
+      "file": "tokyonight.json",
+      "family": "tokyonight",
+      "profile": "storm",
+      "roles": {
+        "chrome": "#1b1e2d",
+        "sidebar": "#1f2335",
+        "content": "#24283b",
+        "card": "#292e42",
+        "popover": "#292e42",
+        "muted": "#292e42",
+        "border": "#1d202f"
+      },
+      "preserved_payload_sha256": "0a40a11041c3ddc3ae98a91a6d4b4431ed10579baa54c4a41609d898906ac6a4"
+    },
+    {
+      "name": "Tokyo Moon",
+      "file": "tokyonight.json",
+      "family": "tokyonight",
+      "profile": "moon",
+      "roles": {
+        "chrome": "#191b29",
+        "sidebar": "#1e2030",
+        "content": "#222436",
+        "card": "#2f334d",
+        "popover": "#2f334d",
+        "muted": "#2f334d",
+        "border": "#1b1d2b"
+      },
+      "preserved_payload_sha256": "1119f3829ac58c0b50b4f45eb984a1ee6d6d28f7d88a09a2a24c015c9f57f905"
+    },
+    {
+      "name": "Gruvbox Light",
+      "file": "gruvbox.json",
+      "family": "gruvbox",
+      "profile": "light",
+      "roles": {
+        "chrome": "#ebdbb2",
+        "sidebar": "#f2e5bc",
+        "content": "#fbf1c7",
+        "card": "#ebdbb2",
+        "popover": "#ebdbb2",
+        "muted": "#ebdbb2",
+        "border": "#bdae93"
+      },
+      "preserved_payload_sha256": "b5ca40929af888cf37137af1d0d340d459d85a0b7728737c8ca3037f598a9f82"
+    },
+    {
+      "name": "Gruvbox Dark",
+      "file": "gruvbox.json",
+      "family": "gruvbox",
+      "profile": "dark",
+      "roles": {
+        "chrome": "#1d2021",
+        "sidebar": "#282828",
+        "content": "#32302f",
+        "card": "#3c3836",
+        "popover": "#3c3836",
+        "muted": "#3c3836",
+        "border": "#665c54"
+      },
+      "preserved_payload_sha256": "811c479489924904f2ef033d5c139b1ce87abc8e1107d1c6cca6328cde06f18a"
+    },
+    {
+      "name": "Everforest Light",
+      "file": "everforest.json",
+      "family": "everforest",
+      "profile": "light",
+      "roles": {
+        "chrome": "#efebd4",
+        "sidebar": "#f4f0d9",
+        "content": "#fdf6e3",
+        "card": "#f4f0d9",
+        "popover": "#f4f0d9",
+        "muted": "#f4f0d9",
+        "border": "#e0dcc7"
+      },
+      "preserved_payload_sha256": "74839be34543c56b8d6436755c5e7824f160be782f27b0076d863db4ffa3bce0"
+    },
+    {
+      "name": "Everforest Dark",
+      "file": "everforest.json",
+      "family": "everforest",
+      "profile": "dark",
+      "roles": {
+        "chrome": "#21272b",
+        "sidebar": "#272e33",
+        "content": "#2d353b",
+        "card": "#343f44",
+        "popover": "#343f44",
+        "muted": "#343f44",
+        "border": "#4f585e"
+      },
+      "preserved_payload_sha256": "849c48e2aef64ddc9f518b8af641c3140ffe5bb7c2f6b52dce896a9458fb3ab5"
+    },
+    {
+      "name": "Solarized Light",
+      "file": "solarized.json",
+      "family": "solarized",
+      "profile": "light",
+      "roles": {
+        "chrome": "#ddd6c1",
+        "sidebar": "#eee8d5",
+        "content": "#fdf6e3",
+        "card": "#eee8d5",
+        "popover": "#eee8d5",
+        "muted": "#eee8d5",
+        "border": "#d3af86"
+      },
+      "preserved_payload_sha256": "e9b7b75536867d4c4b6ffd88484c78d690c1864bab39bab90dba20dadf3f1850"
+    },
+    {
+      "name": "Solarized Dark",
+      "file": "solarized.json",
+      "family": "solarized",
+      "profile": "dark",
+      "roles": {
+        "chrome": "#10192c",
+        "sidebar": "#00212b",
+        "content": "#002b36",
+        "card": "#073642",
+        "popover": "#073642",
+        "muted": "#073642",
+        "border": "#2aa19899"
+      },
+      "preserved_payload_sha256": "c9b5b89f638e9f51df8a6b99bbcf06168597499b166cf33f67e2d333d749d19a"
+    },
+    {
+      "name": "Ayu Light",
+      "file": "ayu.json",
+      "family": "ayu",
+      "profile": "light",
+      "roles": {
+        "chrome": "#ebeef0",
+        "sidebar": "#f8f9fa",
+        "content": "#fcfcfc",
+        "card": "#fafafa",
+        "popover": "#ffffff",
+        "muted": "#fafafa",
+        "border": "#6b7d8f1f"
+      },
+      "preserved_payload_sha256": "a3a6b14edf33b77eb4732e7f8e72c8240f4ffb5525cfb9b09a5e5025345021fc"
+    },
+    {
+      "name": "Ayu Dark",
+      "file": "ayu.json",
+      "family": "ayu",
+      "profile": "dark",
+      "roles": {
+        "chrome": "#010102",
+        "sidebar": "#0d1017",
+        "content": "#10141c",
+        "card": "#141821",
+        "popover": "#0f131a",
+        "muted": "#141821",
+        "border": "#1b1f29"
+      },
+      "preserved_payload_sha256": "d58c495c02374b7b126a67ddf9432c344deae6869fd8a28a95b9775c253bf289"
+    }
+  ],
+  "preserved_payload_hash": "SHA256 of UTF-8 compact JSON with recursively sorted keys: {colors: all keys except fields, highlight: full original highlight}. This freezes syntax, accents, text and control colors independently of structural adaptation."
+}

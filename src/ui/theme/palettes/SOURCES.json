@@ -16,10 +16,11 @@
       "progress_bar.background": "progress.bar.background",
       "slider.bar.background": "slider.background"
     },
-    "note": "Only semantic key names adapted to the vendored ThemeConfigColors schema; upstream color values are preserved.",
+    "note": "Semantic field names follow the vendored ThemeConfigColors schema. Builtin structural backgrounds and borders are explicitly adapted from named author/official-port tokens; values are not all unchanged. All other color keys and the complete highlight payload remain from this GPUI Kit import.",
     "removed_metadata": [
       "$schema (upstream schema is not the vendored component schema)"
-    ]
+    ],
+    "structural_roles": "ROLE-MAPPING.json"
   },
   "files": [
     {
@@ -79,5 +80,9 @@
         "Ayu Dark"
       ]
     }
-  ]
+  ],
+  "framework_defaults": {
+    "path": "vendor/gpui-component/src/theme/default-theme.json",
+    "note": "Proteus workbench adaptation of the native neutral palette, without runtime rewriting. Default Dark: black chrome, neutral-950 sidebar/strip, neutral-900 content/active tab, neutral-800 cards/popups. Default Light preserves #f8f8f8 chrome, #fafafa sidebar, white content; tab strip follows sidebar. Default Dark borders use neutral-600, above the neutral-800 cards; default Light borders retain neutral-200."
+  }
 }

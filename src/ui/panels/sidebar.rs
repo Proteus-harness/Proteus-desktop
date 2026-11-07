@@ -7,7 +7,6 @@ use gpui_kit::component::{ActiveTheme as _, h_flex};
 use gpui_kit::*;
 
 use crate::preferences::{SIDEBAR_WIDTH, SidebarPreferences};
-use crate::tabs::Axis;
 use crate::ui::workspace::Workspace;
 use crate::ui::{divider, drag, motion, prefs};
 
@@ -67,7 +66,10 @@ impl Workspace {
             true,
         );
         let name = SharedString::from("sidebar-edge");
-        let grip = divider::grip(name.clone(), Axis::Row, cx)
+        let header = prefs::scaled(crate::ui::tabs::BAR_HEIGHT).to_pixels(cx.theme().font_size);
+        let seam = divider::ResizeSeam::vertical(header + cx.theme().radius_lg, header);
+        let grip = seam
+            .grip(name.clone(), cx)
             .on_drag(SidebarDrag, move |drag, _, _, cx| {
                 drag::start(name.clone(), cx);
                 cx.new(|_| drag.clone())
@@ -101,11 +103,7 @@ impl Workspace {
                     .text_color(theme.sidebar_foreground)
                     .child(content),
             )
-            .child(divider::resizable_below(
-                grip,
-                prefs::scaled(crate::ui::tabs::BAR_HEIGHT),
-                cx,
-            ));
+            .child(seam.render(grip, cx));
         // The panel keeps its width and slides out from under the rail, so
         // its content does not reflow while it opens or closes.
         let slot = h_flex()

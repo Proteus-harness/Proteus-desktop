@@ -438,6 +438,7 @@ pub(super) fn select_menu<T: Clone + 'static>(
             })
         },
     )
+    .settings_selector()
     .min_w_0()
     .max_w_full()
     .into_any_element()

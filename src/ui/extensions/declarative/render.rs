@@ -179,6 +179,7 @@ impl DeclarativeView {
                         })
                     },
                 )
+                .when(self.settings_page(), |menu| menu.settings_selector())
                 .min_w_0()
                 .max_w_full()
                 .into_any_element()

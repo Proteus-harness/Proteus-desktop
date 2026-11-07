@@ -49,6 +49,13 @@ impl PopupFrame {
         self.bordered = true;
         self
     }
+
+    /// Keep a settings list inside its content column by aligning its right
+    /// edge with the trigger rather than extending outward from the left edge.
+    pub fn align_end(mut self) -> Self {
+        self.align = Align::End;
+        self
+    }
     /// Join this popup to a panel edge without covering either frame.
     pub fn attached(mut self, panel: PopupPanel) -> Self {
         self.placement = panel.placement;

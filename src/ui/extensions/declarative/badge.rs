@@ -101,10 +101,6 @@ impl Render for DeclarativeBadge {
             gpui_kit::component::Size::Small
         };
         let open = self.popup.is_open();
-        let selector = manifest.surfaces.popup.is_some()
-            && presentation.is_some_and(|presentation| {
-                matches!(presentation.face, Face::Text { caret: true, .. })
-            });
         let face: Rc<dyn Fn() -> AnyElement> = if let Some(presentation) = presentation {
             match &presentation.face {
                 Face::Icon { tone, count } => {
@@ -230,7 +226,6 @@ impl Render for DeclarativeBadge {
                 &self.host,
                 press,
                 Some(drag_start),
-                selector,
                 cx,
             ))
             .children(popup)

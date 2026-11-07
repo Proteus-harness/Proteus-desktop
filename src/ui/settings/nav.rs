@@ -18,7 +18,6 @@ use crate::settings::catalog::{
     CLIENT_PAGES, CONNECTION_PAGES, PageId, agent_pages, area_page, page_description, page_title,
 };
 use crate::shortcuts::Command;
-use crate::tabs::Axis;
 use crate::ui::extensions;
 use crate::ui::fade::faded;
 use crate::ui::kit;
@@ -117,7 +116,9 @@ impl SettingsView {
             .read_with(cx, |workspace, cx| workspace.sidebar_width(cx))
             .unwrap_or_else(|_| prefs::scaled(prefs::current(cx).sidebar.width));
         let name = SharedString::from("settings-sidebar-edge");
-        let grip = divider::grip(name.clone(), Axis::Row, cx)
+        let seam = divider::ResizeSeam::vertical(cx.theme().radius_lg, px(0.));
+        let grip = seam
+            .grip(name.clone(), cx)
             .on_drag(SidebarDrag, move |drag, _, _, cx| {
                 drag::start(name.clone(), cx);
                 cx.new(|_| drag.clone())
@@ -323,7 +324,7 @@ impl SettingsView {
                         },
                     ))
                     .child(nav.flex_1().min_w_0().overflow_hidden())
-                    .child(divider::resizable(Axis::Row, grip, cx))
+                    .child(seam.render(grip, cx))
             })
     }
 

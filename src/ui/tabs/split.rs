@@ -2,6 +2,7 @@
 //! neighbors, a double click shares the split evenly between the panes
 //! that are not fixed.
 
+use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::*;
 
 use crate::tabs::{Axis, Size};
@@ -80,7 +81,14 @@ pub(super) fn divider(
         path: path.clone(),
         index,
     };
-    let grip = divider::grip(name.clone(), axis, cx)
+    let visible_start =
+        prefs::scaled(super::BAR_HEIGHT).to_pixels(cx.theme().font_size) + cx.theme().radius_lg;
+    let seam = match axis {
+        Axis::Row => divider::ResizeSeam::vertical(visible_start, px(0.)),
+        Axis::Column => divider::ResizeSeam::plain(axis),
+    };
+    let grip = seam
+        .grip(name.clone(), cx)
         .on_drag(drag, move |drag, _, _, cx| {
             drag::start(name.clone(), cx);
             cx.new(|_| drag.clone())
@@ -90,7 +98,7 @@ pub(super) fn divider(
                 this.reset_split(&path, cx);
             }
         }));
-    divider::resizable(axis, grip, cx)
+    seam.render(grip, cx)
 }
 
 impl Workspace {

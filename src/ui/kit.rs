@@ -41,9 +41,9 @@ pub(crate) use workspace_surface::WorkspaceSurface;
 /// Shared button captions and quiet surfaces. Icons, sizes, focus and
 /// keyboard behavior stay native.
 pub(crate) trait ButtonLabel {
-    /// A thin theme-colored edge identifies a dropdown without replacing its
+    /// Settings dropdown fields keep a thin edge without replacing their
     /// authored fill or the native hover, focus and disabled behavior.
-    fn selector(self, cx: &App) -> Self;
+    fn settings_selector(self, cx: &App) -> Self;
 
     /// Transparent at rest; the same hover and committed fill as list rows,
     /// without the native Ghost variant's extra dark-mode attenuation.
@@ -55,7 +55,7 @@ pub(crate) trait ButtonLabel {
 }
 
 impl ButtonLabel for Button {
-    fn selector(self, cx: &App) -> Self {
+    fn settings_selector(self, cx: &App) -> Self {
         self.border_1().border_color(cx.theme().border)
     }
 

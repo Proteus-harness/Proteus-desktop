@@ -39,6 +39,7 @@ pub(crate) struct ContextMenu {
     build: Build,
     style: StyleRefinement,
     at_pointer: bool,
+    settings_selector: bool,
 }
 
 enum Trigger {
@@ -60,6 +61,7 @@ pub(crate) fn menu_button(
         build: std::rc::Rc::new(build),
         style: StyleRefinement::default(),
         at_pointer: false,
+        settings_selector: false,
     }
 }
 
@@ -78,10 +80,18 @@ pub(crate) fn split_button(
         build: std::rc::Rc::new(build),
         style: StyleRefinement::default(),
         at_pointer: false,
+        settings_selector: false,
     }
 }
 
 impl ContextMenu {
+    /// Settings fields and their open lists share a thin border and a right
+    /// edge. A chevron alone does not give chat menus this field styling.
+    pub(crate) fn settings_selector(mut self) -> Self {
+        self.settings_selector = true;
+        self
+    }
+
     /// Text selection menus belong beside the selected text. They still use
     /// the shared popup, sizing, focus restoration and reversible motion.
     pub(crate) fn at_pointer(mut self) -> Self {
@@ -105,7 +115,7 @@ impl Styled for ContextMenu {
 
 impl RenderOnce for ContextMenu {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let selector = matches!(&self.trigger, Trigger::Button(_, true));
+        let settings_selector = self.settings_selector;
         let state = window.use_keyed_state(self.id.clone(), cx, |_, _| MenuState::default());
         let mut root = div().id(self.id.clone()).relative();
         root.style().refine(&self.style);
@@ -121,8 +131,9 @@ impl RenderOnce for ContextMenu {
         let trigger = match self.trigger {
             Trigger::Element(element) => element,
             Trigger::Button(button, caret) => button
+                .when(settings_selector, |button| button.settings_selector(cx))
                 .when(caret, |b| {
-                    b.selector(cx).child(motion::menu_chevron(
+                    b.child(motion::menu_chevron(
                         ElementId::Name(format!("{:?}:chevron", self.id).into()),
                         menu_open,
                         cx.theme().muted_foreground,
@@ -234,7 +245,11 @@ impl RenderOnce for ContextMenu {
         root.child(motion::popup(
             div().relative().p(prefs::scaled(inset)).child(menu),
             ElementId::Name(format!("{:?}:popup", self.id).into()),
-            if selector { frame.selector() } else { frame },
+            if settings_selector {
+                frame.selector().align_end()
+            } else {
+                frame
+            },
             cx,
         ))
     }
@@ -316,6 +331,7 @@ pub(crate) trait RightClickMenu: InteractiveElement + IntoElement + Sized + 'sta
             build: std::rc::Rc::new(build),
             style: StyleRefinement::default(),
             at_pointer: false,
+            settings_selector: false,
         }
     }
 }
