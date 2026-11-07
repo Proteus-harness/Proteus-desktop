@@ -245,9 +245,11 @@ impl Render for TerminalView {
         // A new size refits the grid on the next frame, even when nothing
         // else redraws the terminal.
         let probe = canvas(
-            move |bounds, _, cx| {
+            move |bounds, window, _| {
                 if area.replace(Some(bounds.size)) != Some(bounds.size) {
-                    cx.notify(view);
+                    // Prepaint invalidation can be consumed by the frame that
+                    // is already rendering. Refit after its geometry settles.
+                    window.on_next_frame(move |_, cx| cx.notify(view));
                 }
             },
             |_, _, _, _| {},

@@ -399,6 +399,13 @@ fn exited_shell_cleans_reparented_jobs_in_its_owned_pty_session() {
 #[test]
 #[cfg(target_os = "linux")]
 fn eof_publishes_held_final_output_and_retains_readonly_scrollback_after_reaping() {
+    for (rows, shrunk_rows, hold) in [(5, 3, true), (44, 40, false)] {
+        check_retained_shell_exit(rows, shrunk_rows, hold);
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn check_retained_shell_exit(rows: usize, shrunk_rows: usize, hold: bool) {
     let root = std::env::current_dir()
         .unwrap()
         .join("target/terminal-fixtures")
@@ -411,7 +418,7 @@ fn eof_publishes_held_final_output_and_retains_readonly_scrollback_after_reaping
                 .as_nanos()
         ));
     std::fs::create_dir_all(&root).unwrap();
-    let mut spawned = Terminal::spawn_shell(&root, Grid::new(60, 5), Some("/bin/sh")).unwrap();
+    let mut spawned = Terminal::spawn_shell(&root, Grid::new(60, rows), Some("/bin/sh")).unwrap();
     let super::super::Terminal::Ghostty(terminal) = &spawned.terminal else {
         unreachable!()
     };
@@ -437,7 +444,8 @@ fn eof_publishes_held_final_output_and_retains_readonly_scrollback_after_reaping
         .unwrap()
         .to_owned();
     shared.frame_credit.store(false, Ordering::Release);
-    spawned.terminal.write(b"printf '\\033[?2026h'; i=0; while [ $i -lt 120 ]; do printf 'exit-row-%s\\n' $i; i=$((i+1)); done; printf 'FINAL_EOF_OUTPUT\\n'; exit 0\r".to_vec());
+    let prefix = if hold { "printf '\\033[?2026h'; " } else { "" };
+    spawned.terminal.write(format!("{prefix}i=0; while [ $i -lt 120 ]; do printf 'exit-row-%s\\n' $i; i=$((i+1)); done; printf 'FINAL_EOF_OUTPUT\\n'; exit 0\r").into_bytes());
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         match spawned.signals.try_recv() {
@@ -481,6 +489,19 @@ fn eof_publishes_held_final_output_and_retains_readonly_scrollback_after_reaping
         shift: false,
     }));
     assert_eq!(shared.input_bytes.load(Ordering::Acquire), 0);
+    // The exit footer reduces the available terminal area. Keep a viewport
+    // that followed live output pinned to its final line across that resize.
+    spawned.terminal.resize(Grid::new(60, shrunk_rows));
+    let shrunk = wait_screen(&spawned.terminal, |screen| {
+        screen.columns == 60 && screen.rows.len() == shrunk_rows
+    });
+    assert_eq!(shrunk.scrolled, 0);
+    assert!(
+        shrunk.text().contains("FINAL_EOF_OUTPUT"),
+        "{}",
+        shrunk.text()
+    );
+    assert_eq!(shrunk.cursor, None);
     spawned.terminal.scroll(80);
     let scrolled = wait_screen(&spawned.terminal, |screen| {
         screen.scrolled > 0 && !screen.text().contains("FINAL_EOF_OUTPUT")
@@ -492,6 +513,11 @@ fn eof_publishes_held_final_output_and_retains_readonly_scrollback_after_reaping
         screen.columns == 45 && screen.rows.len() == 7
     });
     assert_eq!(resized.cursor, None);
+    assert!(
+        resized.scrolled > 0,
+        "resize jumped out of the selected history"
+    );
+    assert!(!resized.text().contains("FINAL_EOF_OUTPUT"));
     let changed_base = Base {
         foreground: [1, 230, 23],
         background: [20, 30, 40],
