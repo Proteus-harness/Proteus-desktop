@@ -198,8 +198,13 @@ fn render_approval(request: &AppApprovalRequest, cx: &mut Context<Chat>) -> AnyE
         .as_ref()
         .map(|preview| preview.summary.clone())
         .filter(|summary| !summary.trim().is_empty());
-    let body =
-        approval_body(request).map(|body| format::clip_block(&body, PREVIEW_LINES, PREVIEW_CHARS));
+    let full_body = approval_body(request);
+    let body = full_body
+        .as_ref()
+        .map(|body| format::clip_block(body, PREVIEW_LINES, PREVIEW_CHARS));
+    let truncated = full_body
+        .as_ref()
+        .is_some_and(|body| body.len() > PREVIEW_CHARS || body.lines().count() > PREVIEW_LINES);
 
     let id = request.approval_id.clone();
     let (approve_id, deny_id) = (id.clone(), id.clone());
@@ -268,6 +273,39 @@ fn render_approval(request: &AppApprovalRequest, cx: &mut Context<Chat>) -> AnyE
                 .overflow_y_scroll()
                 .text_color(theme.muted_foreground)
                 .child(body)
+        }))
+        .children(full_body.filter(|_| truncated).map(|body| {
+            let body: SharedString = body.into();
+            kit::button(SharedString::from(format!("approval-full-{id}")))
+                .small()
+                .faded_label("Показать действие полностью…")
+                .on_click(move |_, window, cx| {
+                    use gpui_kit::component::input::{Editor, EditorState};
+                    let source = body.clone();
+                    let editor = cx.new(|cx| {
+                        let mut editor = EditorState::new(window, cx).rows(16).soft_wrap(true);
+                        editor.set_value(source, window, cx);
+                        editor.set_readonly(true, cx);
+                        editor
+                    });
+                    let copy = body.clone();
+                    window.open_dialog(cx, move |dialog, _, cx| {
+                        let copy = copy.clone();
+                        dialog
+                            .title("Полное действие для подтверждения")
+                            .w(px(900. * prefs::scale(cx)))
+                            .child(Editor::new(&editor).readonly(true).w_full())
+                            .child(
+                                kit::button("approval-copy-full")
+                                    .faded_label("Скопировать полностью")
+                                    .on_click(move |_, _, cx| {
+                                        cx.write_to_clipboard(ClipboardItem::new_string(
+                                            copy.to_string(),
+                                        ))
+                                    }),
+                            )
+                    });
+                })
         }))
         .child(
             h_flex()

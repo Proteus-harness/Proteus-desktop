@@ -183,17 +183,22 @@ impl SettingsView {
                         .map(|(_, export)| module_key(&export.slot, &export.id)),
                 )
                 .collect(),
-            PageId::Hooks => self
-                .draft
-                .hooks
+            PageId::Hooks => snapshot
+                .hook_modules
                 .iter()
-                .map(|hook| module_key(HOOK_SLOT, hook))
+                .map(|module| module_key(HOOK_SLOT, &module.id))
+                .chain(
+                    catalog::exports(snapshot, HOOK_SLOT)
+                        .map(|(_, export)| module_key(HOOK_SLOT, &export.id)),
+                )
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
                 .collect(),
-            PageId::Modules => snapshot
+            PageId::Tools => snapshot
                 .plugins
                 .iter()
                 .flat_map(|plugin| &plugin.exports)
-                .filter(|export| [TOOL_SLOT, HOOK_SLOT].contains(&export.slot.as_str()))
+                .filter(|export| export.slot == TOOL_SLOT)
                 .map(|export| module_key(&export.slot, &export.id))
                 .collect(),
             _ => Vec::new(),

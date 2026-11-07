@@ -757,7 +757,7 @@ ZIP с существующим id атомарно обновляет поль�
   отсчёта) и системное уведомление через `notify-send`. Уведомление
   показывается, только когда окно в фоне; кнопка «Открыть» возвращает к
   этому чату. Без `notify-send` уведомлений просто нет;
-- `terminal` — общий headless эмулятор на `alacritty_terminal`: PTY,
+- `terminal` — общий headless терминал на Ghostty (по умолчанию) или `alacritty_terminal`: PTY,
   цветные строки, xterm-клавиши и bracketed paste. Доступен процессам
   через виджет `terminal`;
 - `Proteus-desktop-extensions/packages` — логика файлов, аналитики и остальных

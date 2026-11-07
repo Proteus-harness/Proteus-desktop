@@ -236,3 +236,69 @@ fn delayed_project_response_cannot_replace_settings_or_a_new_chat_intention() {
         })
     });
 }
+
+#[::core::prelude::v1::test]
+fn tools_and_disabled_hooks_prepare_editors_without_visiting_modules() {
+    use proteus_contracts::app_protocol::config_builder::{
+        ConfigBuilderModule, ConfigBuilderPlugin, ConfigBuilderPluginExport,
+    };
+    let mut cx = context();
+    let window = cx.add_empty_window();
+    window.update(|window, cx| {
+        let view = cx.new(|cx| {
+            SettingsView::new(
+                WeakEntity::new_invalid(),
+                SettingsContext::for_chat(None, || None),
+                window,
+                cx,
+            )
+        });
+        view.update(cx, |view, cx| {
+            let mut snapshot = snapshot("initial");
+            snapshot.plugins.push(ConfigBuilderPlugin {
+                id: "fixture".into(),
+                command: "synthetic".into(),
+                description: None,
+                tool_packs: vec![],
+                exports: vec![ConfigBuilderPluginExport {
+                    slot: "tool".into(),
+                    id: "pack".into(),
+                    active: true,
+                    description: None,
+                    config_schema: None,
+                }],
+            });
+            snapshot.hook_modules.push(ConfigBuilderModule {
+                id: "disabled".into(),
+                slot: "hook".into(),
+                ..Default::default()
+            });
+            snapshot
+                .module_config
+                .entry("tool".into())
+                .or_default()
+                .insert("pack".into(), serde_json::json!({"path":"fixture"}));
+            snapshot
+                .module_config
+                .entry("hook".into())
+                .or_default()
+                .insert("disabled".into(), serde_json::json!({"text":"fixture"}));
+            view.accept(snapshot);
+            assert!(view.draft.hooks.is_empty());
+            view.page = PageId::Tools;
+            view.prepare_editors(window, cx);
+            assert!(
+                view.editors
+                    .json
+                    .contains_key(&("tool".into(), "pack".into()))
+            );
+            view.page = PageId::Hooks;
+            view.prepare_editors(window, cx);
+            assert!(
+                view.editors
+                    .json
+                    .contains_key(&("hook".into(), "disabled".into()))
+            );
+        });
+    });
+}

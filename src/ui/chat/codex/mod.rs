@@ -185,7 +185,7 @@ impl Chat {
             state.waiting = !binding.pending.is_empty();
             self.session.connected = binding.handle.is_connected();
             self.session.link_error = None;
-            cx.emit(ChatEvent::SessionStateChanged);
+            cx.emit(ChatEvent::state_changed());
             return;
         }
         self.pause_codex_before_eviction(&event, cx);
@@ -360,12 +360,13 @@ impl Chat {
             {
                 self.apply_change(trimmed, cx);
             }
-            cx.emit(ChatEvent::SessionEntriesChanged(change));
+            cx.emit(ChatEvent::entries_changed(change));
         }
-        cx.emit(ChatEvent::SessionStateChanged);
+        cx.emit(ChatEvent::state_changed());
         if settled {
             cx.emit(ChatEvent::RunSettled);
         }
+        self.interrupt_codex_if_ready(cx);
     }
 
     pub(super) fn send_codex(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -416,7 +417,7 @@ impl Chat {
         });
         self.clear_notice(cx);
         cx.emit(ChatEvent::Sent);
-        cx.emit(ChatEvent::SessionStateChanged);
+        cx.emit(ChatEvent::state_changed());
         cx.notify();
         cx.spawn(async move |this, cx| {
             let result = cx.background_executor().spawn(async move { handle.send(&text, model.as_deref(), effort.as_deref()) }).await;
@@ -425,7 +426,7 @@ impl Chat {
                 let Some(binding) = &mut this.codex else { return; };
                 let Some(send) = binding.sending.as_ref().filter(|send| send.generation == generation) else { return; };
                 match result {
-                    Ok(turn) => this.session.external.as_mut().unwrap().started(turn),
+                    Ok(turn) => this.session.external.as_mut().unwrap().acknowledged(turn),
                     Err(error) => {
                         let echoed = send.echoed;
                         let local = send.local.clone();
@@ -439,7 +440,8 @@ impl Chat {
                         this.show_notice(format!("Codex: отправка не подтверждена: {error}. Автоматического повтора нет."), cx);
                     }
                 }
-                cx.emit(ChatEvent::SessionStateChanged); cx.notify();
+                this.interrupt_codex_if_ready(cx);
+                cx.emit(ChatEvent::state_changed()); cx.notify();
             }).ok(); }).ok();
         }).detach();
     }
@@ -460,34 +462,41 @@ impl Chat {
     }
 
     pub(super) fn stop_codex(&mut self, cx: &mut Context<Self>) {
+        if let Some(state) = self.session.external.as_mut() {
+            state.request_cancel();
+        }
+        self.interrupt_codex_if_ready(cx);
+        cx.notify();
+    }
+
+    fn interrupt_codex_if_ready(&mut self, cx: &mut Context<Self>) {
         let Some(binding) = &self.codex else {
             return;
         };
         let Some(turn) = self
             .session
             .external
-            .as_ref()
-            .and_then(|state| state.turn.clone())
-            .or_else(|| {
-                binding
-                    .handle
-                    .current_turn()
-                    .filter(|turn| !turn.is_empty())
-            })
+            .as_mut()
+            .and_then(|state| state.take_interrupt())
         else {
             return;
         };
         let handle = binding.handle.clone();
-        self.session.external.as_mut().unwrap().canceling = true;
         cx.notify();
         cx.spawn(async move |this, cx| {
+            let requested_turn = turn.clone();
             let result = cx
                 .background_executor()
-                .spawn(async move { handle.interrupt(&turn) })
+                .spawn(async move { handle.interrupt(&requested_turn) })
                 .await;
             this.update(cx, |this, cx| {
-                if let Err(error) = result {
-                    this.session.external.as_mut().unwrap().canceling = false;
+                if let Err(error) = result
+                    && this
+                        .session
+                        .external
+                        .as_mut()
+                        .is_some_and(|state| state.interrupt_failed(&turn))
+                {
                     this.show_notice(format!("Не удалось остановить Codex: {error}"), cx);
                 }
                 cx.notify();

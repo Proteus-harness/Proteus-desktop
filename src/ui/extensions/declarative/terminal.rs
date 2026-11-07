@@ -23,8 +23,32 @@ use crate::ui::terminal::cells::{self, PADDING, cell_size, rgb_bytes};
 enum State {
     Waiting,
     Running(Terminal),
-    Failed(String),
-    Exited,
+    Failed(String, Option<Terminal>),
+    Exited(Option<Terminal>),
+}
+
+impl State {
+    fn terminal(&self) -> Option<&Terminal> {
+        match self {
+            Self::Running(terminal)
+            | Self::Exited(Some(terminal))
+            | Self::Failed(_, Some(terminal)) => Some(terminal),
+            _ => None,
+        }
+    }
+
+    fn finish(&mut self, error: Option<String>) {
+        let previous = std::mem::replace(self, Self::Waiting);
+        let terminal = match previous {
+            Self::Running(terminal) => Some(terminal),
+            Self::Exited(terminal) | Self::Failed(_, terminal) => terminal,
+            Self::Waiting => None,
+        };
+        *self = match error {
+            Some(error) => Self::Failed(error, terminal),
+            None => Self::Exited(terminal),
+        };
+    }
 }
 
 pub(super) struct TerminalView {
@@ -73,7 +97,7 @@ impl TerminalView {
     /// Release the PTY even if a cached element still holds this entity.
     pub(super) fn stop(&mut self, cx: &mut Context<Self>) {
         self._tasks.clear();
-        self.state = State::Exited;
+        self.state = State::Exited(None);
         self.cwd = None;
         self.notice = None;
         self.area.set(None);
@@ -87,7 +111,7 @@ impl TerminalView {
         let spawned = match Terminal::spawn(&cwd, grid) {
             Ok(spawned) => spawned,
             Err(error) => {
-                self.state = State::Failed(format!("{error:#}"));
+                self.state = State::Failed(format!("{error:#}"), None);
                 return;
             }
         };
@@ -106,8 +130,8 @@ impl TerminalView {
                     let finished = matches!(signal, Signal::Exited | Signal::Failed(_));
                     let alive = this.update(cx, |this, cx| {
                         match signal {
-                            Signal::Exited => this.state = State::Exited,
-                            Signal::Failed(error) => this.state = State::Failed(error),
+                            Signal::Exited => this.state.finish(None),
+                            Signal::Failed(error) => this.state.finish(Some(error)),
                             Signal::InputRejected(error) => this.notice = Some(error),
                             Signal::Title(_) | Signal::Bell => return,
                         }
@@ -164,7 +188,7 @@ impl TerminalView {
     }
 
     fn scroll(&mut self, event: &ScrollEvent, line: Pixels) {
-        let State::Running(terminal) = &self.state else {
+        let Some(terminal) = self.state.terminal() else {
             return;
         };
         self.scroll_rest += event.delta.pixel_delta(line).y.as_f32() / line.as_f32();
@@ -186,7 +210,7 @@ impl TerminalView {
         match &mut self.state {
             State::Running(terminal) => terminal.resize(grid),
             State::Waiting => self.start(grid, cx),
-            State::Failed(_) | State::Exited => {}
+            State::Failed(_, _) | State::Exited(_) => {}
         }
     }
 }
@@ -258,13 +282,9 @@ impl Render for TerminalView {
                         .on_click(cx.listener(|this, _, window, cx| this.restart(window, cx))),
                 )
         };
-        let rendered = match &self.state {
-            State::Waiting => base,
-            State::Failed(error) => {
-                base.child(notice(format!("Терминал не запустился: {error}"), cx))
-            }
-            State::Exited => base.child(notice("Процесс оболочки завершился.".into(), cx)),
-            State::Running(terminal) => {
+        let rendered = match self.state.terminal() {
+            None => base,
+            Some(terminal) => {
                 let screen = terminal.snapshot(Base {
                     foreground: rgb_bytes(foreground),
                     background: rgb_bytes(background),
@@ -273,9 +293,14 @@ impl Render for TerminalView {
                     &screen,
                     cell,
                     foreground,
-                    self.focus.is_focused(window),
+                    matches!(self.state, State::Running(_)) && self.focus.is_focused(window),
                 ))
             }
+        };
+        let rendered = match &self.state {
+            State::Failed(error, _) => rendered.child(notice(format!("Терминал: {error}"), cx)),
+            State::Exited(_) => rendered.child(notice("Процесс оболочки завершился.".into(), cx)),
+            _ => rendered,
         };
         rendered.when_some(self.notice.clone(), |this, text| {
             this.child(

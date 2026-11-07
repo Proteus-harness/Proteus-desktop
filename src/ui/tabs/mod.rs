@@ -175,13 +175,19 @@ impl Workspace {
     }
 
     /// Whether a pane is wide enough to split off a new one.
-    fn can_split(&self, window: &Window, cx: &App) -> impl Fn(PaneId) -> bool + use<> {
-        let viewport = window.viewport_size();
+    fn can_split(&self, _window: &Window, cx: &App) -> impl Fn(PaneId) -> bool + use<> {
         let scale = prefs::scale(cx);
-        let rects = self.tab_layout(cx).rects_in(
-            viewport.width.as_f32() / scale,
-            viewport.height.as_f32() / scale,
-        );
+        let rects = self
+            .tab_area
+            .get()
+            .map(|area| {
+                self.tab_layout(cx).rects_spaced(
+                    area.width.as_f32() / scale,
+                    area.height.as_f32() / scale,
+                    split::DIVIDER,
+                )
+            })
+            .unwrap_or_default();
         move |pane: PaneId| {
             rects
                 .iter()
@@ -391,4 +397,28 @@ pub(super) fn tab_available(id: &str, cx: &App) -> bool {
         || super::terminal::Target::parse(id).is_some()
         || super::chat::readonly::Target::parse(id).is_some()
         || extensions::document(id, cx).is_some()
+}
+
+#[cfg(test)]
+mod available_area_tests {
+    use super::*;
+    #[::core::prelude::v1::test]
+    fn auto_split_uses_measured_tabs_with_sidebar_and_waits_for_first_layout() {
+        let mut cx = ::gpui::TestAppContext::single();
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::ui::prefs::init_in_memory(cx);
+        });
+        cx.add_empty_window().update(|window, cx| {
+            let workspace = cx.new(|cx| Workspace::test_empty(window, cx));
+            workspace.update(cx, |workspace, cx| {
+                let pane = workspace.layout.focused;
+                assert!(!workspace.can_split(window, cx)(pane));
+                workspace.tab_area.set(Some(size(px(660.), px(600.))));
+                assert!(!workspace.can_split(window, cx)(pane));
+                workspace.tab_area.set(Some(size(px(900.), px(600.))));
+                assert!(workspace.can_split(window, cx)(pane));
+            });
+        });
+    }
 }

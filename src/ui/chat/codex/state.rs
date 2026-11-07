@@ -9,6 +9,7 @@ pub(in crate::ui::chat) struct RunState {
     pub waiting: bool,
     pub output: bool,
     finished: VecDeque<String>,
+    interrupt_sent: Option<String>,
 }
 impl RunState {
     pub fn resumed(turn: Option<String>) -> Self {
@@ -40,11 +41,40 @@ impl RunState {
         if self.turn.as_ref().is_some_and(|turn| turn != &id) {
             return;
         }
+        let cancel_requested = self.starting && self.canceling;
         self.starting = false;
         if self.turn.as_ref() != Some(&id) {
             self.turn = Some(id);
-            self.canceling = false;
+            self.canceling = cancel_requested;
         }
+    }
+    pub fn request_cancel(&mut self) {
+        if self.running() {
+            self.canceling = true;
+        }
+    }
+    pub fn acknowledged(&mut self, id: String) {
+        if self.finished.contains(&id) && self.turn.is_none() {
+            self.disconnected();
+        } else {
+            self.started(id);
+        }
+    }
+    pub fn take_interrupt(&mut self) -> Option<String> {
+        let turn = self.turn.as_ref()?;
+        if !self.canceling || self.interrupt_sent.as_ref() == Some(turn) {
+            return None;
+        }
+        self.interrupt_sent = Some(turn.clone());
+        Some(turn.clone())
+    }
+    pub fn interrupt_failed(&mut self, turn: &str) -> bool {
+        if self.turn.as_deref() != Some(turn) {
+            return false;
+        }
+        self.canceling = false;
+        self.interrupt_sent = None;
+        true
     }
     pub fn completed(&mut self, id: &str) -> bool {
         if !self.finished.iter().any(|old| old == id) {
@@ -61,11 +91,13 @@ impl RunState {
         self.canceling = false;
         self.output = false;
         self.waiting = false;
+        self.interrupt_sent = None;
         true
     }
     pub fn failed_send(&mut self) {
         if self.starting {
             self.starting = false;
+            self.canceling = false;
         }
     }
     pub fn disconnected(&mut self) {
@@ -74,6 +106,7 @@ impl RunState {
         self.canceling = false;
         self.waiting = false;
         self.output = false;
+        self.interrupt_sent = None;
     }
 }
 #[cfg(test)]
@@ -110,6 +143,20 @@ mod tests {
         assert!(!state.running());
     }
     #[::core::prelude::v1::test]
+    fn completed_before_start_ack_does_not_reanimate_or_retain_cancel() {
+        let mut state = RunState::default();
+        state.begin();
+        state.request_cancel();
+        state.completed("fast");
+        state.acknowledged("fast".into());
+        assert!(!state.running());
+        assert!(!state.canceling);
+        assert!(state.take_interrupt().is_none());
+        assert!(state.begin());
+        state.acknowledged("new".into());
+        assert!(state.take_interrupt().is_none());
+    }
+    #[::core::prelude::v1::test]
     fn request_and_output_suppress_thinking() {
         let mut state = RunState::default();
         state.begin();
@@ -119,5 +166,22 @@ mod tests {
         state.waiting = false;
         state.output = true;
         assert!(!state.thinking());
+    }
+    #[::core::prelude::v1::test]
+    fn stop_before_start_is_delivered_once_and_cannot_leak_into_next_turn() {
+        let mut state = RunState::default();
+        state.begin();
+        state.request_cancel();
+        assert!(state.take_interrupt().is_none());
+        state.started("A".into());
+        assert_eq!(state.take_interrupt().as_deref(), Some("A"));
+        state.started("A".into());
+        assert!(state.take_interrupt().is_none());
+        state.completed("A");
+        state.begin();
+        state.started("B".into());
+        assert!(state.take_interrupt().is_none());
+        assert!(!state.interrupt_failed("A"));
+        assert_eq!(state.turn.as_deref(), Some("B"));
     }
 }

@@ -12,6 +12,8 @@ use super::workspace::Workspace;
 use crate::notify;
 use crate::preferences::Notifications;
 
+impl Global for crate::attention::Tracker {}
+
 impl Workspace {
     pub(super) fn attend(
         &mut self,
@@ -19,7 +21,10 @@ impl Workspace {
         status: AppSessionActivityStatus,
         cx: &mut Context<Self>,
     ) {
-        let Some(attention) = self.attention.observe(dir, status) else {
+        let Some(attention) = cx
+            .default_global::<crate::attention::Tracker>()
+            .observe(dir, status)
+        else {
             return;
         };
         let wanted = prefs::current(cx).notifications == Notifications::Background;

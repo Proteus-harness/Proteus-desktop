@@ -162,15 +162,10 @@ impl Workspace {
         if shown.is_empty() {
             return;
         }
-        let last = shown.len() as isize - 1;
         let current = self
             .session_cursor()
             .and_then(|dir| shown.iter().position(|(row, _)| *row == dir));
-        let next = match current {
-            Some(current) => (current as isize).saturating_add(offset).clamp(0, last),
-            None if offset > 0 => 0,
-            None => last,
-        } as usize;
+        let next = cursor_index(shown.len(), current, offset);
         let (dir, child) = shown[next].clone();
         self.session_list.scroll.scroll_to_item(child);
         self.session_list.cursor = Some(dir);
@@ -183,5 +178,32 @@ impl Workspace {
         self.session_list.focus.focus(window, cx);
         self.session_list.cursor = None;
         self.step_session(isize::MIN, cx);
+    }
+}
+
+fn cursor_index(len: usize, current: Option<usize>, offset: isize) -> usize {
+    let last = len.saturating_sub(1) as isize;
+    match offset {
+        isize::MIN => 0,
+        isize::MAX => last as usize,
+        _ => match current {
+            Some(current) => (current as isize).saturating_add(offset).clamp(0, last) as usize,
+            None if offset > 0 => 0,
+            None => last as usize,
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cursor_index;
+    #[test]
+    fn list_ends_do_not_reverse_when_active_chat_is_filtered_out() {
+        for current in [None, Some(1)] {
+            assert_eq!(cursor_index(3, current, isize::MIN), 0);
+            assert_eq!(cursor_index(3, current, isize::MAX), 2);
+        }
+        assert_eq!(cursor_index(3, None, 1), 0);
+        assert_eq!(cursor_index(3, None, -1), 2);
     }
 }

@@ -182,7 +182,28 @@ fn relative(name: &str) -> Result<PathBuf> {
     Ok(path)
 }
 
+static CHANGES: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+pub(crate) fn try_change_guard() -> Result<Option<std::sync::MutexGuard<'static, ()>>> {
+    match CHANGES.try_lock() {
+        Ok(guard) => Ok(Some(guard)),
+        Err(std::sync::TryLockError::WouldBlock) => Ok(None),
+        Err(std::sync::TryLockError::Poisoned(_)) => {
+            anyhow::bail!("Предыдущая операция с пакетом прервана")
+        }
+    }
+}
+
+/// Package workers may run for different windows. Serialize publication and
+/// removal so a failed replacement cannot restore over another operation.
+pub(crate) fn change_guard() -> Result<std::sync::MutexGuard<'static, ()>> {
+    CHANGES
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Предыдущая операция с пакетом прервана"))
+}
+
 pub fn publish(temporary: &Path, destination: &Path, replace: bool) -> Result<()> {
+    let _guard = change_guard()?;
     let backup = destination.with_file_name(format!(".previous-{}", uuid::Uuid::new_v4()));
     let exists = destination.exists();
     ensure!(

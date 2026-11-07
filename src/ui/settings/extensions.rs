@@ -81,7 +81,10 @@ impl SettingsView {
 
     /// Installs every dropped or picked ZIP archive and reports the result.
     pub(super) fn install_archives(&mut self, paths: &[PathBuf], cx: &mut Context<Self>) {
-        let archives: Vec<&PathBuf> = paths.iter().filter(|path| is_zip(path)).collect();
+        if self.catalogs.busy {
+            return;
+        }
+        let archives: Vec<PathBuf> = paths.iter().filter(|path| is_zip(path)).cloned().collect();
         if archives.is_empty() {
             self.extension_notice = Some(Feedback {
                 text: "Нужен ZIP-архив расширения".into(),
@@ -90,26 +93,48 @@ impl SettingsView {
             cx.notify();
             return;
         }
-        let mut installed = Vec::new();
-        let mut errors = Vec::new();
-        for archive in archives {
-            match extensions::install(archive, cx) {
-                Ok(manifest) => installed.push(manifest.title),
-                Err(error) => errors.push(format!("{}: {error:#}", file_name(archive))),
-            }
-        }
-        self.extension_notice = Some(if errors.is_empty() {
-            Feedback {
-                text: format!("Установлено: {}", installed.join(", ")).into(),
-                error: false,
-            }
-        } else {
-            Feedback {
-                text: errors.join("\n").into(),
-                error: true,
-            }
+        self.catalogs.busy = true;
+        self.extension_notice = Some(Feedback {
+            text: "Установка расширений…".into(),
+            error: false,
         });
         cx.notify();
+        cx.spawn(async move |this, cx| {
+            let (installed, errors) = cx
+                .background_executor()
+                .spawn(async move {
+                    let mut installed = Vec::new();
+                    let mut errors = Vec::new();
+                    for archive in archives {
+                        match extensions::install_files(&archive) {
+                            Ok(title) => installed.push(title),
+                            Err(error) => {
+                                errors.push(format!("{}: {error:#}", file_name(&archive)))
+                            }
+                        }
+                    }
+                    (installed, errors)
+                })
+                .await;
+            // File publication is complete even if this settings view closed.
+            let _ = cx.update(|cx| extensions::packages_changed(cx));
+            let _ = this.update(cx, |this, cx| {
+                this.catalogs.busy = false;
+                this.extension_notice = Some(if errors.is_empty() {
+                    Feedback {
+                        text: format!("Установлено: {}", installed.join(", ")).into(),
+                        error: false,
+                    }
+                } else {
+                    Feedback {
+                        text: errors.join("\n").into(),
+                        error: true,
+                    }
+                });
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     fn choose_archive(&mut self, cx: &mut Context<Self>) {
@@ -130,22 +155,33 @@ impl SettingsView {
     }
 
     pub(super) fn remove_extension(&mut self, id: &str, cx: &mut Context<Self>) {
-        self.removing = None;
-        let removed = extensions::remove(id, cx);
-        if removed.is_ok() && self.page == PageId::Extension(id.to_string()) {
-            self.set_page(PageId::Extensions, cx);
+        if self.catalogs.busy {
+            return;
         }
-        self.extension_notice = Some(match removed {
-            Ok(()) => Feedback {
-                text: "Пользовательский пакет удалён; поставляемая версия, если есть, выключена"
-                    .into(),
-                error: false,
-            },
-            Err(error) => Feedback {
-                text: format!("Не удалено: {error:#}").into(),
-                error: true,
-            },
+        self.removing = None;
+        self.catalogs.busy = true;
+        self.extension_notice = Some(Feedback {
+            text: "Удаление расширения…".into(),
+            error: false,
         });
+        let id = id.to_owned();
+        cx.spawn(async move |this, cx| {
+            let removed_id = id.clone();
+            let mut result = cx.background_executor().spawn(async move { extensions::remove_files(&removed_id) }).await;
+            let finalized = if let Ok(receipt) = &result {
+                extensions::settle_removal(&id, receipt, cx).await
+            } else { Ok(false) };
+            let applied = match finalized { Ok(applied) => applied, Err(error) => { result = Err(error); false } };
+            let _ = this.update(cx, |this, cx| {
+                this.catalogs.busy = false;
+                if result.is_ok() && applied && this.page == PageId::Extension(id) { this.set_page(PageId::Extensions, cx); }
+                this.extension_notice = Some(match result {
+                    Ok(_) => Feedback { text: if applied { "Пользовательский пакет удалён; поставляемая версия, если есть, выключена" } else { "Удаление завершено; более новое состояние расширения сохранено" }.into(), error: false },
+                    Err(error) => Feedback { text: format!("Не удалено: {error:#}").into(), error: true },
+                });
+                cx.notify();
+            });
+        }).detach();
         cx.notify();
     }
 
@@ -213,6 +249,7 @@ impl SettingsView {
                 controls
                     .child(
                         kit::button(ElementId::Name(format!("extension-remove-yes-{id}").into()))
+                            .disabled(self.catalogs.busy)
                             .faded_label("Удалить")
                             .danger()
                             .small()
@@ -245,6 +282,7 @@ impl SettingsView {
                     .when(removable, |controls| {
                         controls.child(
                             kit::button(ElementId::Name(format!("extension-remove-{id}").into()))
+                                .disabled(self.catalogs.busy)
                                 .icon(Lucide::Trash)
                                 .quiet(cx)
                                 .small()
@@ -315,6 +353,7 @@ impl SettingsView {
                         )
                         .child(
                             kit::button("extensions-zip-choose")
+                                .disabled(self.catalogs.busy)
                                 .faded_label("Выбрать ZIP…")
                                 .small()
                                 .on_click(cx.listener(|this, _, _, cx| this.choose_archive(cx))),

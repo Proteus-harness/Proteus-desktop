@@ -105,6 +105,7 @@ impl Styled for ContextMenu {
 
 impl RenderOnce for ContextMenu {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let selector = matches!(&self.trigger, Trigger::Button(_, true));
         let state = window.use_keyed_state(self.id.clone(), cx, |_, _| MenuState::default());
         let mut root = div().id(self.id.clone()).relative();
         root.style().refine(&self.style);
@@ -233,7 +234,7 @@ impl RenderOnce for ContextMenu {
         root.child(motion::popup(
             div().relative().p(prefs::scaled(inset)).child(menu),
             ElementId::Name(format!("{:?}:popup", self.id).into()),
-            frame,
+            if selector { frame.selector() } else { frame },
             cx,
         ))
     }

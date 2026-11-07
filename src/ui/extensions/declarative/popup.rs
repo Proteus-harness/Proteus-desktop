@@ -52,6 +52,20 @@ impl DeclarativeBadge {
         let trigger = self.bounds.get();
         let bounds = panel.map_or(trigger, |panel| panel.anchor(trigger));
         let mut frame = self.popup.frame(bounds, window, cx)?;
+        if self
+            .view
+            .read(cx)
+            .presentation
+            .as_ref()
+            .is_some_and(|presentation| {
+                matches!(
+                    presentation.face,
+                    crate::declarative::presentation::Face::Text { caret: true, .. }
+                )
+            })
+        {
+            frame = frame.selector();
+        }
         if let Some(panel) = panel {
             frame = frame.attached(panel);
         }

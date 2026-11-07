@@ -20,6 +20,7 @@ use crate::ui::kit;
 use crate::ui::kit::Pressable as _;
 
 pub struct Launcher {
+    tooltips: Entity<gpui_kit::base::TooltipOverlay>,
     stage: Stage,
     target: Target,
     focus: FocusHandle,
@@ -49,6 +50,7 @@ impl Launcher {
             },
         );
         Self {
+            tooltips: super::tip::layer(window, cx),
             stage: Stage::Ready(view),
             target,
             focus: cx.focus_handle(),
@@ -84,6 +86,7 @@ impl Launcher {
         let focus = cx.focus_handle();
         focus.focus(window, cx);
         let mut launcher = Self {
+            tooltips: super::tip::layer(window, cx),
             stage: Stage::Picking { error: None },
             target,
             preparation,
@@ -322,7 +325,7 @@ impl Render for Launcher {
                 .size_full()
                 .child(super::wheel::layer())
                 .child(workspace.clone())
-                .child(super::tip::layer(cx))
+                .child(self.tooltips.clone())
                 .into_any_element(),
             Stage::Picking { error } => {
                 let launcher = cx.weak_entity();
@@ -352,7 +355,7 @@ impl Render for Launcher {
                             .min_h_0()
                             .child(self.render_picker(error.clone(), cx)),
                     )
-                    .child(super::tip::layer(cx))
+                    .child(self.tooltips.clone())
                     .into_any_element()
             }
         }

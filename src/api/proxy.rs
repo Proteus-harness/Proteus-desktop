@@ -3,17 +3,26 @@
 use std::time::Duration;
 
 pub(super) fn server_agent(origin: &str, inherited: Option<ureq::Proxy>) -> ureq::Agent {
+    server_agent_with_timeout(origin, inherited, Duration::from_secs(30))
+}
+
+fn server_agent_with_timeout(
+    origin: &str,
+    inherited: Option<ureq::Proxy>,
+    timeout: Duration,
+) -> ureq::Agent {
     let proxy = if proteus_client_common::normalize_local_origin(origin).is_ok() {
         None
     } else {
         inherited
     };
-    ureq::Agent::config_builder()
+    let config = ureq::Agent::config_builder()
         .http_status_as_error(false)
         .timeout_connect(Some(Duration::from_secs(10)))
+        .timeout_global(Some(timeout))
         .proxy(proxy)
-        .build()
-        .into()
+        .build();
+    super::transport::agent(config, Duration::from_secs(45))
 }
 
 #[cfg(test)]
@@ -24,6 +33,76 @@ mod tests {
     use std::io::{BufRead as _, BufReader, Read as _, Write as _};
     use std::net::TcpListener;
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn sse_heartbeats_reset_idle_reads_without_a_total_stream_deadline() {
+        let server = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", server.local_addr().unwrap());
+        let (done, wait) = std::sync::mpsc::channel();
+        let responder = std::thread::spawn(move || {
+            let (mut socket, _) = server.accept().unwrap();
+            let mut reader = BufReader::new(socket.try_clone().unwrap());
+            loop {
+                let mut line = String::new();
+                let n = reader.read_line(&mut line).unwrap();
+                if n == 0 || line == "\r\n" {
+                    break;
+                }
+            }
+            socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n").unwrap();
+            for _ in 0..5 {
+                socket.write_all(b": heartbeat\n\n").unwrap();
+                std::thread::sleep(Duration::from_millis(80));
+            }
+            let _ = wait.recv_timeout(Duration::from_secs(2));
+        });
+        let mut api = Api::new(&origin, "synthetic");
+        let config = ureq::Agent::config_builder().proxy(None).build();
+        api.agent = crate::api::transport::agent(config, Duration::from_millis(250));
+        let mut stream = api.events(std::path::Path::new("/session")).unwrap();
+        let start = Instant::now();
+        for _ in 0..5 {
+            assert!(matches!(
+                stream.next(),
+                Some(Ok(crate::api::StreamItem::Heartbeat))
+            ));
+        }
+        assert!(start.elapsed() >= Duration::from_millis(300));
+        assert!(matches!(stream.next(), Some(Err(_))));
+        done.send(()).unwrap();
+        responder.join().unwrap();
+    }
+
+    #[test]
+    fn stalled_headers_and_body_expire_after_connection() {
+        for partial_body in [false, true] {
+            let server = TcpListener::bind("127.0.0.1:0").unwrap();
+            let origin = format!("http://{}", server.local_addr().unwrap());
+            let (done, wait) = std::sync::mpsc::channel();
+            let responder = std::thread::spawn(move || {
+                let (mut socket, _) = server.accept().unwrap();
+                let mut reader = BufReader::new(socket.try_clone().unwrap());
+                loop {
+                    let mut line = String::new();
+                    let read = reader.read_line(&mut line).unwrap();
+                    if read == 0 || line == "\r\n" {
+                        break;
+                    }
+                }
+                if partial_body {
+                    let _ = socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n{");
+                }
+                let _ = wait.recv_timeout(Duration::from_secs(2));
+            });
+            let mut api = Api::new(&origin, "synthetic");
+            api.agent = super::server_agent_with_timeout(&origin, None, Duration::from_millis(150));
+            let started = Instant::now();
+            assert!(api.bootstrap().is_err());
+            assert!(started.elapsed() < Duration::from_secs(2));
+            done.send(()).unwrap();
+            responder.join().unwrap();
+        }
+    }
 
     #[test]
     fn local_send_reaches_server_without_contacting_the_inherited_proxy() {

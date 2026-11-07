@@ -7,6 +7,7 @@ use gpui_kit::*;
 use std::path::PathBuf;
 
 pub(super) struct Setting {
+    bytes: usize,
     generation: u64,
     context: String,
     view: Option<String>,
@@ -55,7 +56,28 @@ impl Runtime {
         setting: SessionSetting,
         cx: &mut Context<Self>,
     ) {
+        // The wire lease ends after dispatch. Bound the separate HTTP queue
+        // independently, including values retained behind a stalled request.
+        let bytes = serde_json::to_vec(&setting)
+            .map_or(usize::MAX, |json| json.len())
+            .saturating_add(context.len())
+            .saturating_add(id.len())
+            .saturating_add(view.as_ref().map_or(0, String::len))
+            .saturating_add(session.as_os_str().len());
+        if self.settings.len() >= 32 || self.settings_bytes.saturating_add(bytes) > 8 * 1024 * 1024
+        {
+            self.send(&Outgoing::CommandResult {
+                context,
+                id,
+                session_dir: session,
+                config: None,
+                error: Some("session command queue is full; wait for pending commands".into()),
+            });
+            return;
+        }
+        self.settings_bytes += bytes;
         self.settings.push_back(Setting {
+            bytes,
             generation: self.generation,
             context,
             view,
@@ -74,6 +96,7 @@ impl Runtime {
             let Some(request) = self.settings.pop_front() else {
                 return;
             };
+            self.settings_bytes = self.settings_bytes.saturating_sub(request.bytes);
             if request.generation != self.generation {
                 continue;
             }
@@ -145,6 +168,39 @@ impl Runtime {
 mod tests {
     use super::live_context;
     use std::collections::HashMap;
+
+    #[::core::prelude::v1::test]
+    fn a_blocked_session_writer_bounds_secondary_commands_and_reset_frees_them() {
+        use gpui_kit::AppContext as _;
+        let mut cx = ::gpui::TestAppContext::single();
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::ui::prefs::init_in_memory(cx);
+        });
+        let window = cx.add_empty_window();
+        window.update(|window, cx| {
+            let manifest = crate::declarative::manifest::parse(&serde_json::json!({
+                "protocol":4,"id":"fixture","title":"Fixture","command":["unused"],"surfaces":{"page":{}}
+            }).to_string()).unwrap();
+            let installed = Box::leak(Box::new(crate::declarative::manifest::Installed { dir:"/synthetic".into(), manifest, revision:1 }));
+            let host = crate::ui::extensions::host::Host::new(gpui_kit::WeakEntity::new_invalid(), "fixture");
+            let runtime = cx.new(|cx| super::Runtime::new(installed, host, window, cx));
+            runtime.update(cx, |runtime, cx| {
+                runtime.setting_running = true; // An HTTP completion is deliberately withheld.
+                for index in 0..1000 {
+                    runtime.set_session("context".into(), None, index.to_string(), "/session".into(), crate::declarative::protocol::SessionSetting {id:"setting".into(),value:serde_json::json!("value")}, cx);
+                }
+                assert_eq!(runtime.settings.len(), 32);
+                assert!(runtime.settings_bytes <= 8 * 1024 * 1024);
+                runtime.stop(crate::ui::extensions::declarative::view::Reset::Restart, cx);
+                assert!(runtime.settings.is_empty());
+                assert_eq!(runtime.settings_bytes, 0);
+                runtime.set_session("context".into(), None, "oversize".into(), "/session".into(), crate::declarative::protocol::SessionSetting {id:"setting".into(),value:serde_json::json!("x".repeat(9 * 1024 * 1024))}, cx);
+                assert!(runtime.settings.is_empty());
+                assert_eq!(runtime.settings_bytes, 0);
+            });
+        });
+    }
 
     #[test]
     fn queued_and_inflight_commands_follow_the_view_after_its_source_closes() {

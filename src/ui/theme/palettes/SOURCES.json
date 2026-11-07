@@ -9,7 +9,12 @@
       "window_border": "window.border",
       "link.foreground": "link",
       "link.active.foreground": "link.active",
-      "link.hover.foreground": "link.hover"
+      "link.hover.foreground": "link.hover",
+      "description_list_label.background": "description_list.label.background",
+      "description_list_label.foreground": "description_list.label.foreground",
+      "drag_border": "drag.border",
+      "progress_bar.background": "progress.bar.background",
+      "slider.bar.background": "slider.background"
     },
     "note": "Only semantic key names adapted to the vendored ThemeConfigColors schema; upstream color values are preserved.",
     "removed_metadata": [

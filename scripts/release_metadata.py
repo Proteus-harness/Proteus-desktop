@@ -34,6 +34,7 @@ def source_record(name, root):
 
 
 def manifest(desktop, core, modules, extensions):
+    from portable_state import desktop_features, desktop_protocol
     sources = {name: source_record(name, root) for name, root in (
         ("Proteus-desktop", desktop), ("Proteus-core", core),
         ("Proteus-modules", modules), ("Proteus-desktop-extensions", extensions),
@@ -50,6 +51,8 @@ def manifest(desktop, core, modules, extensions):
             "python": platform.python_version(),
         },
         "sources": sources,
+        "desktop_protocol": desktop_protocol(desktop),
+        "desktop_features": desktop_features(desktop),
         "runtime_requirements": {
             "node": ">=22.18", "python": ">=3", "git": "system",
             "ripgrep": "system", "bubblewrap": "Linux restricted profiles only",

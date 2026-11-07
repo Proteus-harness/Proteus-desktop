@@ -52,6 +52,9 @@ impl Graph {
         }
         self.positions
             .retain(|id, _| nodes.iter().any(|node| &node.id == id));
+        if self.nodes.is_empty() && !nodes.is_empty() {
+            self.fit = true;
+        }
         self.nodes = nodes;
         self.edges = edges;
         cx.notify();
@@ -78,6 +81,7 @@ impl Graph {
         };
         let positions: Vec<_> = self.nodes.iter().map(|node| self.position(node)).collect();
         if positions.is_empty() {
+            self.fit = false;
             return;
         }
         let (left, top) = positions.iter().fold((f32::MAX, f32::MAX), |(x, y), at| {
@@ -361,5 +365,33 @@ fn paint_edge(
     );
     if let Ok(path) = path.build() {
         window.paint_path(path, color);
+    }
+}
+
+#[cfg(test)]
+mod fit_tests {
+    use super::*;
+    #[::core::prelude::v1::test]
+    fn empty_graph_quiesces_and_first_data_reenables_fit() {
+        let cx = ::gpui::TestAppContext::single();
+        cx.update(|cx| {
+            let graph = cx.new(|_| Graph::new(vec![], vec![], |_, _| {}));
+            graph.update(cx, |graph, cx| {
+                graph.area.set(Some(Bounds::new(
+                    point(px(0.), px(0.)),
+                    size(px(500.), px(400.)),
+                )));
+                graph.fit();
+                assert!(!graph.fit);
+                let node = serde_json::from_value(
+                    serde_json::json!({"id":"first","label":"First","subtitle":"", "x":0,"y":0}),
+                )
+                .unwrap();
+                graph.set_data(vec![node], vec![], cx);
+                assert!(graph.fit);
+                graph.fit();
+                assert!(!graph.fit);
+            });
+        });
     }
 }

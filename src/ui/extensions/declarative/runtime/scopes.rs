@@ -33,6 +33,20 @@ fn workspace_update(
     })
 }
 
+/// GPUI preserves the originating Chat event's FIFO order. A shared runtime
+/// forwards it once even when several workspace-local subscriptions receive it.
+#[derive(Default)]
+pub(super) struct EventCursor(u64);
+impl EventCursor {
+    fn admit(&mut self, id: u64) -> bool {
+        if id <= self.0 {
+            return false;
+        }
+        self.0 = id;
+        true
+    }
+}
+
 pub(super) struct Scope {
     pub(super) host: Host,
     pub(super) window: AnyWindowHandle,
@@ -49,6 +63,19 @@ pub(super) struct Scope {
 mod tests {
     use super::workspace_update;
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn originating_event_is_forwarded_once_without_electing_a_destination_subscription() {
+        let mut cursor = super::EventCursor::default();
+        // Only the source Workspace receives the shared Chat's event. A
+        // document-only destination has no subscription to that emitter.
+        assert!(cursor.admit(10));
+        // A second surface/source copy must not splice that event twice.
+        assert!(!cursor.admit(10));
+        // Identical payload in a different event remains a real update.
+        assert!(cursor.admit(11));
+        assert!(!cursor.admit(11));
+    }
 
     #[test]
     fn restored_chat_gets_its_late_project_without_a_second_session_open() {
@@ -131,10 +158,13 @@ impl Runtime {
             .session()
             .then(|| {
                 host.subscribe_session(cx, move |this: &mut Self, event, _| {
+                    // Workspace subscriptions are local; never elect a
+                    // context which may not receive this source event.
                     if this
                         .extension
                         .manifest
                         .accepts_session_update(&event.update)
+                        && this.session_events.admit(event.event_id)
                     {
                         this.send(&Outgoing::SessionUpdate {
                             context: session_context.clone(),

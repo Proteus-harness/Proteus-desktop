@@ -24,6 +24,7 @@ use serde_json::Value;
 
 mod proxy;
 mod terminals;
+mod transport;
 
 /// Blocking HTTP client for the app server; call it off the UI thread.
 #[derive(Clone)]
@@ -289,6 +290,11 @@ impl Api {
         let response = self
             .agent
             .get(format!("{}/events", self.origin))
+            .config()
+            .timeout_global(None)
+            .timeout_recv_response(Some(Duration::from_secs(10)))
+            .timeout_recv_body(None)
+            .build()
             .header("Authorization", format!("Bearer {}", self.token))
             .header("Accept", "text/event-stream")
             .query("session_dir", session_dir.to_string_lossy())
@@ -505,7 +511,7 @@ mod image_tests {
             let _ = wait.recv_timeout(Duration::from_secs(5));
         });
         let mut api = Api::new(&origin, "synthetic");
-        api.agent = ureq::Agent::config_builder().proxy(None).build().into();
+        api.agent = super::proxy::server_agent(&origin, None);
         let start = Instant::now();
         let result = api.image_with_timeout(
             Path::new("synthetic-session"),
@@ -520,6 +526,9 @@ mod image_tests {
             elapsed < Duration::from_secs(3),
             "deadline did not release the request: {elapsed:?}"
         );
-        assert_eq!(api.agent.config().timeouts().global, None);
+        assert_eq!(
+            api.agent.config().timeouts().global,
+            Some(Duration::from_secs(30))
+        );
     }
 }

@@ -73,6 +73,7 @@ pub fn clip_block(text: &str, max_lines: usize, max_chars: usize) -> String {
             let rest = text.lines().count() - lines;
             if rest == 0 {
                 out.truncate(out.trim_end().len());
+                out.push_str("\n… Текст обрезан");
                 return out;
             }
             out.push_str(&format!("Ещё строк: {rest}"));
@@ -161,7 +162,7 @@ mod tests {
     fn clip_block_counts_hidden_lines() {
         assert_eq!(clip_block("a\nb\nc", 2, 100), "a\nb\nЕщё строк: 1");
         assert_eq!(clip_block("a\nb\n", 5, 100), "a\nb");
-        assert_eq!(clip_block("abcdef", 5, 3), "abc");
+        assert_eq!(clip_block("abcdef", 5, 3), "abc\n… Текст обрезан");
         assert_eq!(clip_block("abcdef\nz", 5, 3), "abc\nЕщё строк: 1");
     }
 

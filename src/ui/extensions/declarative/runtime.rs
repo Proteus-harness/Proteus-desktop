@@ -27,6 +27,8 @@ use crate::ui::extensions::host::{Host, HostEvent, OpenDocument};
 pub(super) struct Runtime {
     generation: u64,
     settings: VecDeque<commands::Setting>,
+    settings_bytes: usize,
+    session_events: scopes::EventCursor,
     setting_running: bool,
     extension: &'static Installed,
     host: Host,
@@ -67,6 +69,8 @@ impl Runtime {
         Self {
             generation: 0,
             settings: VecDeque::new(),
+            settings_bytes: 0,
+            session_events: scopes::EventCursor::default(),
             setting_running: false,
             extension,
             host,
@@ -376,6 +380,8 @@ impl Runtime {
     fn stop(&mut self, reset: Reset, cx: &mut Context<Self>) {
         self.generation += 1;
         self.settings.clear();
+        self.settings_bytes = 0;
+        self.session_events = scopes::EventCursor::default();
         self.popup_closed += 1;
         self.process = None;
         self._pump = None;

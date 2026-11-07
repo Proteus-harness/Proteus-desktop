@@ -70,7 +70,7 @@ impl Chat {
                                 .latest_usage
                                 .as_ref()
                                 .and_then(ContextUsage::from_snapshot);
-                            cx.emit(ChatEvent::SessionStateChanged);
+                            cx.emit(ChatEvent::state_changed());
                         }
                         Err(error) => this.show_notice(format!("{error:#}"), cx),
                     }
@@ -307,6 +307,6 @@ impl Chat {
             self.show_notice(format!("Не удалось загрузить каталог моделей: {error}"), cx);
         }
         self.session.config = Some(config);
-        cx.emit(ChatEvent::SessionStateChanged);
+        cx.emit(ChatEvent::state_changed());
     }
 }

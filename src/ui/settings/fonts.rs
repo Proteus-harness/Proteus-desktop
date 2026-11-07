@@ -322,7 +322,12 @@ impl Render for FontControl {
         } else {
             body.into_any_element()
         };
-        root.child(motion::popup(body, "font-popup-motion", frame, cx))
+        root.child(motion::popup(
+            body,
+            "font-popup-motion",
+            frame.selector(),
+            cx,
+        ))
     }
 }
 

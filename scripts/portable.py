@@ -22,7 +22,7 @@ from cargo_binary import build_binary
 from desktop_toolchain import prepare_desktop
 from portable_modules import assemble as assemble_modules
 from portable_state import (COMPONENTS, SOURCE_NAMES, binary_hashes, clear_modules,
-                            desktop_protocol, publish, read_record, verify_extension_source, verify_protocol)
+                            desktop_features, desktop_protocol, publish, read_record, verify_extension_source, verify_protocol)
 from release_metadata import install_component_notices, source_record, version, write_manifest
 
 NATIVE = Path(__file__).resolve().parent.parent
@@ -117,6 +117,7 @@ def assemble(stage, selected, roots, profile, base_record=None):
         if "desktop" in selected:
             record["version"] = version(NATIVE)
             record["desktop_protocol"] = desktop_protocol(NATIVE)
+            record["desktop_features"] = desktop_features(NATIVE)
         (stage / "share/release-sources.json").write_text(json.dumps(record, indent=2) + "\n")
 
 

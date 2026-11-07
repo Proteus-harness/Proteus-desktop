@@ -64,11 +64,30 @@ def desktop_protocol(native):
     return int(match[1])
 
 
+def desktop_features(native):
+    source = (native / "src/declarative/protocol.rs").read_text()
+    match = re.search(r'pub const FEATURES: &\[&str\] = &\[(.*?)\];', source, re.S)
+    if not match:
+        raise SystemExit("Cannot determine Desktop extension features")
+    return sorted(set(re.findall(r'"([^"\n]+)"', match[1])))
+
+
+def verify_features(manifests, supported):
+    if supported is None:
+        raise SystemExit("Ready Desktop has no supported-feature provenance; explicitly rebuild Desktop first")
+    for path in manifests:
+        required = json.loads(path.read_text()).get("required_features", [])
+        missing = sorted(set(required) - set(supported))
+        if missing:
+            raise SystemExit(f"Extension {path.parent.name} requires unsupported Desktop features: {', '.join(missing)}; select compatible packages or rebuild Desktop")
+
+
 def verify_protocol(base, native, selected, record):
     if "desktop" in selected and "extensions" not in selected:
         if extension_protocols(base) != {desktop_protocol(native)}:
             raise SystemExit("Ready extensions use another protocol; explicitly select "
                              "--components desktop extensions (no components are rebuilt automatically)")
+        verify_features((base / "share/extensions").glob("*/extension.json"), desktop_features(native))
     # The selected Extensions protocol comes from its own source checkout,
     # not an unrelated, unselected Desktop checkout.
 
@@ -83,6 +102,7 @@ def verify_extension_source(base, extensions, record):
     if protocols != {expected}:
         raise SystemExit("Selected extensions use another protocol than the ready Desktop; "
                          "explicitly select --components desktop extensions")
+    verify_features((extensions / "packages").glob("*/extension.json"), record.get("desktop_features"))
 
 
 def binary_hashes(stage):

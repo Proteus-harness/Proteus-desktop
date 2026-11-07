@@ -150,9 +150,11 @@ impl SettingsView {
                             &taken,
                         )
                     };
-                    if entry.source.is_some() { prepare() } else {
-                        git::with_files(&locations.cache, &source, &folder, prepare)
-                    }
+                    let installed = if entry.source.is_some() { prepare() } else {
+                        git::with_files(&locations.cache, &source, catalog.revision.as_deref(), &folder, prepare)
+                    }?;
+                    if installed.kind == Kind::ClientExtension { extensions::rescan_files(); }
+                    Ok(installed)
                 })
                 .await;
             this.update(cx, |this, cx| {
@@ -207,10 +209,17 @@ impl SettingsView {
         cx.notify();
         cx.spawn(async move |this, cx| {
             let files = installed.clone();
-            let result = cx
-                .background_executor()
-                .spawn(async move { install::remove_files(&Locations::local()?, &files) })
-                .await;
+            let result = cx.background_executor().spawn(async move {
+                let locations = Locations::local()?;
+                if files.kind == Kind::ClientExtension {
+                    anyhow::ensure!(matches!(&files.target, crate::catalog::Target::Folder {path} if *path == locations.extensions.join(&files.entry)), "Установка находится вне управляемой папки");
+                    extensions::remove_files(&files.entry).map(Some)
+                } else { install::remove_files(&locations, &files).map(|_| None) }
+            }).await;
+            let applied = match &result {
+                Ok(Some(receipt)) => extensions::settle_removal(&installed.entry, receipt, cx).await,
+                _ => Ok(true),
+            };
             this.update(cx, |this, cx| {
                 if let Err(error) = result {
                     return this.catalog_failed(error, cx);
@@ -229,14 +238,18 @@ impl SettingsView {
                         cx,
                     );
                 }
+                let applied = match applied {
+                    Ok(applied) => applied,
+                    Err(error) => return this.catalog_failed(error, cx),
+                };
                 this.catalogs.busy = false;
-                prefs::update(cx, |prefs| {
-                    prefs.catalogs.installed.retain(|old| *old != installed);
-                    if installed.kind == Kind::ClientExtension {
-                        prefs.extensions.forget(&installed.entry);
-                        prefs.extensions.set_enabled(&installed.entry, false);
-                    }
-                });
+                if !applied {
+                    this.refresh_catalog_inventory(cx);
+                    this.catalog_message(Ok("Удаление завершено; более новое состояние сохранено"));
+                    cx.notify();
+                    return;
+                }
+                prefs::update(cx, |prefs| { prefs.catalogs.installed.retain(|old| *old != installed); });
                 this.reload_installed(installed.kind, cx);
                 this.refresh_catalog_inventory(cx);
                 this.catalog_message(Ok("Удалено"));
@@ -328,7 +341,7 @@ impl SettingsView {
 
     fn reload_installed(&mut self, kind: Kind, cx: &mut Context<Self>) {
         match kind {
-            Kind::ClientExtension => extensions::reload_installed(cx),
+            Kind::ClientExtension => extensions::packages_changed(cx),
             Kind::Skill => self.load_addons(cx),
             Kind::AgentPlugin | Kind::McpServer | Kind::ProcessModule => {}
         }

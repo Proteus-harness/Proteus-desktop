@@ -208,7 +208,7 @@ class PortableSelectionTests(unittest.TestCase):
         self.native.mkdir()
         protocol = self.native / "src/declarative/protocol.rs"
         protocol.parent.mkdir(parents=True)
-        protocol.write_text("pub const PROTOCOL: u32 = 4;\n")
+        protocol.write_text('pub const PROTOCOL: u32 = 4;\npub const FEATURES: &[&str] = &[];\n')
         self.portable = portable_module()
         self.portable.NATIVE = self.native
         self.portable.BUILD = self.native / "build"
@@ -251,7 +251,7 @@ class PortableSelectionTests(unittest.TestCase):
                         {"protocol": 4, "command": ["bin/ext"]})
         self.write_json(base / "share/modules/old/module.json", {"command": ["bin/old-module"]})
         self.write_json(base / "share/release-sources.json", {
-            "version": "1.2.3", "sources": {name: {"commit": "old-" + name}
+            "version": "1.2.3", "desktop_protocol": 4, "desktop_features": [], "sources": {name: {"commit": "old-" + name}
                                                  for name in self.portable.SOURCE_NAMES.values()},
         })
 

@@ -119,11 +119,9 @@ pub(super) fn problems() -> Vec<Problem> {
     declarative::problems()
 }
 
-/// Re-reads managed folders after a catalog installation or removal.
-pub(super) fn reload_installed(cx: &mut App) {
+/// Discover folders on the worker before native lifecycle publication.
+pub(super) fn rescan_files() {
     declarative::rescan();
-    declarative::reload_runtimes(cx);
-    cx.refresh_windows();
 }
 
 /// Folder of an extension installed by the user; built-in ones have none.
@@ -131,33 +129,84 @@ pub(super) fn folder(id: &str) -> Option<&'static Path> {
     declarative::folder(id)
 }
 
-/// Unpacks an extension archive into the extensions folder and adds it to
-/// the catalog right away. Returns the new extension.
-pub(super) fn install(archive: &Path, cx: &mut App) -> anyhow::Result<&'static Manifest> {
+/// Archive, filesystem and catalog discovery work belongs on a worker.
+pub(super) fn install_files(archive: &Path) -> anyhow::Result<String> {
     let root = crate::declarative::manifest::root()
         .ok_or_else(|| anyhow::anyhow!("Не найдена папка настроек"))?;
     let manifest = crate::declarative::package::install(&root, archive, &[])?;
     declarative::rescan();
-    declarative::reload_runtimes(cx);
-    cx.refresh_windows();
-    find(&manifest.id).ok_or_else(|| anyhow::anyhow!("Расширение `{}` не загрузилось", manifest.id))
+    find(&manifest.id)
+        .map(|manifest| manifest.title.to_string())
+        .ok_or_else(|| anyhow::anyhow!("Расширение `{}` не загрузилось", manifest.id))
 }
 
-/// Removes a user package. A restored shipped version stays disabled.
-pub(super) fn remove(id: &str, cx: &mut App) -> anyhow::Result<()> {
+pub(super) struct RemovedExtension {
+    user_path: std::path::PathBuf,
+    restored: Option<(std::path::PathBuf, u64)>,
+}
+
+fn installed_identity(id: &str) -> Option<(std::path::PathBuf, u64)> {
+    declarative::installed(id).map(|entry| (entry.dir.clone(), entry.revision))
+}
+
+pub(super) fn remove_files(id: &str) -> anyhow::Result<RemovedExtension> {
     let root = crate::declarative::manifest::root()
         .ok_or_else(|| anyhow::anyhow!("Не найдена папка настроек"))?;
-    crate::declarative::package::remove(&root, id)?;
-    declarative::rescan();
-    declarative::reload_runtimes(cx);
-    prefs::update(cx, |preferences| {
-        preferences.extensions.forget(id);
-        if find(id).is_some() {
-            preferences.extensions.set_enabled(id, false);
+    crate::declarative::package::remove_with(&root, id, || {
+        declarative::rescan();
+        RemovedExtension {
+            user_path: root.join(id),
+            restored: installed_identity(id),
         }
-    });
+    })
+}
+
+/// No blocking filesystem operation runs here. Busy publication is retried by
+/// the async owner; a replacement installed since deletion keeps its prefs.
+pub(super) fn finish_removal(
+    id: &str,
+    removed: &RemovedExtension,
+    cx: &mut App,
+) -> anyhow::Result<Option<bool>> {
+    let Some(guard) = crate::packages::try_change_guard()? else {
+        return Ok(None);
+    };
+    let current = !removed.user_path.try_exists()? && installed_identity(id) == removed.restored;
+    if current {
+        prefs::update(cx, |preferences| {
+            preferences.extensions.forget(id);
+            if find(id).is_some() {
+                preferences.extensions.set_enabled(id, false);
+            }
+        });
+    }
+    drop(guard);
+    packages_changed(cx);
+    Ok(Some(current))
+}
+
+pub(super) async fn settle_removal(
+    id: &str,
+    receipt: &RemovedExtension,
+    cx: &mut AsyncApp,
+) -> anyhow::Result<bool> {
+    loop {
+        match cx.update(|cx| finish_removal(id, receipt, cx)) {
+            Ok(Some(applied)) => return Ok(applied),
+            Ok(None) => {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(10))
+                    .await
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+/// Rebind native state only after the worker has published/scanned packages.
+pub(super) fn packages_changed(cx: &mut App) {
+    declarative::reload_runtimes(cx);
     cx.refresh_windows();
-    Ok(())
 }
 
 pub(super) fn find(id: &str) -> Option<&'static Manifest> {
@@ -291,3 +340,6 @@ impl DocumentSurface {
             .into()
     }
 }
+
+#[cfg(test)]
+mod package_tests;

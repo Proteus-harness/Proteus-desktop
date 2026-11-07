@@ -56,7 +56,7 @@ impl Chat {
                         self.sync_history_range(cx);
                     }
                     for change in outcome.event_changes() {
-                        cx.emit(ChatEvent::SessionEntriesChanged(change));
+                        cx.emit(ChatEvent::entries_changed(change));
                     }
                     shown |= outcome.shown();
                 }
@@ -78,12 +78,12 @@ impl Chat {
                 if reconnecting {
                     self.load_config(cx);
                 }
-                cx.emit(ChatEvent::SessionStateChanged);
+                cx.emit(ChatEvent::state_changed());
                 true
             }
             PumpItem::Disconnected(error) => {
                 session.stream_disconnected(error);
-                cx.emit(ChatEvent::SessionStateChanged);
+                cx.emit(ChatEvent::state_changed());
                 true
             }
             PumpItem::Event(event) => self.apply_event(*event, cx),
@@ -241,10 +241,10 @@ impl Chat {
             self.load_context(cx);
         }
         if !matches!(change, Change::None) {
-            cx.emit(ChatEvent::SessionEntriesChanged(change));
+            cx.emit(ChatEvent::entries_changed(change));
         }
         if state_changed {
-            cx.emit(ChatEvent::SessionStateChanged);
+            cx.emit(ChatEvent::state_changed());
         }
         shown
     }

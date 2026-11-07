@@ -6,6 +6,7 @@
 use std::{cell::Cell, rc::Rc, time::Instant};
 
 use gpui_kit::base::{Align, POPUP_PRIORITY, Placement, Positioner, ResolvedPosition};
+use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
@@ -35,6 +36,7 @@ pub(in crate::ui) struct PopupFrame {
     align: Align,
     gap: Pixels,
     attachment: Option<PopupPanel>,
+    bordered: bool,
     progress: f32,
     effect: Effect,
     anchor: Bounds<Pixels>,
@@ -42,6 +44,11 @@ pub(in crate::ui) struct PopupFrame {
 }
 
 impl PopupFrame {
+    /// Select lists keep a visible edge against the page they float over.
+    pub fn selector(mut self) -> Self {
+        self.bordered = true;
+        self
+    }
     /// Join this popup to a panel edge without covering either frame.
     pub fn attached(mut self, panel: PopupPanel) -> Self {
         self.placement = panel.placement;
@@ -233,6 +240,7 @@ impl<T> Popup<T> {
             align: Align::Start,
             gap: px(4.),
             attachment: None,
+            bordered: false,
             progress,
             effect,
             anchor: self.anchor.unwrap_or_default(),
@@ -255,6 +263,9 @@ pub(in crate::ui) fn popup(
         .and_then(|position| position.placement)
         .unwrap_or(frame.placement);
     let surface = crate::ui::kit::popup_surface(cx)
+        .when(frame.bordered, |surface| {
+            surface.border_color(cx.theme().border)
+        })
         .when_some(frame.attachment, |surface, panel| {
             let surface = surface.bg(panel.background);
             let limit = fixed.map_or(panel.bounds.size, |position| position.bounds.size);

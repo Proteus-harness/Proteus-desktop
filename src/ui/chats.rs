@@ -452,7 +452,8 @@ impl Workspace {
                 child_thread_id,
                 status,
             } => self.refresh_subagent_lifecycle(tab, child_thread_id, status, cx),
-            ChatEvent::SessionStateChanged | ChatEvent::SessionEntriesChanged(_) => {
+            ChatEvent::SessionStateChanged(event_id)
+            | ChatEvent::SessionEntriesChanged(_, event_id) => {
                 self.refresh_subagent_documents(tab, false, cx);
                 if self.active_chat_view() != Some(chat)
                     && self.space_root_chat_view() != Some(chat)
@@ -465,7 +466,7 @@ impl Workspace {
                 }
                 let session = &chat.read(cx).session;
                 let update = match event {
-                    ChatEvent::SessionEntriesChanged(change) => {
+                    ChatEvent::SessionEntriesChanged(change, _) => {
                         super::extensions::session::changed(session, *change)
                     }
                     _ => Some(crate::declarative::session::Update::State {
@@ -480,6 +481,7 @@ impl Workspace {
                 };
                 if let Some(update) = update {
                     cx.emit(super::extensions::session::SessionChanged {
+                        event_id: *event_id,
                         session_dir: session.dir.clone(),
                         update,
                     });
@@ -569,7 +571,7 @@ impl Workspace {
                     Ok(sessions) => {
                         for summary in &sessions {
                             if let Some(activity) = &summary.activity {
-                                this.attention
+                                cx.default_global::<crate::attention::Tracker>()
                                     .baseline(&summary.session_dir, activity.status);
                             }
                         }

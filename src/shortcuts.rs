@@ -200,6 +200,19 @@ impl Shortcuts {
 
     pub fn reset(&mut self, command: Command) {
         self.0.remove(command.id());
+        // Restoring defaults claims them just like an explicit assignment.
+        // A chord may have been moved to another command since startup.
+        let restored = self.chords(command);
+        for other in Command::ALL {
+            if other != command {
+                let rest = self
+                    .chords(other)
+                    .into_iter()
+                    .filter(|chord| !restored.contains(chord))
+                    .collect();
+                self.set(other, rest);
+            }
+        }
     }
 
     pub fn reset_all(&mut self) {
@@ -369,5 +382,15 @@ mod tests {
         assert!(saved.validate().is_err());
         let saved: Shortcuts = serde_json::from_str(r#"{"new_terminal": ["ctrl-n"]}"#).unwrap();
         assert!(saved.validate().is_err());
+    }
+
+    #[test]
+    fn reset_reclaims_a_default_from_its_new_owner() {
+        let mut shortcuts = Shortcuts::default();
+        shortcuts.add(Command::NewTerminal, "ctrl-n").unwrap();
+        shortcuts.reset(Command::NewSession);
+        shortcuts.validate().unwrap();
+        assert_eq!(shortcuts.chords(Command::NewSession), ["ctrl-n"]);
+        assert_eq!(shortcuts.chords(Command::NewTerminal), ["ctrl-`"]);
     }
 }

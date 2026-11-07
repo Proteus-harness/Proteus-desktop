@@ -20,13 +20,16 @@ def require_extensions(directory, *, hint, path=None, native=None):
     """Check every declared package command before starting Cargo or a UI."""
     directory = Path(directory)
     if native is not None:
-        from portable_state import desktop_protocol
+        from portable_state import desktop_protocol, desktop_features, verify_features
         protocol = desktop_protocol(native)
+        features = desktop_features(native)
     else:
         protocol = None
     manifests = sorted(directory.glob("*/extension.json"))
     if not manifests:
         raise SystemExit(f"No ready extension packages in {directory}. {hint}")
+    if native is not None:
+        verify_features(manifests, features)
     for manifest in manifests:
         try:
             command = json.loads(manifest.read_text())["command"]

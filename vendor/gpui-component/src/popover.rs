@@ -261,12 +261,10 @@ impl Popover {
         self
     }
 
-    /// Set whether the popover no style, default is `false`.
+    /// Set whether the popover paints its surface, default is `true`.
     ///
-    /// If no style:
-    ///
-    /// - The popover will not have a bg, border, shadow, or padding.
-    /// - The click out of the popover will not dismiss it.
+    /// With `false`, the popover has no background, border, shadow, or padding.
+    /// Outside-click dismissal is controlled independently by `overlay_closable`.
     pub fn appearance(mut self, appearance: bool) -> Self {
         self.appearance = appearance;
         self

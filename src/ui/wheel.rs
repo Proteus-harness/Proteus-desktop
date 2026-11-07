@@ -23,6 +23,8 @@ const FAST: f32 = 5.;
 
 #[derive(Default)]
 struct Glide {
+    window: Option<WindowId>,
+    generation: u64,
     remaining: Point<Pixels>,
     modifiers: Modifiers,
     last_frame: Option<Instant>,
@@ -106,13 +108,21 @@ pub(super) fn layer() -> impl IntoElement {
                 }
                 let delta = event.delta.pixel_delta(window.line_height()) * speed;
                 let start = GLIDE.with_borrow_mut(|glide| {
+                    if glide.window != Some(window.window_handle().window_id()) {
+                        *glide = Glide {
+                            window: Some(window.window_handle().window_id()),
+                            generation: glide.generation.wrapping_add(1),
+                            ..Default::default()
+                        };
+                    }
                     glide.remaining += delta;
                     glide.modifiers = modifiers;
                     !std::mem::replace(&mut glide.running, true)
                 });
                 if start {
                     GLIDE.with_borrow_mut(|glide| glide.last_frame = Some(Instant::now()));
-                    window.on_next_frame(step);
+                    let generation = GLIDE.with_borrow(|glide| glide.generation);
+                    window.on_next_frame(move |window, cx| step(window, cx, generation));
                 }
             });
         },
@@ -134,7 +144,12 @@ fn replay(event: ScrollEvent, window: &mut Window, cx: &mut App) {
 }
 
 /// Scrolls by this frame's share of the remaining distance.
-fn step(window: &mut Window, cx: &mut App) {
+fn step(window: &mut Window, cx: &mut App, generation: u64) {
+    if GLIDE.with_borrow(|glide| {
+        glide.window != Some(window.window_handle().window_id()) || glide.generation != generation
+    }) {
+        return;
+    }
     let now = Instant::now();
     let (delta, modifiers, more) = GLIDE.with_borrow_mut(|glide| {
         let dt = glide.last_frame.map_or(1. / 60., |at| {
@@ -165,6 +180,36 @@ fn step(window: &mut Window, cx: &mut App) {
         cx,
     );
     if more {
-        window.on_next_frame(step);
+        window.on_next_frame(move |window, cx| step(window, cx, generation));
+    }
+}
+
+#[cfg(test)]
+mod window_tests {
+    use super::*;
+    #[::core::prelude::v1::test]
+    fn stale_window_and_generation_callbacks_cannot_move_the_new_glide() {
+        let mut cx = ::gpui::TestAppContext::single();
+        let a = cx
+            .add_empty_window()
+            .update(|window, _| window.window_handle());
+        let b = cx
+            .add_empty_window()
+            .update(|window, _| window.window_handle());
+        GLIDE.with_borrow_mut(|glide| {
+            *glide = Glide {
+                window: Some(b.window_id()),
+                generation: 2,
+                remaining: point(px(0.), px(200.)),
+                running: true,
+                ..Default::default()
+            }
+        });
+        cx.update_window(a, |_, window, cx| step(window, cx, 1))
+            .unwrap();
+        cx.update_window(b, |_, window, cx| step(window, cx, 1))
+            .unwrap();
+        assert_eq!(GLIDE.with_borrow(|glide| glide.remaining.y), px(200.));
+        GLIDE.with_borrow_mut(|glide| *glide = Glide::default());
     }
 }

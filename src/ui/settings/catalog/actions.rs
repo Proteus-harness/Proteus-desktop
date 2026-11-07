@@ -243,9 +243,13 @@ impl SettingsView {
                     if let Some(source) = &entry.source {
                         files.push(source.path.join("README.md"));
                     }
-                    git::with_files(&Locations::local()?.cache, &task, &files, || {
-                        schema::readme(&catalog, &entry)
-                    })
+                    git::with_files(
+                        &Locations::local()?.cache,
+                        &task,
+                        catalog.revision.as_deref(),
+                        &files,
+                        || schema::readme(&catalog, &entry),
+                    )
                 })
                 .await;
             this.update(cx, |this, cx| {

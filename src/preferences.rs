@@ -686,6 +686,27 @@ mod chat_spaces_tests;
 mod tests {
     use super::{BadgePlace, ExtensionPreferences, Preferences, SURFACE_RADIUS, ViewPreferences};
 
+    #[test]
+    fn shortcut_reset_roundtrip_preserves_other_preferences() {
+        use crate::shortcuts::Command;
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("build/verification/preference-tests")
+            .join(uuid::Uuid::new_v4().to_string());
+        let path = dir.join("preferences.json");
+        let mut prefs = Preferences::default();
+        prefs.themes.dark = "Synthetic retained theme".into();
+        prefs.shortcuts.add(Command::NewTerminal, "ctrl-n").unwrap();
+        prefs.shortcuts.reset(Command::NewSession);
+        super::save_at(&prefs, &path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let restored = super::parse(&text, &path).unwrap();
+        assert_eq!(
+            serde_json::to_value(restored).unwrap(),
+            serde_json::to_value(prefs).unwrap()
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     const KNOWN: [&str; 3] = ["context", "plan", "files"];
 
     #[test]

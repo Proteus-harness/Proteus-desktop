@@ -70,9 +70,25 @@ class ReadyTests(unittest.TestCase):
         native = self.root / "native"
         source = native / "src/declarative/protocol.rs"
         source.parent.mkdir(parents=True)
-        source.write_text("pub const PROTOCOL: u32 = 5;")
+        source.write_text('pub const PROTOCOL: u32 = 5;\npub const FEATURES: &[&str] = &["supported.v1"];')
         with self.assertRaisesRegex(SystemExit, "protocol differs"):
             runtime.require_extensions(package(self.root).parent, hint="explicit setup", native=native)
+
+    def test_equal_protocol_still_rejects_missing_additive_features(self):
+        native = self.root / "native"
+        source = native / "src/declarative/protocol.rs"
+        source.parent.mkdir(parents=True)
+        source.write_text('pub const PROTOCOL: u32 = 4;\npub const FEATURES: &[&str] = &["supported.v1"];')
+        folder = package(self.root)
+        binary(folder / "bin/sample")
+        manifest = folder / "extension.json"
+        spec = {"command": ["bin/sample"], "protocol": 4, "required_features": ["future.v1"]}
+        manifest.write_text(json.dumps(spec))
+        with self.assertRaisesRegex(SystemExit, "unsupported.*future.v1"):
+            runtime.require_extensions(folder.parent, hint="explicit setup", native=native)
+        spec["required_features"] = ["supported.v1"]
+        manifest.write_text(json.dumps(spec))
+        runtime.require_extensions(folder.parent, hint="explicit setup", native=native)
 
 
 class RunTests(unittest.TestCase):

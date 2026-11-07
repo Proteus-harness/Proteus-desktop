@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 #[derive(Clone)]
 pub(in crate::ui) struct SessionChanged {
+    pub event_id: u64,
     pub session_dir: PathBuf,
     pub update: Update,
 }

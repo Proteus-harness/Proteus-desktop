@@ -90,9 +90,13 @@ fn git_refresh_keeps_last_good_checkout_and_reports_bad_entries() {
     // Only the index is downloaded; an entry's files come when asked for.
     let demo = first.entries[0].path.join("README.md");
     assert!(!first.root.join(&demo).exists());
-    let readme = git::with_files(&cache, &source, &[demo.clone()], || {
-        schema::readme(&first, &first.entries[0])
-    })
+    let readme = git::with_files(
+        &cache,
+        &source,
+        first.revision.as_deref(),
+        &[demo.clone()],
+        || schema::readme(&first, &first.entries[0]),
+    )
     .unwrap();
     assert!(readme.is_some());
     let mut index: serde_json::Value =
@@ -109,11 +113,23 @@ fn git_refresh_keeps_last_good_checkout_and_reports_bad_entries() {
     let second = git::refresh(&cache, &source).unwrap();
     assert_eq!(second.entries[0].version, "2.0.0");
     assert_eq!(second.problems.len(), 1);
+    // A stale window must never pair its old version with the refreshed bytes.
     assert!(
-        git::with_files(&cache, &source, &[demo], || schema::readme(
-            &second,
-            &second.entries[0]
-        ))
+        git::with_files(
+            &cache,
+            &source,
+            first.revision.as_deref(),
+            &[demo.clone()],
+            || -> anyhow::Result<()> {
+                panic!("stale preparation must be rejected before touching files")
+            }
+        )
+        .is_err()
+    );
+    assert!(
+        git::with_files(&cache, &source, second.revision.as_deref(), &[demo], || {
+            schema::readme(&second, &second.entries[0])
+        })
         .unwrap()
         .is_none()
     );
@@ -413,15 +429,21 @@ fn repository_without_index_lists_agent_skills_as_installable_entries() {
     assert!(!catalog.root.join(&pdf.path).join("forms/form.txt").exists());
     let files = [pdf.path.join("README.md"), pdf.path.join("SKILL.md")];
     assert_eq!(
-        git::with_files(cache, &source, &files, || schema::readme(&catalog, pdf))
-            .unwrap()
-            .as_deref(),
+        git::with_files(cache, &source, catalog.revision.as_deref(), &files, || {
+            schema::readme(&catalog, pdf)
+        })
+        .unwrap()
+        .as_deref(),
         Some("# Body")
     );
 
-    let installed = git::with_files(cache, &source, &[pdf.path.clone()], || {
-        install::prepare(&locations, &source, &catalog, pdf, None, &fixture.0, &[])
-    })
+    let installed = git::with_files(
+        cache,
+        &source,
+        catalog.revision.as_deref(),
+        &[pdf.path.clone()],
+        || install::prepare(&locations, &source, &catalog, pdf, None, &fixture.0, &[]),
+    )
     .unwrap();
     assert!(locations.skills.join("pdf/forms/form.txt").is_file());
     fs::write(root.join("skills/.curated/pdf/forms/extra.md"), "more").unwrap();

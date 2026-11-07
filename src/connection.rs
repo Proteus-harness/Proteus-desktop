@@ -150,9 +150,9 @@ mod startup_tests {
 /// Streams session events on a background thread, reconnecting until the
 /// receiver is dropped or the server shuts down. A dropped receiver is
 /// noticed on the next event or heartbeat, which ends the thread and closes
-/// its connection.
+/// its connection. A stalled peer is bounded by the transport idle timeout.
 pub fn spawn_pump(api: Api, session_dir: std::path::PathBuf) -> async_channel::Receiver<PumpItem> {
-    let (tx, rx) = async_channel::unbounded();
+    let (tx, rx) = async_channel::bounded(128);
     let spawned = std::thread::Builder::new()
         .name("proteus-events".into())
         .spawn(move || {

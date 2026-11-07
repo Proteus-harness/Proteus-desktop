@@ -6,6 +6,7 @@
 
 use std::{
     cell::{Cell, RefCell},
+    collections::HashMap,
     rc::Rc,
     time::Duration,
 };
@@ -17,7 +18,7 @@ use gpui_kit::component::{ActiveTheme as _, v_flex};
 use gpui_kit::{
     AnyElement, AnyView, App, AppContext as _, Bounds, ElementId, Entity, FocusHandle, Global,
     InteractiveElement, IntoElement, ParentElement as _, Pixels, Point, SharedString, Styled as _,
-    WeakFocusHandle, Window, div, px,
+    WeakEntity, WeakFocusHandle, Window, WindowId, div, px,
 };
 
 use super::{motion, prefs};
@@ -66,7 +67,8 @@ type HoverObserver = Rc<dyn Fn(&bool, &mut Window, &mut App)>;
 
 type TooltipBuilder = Rc<dyn Fn(&mut Window, &mut App) -> AnyView>;
 
-struct Overlay(Entity<TooltipOverlay>);
+#[derive(Default)]
+struct Overlay(HashMap<WindowId, WeakEntity<TooltipOverlay>>);
 
 #[derive(Clone)]
 enum Owner {
@@ -77,13 +79,39 @@ enum Owner {
     },
 }
 
+#[derive(Default)]
+struct TipState {
+    pressed: Option<Bounds<Pixels>>,
+    owner: Option<Owner>,
+    suppressed: Option<WeakFocusHandle>,
+}
 thread_local! {
-    /// Pressed controls stay quiet until the pointer leaves.
-    static PRESSED: Cell<Option<Bounds<Pixels>>> = const { Cell::new(None) };
-    /// One trigger owns the overlay. Pointer motion cannot take keyboard help.
-    static OWNER: RefCell<Option<Owner>> = const { RefCell::new(None) };
-    /// Escape, activation and clicks suppress reappearance on that same focus.
-    static SUPPRESSED: RefCell<Option<WeakFocusHandle>> = const { RefCell::new(None) };
+    static STATES: RefCell<HashMap<WindowId, TipState>> = RefCell::default();
+}
+fn with_state<R>(window: &Window, f: impl FnOnce(&mut TipState) -> R) -> R {
+    STATES.with_borrow_mut(|states| {
+        f(states
+            .entry(window.window_handle().window_id())
+            .or_default())
+    })
+}
+fn with_owner<R>(window: &Window, f: impl FnOnce(&Option<Owner>) -> R) -> R {
+    with_state(window, |state| f(&state.owner))
+}
+fn replace_owner(window: &Window, owner: Option<Owner>) {
+    with_state(window, |state| state.owner = owner);
+}
+fn with_suppressed<R>(window: &Window, f: impl FnOnce(&mut Option<WeakFocusHandle>) -> R) -> R {
+    with_state(window, |state| f(&mut state.suppressed))
+}
+fn replace_suppressed(window: &Window, focus: Option<WeakFocusHandle>) {
+    with_state(window, |state| state.suppressed = focus);
+}
+fn set_pressed(window: &Window, pressed: Option<Bounds<Pixels>>) {
+    with_state(window, |state| state.pressed = pressed);
+}
+fn pressed_bounds(window: &Window) -> Option<Bounds<Pixels>> {
+    with_state(window, |state| state.pressed)
 }
 
 impl Global for Overlay {}
@@ -95,7 +123,7 @@ pub(super) fn init(cx: &mut App) {
         }
         dismiss(window, cx);
         if event.keystroke.key == "tab" {
-            SUPPRESSED.replace(None);
+            replace_suppressed(window, None);
         }
     })
     .detach();
@@ -104,14 +132,14 @@ pub(super) fn init(cx: &mut App) {
 /// Captured window input invalidates both visible and delayed requests before
 /// scrolling, virtualisation or a click can remove the old hover target.
 pub(super) fn dismiss(window: &mut Window, cx: &mut App) {
-    OWNER.replace(None);
-    SUPPRESSED.replace(window.focused(cx).map(|focus| focus.downgrade()));
-    PRESSED.set(None);
+    replace_owner(window, None);
+    replace_suppressed(window, window.focused(cx).map(|focus| focus.downgrade()));
+    set_pressed(window, None);
     update(cx, window, |overlay, _, cx| overlay.hide(cx));
 }
 
 pub(super) fn moved(position: Point<Pixels>, window: &mut Window, cx: &mut App) {
-    let outside_hover = OWNER.with_borrow(|owner| {
+    let outside_hover = with_owner(window, |owner| {
         matches!(owner,
         Some(Owner::Hover(bounds)) if !bounds.contains(&position))
     });
@@ -121,7 +149,7 @@ pub(super) fn moved(position: Point<Pixels>, window: &mut Window, cx: &mut App) 
 }
 
 fn focus_owns(window: &Window) -> bool {
-    OWNER.with_borrow(|owner| match owner {
+    with_owner(window, |owner| match owner {
         Some(Owner::Focus { handle, .. }) => {
             window.is_window_active()
                 && super::kit::keyboard()
@@ -152,7 +180,7 @@ fn focused(
     if !window.is_window_active() || !super::kit::keyboard() || !handle.is_focused(window) {
         return;
     }
-    let blocked = SUPPRESSED.with_borrow_mut(|suppressed| {
+    let blocked = with_suppressed(window, |suppressed| {
         if suppressed.as_ref().is_some_and(|old| old == handle) {
             true
         } else {
@@ -164,7 +192,7 @@ fn focused(
         return;
     }
     let trigger = anchor.bounds();
-    let unchanged = OWNER.with_borrow(|owner| {
+    let unchanged = with_owner(window, |owner| {
         matches!(owner,
         Some(Owner::Focus { handle: old, bounds }) if old == handle && *bounds == trigger)
     });
@@ -172,10 +200,13 @@ fn focused(
         return;
     }
     let build = resolve(window, cx);
-    OWNER.replace(Some(Owner::Focus {
-        handle: handle.downgrade(),
-        bounds: trigger,
-    }));
+    replace_owner(
+        window,
+        Some(Owner::Focus {
+            handle: handle.downgrade(),
+            bounds: trigger,
+        }),
+    );
     match build {
         Some(build) => show(trigger, build, window, cx),
         None => update(cx, window, |overlay, _, cx| overlay.hide(cx)),
@@ -183,12 +214,25 @@ fn focused(
 }
 
 /// The overlay that draws the open tooltip; render it once at the window root.
-pub(super) fn layer(cx: &mut App) -> Entity<TooltipOverlay> {
-    if let Some(overlay) = cx.try_global::<Overlay>() {
-        return overlay.0.clone();
+pub(super) fn layer(window: &mut Window, cx: &mut App) -> Entity<TooltipOverlay> {
+    let id = window.window_handle().window_id();
+    if let Some(overlay) = cx
+        .default_global::<Overlay>()
+        .0
+        .get(&id)
+        .and_then(WeakEntity::upgrade)
+    {
+        return overlay;
     }
     let overlay = cx.new(|_| TooltipOverlay::new().render_with(present));
-    cx.set_global(Overlay(overlay.clone()));
+    cx.default_global::<Overlay>()
+        .0
+        .insert(id, overlay.downgrade());
+    cx.observe_release(&overlay, move |_, cx| {
+        cx.default_global::<Overlay>().0.remove(&id);
+        STATES.with_borrow_mut(|states| states.remove(&id));
+    })
+    .detach();
     overlay
 }
 
@@ -198,14 +242,14 @@ fn present(
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
-    let stale_focus = OWNER.with_borrow(|owner| matches!(owner, Some(Owner::Focus { .. })))
+    let stale_focus = with_owner(window, |owner| matches!(owner, Some(Owner::Focus { .. })))
         && !focus_owns(window);
     if stale_focus {
-        OWNER.replace(None);
+        replace_owner(window, None);
         window.defer(cx, |window, cx| {
             // A newer focused/hovered control may have claimed the overlay
             // after this stale view was painted.
-            if OWNER.with_borrow(Option::is_none) {
+            if with_owner(window, Option::is_none) {
                 update(cx, window, |overlay, _, cx| overlay.hide(cx));
             }
         });
@@ -254,7 +298,11 @@ fn update(
     window: &mut Window,
     f: impl FnOnce(&mut TooltipOverlay, &mut Window, &mut gpui_kit::Context<TooltipOverlay>),
 ) {
-    if let Some(overlay) = cx.try_global::<Overlay>().map(|overlay| overlay.0.clone()) {
+    if let Some(overlay) = cx
+        .try_global::<Overlay>()
+        .and_then(|overlays| overlays.0.get(&window.window_handle().window_id()))
+        .and_then(WeakEntity::upgrade)
+    {
         overlay.update(cx, |overlay, cx| f(overlay, window, cx));
     }
 }
@@ -333,18 +381,19 @@ pub(crate) trait Tip: InteractiveElement + gpui_kit::ParentElement + Sized {
             let hovered = *hovered;
             let trigger = anchor.bounds();
             if hovered {
-                OWNER.replace(Some(Owner::Hover(trigger)));
+                replace_owner(window, Some(Owner::Hover(trigger)));
             } else {
-                let owns = OWNER.with_borrow(
+                let owns = with_owner(
+                    window,
                     |owner| matches!(owner, Some(Owner::Hover(bounds)) if *bounds == trigger),
                 );
                 if !owns {
                     return;
                 }
-                OWNER.replace(None);
-                PRESSED.set(None);
+                replace_owner(window, None);
+                set_pressed(window, None);
             }
-            if hovered && PRESSED.get() == Some(trigger) {
+            if hovered && pressed_bounds(window) == Some(trigger) {
                 return;
             }
             let build = hovered.then(|| resolve(window, cx)).flatten();
@@ -359,9 +408,9 @@ pub(crate) trait Tip: InteractiveElement + gpui_kit::ParentElement + Sized {
         self.capture_any_mouse_down(move |_, window, cx| {
             // Retain the pressed pointer owner so leaving this control can
             // clear its suppression before it is hovered again.
-            OWNER.replace(Some(Owner::Hover(pressed.bounds())));
-            SUPPRESSED.replace(window.focused(cx).map(|focus| focus.downgrade()));
-            PRESSED.set(Some(pressed.bounds()));
+            replace_owner(window, Some(Owner::Hover(pressed.bounds())));
+            replace_suppressed(window, window.focused(cx).map(|focus| focus.downgrade()));
+            set_pressed(window, Some(pressed.bounds()));
             update(cx, window, |overlay, _, cx| overlay.hide(cx));
         })
     }
@@ -549,4 +598,41 @@ fn text_view(text: SharedString, window: &mut Window, cx: &mut App) -> AnyView {
     .max_w(prefs::scaled(MAX_WIDTH))
     .whitespace_normal()
     .build(window, cx)
+}
+
+#[cfg(test)]
+mod window_tests {
+    use super::*;
+    #[::core::prelude::v1::test]
+    fn tooltip_overlay_and_suppression_belong_to_one_window_and_release_with_it() {
+        let mut cx = ::gpui::TestAppContext::single();
+        let (a, overlay_a) = cx
+            .add_empty_window()
+            .update(|window, cx| (window.window_handle(), layer(window, cx)));
+        let (b, overlay_b) = cx
+            .add_empty_window()
+            .update(|window, cx| (window.window_handle(), layer(window, cx)));
+        assert_ne!(overlay_a.entity_id(), overlay_b.entity_id());
+        cx.update_window(a, |_, window, _| {
+            replace_owner(window, Some(Owner::Hover(Bounds::default())));
+        })
+        .unwrap();
+        cx.update_window(b, |_, window, cx| dismiss(window, cx))
+            .unwrap();
+        cx.update_window(a, |_, window, _| {
+            assert!(with_owner(window, Option::is_some))
+        })
+        .unwrap();
+        let weak = overlay_a.downgrade();
+        let id = a.window_id();
+        drop(overlay_a);
+        // Entity release observers run while App flushes effects. Draining the
+        // test dispatcher alone does not perform that application update.
+        cx.update(|_| {});
+        cx.run_until_parked();
+        assert!(weak.upgrade().is_none());
+        assert!(!STATES.with_borrow(|states| states.contains_key(&id)));
+        cx.read(|cx| assert!(!cx.global::<Overlay>().0.contains_key(&id)));
+        assert!(overlay_b.downgrade().upgrade().is_some());
+    }
 }

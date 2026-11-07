@@ -64,6 +64,7 @@ struct Loaded {
 }
 
 static LOADED: RwLock<Option<Loaded>> = RwLock::new(None);
+static SCANS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Reads shipped and user-installed packages on first use.
 fn with_loaded<T>(read: impl FnOnce(&Loaded) -> T) -> T {
@@ -77,18 +78,27 @@ fn with_loaded<T>(read: impl FnOnce(&Loaded) -> T) -> T {
 /// Reads the extensions folder again. Entries that did not change are kept,
 /// so their surfaces and processes stay as they are.
 pub(super) fn rescan() {
-    let mut loaded = LOADED.write().unwrap();
-    let previous = loaded.take().map_or_else(Vec::new, |loaded| loaded.entries);
+    let _scan = SCANS.lock().unwrap();
+    // Keep the previous immutable registry readable throughout filesystem I/O.
     let (found, problems) =
         manifest::discover_sources(&manifest::bundled_root(), manifest::root().as_deref());
-    let mut entries = Vec::new();
-    for extension in found {
-        let kept = previous
-            .iter()
-            .find(|entry| *entry.installed == extension)
-            .copied();
-        entries.push(kept.unwrap_or_else(|| entry(extension)));
-    }
+    let mut loaded = LOADED.write().unwrap();
+    let previous: HashMap<_, _> = loaded
+        .take()
+        .map_or_else(Vec::new, |loaded| loaded.entries)
+        .into_iter()
+        .map(|entry| (entry.installed.dir.as_path(), entry))
+        .collect();
+    let entries = found
+        .into_iter()
+        .map(|extension| {
+            previous
+                .get(extension.dir.as_path())
+                .filter(|entry| *entry.installed == extension)
+                .copied()
+                .unwrap_or_else(|| entry(extension))
+        })
+        .collect();
     *loaded = Some(Loaded { entries, problems });
 }
 
@@ -161,7 +171,7 @@ pub(super) fn folder(id: &str) -> Option<&'static Path> {
     })
 }
 
-fn installed(id: &str) -> Option<&'static Installed> {
+pub(super) fn installed(id: &str) -> Option<&'static Installed> {
     LOADED
         .read()
         .unwrap()

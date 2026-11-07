@@ -54,7 +54,7 @@ fn session_shutdown_only_emits_session_state_and_preserves_shared_api_identity()
         cx.subscribe(&chat, move |_, event: &ChatEvent, _| {
             events
                 .borrow_mut()
-                .push(matches!(event, ChatEvent::SessionStateChanged));
+                .push(matches!(event, ChatEvent::SessionStateChanged(_)));
         })
     });
     cx.run_until_parked();

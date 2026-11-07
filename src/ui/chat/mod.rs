@@ -76,8 +76,8 @@ pub(super) enum ComposerSlot {
 }
 
 pub(super) enum ChatEvent {
-    SessionStateChanged,
-    SessionEntriesChanged(crate::transcript::Change),
+    SessionStateChanged(u64),
+    SessionEntriesChanged(crate::transcript::Change, u64),
     /// A run of this session finished.
     RunSettled,
     /// Background read projections changed the saved session list.
@@ -100,6 +100,21 @@ pub(super) enum ChatEvent {
     },
     /// The user sent a message, so the chat is worth keeping open.
     Sent,
+}
+
+impl ChatEvent {
+    // Context::emit queues effects FIFO. Keep the same originating event ID
+    // when several Workspaces project this shared Chat into an extension.
+    fn projection_id() -> u64 {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    }
+    fn state_changed() -> Self {
+        Self::SessionStateChanged(Self::projection_id())
+    }
+    fn entries_changed(change: crate::transcript::Change) -> Self {
+        Self::SessionEntriesChanged(change, Self::projection_id())
+    }
 }
 
 pub(super) struct Chat {

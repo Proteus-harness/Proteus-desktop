@@ -37,6 +37,8 @@ enum State {
 
 #[derive(Default)]
 struct Fling {
+    window: Option<WindowId>,
+    generation: u64,
     state: State,
     last_report: Option<Instant>,
     reports: usize,
@@ -62,6 +64,13 @@ pub(super) fn track(
 ) {
     let now = Instant::now();
     let start = FLING.with_borrow_mut(|fling| {
+        if fling.window != Some(window.window_handle().window_id()) {
+            *fling = Fling {
+                window: Some(window.window_handle().window_id()),
+                generation: fling.generation.wrapping_add(1),
+                ..Default::default()
+            };
+        }
         let since = fling
             .last_report
             .filter(|_| fling.state == State::Tracking)
@@ -86,7 +95,8 @@ pub(super) fn track(
         !std::mem::replace(&mut fling.looping, true)
     });
     if start {
-        window.on_next_frame(tick);
+        let generation = FLING.with_borrow(|fling| fling.generation);
+        window.on_next_frame(move |window, cx| tick(window, cx, generation));
     }
 }
 
@@ -94,7 +104,12 @@ pub(super) fn stop() {
     FLING.with_borrow_mut(|fling| fling.state = State::Idle);
 }
 
-fn tick(window: &mut Window, cx: &mut App) {
+fn tick(window: &mut Window, cx: &mut App, generation: u64) {
+    if FLING.with_borrow(|fling| {
+        fling.window != Some(window.window_handle().window_id()) || fling.generation != generation
+    }) {
+        return;
+    }
     let now = Instant::now();
     let step = FLING.with_borrow_mut(|fling| match fling.state {
         State::Idle => None,
@@ -138,7 +153,7 @@ fn tick(window: &mut Window, cx: &mut App) {
         fling.looping
     });
     if more {
-        window.on_next_frame(tick);
+        window.on_next_frame(move |window, cx| tick(window, cx, generation));
     }
 }
 

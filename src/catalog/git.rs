@@ -244,6 +244,7 @@ pub fn refresh(cache: &Path, source: &Source) -> Result<Catalog> {
 pub fn with_files<T>(
     cache: &Path,
     source: &Source,
+    revision: Option<&str>,
     paths: &[PathBuf],
     work: impl FnOnce() -> Result<T>,
 ) -> Result<T> {
@@ -252,6 +253,10 @@ pub fn with_files<T>(
         .lock()
         .map_err(|_| anyhow::anyhow!("Предыдущее обновление каталога прервано"))?;
     let state = read_state(cache, source)?;
+    anyhow::ensure!(
+        revision == Some(state.commit.as_str()),
+        "Каталог обновился в другом окне; обновите список и выберите пакет заново"
+    );
     let repo = repo_path(cache, source);
     let repo_text = repo.to_str().context("Путь к кэшу не в UTF-8")?;
     let mut paths = paths

@@ -48,12 +48,21 @@ fn install_contents(root: &Path, files: Contents, taken: &[&str]) -> Result<Mani
 
 /// Deletes the folder of an installed extension.
 pub fn remove(root: &Path, id: &str) -> Result<()> {
+    remove_with(root, id, || ())
+}
+
+/// Capture publication state under the same lock as deletion.
+pub(crate) fn remove_with<T>(root: &Path, id: &str, after: impl FnOnce() -> T) -> Result<T> {
+    let _guard = crate::packages::change_guard()?;
     let dir = root.join(id);
     ensure!(
         dir.parent() == Some(root) && !id.is_empty() && !id.starts_with('.'),
         "Неверное имя расширения `{id}`"
     );
-    Ok(std::fs::remove_dir_all(&dir)?)
+    if dir.try_exists()? {
+        std::fs::remove_dir_all(&dir)?;
+    }
+    Ok(after())
 }
 
 #[cfg(test)]
