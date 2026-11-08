@@ -56,7 +56,7 @@ fn surfaces(theme: &Theme) -> [(&'static str, Rgba); 6] {
         ("card", theme.group_box),
         ("input", theme.secondary),
         ("popup", theme.popover),
-        ("disclosure/dock", theme.accordion),
+        ("disclosure", theme.accordion),
     ]
     .map(|(name, fill)| (name, composite(fill.into(), backdrop)))
 }
@@ -67,6 +67,88 @@ fn assert_readable(theme: &str, role: &str, foreground: Hsla, fill: Rgba) {
         ratio >= MINIMUM,
         "{theme}: {role} contrast {ratio:.4}:1 < {MINIMUM}:1"
     );
+}
+
+#[::core::prelude::v1::test]
+fn light_settings_cards_remain_distinct_from_content() {
+    // This is a local visual separation floor for filled settings groups.
+    // Text readability has its own threshold and assertions below.
+    let mut count = 0;
+    for source in sources() {
+        let set: ThemeSet = serde_json::from_str(source).unwrap();
+        for config in set.themes {
+            if config.mode.is_dark() {
+                continue;
+            }
+            let name = config.name.to_string();
+            let mut theme = Theme::default();
+            theme.apply_config(&Rc::new(config));
+            let ratio = contrast(theme.group_box, theme.background.into());
+            assert!(
+                ratio >= 1.10,
+                "{name}: settings card/content contrast {ratio:.4}:1 < 1.10:1"
+            );
+            count += 1;
+        }
+    }
+    assert_eq!(count, 7);
+}
+
+#[::core::prelude::v1::test]
+fn native_light_selector_frames_remain_visible_on_stronger_cards() {
+    let mut count = 0;
+    for source in sources() {
+        let set: ThemeSet = serde_json::from_str(source).unwrap();
+        for config in set.themes {
+            if !matches!(config.name.as_ref(), "Proteus Light" | "Default Light") {
+                continue;
+            }
+            let name = config.name.to_string();
+            let mut theme = Theme::default();
+            theme.apply_config(&Rc::new(config));
+            let ratio = contrast(theme.border, theme.group_box.into());
+            assert!(
+                ratio >= 1.5,
+                "{name}: selector frame/card contrast {ratio:.4}:1 < 1.5:1"
+            );
+            count += 1;
+        }
+    }
+    assert_eq!(count, 2);
+}
+
+#[::core::prelude::v1::test]
+fn neutral_hover_follows_appearance_and_preserves_surface_hierarchy() {
+    let mut count = 0;
+    for source in sources() {
+        let set: ThemeSet = serde_json::from_str(source).unwrap();
+        for config in set.themes {
+            let name = config.name.to_string();
+            let dark = config.mode.is_dark();
+            let mut theme = Theme::default();
+            theme.apply_config(&Rc::new(config));
+            let bases = [theme.background, theme.group_box, theme.accordion];
+            let hovered = bases.map(|base| composite(theme.list_hover.into(), base.into()));
+            for (index, (base, hovered)) in bases.iter().zip(hovered).enumerate() {
+                let change = luminance(hovered) - luminance((*base).into());
+                assert!(
+                    if dark { change > 0. } else { change < 0. },
+                    "{name}: hover direction on surface {index}"
+                );
+                assert_readable(&name, "normal/hover", theme.foreground, hovered);
+            }
+            for (a, b) in [(0, 1), (0, 2), (1, 2)] {
+                let before = luminance(bases[a].into()) - luminance(bases[b].into());
+                let after = luminance(hovered[a]) - luminance(hovered[b]);
+                assert!(
+                    before * after > 0.,
+                    "{name}: hover merged or inverted surfaces {a}/{b}"
+                );
+            }
+            count += 1;
+        }
+    }
+    assert_eq!(count, 20);
 }
 
 #[::core::prelude::v1::test]
@@ -109,7 +191,8 @@ fn normal_and_muted_labels_meet_minimum_on_their_resolved_surfaces() {
                 ("hover", theme.button_secondary_hover),
                 ("active", theme.button_secondary_active),
             ] {
-                for (parent, parent_fill) in [("card", theme.group_box), ("dock", theme.accordion)]
+                for (parent, parent_fill) in
+                    [("card", theme.group_box), ("composer", theme.secondary)]
                 {
                     let parent_fill = composite(parent_fill.into(), backdrop);
                     let fill = composite(fill.into(), parent_fill);

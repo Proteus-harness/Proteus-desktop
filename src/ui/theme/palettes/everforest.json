@@ -49,11 +49,12 @@
         "base.cyan": "#83c092",
         "sidebar.background": "#f4f0d9",
         "tab_bar.segmented.background": "#f4f0d9",
-        "group_box.background": "#f4f0d9",
+        "group_box.background": "#efebd4",
         "accordion.background": "#e6e2cc",
         "sidebar.foreground": "#434f55",
         "group_box.foreground": "#434f55",
-        "button.secondary.foreground": "#434f55"
+        "button.secondary.foreground": "#434f55",
+        "list.hover.background": "#00000008"
       },
       "highlight": {
         "editor.foreground": "#5F6D75",
@@ -204,7 +205,8 @@
         "accordion.background": "#3d484d",
         "sidebar.foreground": "#d3c6aa",
         "group_box.foreground": "#d3c6aa",
-        "button.secondary.foreground": "#d3c6aa"
+        "button.secondary.foreground": "#d3c6aa",
+        "list.hover.background": "#ffffff08"
       },
       "highlight": {
         "editor.foreground": "#d3c6aa",

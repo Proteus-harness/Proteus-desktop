@@ -52,7 +52,8 @@
         "group_box.foreground": "#c0caf5",
         "tab.active.foreground": "#c0caf5",
         "button.secondary.foreground": "#c0caf5",
-        "tab.foreground": "#a9b1d6"
+        "tab.foreground": "#a9b1d6",
+        "list.hover.background": "#ffffff08"
       },
       "highlight": {
         "editor.foreground": "#c0caf5",
@@ -202,7 +203,8 @@
         "group_box.foreground": "#c0caf5",
         "tab.active.foreground": "#c0caf5",
         "button.secondary.foreground": "#c0caf5",
-        "tab.foreground": "#a9b1d6"
+        "tab.foreground": "#a9b1d6",
+        "list.hover.background": "#ffffff08"
       },
       "highlight": {
         "editor.foreground": "#B0B9E2",
@@ -348,7 +350,8 @@
         "group_box.foreground": "#c0caf5",
         "tab.active.foreground": "#c0caf5",
         "button.secondary.foreground": "#c0caf5",
-        "tab.foreground": "#c8d3f5"
+        "tab.foreground": "#c8d3f5",
+        "list.hover.background": "#ffffff08"
       },
       "highlight": {
         "editor.foreground": "#c0caf5",

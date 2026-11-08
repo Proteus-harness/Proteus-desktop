@@ -1,7 +1,7 @@
 use gpui_kit::Hsla;
 use gpui_kit::component::{
     Colorize, Theme, ThemeSet, black, neutral_50, neutral_100, neutral_200, neutral_300,
-    neutral_600, neutral_700, neutral_800, neutral_900, neutral_950, white,
+    neutral_400, neutral_600, neutral_700, neutral_800, neutral_900, neutral_950, white,
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -50,6 +50,7 @@ pub(super) fn expected_color(value: &str) -> Hsla {
         "neutral-600" => neutral_600(),
         "neutral-50" => neutral_50(),
         "neutral-300" => neutral_300(),
+        "neutral-400" => neutral_400(),
         "neutral-700" => neutral_700(),
         color => Hsla::parse_hex(color).unwrap(),
     }
@@ -106,6 +107,12 @@ fn explicit_builtin_roles_survive_schema_and_theme_resolution() {
                 );
             }
             for (field, color, token, value) in [
+                (
+                    "list.hover.background",
+                    theme.list_hover,
+                    theme.tokens.list_hover,
+                    fixture.hover_overlay,
+                ),
                 (
                     "foreground",
                     theme.foreground,
@@ -184,7 +191,7 @@ fn explicit_builtin_roles_survive_schema_and_theme_resolution() {
             ] {
                 assert_ne!(
                     theme.accordion, other,
-                    "{name}: disclosure/dock merged with {role}"
+                    "{name}: disclosure merged with {role}"
                 );
             }
             if dark {
@@ -240,6 +247,7 @@ fn structural_adaptation_preserves_all_other_imported_colors_and_highlights() {
                 "button.secondary.foreground",
                 "muted.foreground",
                 "tab.foreground",
+                "list.hover.background",
             ])
             .collect()
     );

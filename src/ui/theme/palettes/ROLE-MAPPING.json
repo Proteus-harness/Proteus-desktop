@@ -47,6 +47,9 @@
     "muted_foreground": [
       "muted.foreground",
       "tab.foreground"
+    ],
+    "hover_overlay": [
+      "list.hover.background"
     ]
   },
   "sources": {
@@ -260,7 +263,7 @@
         "border": "bg5 / dropdown.border",
         "active_tab": "bg2 (dark); bg (light)"
       },
-      "note": "Official VSCode medium background palette, following highContrast.ts chrome/sidebar/editor roles. Cards, muted and popup use the same palette bg2. Profile selects dark or light background/medium.ts. Border is dropdown.border=bg5. Moving the tab strip from editor to sidebar is a Proteus adaptation."
+      "note": "Official VSCode medium background palette, following highContrast.ts chrome/sidebar/editor roles. Profile selects dark or light background/medium.ts. Dark cards and all muted/popup surfaces use bg2; Light cards use bg0 to distinguish settings groups from editor bg. Border is dropdown.border=bg5. Moving the tab strip from editor to sidebar is a Proteus adaptation."
     },
     "solarized": {
       "sources": [
@@ -308,7 +311,7 @@
         "border": "ui.line / dropdown.border",
         "active_tab": "ui.panel.bg / editorWidget.background (dark); surface.lift / editor.background (light)"
       },
-      "note": "Official ayu-colors semantic tokens and generated VSCode JSON. Generated JSON resolves Dark surface.sunk to #010102. Panel here means ui.panel.bg (editorWidget), not VSCode panel.background. Border is ui.line; alpha comes from upstream. Moving rail from base to sunk and tab strip from lift to base are Proteus adaptations."
+      "note": "Official ayu-colors semantic tokens and generated VSCode JSON. Generated JSON resolves Dark surface.sunk to #010102. Panel here means ui.panel.bg (editorWidget), not VSCode panel.background. Border is ui.line; alpha comes from upstream. Moving rail from base to sunk and tab strip from lift to base are Proteus adaptations. Light settings cards use the imported list.even.background neutral to distinguish them from the editor."
     }
   },
   "variants": [
@@ -329,14 +332,16 @@
         "accordion": "#dce0e8",
         "secondary": "#ccd0da",
         "foreground": "#4c4f69",
-        "muted_foreground": "#4c4f69"
+        "muted_foreground": "#4c4f69",
+        "hover_overlay": "#00000008"
       },
       "preserved_payload_sha256": "d126205456405b5f3982610bc6931cc6585a95fcd9c762bf414800eb5e92297a",
       "tokens": {
         "accordion": "crust",
         "secondary": "surface0 (input surface)",
         "foreground": "text",
-        "muted_foreground": "text"
+        "muted_foreground": "text",
+        "hover_overlay": "Proteus neutral overlay (8/255 alpha)"
       },
       "muted_candidates": [
         {
@@ -371,14 +376,16 @@
         "accordion": "#51576d",
         "secondary": "#414559",
         "foreground": "#c6d0f5",
-        "muted_foreground": "#c6d0f5"
+        "muted_foreground": "#c6d0f5",
+        "hover_overlay": "#ffffff03"
       },
       "preserved_payload_sha256": "a8c831a95fd0ac7873e8e0e514436229619c90d26f5182d416c1864af7dea7bc",
       "tokens": {
         "accordion": "surface1",
         "secondary": "GPUI Kit secondary.background",
         "foreground": "text",
-        "muted_foreground": "text"
+        "muted_foreground": "text",
+        "hover_overlay": "Proteus neutral overlay (3/255 alpha to retain normal label contrast)"
       },
       "muted_candidates": [
         {
@@ -413,14 +420,16 @@
         "accordion": "#494d64",
         "secondary": "#363a4f",
         "foreground": "#cad3f5",
-        "muted_foreground": "#b8c0e0"
+        "muted_foreground": "#b8c0e0",
+        "hover_overlay": "#ffffff08"
       },
       "preserved_payload_sha256": "bc85eae71859fa6e16e694ffe25c20cd45e87dd54a514818e8a0741720f215a9",
       "tokens": {
         "accordion": "surface1",
         "secondary": "GPUI Kit secondary.background",
         "foreground": "text",
-        "muted_foreground": "subtext1"
+        "muted_foreground": "subtext1",
+        "hover_overlay": "Proteus neutral overlay (8/255 alpha)"
       },
       "muted_candidates": [
         {
@@ -455,14 +464,16 @@
         "accordion": "#45475a",
         "secondary": "#302d41",
         "foreground": "#cdd6f4",
-        "muted_foreground": "#bac2de"
+        "muted_foreground": "#bac2de",
+        "hover_overlay": "#ffffff08"
       },
-      "preserved_payload_sha256": "1fa6ccd7f9f183d05b87ec2916665d4dd3ed7297b5f51c5a248c86293876c62a",
+      "preserved_payload_sha256": "47e27d7ea84c3dc9662c9fde3e53215342ae103221d0dc15a0f9097c1ad66ec7",
       "tokens": {
         "accordion": "surface1",
         "secondary": "GPUI Kit secondary.background",
         "foreground": "text",
-        "muted_foreground": "subtext1"
+        "muted_foreground": "subtext1",
+        "hover_overlay": "Proteus neutral overlay (8/255 alpha)"
       },
       "muted_candidates": [
         {
@@ -497,14 +508,16 @@
         "accordion": "#0c0e14",
         "secondary": "#292e42",
         "foreground": "#c0caf5",
-        "muted_foreground": "#a9b1d6"
+        "muted_foreground": "#a9b1d6",
+        "hover_overlay": "#ffffff08"
       },
       "preserved_payload_sha256": "ab14a810b129d599ab8583e21db88d7c6424cfbdbb279f4e85c2ba81e45baf05",
       "tokens": {
         "accordion": "bg_dark1",
         "secondary": "GPUI Kit secondary.background",
         "foreground": "GPUI Kit foreground",
-        "muted_foreground": "fg_dark"
+        "muted_foreground": "fg_dark",
+        "hover_overlay": "Proteus neutral overlay (8/255 alpha)"
       },
       "muted_candidates": [
         {
@@ -539,14 +552,16 @@
         "accordion": "#1b1e2d",
         "secondary": "#292e42",
         "foreground": "#c0caf5",
-        "muted_foreground": "#a9b1d6"
+        "muted_foreground": "#a9b1d6",
+        "hover_overlay": "#ffffff08"
       },
       "preserved_payload_sha256": "4c1abe8596204fe116840416bdfd2d88a53daf8f5df5a1030a765af542a450de",
       "tokens": {
         "accordion": "bg_dark1",
         "secondary": "GPUI Kit secondary.background",
         "foreground": "GPUI Kit foreground",
-        "muted_foreground": "fg_dark"
+        "muted_foreground": "fg_dark",
+        "hover_overlay": "Proteus neutral overlay (8/255 alpha)"
       },
       "muted_candidates": [
         {
@@ -581,14 +596,16 @@
         "accordion": "#191b29",
         "secondary": "#2d3149",
         "foreground": "#c0caf5",
-        "muted_foreground": "#c8d3f5"
+        "muted_foreground": "#c8d3f5",
+        "hover_overlay": "#ffffff08"
       },
       "preserved_payload_sha256": "ea5a495d1126e6ca322d39feb6335fa30975bc07c283be521cec119a74a54e7c",
       "tokens": {
         "accordion": "bg_dark1",
         "secondary": "GPUI Kit secondary.background",
         "foreground": "GPUI Kit foreground",
-        "muted_foreground": "fg"
+        "muted_foreground": "fg",
+        "hover_overlay": "Proteus neutral overlay (8/255 alpha)"
       },
       "muted_candidates": [
         {
@@ -623,14 +640,16 @@
         "accordion": "#d5c4a1",
         "secondary": "#EBDBB2",
         "foreground": "#3c3836",
-        "muted_foreground": "#504945"
+        "muted_foreground": "#504945",
+        "hover_overlay": "#00000008"
       },
-      "preserved_payload_sha256": "d1edcdd13a0840ab2274a43cdac84955fd872e9b11a997aeba652ee94dffc0da",
+      "preserved_payload_sha256": "743690fcfe64a9b6036ddb232ce1a52cdb910baff955c023f726e9ce5e6c531d",
       "tokens": {
         "accordion": "light2",
         "secondary": "GPUI Kit secondary.background",
         "foreground": "GPUI Kit foreground",
-        "muted_foreground": "dark2"
+        "muted_foreground": "dark2",
+        "hover_overlay": "Proteus neutral overlay (8/255 alpha)"
       },
       "muted_candidates": [
         {
@@ -665,14 +684,16 @@
         "accordion": "#504945",
         "secondary": "#3c3836",
         "foreground": "#ebdbb2",
-        "muted_foreground": "#d5c4a1"
+        "muted_foreground": "#d5c4a1",
+        "hover_overlay": "#ffffff08"
       },
       "preserved_payload_sha256": "1a4589831958b52f435a5ec64ad35eb6d24698ddfb98ca85df63b79b5c7cab3f",
       "tokens": {
         "accordion": "dark2",
         "secondary": "dark1",
         "foreground": "GPUI Kit foreground",
-        "muted_foreground": "light3"
+        "muted_foreground": "light3",
+        "hover_overlay": "Proteus neutral overlay (8/255 alpha)"
       },
       "muted_candidates": [
         {
@@ -699,7 +720,7 @@
         "chrome": "#efebd4",
         "sidebar": "#f4f0d9",
         "content": "#fdf6e3",
-        "card": "#f4f0d9",
+        "card": "#efebd4",
         "popover": "#f4f0d9",
         "muted": "#f4f0d9",
         "border": "#e0dcc7",
@@ -707,14 +728,17 @@
         "accordion": "#e6e2cc",
         "secondary": "#EEEADA",
         "foreground": "#434f55",
-        "muted_foreground": "#434f55"
+        "muted_foreground": "#434f55",
+        "hover_overlay": "#00000008"
       },
       "preserved_payload_sha256": "b51ddcaabc5a722907c90b0020325f1fce66bfeeb4fcbae17d55fc9bcc7d5641",
       "tokens": {
         "accordion": "bg4 (light medium)",
         "secondary": "GPUI Kit secondary.background",
         "foreground": "bg4 (dark medium; Proteus stronger-label adaptation)",
-        "muted_foreground": "bg4 (dark medium; stronger label adaptation)"
+        "muted_foreground": "bg4 (dark medium; stronger label adaptation)",
+        "card": "bg0 (light medium; stronger settings-card adaptation)",
+        "hover_overlay": "Proteus neutral overlay (8/255 alpha)"
       },
       "muted_candidates": [
         {
@@ -741,14 +765,16 @@
         "accordion": "#3d484d",
         "secondary": "#343f44",
         "foreground": "#d3c6aa",
-        "muted_foreground": "#d3c6aa"
+        "muted_foreground": "#d3c6aa",
+        "hover_overlay": "#ffffff08"
       },
       "preserved_payload_sha256": "f7c8f7bd391f49ebb2a0a8750b4691cef65859115644fc72ca97db008dd13c66",
       "tokens": {
         "accordion": "bg3 (dark medium)",
         "secondary": "bg2",
         "foreground": "GPUI Kit foreground",
-        "muted_foreground": "fg"
+        "muted_foreground": "fg",
+        "hover_overlay": "Proteus neutral overlay (8/255 alpha)"
       },
       "muted_candidates": [
         {
@@ -783,14 +809,16 @@
         "accordion": "#ddd6c1",
         "secondary": "#EEE8D5",
         "foreground": "#073642",
-        "muted_foreground": "#073642"
+        "muted_foreground": "#073642",
+        "hover_overlay": "#00000008"
       },
       "preserved_payload_sha256": "8a2a95529ea2ee6269dd6ff566fca0c20f42f6c8ea06a85173fc9794d7fb0e50",
       "tokens": {
         "accordion": "activityBar.background (Microsoft port)",
         "secondary": "GPUI Kit secondary.background",
         "foreground": "base02 (Proteus stronger-label adaptation)",
-        "muted_foreground": "base02 (stronger label adaptation)"
+        "muted_foreground": "base02 (stronger label adaptation)",
+        "hover_overlay": "Proteus neutral overlay (8/255 alpha)"
       },
       "muted_candidates": [
         {
@@ -817,14 +845,16 @@
         "accordion": "#00212b",
         "secondary": "#073642",
         "foreground": "#fdf6e3",
-        "muted_foreground": "#93a1a1"
+        "muted_foreground": "#93a1a1",
+        "hover_overlay": "#ffffff08"
       },
       "preserved_payload_sha256": "7914a6aeef708f6ffcca5ca1010a12a957ff8727e31556143d59b750579b2011",
       "tokens": {
         "accordion": "sideBar.background (Microsoft port)",
         "secondary": "GPUI Kit secondary.background",
         "foreground": "GPUI Kit foreground",
-        "muted_foreground": "base1"
+        "muted_foreground": "base1",
+        "hover_overlay": "Proteus neutral overlay (8/255 alpha)"
       },
       "muted_candidates": [
         {
@@ -851,7 +881,7 @@
         "chrome": "#ebeef0",
         "sidebar": "#f8f9fa",
         "content": "#fcfcfc",
-        "card": "#fafafa",
+        "card": "#E6E6E6",
         "popover": "#ffffff",
         "muted": "#fafafa",
         "border": "#6b7d8f1f",
@@ -859,14 +889,17 @@
         "accordion": "#CECECE",
         "secondary": "#ECECED",
         "foreground": "#020a12a3",
-        "muted_foreground": "#020a12a3"
+        "muted_foreground": "#020a12a3",
+        "hover_overlay": "#00000008"
       },
       "preserved_payload_sha256": "9548a2e10bb74ce63ca40c72673f29cbe907a767bb423c1aa3d42a3c1e53da35",
       "tokens": {
         "accordion": "GPUI Kit secondary.active.background",
         "secondary": "GPUI Kit secondary.background",
         "foreground": "ui.fg / editor.foreground (64% alpha)",
-        "muted_foreground": "ui.fg / editor.foreground (64% alpha)"
+        "muted_foreground": "ui.fg / editor.foreground (64% alpha)",
+        "card": "GPUI Kit list.even.background (stronger settings-card adaptation)",
+        "hover_overlay": "Proteus neutral overlay (8/255 alpha)"
       },
       "muted_candidates": [
         {
@@ -893,14 +926,16 @@
         "accordion": "#26282f",
         "secondary": "#1F2127",
         "foreground": "#B3B1AD",
-        "muted_foreground": "#b3b1ad"
+        "muted_foreground": "#b3b1ad",
+        "hover_overlay": "#ffffff08"
       },
       "preserved_payload_sha256": "ff00d76e6fcea90d74d9cf24339613c9c063f32481eee1a4b40ae59b8810e559",
       "tokens": {
         "accordion": "GPUI Kit secondary.active.background",
         "secondary": "GPUI Kit secondary.background",
         "foreground": "GPUI Kit foreground",
-        "muted_foreground": "GPUI Kit foreground (opaque)"
+        "muted_foreground": "GPUI Kit foreground (opaque)",
+        "hover_overlay": "Proteus neutral overlay (8/255 alpha)"
       },
       "muted_candidates": [
         {
@@ -927,5 +962,18 @@
     "selection": "Offline only: choose the first listed authored candidate that meets 4.5:1 on every listed surface. Store one explicit color; no runtime color or brightness heuristic.",
     "alpha": "Source-over composition in sRGB over the actual opaque background, then WCAG sRGB linearization and relative luminance. Tests resolve Theme and native HSL named tokens before conversion to Rgba.",
     "scope": "Checks cover theme labels, muted text and secondary control fills; this is not full UI accessibility certification. Disabled-state colors are outside this adaptation."
+  },
+  "light_card_policy": {
+    "minimum_content_contrast_ratio": 1.1,
+    "scope": "Proteus visual separation floor for light settings cards on content; independent of text readability checks and not an accessibility conformance threshold."
+  },
+  "hover_policy": {
+    "role": "list.hover.background",
+    "light": "#00000008",
+    "dark": "#ffffff08",
+    "exceptions": {
+      "Catppuccin Frappe": "#ffffff03"
+    },
+    "selection": "Explicit neutral source-over overlays retain the containing surface. Dark hover raises luminance and light hover lowers it. Frappe uses lower alpha to keep normal labels at 4.5:1 over the accordion surface."
   }
 }

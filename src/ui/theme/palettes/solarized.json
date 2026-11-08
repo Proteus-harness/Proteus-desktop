@@ -50,7 +50,8 @@
         "accordion.background": "#ddd6c1",
         "sidebar.foreground": "#073642",
         "group_box.foreground": "#073642",
-        "button.secondary.foreground": "#073642"
+        "button.secondary.foreground": "#073642",
+        "list.hover.background": "#00000008"
       },
       "highlight": {
         "editor.foreground": "#586E75",
@@ -197,7 +198,8 @@
         "accordion.background": "#00212b",
         "sidebar.foreground": "#fdf6e3",
         "group_box.foreground": "#fdf6e3",
-        "button.secondary.foreground": "#fdf6e3"
+        "button.secondary.foreground": "#fdf6e3",
+        "list.hover.background": "#ffffff08"
       },
       "highlight": {
         "editor.foreground": "#DDDDDD",

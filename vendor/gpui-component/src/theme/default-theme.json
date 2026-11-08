@@ -14,8 +14,8 @@
         "accent.foreground": "neutral-900",
         "accordion.background": "neutral-300",
         "background": "white",
-        "border": "neutral-200",
-        "group_box.background": "#f5f5f5",
+        "border": "neutral-400",
+        "group_box.background": "neutral-200",
         "group_box.foreground": "#171717",
         "caret": "#0a0a0a",
         "chart.1": "#93c5fd",
@@ -38,7 +38,7 @@
         "list.active.border": "#60a5fa",
         "list.even.background": "#fafafa",
         "list.head.background": "#fafafa",
-        "list.hover.background": "#f5f5f5",
+        "list.hover.background": "#00000008",
         "muted.background": "neutral-100",
         "muted.foreground": "neutral-600",
         "popover.background": "white",
@@ -309,7 +309,8 @@
         "link.active": "#d4d4d4",
         "link.hover": "#ffffff",
         "progress.bar.background": "#f5f5f5",
-        "slider.background": "#fafafa"
+        "slider.background": "#fafafa",
+        "list.hover.background": "#ffffff08"
       },
       "highlight": {
         "editor.foreground": "#CACCCA",

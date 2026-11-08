@@ -20,7 +20,7 @@
         "link": "#458588",
         "link.hover": "#458588",
         "list.active.background": "#d7992122",
-        "list.hover.background": "#ebdbb2",
+        "list.hover.background": "#00000008",
         "list.active.border": "#d79921",
         "list.even.background": "#f9ecba",
         "muted.background": "#ebdbb2",
@@ -212,7 +212,8 @@
         "accordion.background": "#504945",
         "sidebar.foreground": "#ebdbb2",
         "group_box.foreground": "#ebdbb2",
-        "button.secondary.foreground": "#ebdbb2"
+        "button.secondary.foreground": "#ebdbb2",
+        "list.hover.background": "#ffffff08"
       },
       "highlight": {
         "editor.foreground": "#DDDDDD",
