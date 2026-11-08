@@ -13,7 +13,6 @@ use crate::declarative::widget::{Direction, Gap, Node, TextSize, Tone};
 use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::kit::ButtonLabel as _;
-use crate::ui::kit::Pressable as _;
 use crate::ui::prefs;
 
 pub(super) fn tone_color(tone: Tone, cx: &App) -> Hsla {
@@ -108,13 +107,12 @@ impl DeclarativeView {
                 let key: SharedString =
                     format!("extension-disclosure-{}-{id}", cx.entity_id()).into();
                 let (id, toggle) = (id.clone(), key.clone());
-                let header = h_flex()
-                    .id(ElementId::Name(key.clone()))
-                    .w_full()
-                    .px_2()
-                    .py_1p5()
-                    .gap_2()
-                    .disclosure_surface(cx)
+                let density = if self.settings_page() {
+                    kit::DisclosureDensity::Settings
+                } else {
+                    kit::DisclosureDensity::Compact
+                };
+                let header = kit::disclosure_header(ElementId::Name(key.clone()), density, cx)
                     .child(crate::ui::motion::chevron(
                         ElementId::Name(key.clone()),
                         opened,

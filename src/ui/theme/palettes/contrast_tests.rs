@@ -93,14 +93,15 @@ fn contrast(foreground: Hsla, surface: Rgba) -> f64 {
     (fg.max(bg) + 0.05) / (fg.min(bg) + 0.05)
 }
 
-fn surfaces(theme: &Theme) -> [(&'static str, Rgba); 6] {
+fn surfaces(theme: &Theme) -> [(&'static str, Rgba); 7] {
     let backdrop: Rgba = theme.background.into();
     assert_eq!(backdrop.a, 1., "builtin content must be opaque");
     [
         ("content", theme.background),
         ("sidebar", theme.sidebar),
         ("card", theme.group_box),
-        ("input", theme.secondary),
+        ("input dock", theme.secondary),
+        ("composer", crate::ui::kit::composer_background(theme)),
         ("popup", theme.popover),
         ("disclosure", theme.accordion),
     ]
@@ -237,9 +238,11 @@ fn normal_and_muted_labels_meet_minimum_on_their_resolved_surfaces() {
                 ("hover", theme.button_secondary_hover),
                 ("active", theme.button_secondary_active),
             ] {
-                for (parent, parent_fill) in
-                    [("card", theme.group_box), ("composer", theme.secondary)]
-                {
+                for (parent, parent_fill) in [
+                    ("card", theme.group_box),
+                    ("composer", crate::ui::kit::composer_background(&theme)),
+                    ("input dock", theme.secondary),
+                ] {
                     let parent_fill = composite(parent_fill.into(), backdrop);
                     let fill = composite(fill.into(), parent_fill);
                     assert_readable(
@@ -300,4 +303,67 @@ fn alpha_is_composited_before_luminance_instead_of_assumed_opaque() {
     assert!(translucent < MINIMUM);
     let ayu = expected_color("#020a12a3");
     assert!(contrast(ayu, expected_color("#cecece").into()) > MINIMUM);
+}
+
+#[::core::prelude::v1::test]
+fn filled_neutral_control_states_follow_appearance_without_changing_normal_fill() {
+    let mut count = 0;
+    for source in sources() {
+        let set: ThemeSet = serde_json::from_str(source).unwrap();
+        for config in set.themes {
+            let name = config.name.to_string();
+            let dark = config.mode.is_dark();
+            let mut theme = Theme::default();
+            theme.apply_config(&Rc::new(config));
+            for (family, [normal, hover, pressed], foreground) in [
+                (
+                    "secondary",
+                    [
+                        theme.secondary,
+                        theme.secondary_hover,
+                        theme.secondary_active,
+                    ],
+                    theme.secondary_foreground,
+                ),
+                (
+                    "secondary button",
+                    [
+                        theme.button_secondary,
+                        theme.button_secondary_hover,
+                        theme.button_secondary_active,
+                    ],
+                    theme.button_secondary_foreground,
+                ),
+            ] {
+                for fill in [normal, hover, pressed] {
+                    assert_eq!(fill.a, 1., "{name}: {family} depends on its parent fill");
+                    assert_readable(&name, family, foreground, fill.into());
+                }
+                let [normal, hover, pressed] =
+                    [normal, hover, pressed].map(|fill| luminance(fill.into()));
+                assert!(
+                    if dark {
+                        normal < hover && hover < pressed
+                    } else {
+                        normal > hover && hover > pressed
+                    },
+                    "{name}: {family} hover/pressed direction"
+                );
+            }
+            assert_eq!(
+                theme.secondary, theme.button_secondary,
+                "{name}: normal state drift"
+            );
+            assert_eq!(
+                theme.secondary_hover, theme.button_secondary_hover,
+                "{name}: hover state drift"
+            );
+            assert_eq!(
+                theme.secondary_active, theme.button_secondary_active,
+                "{name}: pressed state drift"
+            );
+            count += 1;
+        }
+    }
+    assert_eq!(count, 20);
 }

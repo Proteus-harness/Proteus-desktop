@@ -29,10 +29,10 @@
         "primary.foreground": "#EFF1F5",
         "scrollbar.background": "#EFF1F500",
         "scrollbar.thumb.background": "#acb0be",
-        "secondary.active.background": "#CCD2DE",
+        "secondary.active.background": "#c0c4cd",
         "secondary.background": "#ccd0da",
         "secondary.foreground": "#4c4f69",
-        "secondary.hover.background": "#CCD2DE99",
+        "secondary.hover.background": "#c6cad3",
         "tab.active.background": "#eff1f5",
         "tab.active.foreground": "#4c4f69",
         "tab.background": "#D2D7E200",
@@ -56,7 +56,10 @@
         "group_box.foreground": "#4c4f69",
         "popover.foreground": "#4c4f69",
         "button.secondary.foreground": "#4c4f69",
-        "list.hover.background": "#00000008"
+        "list.hover.background": "#00000008",
+        "button.secondary.background": "#ccd0da",
+        "button.secondary.hover.background": "#c6cad3",
+        "button.secondary.active.background": "#c0c4cd"
       },
       "highlight": {
         "editor.foreground": "#4c4f69",
@@ -410,7 +413,7 @@
       "colors": {
         "accent.background": "#3b3f4f",
         "accent.foreground": "#c6d0f5",
-        "background": "#303446",
+        "background": "#2d3041",
         "border": "#626880",
         "ring": "#f2d5cf",
         "foreground": "#c6d0f5",
@@ -429,10 +432,10 @@
         "primary.hover.background": "#8caaee",
         "scrollbar.background": "#30344600",
         "scrollbar.thumb.background": "#51576d",
-        "secondary.active.background": "#313445",
+        "secondary.active.background": "#51576d",
         "secondary.background": "#414559",
         "secondary.foreground": "#c6d0f5",
-        "secondary.hover.background": "#31344599",
+        "secondary.hover.background": "#494c60",
         "tab.active.background": "#414559",
         "tab.active.foreground": "#c6d0f5",
         "tab.background": "#1E202B00",
@@ -454,7 +457,10 @@
         "sidebar.foreground": "#c6d0f5",
         "group_box.foreground": "#c6d0f5",
         "button.secondary.foreground": "#c6d0f5",
-        "list.hover.background": "#ffffff03"
+        "list.hover.background": "#ffffff03",
+        "button.secondary.background": "#414559",
+        "button.secondary.hover.background": "#494c60",
+        "button.secondary.active.background": "#51576d"
       },
       "highlight": {
         "editor.foreground": "#c6d0f5",
@@ -555,7 +561,7 @@
         "accent.background": "#30344d",
         "accent.foreground": "#cad3f5",
         "status_bar.background": "#181926",
-        "background": "#24273a",
+        "background": "#212435",
         "border": "#5b6078",
         "ring": "#f4dbd6",
         "danger.background": "#ed8796",
@@ -577,10 +583,10 @@
         "primary.hover.background": "#8aadf4",
         "scrollbar.background": "#24273a00",
         "scrollbar.thumb.background": "#494d64",
-        "secondary.active.background": "#3a3f55",
+        "secondary.active.background": "#494d64",
         "secondary.background": "#363a4f",
         "secondary.foreground": "#cad3f5",
-        "secondary.hover.background": "#24273a99",
+        "secondary.hover.background": "#3a3f55",
         "tab.background": "#17192600",
         "tab.foreground": "#b8c0e0",
         "tab_bar.background": "#1e2030",
@@ -603,7 +609,10 @@
         "group_box.foreground": "#cad3f5",
         "tab.active.foreground": "#cad3f5",
         "button.secondary.foreground": "#cad3f5",
-        "list.hover.background": "#ffffff08"
+        "list.hover.background": "#ffffff08",
+        "button.secondary.background": "#363a4f",
+        "button.secondary.hover.background": "#3a3f55",
+        "button.secondary.active.background": "#494d64"
       },
       "highlight": {
         "editor.foreground": "#cad3f5",
@@ -710,7 +719,7 @@
       "colors": {
         "accent.background": "#2e2e3e",
         "accent.foreground": "#cdd6f4",
-        "background": "#1e1e2e",
+        "background": "#1b1b2a",
         "border": "#585b70",
         "ring": "#cba6f7",
         "danger.background": "#f38ba8",
@@ -737,10 +746,10 @@
         "primary.hover.background": "#74c7ec",
         "scrollbar.background": "#1e1e2e00",
         "scrollbar.thumb.background": "#4e4e5e",
-        "secondary.active.background": "#45475a",
+        "secondary.active.background": "#575268",
         "secondary.background": "#302d41",
         "secondary.foreground": "#cdd6f4",
-        "secondary.hover.background": "#575268",
+        "secondary.hover.background": "#45475a",
         "tab.background": "#0B0B1100",
         "tab.foreground": "#bac2de",
         "tab_bar.background": "#181825",
@@ -761,7 +770,10 @@
         "sidebar.foreground": "#cdd6f4",
         "group_box.foreground": "#cdd6f4",
         "tab.active.foreground": "#cdd6f4",
-        "button.secondary.foreground": "#cdd6f4"
+        "button.secondary.foreground": "#cdd6f4",
+        "button.secondary.background": "#302d41",
+        "button.secondary.hover.background": "#45475a",
+        "button.secondary.active.background": "#575268"
       },
       "highlight": {
         "editor.foreground": "#cdd6f4",

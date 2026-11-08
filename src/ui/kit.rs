@@ -22,20 +22,26 @@ use crate::preferences::Hints;
 use crate::shortcuts::{self, Command};
 
 mod controls;
+mod disclosure;
 mod frame;
 mod icon_button;
 mod selection;
 mod setting_reset;
 mod settings_row;
 mod surface;
+mod typography;
 mod workspace_surface;
 pub(crate) use controls::{Clipboard, Switch};
-pub(crate) use frame::{Frame, RowRule, record_first_child, surface_hover, surface_selected};
+pub(crate) use disclosure::{DisclosureDensity, disclosure_header};
+pub(crate) use frame::{
+    Frame, RowRule, composer_background, record_first_child, surface_hover, surface_selected,
+};
 pub(crate) use icon_button::icon_button;
 pub(crate) use selection::SelectionCopyMenu;
 pub(crate) use setting_reset::setting_reset;
 pub(crate) use settings_row::{SettingsRow, settings_row};
 pub(crate) use surface::{surface, surface_highlight};
+pub(crate) use typography::MetricText;
 pub(crate) use workspace_surface::WorkspaceSurface;
 
 /// Shared button captions and quiet surfaces. Icons, sizes, focus and
@@ -220,18 +226,10 @@ pub(crate) trait Pressable: StatefulInteractiveElement + Styled {
     }
 
     fn pressable(self, cx: &App) -> Self {
-        let theme = cx.theme();
-        let ring = theme.ring;
-        let hover = theme.list_hover;
-        let foreground = theme.foreground;
+        let ring = cx.theme().ring;
         let row = self.focusable().tab_stop(true);
         let row = if keyboard() {
-            row.focus(move |style| {
-                // Zed ButtonLike uses the existing hover treatment for focus.
-                // This remains visible on borderless rows without adding
-                // outside shadows, changing corners or shifting their layout.
-                style.border_color(ring).bg(hover).text_color(foreground)
-            })
+            row.focus(move |style| pressable_focus(style, ring))
         } else {
             row
         };
@@ -240,6 +238,21 @@ pub(crate) trait Pressable: StatefulInteractiveElement + Styled {
 }
 
 impl<E: StatefulInteractiveElement + Styled> Pressable for E {}
+
+/// The focus marker composes over a control's current state. In particular,
+/// focusing a selected card must not replace its fill, foreground or border.
+/// A zero-blur inset stroke stays inside the existing rounded bounds and does
+/// not change layout, including on rows without a reserved border.
+fn pressable_focus(
+    style: gpui_kit::StyleRefinement,
+    ring: gpui_kit::Hsla,
+) -> gpui_kit::StyleRefinement {
+    style.shadow(vec![
+        gpui_kit::BoxShadow::new(gpui_kit::px(0.), gpui_kit::px(0.), ring)
+            .spread_radius(gpui_kit::px(1.))
+            .inset(),
+    ])
+}
 
 /// Moves focus to the next or the previous stop inside `container`, coming
 /// round from its end to its start.
@@ -608,6 +621,38 @@ mod hint_tests {
                 Some("Первая строка\nВторая строка"),
                 Some("Ctrl+M")
             ))
+        );
+    }
+}
+
+#[cfg(test)]
+mod pressable_tests {
+    use super::pressable_focus;
+    use gpui_kit::{BoxShadow, StyleRefinement, Styled, px, rgb};
+
+    #[::core::prelude::v1::test]
+    fn focus_keeps_selected_fill_text_border_and_geometry() {
+        let ring = rgb(0x77bbee).into();
+        let selected = StyleRefinement::default()
+            .bg(rgb(0x303844))
+            .text_color(rgb(0xf0cc77))
+            .border_1()
+            .border_color(rgb(0x558855))
+            .rounded(px(12.));
+        let focused = pressable_focus(selected.clone(), ring);
+
+        assert_eq!(focused.background, selected.background);
+        assert_eq!(focused.text, selected.text);
+        assert_eq!(focused.border_color, selected.border_color);
+        assert_eq!(focused.border_widths, selected.border_widths);
+        assert_eq!(focused.corner_radii, selected.corner_radii);
+        assert_eq!(
+            focused.box_shadow,
+            Some(vec![
+                BoxShadow::new(px(0.), px(0.), ring)
+                    .spread_radius(px(1.))
+                    .inset(),
+            ])
         );
     }
 }

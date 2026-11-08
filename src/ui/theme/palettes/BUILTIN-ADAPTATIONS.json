@@ -1,0 +1,550 @@
+{
+  "content_policy": {
+    "baseline_commit": "715b19f10851c4efc666e6e4cb2af1bce923a7a5",
+    "rule": "Dark content is the 50:50 sRGB midpoint between its original sidebar and content. Round each channel half-up after resolving native named colors to canonical source hex. Chrome, sidebar, active tab, cards and disclosure are unchanged; light content is unchanged. Values are stored in builtin JSON, never calculated at runtime.",
+    "variants": [
+      {
+        "name": "Catppuccin Frappe",
+        "file": "src/ui/theme/palettes/catppuccin.json",
+        "sidebar": "#292c3c",
+        "original_content": "#303446",
+        "sidebar_srgb_hex": "#292c3c",
+        "original_content_srgb_hex": "#303446",
+        "content": "#2d3041"
+      },
+      {
+        "name": "Catppuccin Macchiato",
+        "file": "src/ui/theme/palettes/catppuccin.json",
+        "sidebar": "#1e2030",
+        "original_content": "#24273a",
+        "sidebar_srgb_hex": "#1e2030",
+        "original_content_srgb_hex": "#24273a",
+        "content": "#212435"
+      },
+      {
+        "name": "Catppuccin Mocha",
+        "file": "src/ui/theme/palettes/catppuccin.json",
+        "sidebar": "#181825",
+        "original_content": "#1e1e2e",
+        "sidebar_srgb_hex": "#181825",
+        "original_content_srgb_hex": "#1e1e2e",
+        "content": "#1b1b2a"
+      },
+      {
+        "name": "Tokyo Night",
+        "file": "src/ui/theme/palettes/tokyonight.json",
+        "sidebar": "#16161e",
+        "original_content": "#1a1b26",
+        "sidebar_srgb_hex": "#16161e",
+        "original_content_srgb_hex": "#1a1b26",
+        "content": "#181922"
+      },
+      {
+        "name": "Tokyo Storm",
+        "file": "src/ui/theme/palettes/tokyonight.json",
+        "sidebar": "#1f2335",
+        "original_content": "#24283b",
+        "sidebar_srgb_hex": "#1f2335",
+        "original_content_srgb_hex": "#24283b",
+        "content": "#222638"
+      },
+      {
+        "name": "Tokyo Moon",
+        "file": "src/ui/theme/palettes/tokyonight.json",
+        "sidebar": "#1e2030",
+        "original_content": "#222436",
+        "sidebar_srgb_hex": "#1e2030",
+        "original_content_srgb_hex": "#222436",
+        "content": "#202233"
+      },
+      {
+        "name": "Gruvbox Dark",
+        "file": "src/ui/theme/palettes/gruvbox.json",
+        "sidebar": "#282828",
+        "original_content": "#32302f",
+        "sidebar_srgb_hex": "#282828",
+        "original_content_srgb_hex": "#32302f",
+        "content": "#2d2c2c"
+      },
+      {
+        "name": "Everforest Dark",
+        "file": "src/ui/theme/palettes/everforest.json",
+        "sidebar": "#272e33",
+        "original_content": "#2d353b",
+        "sidebar_srgb_hex": "#272e33",
+        "original_content_srgb_hex": "#2d353b",
+        "content": "#2a3237"
+      },
+      {
+        "name": "Solarized Dark",
+        "file": "src/ui/theme/palettes/solarized.json",
+        "sidebar": "#00212b",
+        "original_content": "#002b36",
+        "sidebar_srgb_hex": "#00212b",
+        "original_content_srgb_hex": "#002b36",
+        "content": "#002631"
+      },
+      {
+        "name": "Ayu Dark",
+        "file": "src/ui/theme/palettes/ayu.json",
+        "sidebar": "#0d1017",
+        "original_content": "#10141c",
+        "sidebar_srgb_hex": "#0d1017",
+        "original_content_srgb_hex": "#10141c",
+        "content": "#0f121a"
+      },
+      {
+        "name": "Proteus Graphite",
+        "file": "src/ui/theme/proteus.json",
+        "sidebar": "#181818",
+        "original_content": "#212121",
+        "sidebar_srgb_hex": "#181818",
+        "original_content_srgb_hex": "#212121",
+        "content": "#1d1d1d"
+      },
+      {
+        "name": "Proteus Slate",
+        "file": "src/ui/theme/proteus.json",
+        "sidebar": "#171d26",
+        "original_content": "#202630",
+        "sidebar_srgb_hex": "#171d26",
+        "original_content_srgb_hex": "#202630",
+        "content": "#1c222b"
+      },
+      {
+        "name": "Default Dark",
+        "file": "vendor/gpui-component/src/theme/default-theme.json",
+        "sidebar": "neutral-950",
+        "original_content": "neutral-900",
+        "sidebar_srgb_hex": "#0a0a0a",
+        "original_content_srgb_hex": "#171717",
+        "content": "#111111"
+      }
+    ]
+  },
+  "control_state_policy": {
+    "baseline_commit": "715b19f10851c4efc666e6e4cb2af1bce923a7a5",
+    "rule": "Normal fills and primary colors are unchanged. Explicit neutral normal/hover/pressed chains increase relative luminance in dark mode and decrease it in light mode. Secondary and button.secondary share one chain. Prefer authored neutral/source-state colors that keep text 4.5:1; where unavailable, store a documented offline neutral composition. No runtime color rewriting.",
+    "compositing": "Flatten alpha states over their own normal secondary fill, and neutral fallback overlays in sRGB; round each byte half-up. Native named inputs use the pinned default-colors.json hex coordinates; resolved native HSL values are independently contrast-tested.",
+    "exceptions": {
+      "Catppuccin Latte": "surface1 on normal text is4.39:1, so use explicit black 3%/6% compositing instead of authored darker neutral steps.",
+      "Catppuccin Mocha": "Existing source-state colors are ordered by luminance; pressed is a larger step than hover, keeping both authored colors.",
+      "Gruvbox Dark": "Authored dark1/dark2/dark3 have larger perceptual steps than generated palettes; retained as part of the chosen palette."
+    },
+    "variants": [
+      {
+        "name": "Catppuccin Latte",
+        "file": "src/ui/theme/palettes/catppuccin.json",
+        "mode": "light",
+        "normal": "#ccd0da",
+        "hover": {
+          "color": "#c6cad3",
+          "source": "Proteus black 3% over surface0",
+          "kind": "neutral_composite",
+          "overlay": "#000000",
+          "alpha_percent": 3,
+          "normal": "#ccd0da"
+        },
+        "pressed": {
+          "color": "#c0c4cd",
+          "source": "Proteus black6% over surface0 (surface1 fails4.5:1)",
+          "kind": "neutral_composite",
+          "overlay": "#000000",
+          "alpha_percent": 6,
+          "normal": "#ccd0da"
+        },
+        "primary_payload_sha256": "6c53703d24fa9c1a7e79029a0eb53e1f6aea48a0bca51369cdfdf5f784969f50"
+      },
+      {
+        "name": "Catppuccin Frappe",
+        "file": "src/ui/theme/palettes/catppuccin.json",
+        "mode": "dark",
+        "normal": "#414559",
+        "hover": {
+          "color": "#494c60",
+          "source": "Proteus white4% over GPUI Kit secondary",
+          "kind": "neutral_composite",
+          "overlay": "#ffffff",
+          "alpha_percent": 4,
+          "normal": "#414559"
+        },
+        "pressed": {
+          "color": "#51576d",
+          "source": "Catppuccin surface1",
+          "kind": "authored",
+          "reference": "#51576d"
+        },
+        "primary_payload_sha256": "98cdb5deb80fc7a1c4793182c7e520bff1f2168000d2a400c68f28ca721a06e1"
+      },
+      {
+        "name": "Catppuccin Macchiato",
+        "file": "src/ui/theme/palettes/catppuccin.json",
+        "mode": "dark",
+        "normal": "#363a4f",
+        "hover": {
+          "color": "#3a3f55",
+          "source": "GPUI Kit original secondary.active.background",
+          "kind": "authored",
+          "reference": "#3a3f55"
+        },
+        "pressed": {
+          "color": "#494d64",
+          "source": "Catppuccin surface1",
+          "kind": "authored",
+          "reference": "#494d64"
+        },
+        "primary_payload_sha256": "d16075b2f485cad90b948094b95ca59078880d78bb2efb71cc0aab5a01802f30"
+      },
+      {
+        "name": "Catppuccin Mocha",
+        "file": "src/ui/theme/palettes/catppuccin.json",
+        "mode": "dark",
+        "normal": "#302d41",
+        "hover": {
+          "color": "#45475a",
+          "source": "GPUI Kit original secondary.active.background",
+          "kind": "authored",
+          "reference": "#45475a"
+        },
+        "pressed": {
+          "color": "#575268",
+          "source": "GPUI Kit original secondary.hover.background",
+          "kind": "authored",
+          "reference": "#575268"
+        },
+        "primary_payload_sha256": "fece3f21db3e04e737f6c3bf4f078c39193e651ad185174f5f148c3ac083ad5a"
+      },
+      {
+        "name": "Tokyo Night",
+        "file": "src/ui/theme/palettes/tokyonight.json",
+        "mode": "dark",
+        "normal": "#292e42",
+        "hover": {
+          "color": "#2d3349",
+          "source": "GPUI Kit original secondary.hover.background",
+          "kind": "authored",
+          "reference": "#2d3349"
+        },
+        "pressed": {
+          "color": "#3a3f51",
+          "source": "Proteus white8% over GPUI Kit secondary",
+          "kind": "neutral_composite",
+          "overlay": "#ffffff",
+          "alpha_percent": 8,
+          "normal": "#292e42"
+        },
+        "primary_payload_sha256": "ab1c872bcea0f0056fcc38fdcb10ed4717e4a3d64c79d87863fec8ca7b35fdfc"
+      },
+      {
+        "name": "Tokyo Storm",
+        "file": "src/ui/theme/palettes/tokyonight.json",
+        "mode": "dark",
+        "normal": "#292e42",
+        "hover": {
+          "color": "#2e334a",
+          "source": "GPUI Kit original alpha secondary.hover.background, flattened over secondary",
+          "kind": "flattened_legacy_overlay",
+          "overlay": "#323750",
+          "alpha_byte": 153,
+          "normal": "#292e42"
+        },
+        "pressed": {
+          "color": "#323750",
+          "source": "GPUI Kit original secondary.active.background",
+          "kind": "authored",
+          "reference": "#323750"
+        },
+        "primary_payload_sha256": "159c40a57ee64f4b7696c1e9379f372737200cb8087aee383900243b19b6e382"
+      },
+      {
+        "name": "Tokyo Moon",
+        "file": "src/ui/theme/palettes/tokyonight.json",
+        "mode": "dark",
+        "normal": "#2d3149",
+        "hover": {
+          "color": "#2f334c",
+          "source": "GPUI Kit original secondary.active.background",
+          "kind": "authored",
+          "reference": "#2f334c"
+        },
+        "pressed": {
+          "color": "#31354f",
+          "source": "GPUI Kit original secondary.hover.background",
+          "kind": "authored",
+          "reference": "#31354f"
+        },
+        "primary_payload_sha256": "5225b07fdf246b4acb8f96295ccb9838beeb41d212952c11566c59d48e702258"
+      },
+      {
+        "name": "Gruvbox Light",
+        "file": "src/ui/theme/palettes/gruvbox.json",
+        "mode": "light",
+        "normal": "#EBDBB2",
+        "hover": {
+          "color": "#e8d5a6",
+          "source": "GPUI Kit original secondary.hover.background",
+          "kind": "authored",
+          "reference": "#e8d5a6"
+        },
+        "pressed": {
+          "color": "#d5c4a1",
+          "source": "Gruvbox light2 / GPUI Kit original secondary.active.background",
+          "kind": "authored",
+          "reference": "#d5c4a1"
+        },
+        "primary_payload_sha256": "12cd6cf23d4e44492151d745e7fc37c0729ae8f389b5e4637403079ebc6999fd"
+      },
+      {
+        "name": "Gruvbox Dark",
+        "file": "src/ui/theme/palettes/gruvbox.json",
+        "mode": "dark",
+        "normal": "#3c3836",
+        "hover": {
+          "color": "#504945",
+          "source": "Gruvbox dark2",
+          "kind": "authored",
+          "reference": "#504945"
+        },
+        "pressed": {
+          "color": "#665c54",
+          "source": "Gruvbox dark3",
+          "kind": "authored",
+          "reference": "#665c54"
+        },
+        "primary_payload_sha256": "3420c756071f9d6ff538273d3f49b9890ceb4aa0378f6d20658f8e8c3feddebd"
+      },
+      {
+        "name": "Everforest Light",
+        "file": "src/ui/theme/palettes/everforest.json",
+        "mode": "light",
+        "normal": "#EEEADA",
+        "hover": {
+          "color": "#e6e2cc",
+          "source": "Everforest light medium bg4",
+          "kind": "authored",
+          "reference": "#e6e2cc"
+        },
+        "pressed": {
+          "color": "#e0dcc7",
+          "source": "Everforest light medium bg5",
+          "kind": "authored",
+          "reference": "#e0dcc7"
+        },
+        "primary_payload_sha256": "f0e2681bce29e1c6b441c2f4cbffdff3dc11f87a334b8be87daf0ae36033519a"
+      },
+      {
+        "name": "Everforest Dark",
+        "file": "src/ui/theme/palettes/everforest.json",
+        "mode": "dark",
+        "normal": "#343f44",
+        "hover": {
+          "color": "#3a4448",
+          "source": "GPUI Kit original alpha secondary.hover.background, flattened over secondary",
+          "kind": "flattened_legacy_overlay",
+          "overlay": "#3e474b",
+          "alpha_byte": 153,
+          "normal": "#343f44"
+        },
+        "pressed": {
+          "color": "#3d484d",
+          "source": "Everforest dark medium bg3",
+          "kind": "authored",
+          "reference": "#3d484d"
+        },
+        "primary_payload_sha256": "6994fe5a6060cccbda66be32319f55a287012940cf221b9fca62e679ff3148c0"
+      },
+      {
+        "name": "Solarized Light",
+        "file": "src/ui/theme/palettes/solarized.json",
+        "mode": "light",
+        "normal": "#EEE8D5",
+        "hover": {
+          "color": "#e4ddc8",
+          "source": "GPUI Kit original alpha secondary.hover.background, flattened over secondary",
+          "kind": "flattened_legacy_overlay",
+          "overlay": "#dcd4bc",
+          "alpha_byte": 136,
+          "normal": "#EEE8D5"
+        },
+        "pressed": {
+          "color": "#dcd4bc",
+          "source": "GPUI Kit original secondary.active.background",
+          "kind": "authored",
+          "reference": "#dcd4bc"
+        },
+        "primary_payload_sha256": "f2741e04b6b172a854e427afac01616d4105734da8b9b78b30c9e1ddc5b39689"
+      },
+      {
+        "name": "Solarized Dark",
+        "file": "src/ui/theme/palettes/solarized.json",
+        "mode": "dark",
+        "normal": "#073642",
+        "hover": {
+          "color": "#073945",
+          "source": "GPUI Kit original secondary.hover.background",
+          "kind": "authored",
+          "reference": "#073945"
+        },
+        "pressed": {
+          "color": "#083e4b",
+          "source": "GPUI Kit original secondary.active.background",
+          "kind": "authored",
+          "reference": "#083e4b"
+        },
+        "primary_payload_sha256": "a61867303cba365df57fb54f3622e6ac63384612bc2555d9b55a3cc0067fe495"
+      },
+      {
+        "name": "Ayu Light",
+        "file": "src/ui/theme/palettes/ayu.json",
+        "mode": "light",
+        "normal": "#ECECED",
+        "hover": {
+          "color": "#e0e0e0",
+          "source": "GPUI Kit original secondary.hover.background",
+          "kind": "authored",
+          "reference": "#e0e0e0"
+        },
+        "pressed": {
+          "color": "#cecece",
+          "source": "GPUI Kit original secondary.active.background",
+          "kind": "authored",
+          "reference": "#cecece"
+        },
+        "primary_payload_sha256": "fdbaa28a43d3709b0bfc2e75c828a2aacc0ef246be122755f971252465c61d9b"
+      },
+      {
+        "name": "Ayu Dark",
+        "file": "src/ui/theme/palettes/ayu.json",
+        "mode": "dark",
+        "normal": "#1F2127",
+        "hover": {
+          "color": "#23252c",
+          "source": "GPUI Kit original alpha secondary.hover.background, flattened over secondary",
+          "kind": "flattened_legacy_overlay",
+          "overlay": "#26282f",
+          "alpha_byte": 153,
+          "normal": "#1F2127"
+        },
+        "pressed": {
+          "color": "#26282f",
+          "source": "GPUI Kit original secondary.active.background",
+          "kind": "authored",
+          "reference": "#26282f"
+        },
+        "primary_payload_sha256": "696a7aa013365397de787f521b4503458355b1cba56efe65badf66bce5782b92"
+      },
+      {
+        "name": "Proteus Graphite",
+        "file": "src/ui/theme/proteus.json",
+        "mode": "dark",
+        "normal": "#303030",
+        "hover": {
+          "color": "#383838",
+          "source": "Proteus original secondary.hover.background",
+          "kind": "authored",
+          "reference": "#383838"
+        },
+        "pressed": {
+          "color": "#414141",
+          "source": "Proteus original secondary.active.background",
+          "kind": "authored",
+          "reference": "#414141"
+        },
+        "primary_payload_sha256": "b7713f4b6a4b4a5785884c6b0b1504278c45c232e63aa913402bc1122b26517f"
+      },
+      {
+        "name": "Proteus Slate",
+        "file": "src/ui/theme/proteus.json",
+        "mode": "dark",
+        "normal": "#2c3746",
+        "hover": {
+          "color": "#303b49",
+          "source": "Proteus original secondary.active.background",
+          "kind": "authored",
+          "reference": "#303b49"
+        },
+        "pressed": {
+          "color": "#354256",
+          "source": "Proteus original secondary.hover.background",
+          "kind": "authored",
+          "reference": "#354256"
+        },
+        "primary_payload_sha256": "9d40e8739ee0570db17301e99a845536abcdb144307b1c62670ff0cfdac15439"
+      },
+      {
+        "name": "Proteus Light",
+        "file": "src/ui/theme/proteus.json",
+        "mode": "light",
+        "normal": "neutral-200",
+        "hover": {
+          "color": "#dcdcdc",
+          "source": "Proteus black4% over neutral-200",
+          "kind": "neutral_composite",
+          "overlay": "#000000",
+          "alpha_percent": 4,
+          "normal": "neutral-200"
+        },
+        "pressed": {
+          "color": "neutral-300",
+          "source": "Native neutral-300",
+          "kind": "authored",
+          "reference": "neutral-300"
+        },
+        "primary_payload_sha256": "9e2898999f182c26e679f5ddaa3a256dadcc4580d1b32b90ac29867af7bfc2d1"
+      },
+      {
+        "name": "Default Light",
+        "file": "vendor/gpui-component/src/theme/default-theme.json",
+        "mode": "light",
+        "normal": "neutral-200",
+        "hover": {
+          "color": "#dcdcdc",
+          "source": "Proteus black4% over neutral-200",
+          "kind": "neutral_composite",
+          "overlay": "#000000",
+          "alpha_percent": 4,
+          "normal": "neutral-200"
+        },
+        "pressed": {
+          "color": "neutral-300",
+          "source": "Native neutral-300",
+          "kind": "authored",
+          "reference": "neutral-300"
+        },
+        "primary_payload_sha256": "6e684465560df7442397ef88013510ac6fd4845fc5c32dda8927577c30522ed1"
+      },
+      {
+        "name": "Default Dark",
+        "file": "vendor/gpui-component/src/theme/default-theme.json",
+        "mode": "dark",
+        "normal": "neutral-800",
+        "hover": {
+          "color": "#292929",
+          "source": "Native original secondary.hover.background",
+          "kind": "authored",
+          "reference": "#292929"
+        },
+        "pressed": {
+          "color": "#373737",
+          "source": "Proteus white8% over neutral-800",
+          "kind": "neutral_composite",
+          "overlay": "#ffffff",
+          "alpha_percent": 8,
+          "normal": "neutral-800"
+        },
+        "primary_payload_sha256": "50e7240534382fdd0fcf9bc8a4cbb56cf1cd9ae4a2b3bddeb6306a747ff24895"
+      }
+    ]
+  },
+  "protected_payload_baseline": {
+    "commit": "715b19f10851c4efc666e6e4cb2af1bce923a7a5",
+    "removed_fields": [
+      "button.secondary.active.background",
+      "button.secondary.background",
+      "button.secondary.hover.background",
+      "secondary.active.background",
+      "secondary.hover.background"
+    ],
+    "method": "First verify the committed original payload against its previous hash and old excluded fields; compute the narrower protected hash from that same committed payload after excluding the new mutable state fields. Never hash the edited payload to choose an expected value."
+  }
+}

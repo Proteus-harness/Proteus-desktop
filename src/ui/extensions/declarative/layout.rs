@@ -96,13 +96,7 @@ impl DeclarativeView {
         // Colours of the editor tabs (tabs/tab.rs): the active tab is lifted,
         // the others sit on the bar behind a bottom border.
         let theme = cx.theme();
-        let (muted, border, hover, active_bg, active_fg) = (
-            theme.tab_foreground,
-            theme.border,
-            theme.list_hover,
-            theme.tab_active,
-            theme.tab_active_foreground,
-        );
+        let (border, hover, active_bg) = (theme.border, theme.list_hover, theme.tab_active);
         let faded_border = border.opacity(0.6);
         let bar = h_flex()
             .flex_none()
@@ -111,6 +105,7 @@ impl DeclarativeView {
             .children(tabs.iter().enumerate().flat_map(|(index, tab)| {
                 let (key, action) = (path.to_string(), action.map(str::to_string));
                 let active = index == selected;
+                let foreground = crate::ui::selection::tab_foreground(theme, active);
                 let divider = (index > 0).then(|| {
                     div()
                         .flex_none()
@@ -123,7 +118,7 @@ impl DeclarativeView {
                     div()
                         .flex_none()
                         .text_xs()
-                        .text_color(muted)
+                        .text_color(foreground)
                         .child(format!("({count})"))
                 });
                 let tab = h_flex()
@@ -139,10 +134,10 @@ impl DeclarativeView {
                     .border_color(faded_border)
                     .map(|tab| {
                         if active {
-                            tab.bg(active_bg).text_color(active_fg)
+                            tab.bg(active_bg).text_color(foreground)
                         } else {
                             tab.border_b_1()
-                                .text_color(muted)
+                                .text_color(foreground)
                                 .hover(move |tab| tab.bg(hover))
                         }
                     })

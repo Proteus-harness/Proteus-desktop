@@ -3,7 +3,7 @@
 //! Flat controls and containers share their radius and a transparent layout
 //! edge. Callers can tint that edge for a semantic state without resizing it.
 
-use gpui_kit::component::ActiveTheme as _;
+use gpui_kit::component::{ActiveTheme as _, ThemeColor};
 use gpui_kit::{App, Bounds, Hsla, ParentElement, Pixels, Styled, Window};
 use std::{cell::Cell, rc::Rc};
 
@@ -41,6 +41,13 @@ pub(crate) fn surface_hover(cx: &App) -> Hsla {
 
 pub(crate) fn surface_selected(cx: &App) -> Hsla {
     cx.theme().group_box.blend(cx.theme().list_active)
+}
+
+/// The writing surface stays closer to the chat than the controls above it.
+/// One part dock fill to two parts page fill preserves their ordered tones
+/// without introducing another independent surface color for each palette.
+pub(crate) fn composer_background(theme: &ThemeColor) -> Hsla {
+    theme.background.blend(theme.secondary.opacity(1. / 3.))
 }
 
 /// Record the first child's outer layout box from its containing Div.

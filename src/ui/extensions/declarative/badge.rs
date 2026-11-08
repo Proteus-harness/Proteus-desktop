@@ -13,6 +13,7 @@ use super::view::DeclarativeView;
 use super::{Host, SurfaceKind, installed, runtime};
 use crate::declarative::presentation::Face;
 use crate::declarative::widget::Tone;
+use crate::ui::kit::MetricText as _;
 use crate::ui::{motion::Number, prefs};
 use std::cell::Cell;
 
@@ -124,8 +125,7 @@ impl Render for DeclarativeBadge {
                                     .absolute()
                                     .right_0()
                                     .bottom_0()
-                                    .text_size(px(9.))
-                                    .font_semibold()
+                                    .compact_metric()
                                     .child(if count > 99 {
                                         "99+".to_string()
                                     } else {
@@ -173,7 +173,7 @@ impl Render for DeclarativeBadge {
                             .value(percent)
                             .color(color)
                             .size(prefs::scaled(22.))
-                            .child(div().text_size(px(9.)).font_semibold().child(Number::new(
+                            .child(div().compact_metric().child(Number::new(
                                 ElementId::Name(format!("extension-{id}-number").into()),
                                 percent,
                                 |value| format!("{value:.0}"),

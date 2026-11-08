@@ -353,7 +353,15 @@ pub(super) fn radio_card(
                     .text_color(theme.group_box_foreground)
             } else {
                 card.bg(theme.group_box)
-                    .hover(|card| card.bg(kit::surface_hover(cx)))
+            }
+        })
+        // Keep hover tracking registered while selected so leaving the card
+        // clears GPUI's cached pointer state before another card is chosen.
+        .hover(|card| {
+            if selected {
+                card
+            } else {
+                card.bg(kit::surface_hover(cx))
             }
         })
         .child(dot)
@@ -387,14 +395,7 @@ pub(super) fn disclosure(
 ) -> Stateful<Div> {
     let theme = cx.theme();
     let chevron_id = ElementId::Name(format!("{id}-chevron").into());
-    h_flex()
-        .id(id)
-        .px_4()
-        .py_2p5()
-        .gap_2()
-        .items_center()
-        .text_sm()
-        .disclosure_surface(cx)
+    kit::disclosure_header(id, kit::DisclosureDensity::Settings, cx)
         .child(crate::ui::motion::chevron(
             chevron_id,
             open,

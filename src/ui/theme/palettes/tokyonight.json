@@ -9,7 +9,7 @@
       "colors": {
         "accent.background": "#2C3045",
         "accent.foreground": "#c0caf5",
-        "background": "#1a1b26",
+        "background": "#181922",
         "border": "#15161e",
         "window.border": "#3d4462",
         "ring": "#7aa2f7",
@@ -29,7 +29,7 @@
         "primary.foreground": "#1a1b26",
         "scrollbar.background": "#1a1b2600",
         "scrollbar.thumb.background": "#414868",
-        "secondary.active.background": "#292e42",
+        "secondary.active.background": "#3a3f51",
         "secondary.background": "#292e42",
         "secondary.foreground": "#c0caf5",
         "secondary.hover.background": "#2d3349",
@@ -53,7 +53,10 @@
         "tab.active.foreground": "#c0caf5",
         "button.secondary.foreground": "#c0caf5",
         "tab.foreground": "#a9b1d6",
-        "list.hover.background": "#ffffff08"
+        "list.hover.background": "#ffffff08",
+        "button.secondary.background": "#292e42",
+        "button.secondary.hover.background": "#2d3349",
+        "button.secondary.active.background": "#3a3f51"
       },
       "highlight": {
         "editor.foreground": "#c0caf5",
@@ -160,7 +163,7 @@
       "colors": {
         "accent.background": "#414868",
         "accent.foreground": "#c0caf5",
-        "background": "#24283b",
+        "background": "#222638",
         "border": "#1d202f",
         "window.border": "#3d4462",
         "ring": "#7aa2f7",
@@ -184,7 +187,7 @@
         "secondary.active.background": "#323750",
         "secondary.background": "#292e42",
         "secondary.foreground": "#c0caf5",
-        "secondary.hover.background": "#32375099",
+        "secondary.hover.background": "#2e334a",
         "title_bar.background": "#1b1e2d",
         "title_bar.border": "#3d4462",
         "base.red": "#f7768e",
@@ -204,7 +207,10 @@
         "tab.active.foreground": "#c0caf5",
         "button.secondary.foreground": "#c0caf5",
         "tab.foreground": "#a9b1d6",
-        "list.hover.background": "#ffffff08"
+        "list.hover.background": "#ffffff08",
+        "button.secondary.background": "#292e42",
+        "button.secondary.hover.background": "#2e334a",
+        "button.secondary.active.background": "#323750"
       },
       "highlight": {
         "editor.foreground": "#B0B9E2",
@@ -305,7 +311,7 @@
       "colors": {
         "accent.background": "#32364E",
         "accent.foreground": "#c0caf5",
-        "background": "#222436",
+        "background": "#202233",
         "border": "#1b1d2b",
         "window.border": "#404668",
         "ring": "#82aaff",
@@ -327,10 +333,10 @@
         "primary.foreground": "#222436",
         "scrollbar.background": "#22243600",
         "scrollbar.thumb.background": "#444b6a",
-        "secondary.active.background": "#2f334c",
+        "secondary.active.background": "#31354f",
         "secondary.background": "#2d3149",
         "secondary.foreground": "#c0caf5",
-        "secondary.hover.background": "#31354f",
+        "secondary.hover.background": "#2f334c",
         "table.row.border": "#2d3149",
         "title_bar.background": "#191b29",
         "title_bar.border": "#323752",
@@ -351,7 +357,10 @@
         "tab.active.foreground": "#c0caf5",
         "button.secondary.foreground": "#c0caf5",
         "tab.foreground": "#c8d3f5",
-        "list.hover.background": "#ffffff08"
+        "list.hover.background": "#ffffff08",
+        "button.secondary.background": "#2d3149",
+        "button.secondary.hover.background": "#2f334c",
+        "button.secondary.active.background": "#31354f"
       },
       "highlight": {
         "editor.foreground": "#c0caf5",

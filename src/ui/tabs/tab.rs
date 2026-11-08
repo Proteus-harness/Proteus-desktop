@@ -173,7 +173,8 @@ impl Workspace {
         let theme = cx.theme();
         let label = self.tab_label(id, cx);
         let tab_group = SharedString::from(format!("tab-{id}"));
-        let (hover, foreground) = (theme.list_hover, theme.sidebar_foreground);
+        let hover = theme.list_hover;
+        let foreground = crate::ui::selection::tab_foreground(theme, state.active);
         let lifted = drag::is_source(&format!("tab:{id}"), cx);
         let icon = match self.chat_state(id, cx) {
             Some(ChatState::Busy(_)) => Spinner::new().xsmall().into_any_element(),
@@ -215,14 +216,7 @@ impl Workspace {
             })
             .text_sm()
             .cursor_pointer()
-            .map(|tab| {
-                if state.active {
-                    tab.text_color(theme.foreground)
-                } else {
-                    tab.text_color(theme.sidebar_foreground)
-                        .hover(move |style| style.text_color(foreground))
-                }
-            })
+            .text_color(foreground)
             .when(lifted, |tab| tab.opacity(drag::SOURCE_OPACITY))
             .child(
                 div()

@@ -479,7 +479,7 @@ pub struct Bar {
 #[serde(deny_unknown_fields)]
 pub struct Tab {
     pub label: String,
-    /// A small muted «(N)» after the label; zero shows nothing.
+    /// A small «(N)» using the tab's active/inactive text role; zero is hidden.
     #[serde(default)]
     pub count: Option<usize>,
     #[serde(default)]

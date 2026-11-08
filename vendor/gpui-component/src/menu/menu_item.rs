@@ -7,6 +7,14 @@ use gpui::{
 use gpui_base::TestSupportExt as _;
 use smallvec::SmallVec;
 
+/// Pointer hover and the keyboard cursor use the same list state as pickers.
+/// Keep the token's renderable background so custom gradients survive.
+fn cursor_style(style: StyleRefinement, theme: &crate::Theme) -> StyleRefinement {
+    style
+        .bg(theme.tokens.list_hover)
+        .text_color(theme.foreground)
+}
+
 #[derive(IntoElement)]
 pub(crate) struct MenuItemElement {
     id: ElementId,
@@ -116,20 +124,16 @@ impl RenderOnce for MenuItemElement {
                 // Not `group_hover` on the item's own group: GPUI styles an
                 // element before registering its group, and that fallback keeps
                 // the pointer's item lit after a key moves the highlight away.
-                this.hover(|this| {
-                    this.bg(cx.theme().tokens.accent)
-                        .text_color(cx.theme().accent_foreground)
-                })
-                .when(self.selected, |this| {
-                    this.bg(cx.theme().tokens.accent)
-                        .text_color(cx.theme().accent_foreground)
-                })
-                .when_some(self.on_click, |this, on_click| {
-                    this.on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                        cx.stop_propagation();
+                this.hover(|style| cursor_style(style, cx.theme()))
+                    .when(self.selected, |this| {
+                        this.refine_style(&cursor_style(StyleRefinement::default(), cx.theme()))
                     })
-                    .on_click(on_click)
-                })
+                    .when_some(self.on_click, |this, on_click| {
+                        this.on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                            cx.stop_propagation();
+                        })
+                        .on_click(on_click)
+                    })
             })
             .when(self.disabled, |this| {
                 this.text_color(cx.theme().muted_foreground)
@@ -147,5 +151,25 @@ mod tests {
         let item = MenuItemElement::new("open").aria_label("Open");
 
         assert_eq!(item.aria_label, Some("Open".into()));
+    }
+
+    #[test]
+    fn cursor_keeps_the_list_gradient_and_does_not_use_accent_text() {
+        let mut theme = crate::Theme::default();
+        let gradient = gpui::linear_gradient(
+            90.,
+            gpui::linear_color_stop(gpui::rgb(0x223344), 0.),
+            gpui::linear_color_stop(gpui::rgb(0x445566), 1.),
+        );
+        theme.tokens.list_hover = crate::ThemeToken::new(gpui::rgb(0x223344).into(), gradient);
+        theme.foreground = gpui::rgb(0xeeeeee).into();
+        theme.accent_foreground = gpui::rgb(0x111111).into();
+
+        let cursor = cursor_style(StyleRefinement::default(), &theme);
+        let expected = StyleRefinement::default()
+            .bg(gradient)
+            .text_color(theme.foreground);
+        assert_eq!(cursor.background, expected.background);
+        assert_eq!(cursor.text, expected.text);
     }
 }

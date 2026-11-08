@@ -191,7 +191,15 @@ impl Chat {
                 row.bg(theme.sidebar_accent)
                     .text_color(theme.sidebar_accent_foreground)
             })
-            .when(!selected, |row| row.hover(|row| row.bg(theme.list_hover)))
+            // Selection keeps its own foreground/fill pair, while the hover
+            // callback still tracks pointer leave for the later unselection.
+            .hover(|row| {
+                if selected {
+                    row
+                } else {
+                    row.bg(theme.list_hover)
+                }
+            })
             .child(badge)
             .child(
                 v_flex()

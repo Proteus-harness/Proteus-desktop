@@ -6,6 +6,17 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+/// Native and extension tabs consume the same authored foreground pair.
+/// Selected tabs retain that pair while the keyboard or pointer moves over
+/// them; hover never substitutes an unrelated sidebar text role.
+pub(crate) fn tab_foreground(theme: &ThemeColor, active: bool) -> Hsla {
+    if active {
+        theme.tab_active_foreground
+    } else {
+        theme.tab_foreground
+    }
+}
+
 pub(crate) fn background(
     selected: bool,
     cursor: bool,
@@ -91,4 +102,24 @@ pub(crate) fn menu_option(label: impl Into<SharedString>, selected: bool) -> Pop
                     .child(super::fade::caption("menu-option-caption", label.clone())),
             )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[::core::prelude::v1::test]
+    fn tabs_keep_their_authored_text_roles_apart_from_page_and_sidebar() {
+        let active = rgb(0xf0cc77).into();
+        let inactive = rgb(0x77bbee).into();
+        let theme = ThemeColor {
+            tab_active_foreground: active,
+            tab_foreground: inactive,
+            foreground: rgb(0xffffff).into(),
+            sidebar_foreground: rgb(0x888888).into(),
+            ..ThemeColor::default()
+        };
+        assert_eq!(tab_foreground(&theme, true), active);
+        assert_eq!(tab_foreground(&theme, false), inactive);
+    }
 }

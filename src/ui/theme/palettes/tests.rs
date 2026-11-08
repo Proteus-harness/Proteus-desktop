@@ -23,6 +23,7 @@ const FIELDS: &[(&str, usize)] = &[
     ("border", 6),
     ("accordion.background", 8),
     ("secondary.background", 9),
+    ("button.secondary.background", 9),
 ];
 
 pub(super) fn sources() -> impl Iterator<Item = &'static str> {
@@ -95,6 +96,7 @@ fn explicit_builtin_roles_survive_schema_and_theme_resolution() {
                 (theme.border, theme.tokens.border, 6),
                 (theme.accordion, theme.tokens.accordion, 8),
                 (theme.secondary, theme.tokens.secondary, 9),
+                (theme.button_secondary, theme.tokens.button_secondary, 9),
             ];
             for (color, token, role) in resolved {
                 let expected = expected_color(expected[role]);
@@ -140,6 +142,41 @@ fn explicit_builtin_roles_survive_schema_and_theme_resolution() {
                 let expected = expected_color(value);
                 assert_eq!(color, expected, "{name}: {field}");
                 assert_eq!(token.color, expected, "{name}: token {field}");
+            }
+            for (field, color, token, state) in [
+                (
+                    "secondary.hover.background",
+                    theme.secondary_hover,
+                    theme.tokens.secondary_hover,
+                    0,
+                ),
+                (
+                    "secondary.active.background",
+                    theme.secondary_active,
+                    theme.tokens.secondary_active,
+                    1,
+                ),
+                (
+                    "button.secondary.hover.background",
+                    theme.button_secondary_hover,
+                    theme.tokens.button_secondary_hover,
+                    0,
+                ),
+                (
+                    "button.secondary.active.background",
+                    theme.button_secondary_active,
+                    theme.tokens.button_secondary_active,
+                    1,
+                ),
+            ] {
+                let value = fixture.secondary_states[state];
+                assert_eq!(raw["colors"][field], value, "{name}: {field}");
+                assert_eq!(
+                    encoded["colors"][field], value,
+                    "schema ignored {name}: {field}"
+                );
+                assert_eq!(color, expected_color(value), "{name}: {field}");
+                assert_eq!(token.color, expected_color(value), "{name}: token {field}");
             }
             if fixture.imported {
                 for (field, color, token) in [
@@ -248,6 +285,10 @@ fn structural_adaptation_preserves_all_other_imported_colors_and_highlights() {
                 "muted.foreground",
                 "tab.foreground",
                 "list.hover.background",
+                "secondary.hover.background",
+                "secondary.active.background",
+                "button.secondary.hover.background",
+                "button.secondary.active.background",
             ])
             .collect()
     );

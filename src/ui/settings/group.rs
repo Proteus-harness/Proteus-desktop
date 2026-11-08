@@ -12,7 +12,7 @@ use super::widgets::{
     changed_dot, described, disclosure, hashed_id, nested, nested_group, note, reset_mark,
 };
 use crate::settings::{FieldPath, field_sections, section_scope};
-use crate::ui::kit::{Pressable as _, RowRule as _};
+use crate::ui::kit::{self, RowRule as _};
 
 impl SettingsView {
     /// Rows of `fields` living in `object`: ordinary fields, advanced ones
@@ -176,31 +176,28 @@ impl SettingsView {
         });
         let view = cx.weak_entity();
         let toggle_key = key.clone();
-        let header = h_flex()
-            .id(hashed_id("group", path))
-            .px_4()
-            .py_2p5()
-            .gap_2()
-            .items_center()
-            .text_sm()
-            .disclosure_surface(cx)
-            .child(crate::ui::motion::chevron(
-                ElementId::Name(format!("{key}-chevron").into()),
-                open,
-                theme.muted_foreground,
-            ))
-            .child(described(
-                hashed_id("group-title", path),
-                field.title.clone().into(),
-                Some(field.description.clone().into()),
-                Some(path.dotted().into()),
-                cx,
-            ))
-            .children(reset)
-            .when(changed, |title| title.child(changed_dot(cx)))
-            .on_click(move |_, _, cx| {
-                let _ = view.update(cx, |this, cx| this.toggle_open(&toggle_key, cx));
-            });
+        let header = kit::disclosure_header(
+            hashed_id("group", path),
+            kit::DisclosureDensity::Settings,
+            cx,
+        )
+        .child(crate::ui::motion::chevron(
+            ElementId::Name(format!("{key}-chevron").into()),
+            open,
+            theme.muted_foreground,
+        ))
+        .child(described(
+            hashed_id("group-title", path),
+            field.title.clone().into(),
+            Some(field.description.clone().into()),
+            Some(path.dotted().into()),
+            cx,
+        ))
+        .children(reset)
+        .when(changed, |title| title.child(changed_dot(cx)))
+        .on_click(move |_, _, cx| {
+            let _ = view.update(cx, |this, cx| this.toggle_open(&toggle_key, cx));
+        });
         let content = self.reveal(&key, cx, || {
             let rows = self.field_rows(fields, |key| path.child(key), value, &scope, cx);
             nested(

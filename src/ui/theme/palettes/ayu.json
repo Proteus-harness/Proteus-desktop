@@ -29,7 +29,7 @@
         "primary.hover.background": "#5fb9d7",
         "scrollbar.background": "#FAFAFA00",
         "scrollbar.thumb.background": "#5c61664c",
-        "secondary.active.background": "#CECECE",
+        "secondary.active.background": "#cecece",
         "secondary.background": "#ECECED",
         "secondary.foreground": "#020a12a3",
         "secondary.hover.background": "#e0e0e0",
@@ -53,7 +53,10 @@
         "group_box.foreground": "#020a12a3",
         "button.secondary.foreground": "#020a12a3",
         "tab.foreground": "#020a12a3",
-        "list.hover.background": "#00000008"
+        "list.hover.background": "#00000008",
+        "button.secondary.background": "#ECECED",
+        "button.secondary.hover.background": "#e0e0e0",
+        "button.secondary.active.background": "#cecece"
       },
       "highlight": {
         "editor.foreground": "#5C6773",
@@ -245,7 +248,7 @@
       "colors": {
         "accent.background": "#20242b",
         "accent.foreground": "#B3B1AD",
-        "background": "#10141c",
+        "background": "#0f121a",
         "border": "#1b1f29",
         "ring": "#FFB454",
         "foreground": "#B3B1AD",
@@ -266,7 +269,7 @@
         "secondary.active.background": "#26282f",
         "secondary.background": "#1F2127",
         "secondary.foreground": "#B3B1AD",
-        "secondary.hover.background": "#26282f99",
+        "secondary.hover.background": "#23252c",
         "tab.active.foreground": "#B3B1AD",
         "tab.active.background": "#141821",
         "tab_bar.background": "#0d1017",
@@ -287,7 +290,10 @@
         "group_box.foreground": "#B3B1AD",
         "button.secondary.foreground": "#B3B1AD",
         "tab.foreground": "#b3b1ad",
-        "list.hover.background": "#ffffff08"
+        "list.hover.background": "#ffffff08",
+        "button.secondary.background": "#1F2127",
+        "button.secondary.hover.background": "#23252c",
+        "button.secondary.active.background": "#26282f"
       },
       "highlight": {
         "editor.foreground": "#bfbdb6",

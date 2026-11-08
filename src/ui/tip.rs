@@ -8,23 +8,19 @@ use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
     rc::Rc,
-    time::Duration,
 };
 
-use gpui_kit::base::animation::{EffectTransition, ease_in_out_cubic, ease_out_cubic};
 use gpui_kit::base::{ElementExt as _, TooltipOverlay, TooltipRequest, TooltipTransition};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme as _, v_flex};
 use gpui_kit::{
-    AnyElement, AnyView, App, AppContext as _, Bounds, ElementId, Entity, FocusHandle, Global,
+    AnyElement, AnyView, App, AppContext as _, Bounds, Entity, FocusHandle, Global,
     InteractiveElement, IntoElement, ParentElement as _, Pixels, Point, SharedString, Styled as _,
-    WeakEntity, WeakFocusHandle, Window, WindowId, div, px,
+    WeakEntity, WeakFocusHandle, Window, WindowId, div,
 };
 
 use super::{motion, prefs};
 
-const ENTER: Duration = Duration::from_millis(150);
-const SLIDE: Duration = Duration::from_millis(200);
 /// A full caption wraps like Zed's tooltip title rather than widening to
 /// its unconstrained single-line width.
 const MAX_WIDTH: f32 = 420.;
@@ -259,38 +255,7 @@ fn present(
         .p(prefs::scaled(4.))
         .max_w(prefs::scaled(MAX_WIDTH + 8.))
         .child(view);
-    if !motion::plays() {
-        return element.into_any_element();
-    }
-    match transition {
-        TooltipTransition::Switch {
-            epoch,
-            previous,
-            current,
-        } => {
-            if (current.origin.y - previous.origin.y).abs() >= px(10.) {
-                return element.into_any_element();
-            }
-            let shift = current.center().x - previous.center().x;
-            EffectTransition::new(SLIDE)
-                .ease(ease_in_out_cubic)
-                .slide_x(-shift, px(0.))
-                .apply(
-                    element,
-                    ElementId::NamedInteger("tip-slide".into(), epoch as u64),
-                )
-                .into_any_element()
-        }
-        TooltipTransition::Enter { epoch } => EffectTransition::new(ENTER)
-            .ease(ease_out_cubic)
-            .slide_y(px(4.), px(0.))
-            .fade(0., 1.)
-            .apply(
-                element,
-                ElementId::NamedInteger("tip-enter".into(), epoch as u64),
-            )
-            .into_any_element(),
-    }
+    motion::tooltip(element, transition)
 }
 
 fn update(

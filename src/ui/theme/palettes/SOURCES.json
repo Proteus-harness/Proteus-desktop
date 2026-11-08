@@ -16,11 +16,12 @@
       "progress_bar.background": "progress.bar.background",
       "slider.bar.background": "slider.background"
     },
-    "note": "Semantic field names follow the vendored ThemeConfigColors schema. Builtin structural backgrounds, active tabs, accordion panels, selected control fills and readable UI text are explicitly adapted; ROLE-MAPPING.json records values, source tokens and contrast policy. Color keys outside those explicit fields and the complete highlight payload remain from this GPUI Kit import. Neutral hover overlays are explicit Proteus interaction adaptations recorded in ROLE-MAPPING.json.",
+    "note": "Semantic field names follow the vendored ThemeConfigColors schema. Builtin structural backgrounds, active tabs, accordion panels, selected control fills and readable UI text are explicitly adapted; ROLE-MAPPING.json records values, source tokens and contrast policy. Color keys outside those explicit fields and the complete highlight payload remain from this GPUI Kit import. Neutral hover overlays are explicit Proteus interaction adaptations recorded in ROLE-MAPPING.json. Dark content midpoints and explicit neutral secondary state chains are Proteus adaptations, not claimed as authored palette steps; their baseline, formulae and exceptions are recorded in ROLE-MAPPING.json.",
     "removed_metadata": [
       "$schema (upstream schema is not the vendored component schema)"
     ],
-    "structural_roles": "ROLE-MAPPING.json"
+    "structural_roles": "ROLE-MAPPING.json",
+    "builtin_rules": "BUILTIN-ADAPTATIONS.json"
   },
   "files": [
     {
@@ -83,6 +84,6 @@
   ],
   "framework_defaults": {
     "path": "vendor/gpui-component/src/theme/default-theme.json",
-    "note": "Proteus workbench adaptation of the native neutral palette, without runtime rewriting. Default Dark: black chrome, neutral-950 sidebar/strip, neutral-900 content, neutral-800 active tab/cards/popups. Default Light preserves #f8f8f8 chrome, #fafafa sidebar, white content; tab strip follows sidebar. Default Dark borders use neutral-600, above the neutral-800 cards; default Light borders use neutral-400 against neutral-200 cards. Default Light cards use neutral-200 to remain distinct from white content. Proteus Light uses the same neutral-200 card and neutral-400 frame adaptation. Native themes use explicit neutral hover overlays, white in dark mode and black in light mode."
+    "note": "Proteus workbench adaptation of the native neutral palette, without runtime rewriting. Default Dark: black chrome, neutral-950 sidebar/strip, #111111 content (explicit midpoint of canonical neutral-950/neutral-900 source hex), neutral-800 active tab/cards/popups. Default Light preserves #f8f8f8 chrome, #fafafa sidebar, white content; tab strip follows sidebar. Default Dark borders use neutral-600, above the neutral-800 cards; default Light borders use neutral-400 against neutral-200 cards. Default Light cards use neutral-200 to remain distinct from white content. Proteus Light uses the same neutral-200 card and neutral-400 frame adaptation. Native themes use explicit neutral hover overlays, white in dark mode and black in light mode. Dark content now uses the explicit 50:50 source-hex midpoint between native sidebar and prior content; sidebar/chrome/cards stay unchanged. Neutral control hover/pressed chains follow the shared ROLE-MAPPING policy."
   }
 }

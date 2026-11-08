@@ -27,6 +27,7 @@ mod shimmer;
 mod slide;
 mod spinner;
 pub(super) mod ticker;
+mod tooltip;
 mod transition;
 mod wave_dots;
 
@@ -41,6 +42,7 @@ pub(super) use reveal::PopupOrigin;
 pub(super) use shimmer::Shimmer;
 pub(super) use slide::{Slide, blend, glide};
 pub(super) use spinner::Spinner;
+pub(super) use tooltip::present as tooltip;
 pub(super) use transition::PageTransition;
 pub(super) use wave_dots::wave_dots;
 

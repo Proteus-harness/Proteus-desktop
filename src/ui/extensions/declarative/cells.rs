@@ -40,26 +40,24 @@ pub(super) fn cells(path: &str, columns: usize, segments: &[Segment], cx: &App) 
         .enumerate()
         .flat_map(|(index, segment)| std::iter::repeat_n(index, segment.cells))
         .collect();
-    let grid =
-        v_flex()
-            .flex_none()
-            .gap(px(3.))
-            .children(flat.chunks(columns.max(1)).enumerate().map(|(row, chunk)| {
-                h_flex()
-                    .gap(px(3.))
-                    .children(chunk.iter().enumerate().map(|(column, &index)| {
-                        let segment = &segments[index];
-                        div()
-                            .id(SharedString::from(format!(
-                                "{path}-cell-{}",
-                                row * columns + column
-                            )))
-                            .size(prefs::scaled(14.))
-                            .rounded(radius)
-                            .bg(color(segment, cx))
-                            .tip_text(hint(segment))
-                    }))
-            }));
+    let grid = v_flex().flex_none().gap(prefs::scaled(3.)).children(
+        flat.chunks(columns.max(1)).enumerate().map(|(row, chunk)| {
+            h_flex()
+                .gap(prefs::scaled(3.))
+                .children(chunk.iter().enumerate().map(|(column, &index)| {
+                    let segment = &segments[index];
+                    div()
+                        .id(SharedString::from(format!(
+                            "{path}-cell-{}",
+                            row * columns + column
+                        )))
+                        .size(prefs::scaled(14.))
+                        .rounded(radius)
+                        .bg(color(segment, cx))
+                        .tip_text(hint(segment))
+                }))
+        }),
+    );
     let legend = v_flex()
         .gap_1p5()
         .text_xs()

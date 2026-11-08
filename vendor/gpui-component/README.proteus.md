@@ -13,5 +13,9 @@ Registry source: `gpui-component` 0.8.1, crates.io archive
 
 The original appearance patch makes the menu's existing `popover_style` decoration optional;
 it defaults to enabled, so existing menus and submenus retain their native
-appearance. It does not change menu layout, item highlighting, or interactions.
+appearance. It does not change menu layout or interactions.
+The later state-role patch uses `list.hover.background` for both the pointer
+highlight and keyboard cursor, matching the client's picker rows. It preserves
+the renderable token (including gradients) and keeps a committed option's
+selection separate from that cursor.
 The GPUI Fast backend is selected through the upstream `gpui-fast` feature.
