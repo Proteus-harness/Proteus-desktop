@@ -62,7 +62,7 @@ impl Chat {
                     div()
                         .relative()
                         .surface_frame(cx)
-                        .bg(theme.secondary)
+                        .bg(theme.background.blend(theme.secondary.opacity(0.5)))
                         .child(self.render_input_box(cx)),
                 ),
         )

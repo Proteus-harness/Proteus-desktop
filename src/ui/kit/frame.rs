@@ -26,7 +26,6 @@ pub(crate) trait Frame: Styled + Sized {
     fn disclosure_frame(self, cx: &App) -> Self {
         self.surface_frame(cx)
             .border_0()
-            .bg(cx.theme().group_box)
             .text_color(cx.theme().foreground)
             .overflow_hidden()
     }

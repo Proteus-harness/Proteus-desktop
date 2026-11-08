@@ -260,6 +260,8 @@ pub struct ThemeColor {
     pub switch: Hsla,
     /// Switch thumb background color.
     pub switch_thumb: Hsla,
+    /// Neutral thumb and outline color of an unchecked switch.
+    pub switch_thumb_unchecked: Hsla,
     /// Tab background color.
     pub tab: Hsla,
     /// Tab active background color.
@@ -506,6 +508,7 @@ define_theme_tokens! {
     success_active,
     switch,
     switch_thumb,
+    switch_thumb_unchecked,
     tab,
     tab_active,
     tab_active_foreground,

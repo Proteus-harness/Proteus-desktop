@@ -12,7 +12,9 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use super::widgets::{Tone, card, chip, disclosure, item_row, mono, package_heading, section};
+use super::widgets::{
+    Tone, card, chip, disclosure, item_row, mono, nested_group, package_heading, section,
+};
 use super::{Feedback, SettingsView};
 use crate::settings::catalog::PageId;
 use crate::ui::extensions::{self, Manifest};
@@ -370,19 +372,18 @@ impl SettingsView {
         });
         // The toggle and what it opens share one cell, so no divider is
         // left over while it closes.
-        let mut rows = vec![
-            v_flex()
-                .child(disclosure(
-                    "extensions-zip-toggle".into(),
-                    open,
-                    "Установить из ZIP",
-                    false,
-                    toggler(ZIP_KEY, cx),
-                    cx,
-                ))
-                .children(content)
-                .into_any_element(),
-        ];
+        let mut rows = vec![nested_group(
+            disclosure(
+                "extensions-zip-toggle".into(),
+                open,
+                "Установить из ZIP",
+                false,
+                toggler(ZIP_KEY, cx),
+                cx,
+            ),
+            content,
+            cx,
+        )];
         rows.extend(extensions::problems().into_iter().map(|problem| {
             v_flex()
                 .px_4()

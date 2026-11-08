@@ -11,6 +11,52 @@ use super::tests::{expected_color, sources};
 
 const MINIMUM: f64 = 4.5;
 
+#[::core::prelude::v1::test]
+fn unchecked_switch_indicator_and_outline_remain_visible_on_panel_levels() {
+    let mut count = 0;
+    for source in sources() {
+        let set: ThemeSet = serde_json::from_str(source).unwrap();
+        for config in set.themes {
+            let name = config.name.to_string();
+            let mut theme = Theme::default();
+            theme.apply_config(&Rc::new(config));
+            for parent in [theme.background, theme.group_box, theme.accordion] {
+                let parent: Rgba = parent.into();
+                let track = composite(theme.switch.into(), parent);
+                for (role, backdrop) in [("thumb/track", track), ("outline/panel", parent)] {
+                    let ratio = contrast(theme.switch_thumb_unchecked, backdrop);
+                    assert!(
+                        ratio >= 3.,
+                        "{name}: unchecked switch {role} contrast {ratio:.4}:1"
+                    );
+                }
+            }
+            count += 1;
+        }
+    }
+    assert_eq!(count, 20);
+}
+
+#[::core::prelude::v1::test]
+fn unchecked_switch_color_can_be_configured_separately() {
+    let set: ThemeSet = serde_json::from_value(serde_json::json!({
+        "name": "Switch fixture",
+        "themes": [{"name": "Switch fixture", "mode": "dark", "colors": {
+            "switch.thumb.background": "#ffffff",
+            "switch.thumb.unchecked.background": "#a5adcb"
+        }}]
+    }))
+    .unwrap();
+    let mut theme = Theme::default();
+    theme.apply_config(&Rc::new(set.themes.into_iter().next().unwrap()));
+    assert_eq!(theme.switch_thumb, expected_color("#ffffff"));
+    assert_eq!(theme.switch_thumb_unchecked, expected_color("#a5adcb"));
+    assert_eq!(
+        theme.tokens.switch_thumb_unchecked.color,
+        theme.switch_thumb_unchecked
+    );
+}
+
 fn composite(foreground: Rgba, background: Rgba) -> Rgba {
     let alpha = foreground.a + background.a * (1. - foreground.a);
     let channel =

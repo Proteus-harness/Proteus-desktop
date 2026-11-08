@@ -530,23 +530,19 @@ impl DeclarativeView {
                     None => body.into_any_element(),
                 }
             }
-            Node::Card { title, children } => {
-                let theme = cx.theme();
-                kit::surface(
-                    v_flex()
-                        .min_w_0()
-                        .gap_2()
-                        .px_4()
-                        .py_3()
-                        .surface_frame(cx)
-                        .bg(theme.secondary)
-                        .when_some(title.clone(), |card, title| {
-                            card.child(div().text_sm().font_semibold().child(title))
-                        })
-                        .children(self.children(children, path, cx)),
-                    cx,
-                )
-            }
+            Node::Card { title, children } => kit::surface(
+                v_flex()
+                    .min_w_0()
+                    .gap_2()
+                    .px_4()
+                    .py_3()
+                    .surface_frame(cx)
+                    .when_some(title.clone(), |card, title| {
+                        card.child(div().text_sm().font_semibold().child(title))
+                    })
+                    .children(self.children(children, path, cx)),
+                cx,
+            ),
             Node::Text {
                 text,
                 single_line,

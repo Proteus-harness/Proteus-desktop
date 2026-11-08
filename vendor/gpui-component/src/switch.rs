@@ -183,12 +183,18 @@ impl RenderOnce for Switch {
             .map(Background::from)
             .unwrap_or(cx.theme().tokens.primary.into());
         let unchecked_bg: Background = cx.theme().tokens.switch.into();
-        // GPUI's element opacity multiplies each primitive's alpha instead of
-        // compositing the subtree as one group, so fading the whole control
-        // would let the track show through the thumb. Fading the track alone
-        // lands on the pixels a grouped fade would: the thumb is `background`.
+        // Fade the track independently instead of multiplying the thumb's alpha.
         let disabled_bg = if checked { checked_bg } else { unchecked_bg }.opacity(0.5);
-        let toggle_bg: Background = cx.theme().tokens.switch_thumb.into();
+        let toggle_bg: Background = if checked {
+            cx.theme().tokens.switch_thumb.into()
+        } else {
+            cx.theme().tokens.switch_thumb_unchecked.into()
+        };
+        let track_border = if checked {
+            cx.theme().transparent
+        } else {
+            cx.theme().switch_thumb_unchecked
+        };
         let disabled_label_color = cx.theme().muted_foreground;
 
         let (bg_width, bg_height) = match self.size {
@@ -268,13 +274,17 @@ impl RenderOnce for Switch {
                         // lands within a few values of `switch.background`
                         // in both default modes.
                         .border_1()
-                        .border_color(cx.theme().transparent)
+                        .border_color(track_border)
                         .p(inset - px(1.))
                         .when(!checked, |this| this.bg(unchecked_bg))
                         .styles(|styles| {
                             styles
                                 .checked(|style| style.bg(checked_bg))
-                                .disabled(|style| style.bg(disabled_bg))
+                                .disabled(|style| {
+                                    style
+                                        .bg(disabled_bg)
+                                        .border_color(track_border.opacity(0.5))
+                                })
                         })
                         // The ring hugs the track, not the row, so the label
                         // stays outside it.

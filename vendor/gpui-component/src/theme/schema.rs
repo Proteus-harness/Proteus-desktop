@@ -565,6 +565,9 @@ pub struct ThemeConfigColors {
     /// Switch thumb background color.
     #[serde(rename = "switch.thumb.background")]
     pub switch_thumb: Option<SharedString>,
+    /// Unchecked switch thumb and outline, falling back to muted foreground.
+    #[serde(rename = "switch.thumb.unchecked.background")]
+    pub switch_thumb_unchecked: Option<SharedString>,
     /// Tab background color.
     #[serde(rename = "tab.background")]
     pub tab: Option<SharedString>,
@@ -1009,6 +1012,7 @@ impl ThemeColor {
         apply_background_color!(slider_thumb, fallback = self.primary_foreground);
         apply_background_color!(switch, fallback = tokens.secondary_active);
         apply_background_color!(switch_thumb, fallback = tokens.background);
+        apply_background_color!(switch_thumb_unchecked, fallback = tokens.muted_foreground);
         apply_background_color!(tab, fallback = tokens.background);
         apply_background_color!(tab_active, fallback = tokens.background);
         apply_color!(tab_active_foreground, fallback = self.foreground);

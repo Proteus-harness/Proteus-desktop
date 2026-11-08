@@ -8,7 +8,9 @@ use gpui_kit::component::*;
 use gpui_kit::*;
 
 use super::addons::AddonsState;
-use super::widgets::{Tone, card, chip, disclosure, hashed_id, mono_line, note, section};
+use super::widgets::{
+    Tone, card, chip, disclosure, hashed_id, mono_line, nested_group, note, section,
+};
 use super::{SettingsView, spot};
 use crate::settings::addons::{McpServer, mcp_servers};
 use crate::settings::catalog::{find_tool, plural};
@@ -167,10 +169,11 @@ impl SettingsView {
             .children(chips)
             .child(switch);
         let content = self.reveal(&key, cx, || self.mcp_details(server, cx));
-        v_flex()
-            .child(self.spotted(&spot::mcp(server.name), header.into_any_element(), cx))
-            .children(content)
-            .into_any_element()
+        nested_group(
+            self.spotted(&spot::mcp(server.name), header.into_any_element(), cx),
+            content,
+            cx,
+        )
     }
 
     fn mcp_details(&self, server: &McpServer, cx: &Context<Self>) -> AnyElement {

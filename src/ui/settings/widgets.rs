@@ -96,11 +96,7 @@ pub(super) fn card_cell(row: AnyElement, divider: bool, cx: &App) -> Div {
 
 /// One surface for cards and every depth of foldable parameter groups.
 fn group_box(cx: &App) -> Div {
-    let theme = cx.theme();
-    v_flex()
-        .surface_frame(cx)
-        .bg(theme.group_box)
-        .overflow_hidden()
+    v_flex().surface_frame(cx).overflow_hidden()
 }
 
 /// The whole disclosure owns its surface, including its persistent header.

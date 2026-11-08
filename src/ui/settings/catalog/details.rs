@@ -202,7 +202,7 @@ impl SettingsView {
                                         source.requirements.join(" · ")
                                     ))
                             }))
-                            .child(
+                            .child(widgets::nested_group(
                                 widgets::disclosure(
                                     hashed_id("catalog-build-details", &item.key()),
                                     open,
@@ -214,34 +214,36 @@ impl SettingsView {
                                         });
                                     },
                                     cx,
-                                )
-                                .px_0()
-                                .py_1(),
-                            )
-                            .children(self.reveal(&key, cx, || {
-                                kit::code_surface(cx)
-                                    .child(
-                                        h_flex()
-                                            .gap_2()
-                                            .items_start()
-                                            .child(div().flex_1().min_w_0().child(command))
-                                            .child(
-                                                kit::button("catalog-copy-build")
-                                                    .icon(IconName::Copy)
-                                                    .quiet(cx)
-                                                    .xsmall()
-                                                    .hint("Копировать команду", cx)
-                                                    .on_click(move |_, _, cx| {
-                                                        cx.write_to_clipboard(
-                                                            ClipboardItem::new_string(
-                                                                copied.clone(),
-                                                            ),
-                                                        )
-                                                    }),
+                                ),
+                                self.reveal(&key, cx, || {
+                                    div()
+                                        .p(theme.radius)
+                                        .child(
+                                            kit::code_surface(cx).child(
+                                                h_flex()
+                                                    .gap_2()
+                                                    .items_start()
+                                                    .child(div().flex_1().min_w_0().child(command))
+                                                    .child(
+                                                        kit::button("catalog-copy-build")
+                                                            .icon(IconName::Copy)
+                                                            .quiet(cx)
+                                                            .xsmall()
+                                                            .hint("Копировать команду", cx)
+                                                            .on_click(move |_, _, cx| {
+                                                                cx.write_to_clipboard(
+                                                                    ClipboardItem::new_string(
+                                                                        copied.clone(),
+                                                                    ),
+                                                                )
+                                                            }),
+                                                    ),
                                             ),
-                                    )
-                                    .into_any_element()
-                            }))
+                                        )
+                                        .into_any_element()
+                                }),
+                                cx,
+                            ))
                     }))
                     .children(notes.into_iter().flatten().map(|note| {
                         div()

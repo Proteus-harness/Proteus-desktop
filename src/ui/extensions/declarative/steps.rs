@@ -212,6 +212,34 @@ fn centered(center: Point<Pixels>, extent: gpui_kit::Size<Pixels>, color: Hsla) 
     )
 }
 
+fn pill_quads(
+    bounds: Bounds<Pixels>,
+    count: usize,
+    at: f32,
+    colors: Colors,
+    corner: Pixels,
+) -> [PaintQuad; 3] {
+    let edge = bounds.size.height / 2.;
+    let middle = bounds.center().y;
+    let thumb_x = center(bounds, count, at);
+    let filled = Bounds::new(
+        bounds.origin,
+        size(thumb_x + edge - bounds.left(), bounds.size.height),
+    );
+    let inset = bounds.size.height / PILL * INSET;
+    let side = bounds.size.height - inset * 2.;
+    let thumb = centered(point(thumb_x, middle), size(side, side), colors.thumb);
+    let thumb_corners =
+        Corners::all((corner - inset).max(px(1.))).clamp_radii_for_quad_size(thumb.bounds.size);
+    [
+        fill(bounds, colors.rest)
+            .corner_radii(Corners::all(corner).clamp_radii_for_quad_size(bounds.size)),
+        fill(filled, colors.fill)
+            .corner_radii(Corners::all(corner).clamp_radii_for_quad_size(filled.size)),
+        thumb.corner_radii(thumb_corners),
+    ]
+}
+
 fn paint_pill(
     bounds: Bounds<Pixels>,
     count: usize,
@@ -220,15 +248,12 @@ fn paint_pill(
     corner: Pixels,
     window: &mut Window,
 ) {
+    let [track, filled, thumb] = pill_quads(bounds, count, at, colors, corner);
     let edge = bounds.size.height / 2.;
     let middle = bounds.center().y;
-    let thumb_x = center(bounds, count, at);
-    window.paint_quad(fill(bounds, colors.rest).corner_radii(corner));
-    let filled = Bounds::new(
-        bounds.origin,
-        size(thumb_x + edge - bounds.left(), bounds.size.height),
-    );
-    window.paint_quad(fill(filled, colors.fill).corner_radii(corner));
+    let thumb_x = thumb.bounds.center().x;
+    window.paint_quad(track);
+    window.paint_quad(filled);
     let unit = bounds.size.height / PILL;
     let tick = size(unit * TICK.0, unit * TICK.1);
     for step in 0..count {
@@ -243,10 +268,39 @@ fn paint_pill(
         };
         window.paint_quad(centered(point(x, middle), tick, color).corner_radii(tick.width / 2.));
     }
-    let inset = unit * INSET;
-    let side = bounds.size.height - inset * 2.;
-    window.paint_quad(
-        centered(point(thumb_x, middle), size(side, side), colors.thumb)
-            .corner_radii((corner - inset).max(px(1.))),
-    );
+    window.paint_quad(thumb);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui_kit::{black, white};
+
+    #[::core::prelude::v1::test]
+    fn maximum_surface_radius_keeps_effort_endpoints_round_and_inside_track() {
+        let bounds = Bounds::new(point(px(40.), px(20.)), size(px(320.), px(PILL)));
+        let colors = Colors {
+            rest: black(),
+            fill: white(),
+            tick_on: white(),
+            tick_off: black(),
+            thumb: white(),
+        };
+        // A 32 px surface radius gives compact controls a 16 px radius.
+        for (step, filled_width) in [(0., px(PILL)), (5., bounds.size.width)] {
+            let [track, filled, thumb] = pill_quads(bounds, 6, step, colors, px(16.));
+            assert_eq!(track.bounds, bounds);
+            assert_eq!(filled.bounds.origin, bounds.origin);
+            assert_eq!(filled.bounds.size.width, filled_width);
+            assert_eq!(track.corner_radii, Corners::all(px(14.)));
+            assert_eq!(filled.corner_radii, Corners::all(px(14.)));
+            assert_eq!(thumb.bounds.size, size(px(22.), px(22.)));
+            assert_eq!(thumb.corner_radii, Corners::all(px(11.)));
+            assert_eq!(thumb.bounds.center().x, center(bounds, 6, step));
+            assert!(thumb.bounds.left() >= bounds.left());
+            assert!(thumb.bounds.right() <= bounds.right());
+            assert_eq!(thumb.bounds.top(), bounds.top() + px(INSET));
+            assert_eq!(thumb.bounds.bottom(), bounds.bottom() - px(INSET));
+        }
+    }
 }

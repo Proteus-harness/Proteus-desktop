@@ -18,6 +18,7 @@ use crate::settings::catalog::{
     editable_field, editable_fields, module_info,
 };
 use crate::settings::{FieldKind, FieldPath, TextFormat, field_kind, format_value, parse_text};
+use crate::ui::kit::Frame as _;
 use crate::ui::{format::editor_preview, kit, motion};
 
 /// Auto-grow still measures actual wrapped display rows. This is only an
@@ -123,31 +124,37 @@ impl SettingsView {
         // Closed fields never mount or lay out a second hidden full editor.
         let body = if open || motion::moving(&motion_key, open, cx) {
             motion::preview_reveal(motion_key, open, cx, preview, || {
-                Self::text_keys(kit::textarea(input, cx).small().w_full())
+                div()
+                    .p(cx.theme().radius)
+                    .child(Self::text_keys(kit::textarea(input, cx).small().w_full()))
+                    .into_any_element()
             })
         } else {
             preview.into_any_element()
         };
         let view = cx.weak_entity();
-        v_flex()
-            .w_full()
-            .min_w_0()
-            .child(disclosure(
-                hashed_id("text-editor-toggle", &key),
-                open,
-                if open {
-                    "Свернуть"
-                } else {
-                    "Развернуть для редактирования"
-                },
-                false,
-                move |cx| {
-                    let _ = view.update(cx, |this, cx| this.toggle_open(&key, cx));
-                },
-                cx,
-            ))
-            .child(body)
-            .into_any_element()
+        kit::surface(
+            v_flex()
+                .min_w_0()
+                .disclosure_frame(cx)
+                .m_2()
+                .child(disclosure(
+                    hashed_id("text-editor-toggle", &key),
+                    open,
+                    if open {
+                        "Свернуть"
+                    } else {
+                        "Развернуть для редактирования"
+                    },
+                    false,
+                    move |cx| {
+                        let _ = view.update(cx, |this, cx| this.toggle_open(&key, cx));
+                    },
+                    cx,
+                ))
+                .child(body),
+            cx,
+        )
     }
 
     /// A growing edit stays mounted when it first crosses the preview limit.
