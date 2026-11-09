@@ -13,6 +13,8 @@ mod notify;
 mod packages;
 mod preferences;
 mod recent;
+#[cfg(test)]
+mod renderer_tests;
 mod sessions;
 mod settings;
 mod shortcuts;

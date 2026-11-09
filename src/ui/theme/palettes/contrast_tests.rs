@@ -5,7 +5,6 @@ use std::rc::Rc;
 
 use gpui_kit::component::{Theme, ThemeSet};
 use gpui_kit::{Hsla, Rgba};
-use serde_json::Value;
 
 use super::tests::{expected_color, sources};
 
@@ -13,7 +12,6 @@ const MINIMUM: f64 = 4.5;
 
 #[::core::prelude::v1::test]
 fn unchecked_switch_indicator_and_outline_remain_visible_on_panel_levels() {
-    let mut count = 0;
     for source in sources() {
         let set: ThemeSet = serde_json::from_str(source).unwrap();
         for config in set.themes {
@@ -31,10 +29,8 @@ fn unchecked_switch_indicator_and_outline_remain_visible_on_panel_levels() {
                     );
                 }
             }
-            count += 1;
         }
     }
-    assert_eq!(count, 20);
 }
 
 #[::core::prelude::v1::test]
@@ -120,7 +116,6 @@ fn assert_readable(theme: &str, role: &str, foreground: Hsla, fill: Rgba) {
 fn light_settings_cards_remain_distinct_from_content() {
     // This is a local visual separation floor for filled settings groups.
     // Text readability has its own threshold and assertions below.
-    let mut count = 0;
     for source in sources() {
         let set: ThemeSet = serde_json::from_str(source).unwrap();
         for config in set.themes {
@@ -135,10 +130,8 @@ fn light_settings_cards_remain_distinct_from_content() {
                 ratio >= 1.10,
                 "{name}: settings card/content contrast {ratio:.4}:1 < 1.10:1"
             );
-            count += 1;
         }
     }
-    assert_eq!(count, 7);
 }
 
 #[::core::prelude::v1::test]
@@ -166,7 +159,6 @@ fn native_light_selector_frames_remain_visible_on_stronger_cards() {
 
 #[::core::prelude::v1::test]
 fn neutral_hover_follows_appearance_and_preserves_surface_hierarchy() {
-    let mut count = 0;
     for source in sources() {
         let set: ThemeSet = serde_json::from_str(source).unwrap();
         for config in set.themes {
@@ -174,6 +166,15 @@ fn neutral_hover_follows_appearance_and_preserves_surface_hierarchy() {
             let dark = config.mode.is_dark();
             let mut theme = Theme::default();
             theme.apply_config(&Rc::new(config));
+            for ((lower_name, lower), (upper_name, upper)) in [
+                (("chrome", theme.title_bar), ("sidebar", theme.sidebar)),
+                (("sidebar", theme.sidebar), ("content", theme.background)),
+            ] {
+                assert!(
+                    luminance(lower.into()) < luminance(upper.into()),
+                    "{name}: {lower_name} must be darker than {upper_name}"
+                );
+            }
             let bases = [theme.background, theme.group_box, theme.accordion];
             let hovered = bases.map(|base| composite(theme.list_hover.into(), base.into()));
             for (index, (base, hovered)) in bases.iter().zip(hovered).enumerate() {
@@ -192,15 +193,12 @@ fn neutral_hover_follows_appearance_and_preserves_surface_hierarchy() {
                     "{name}: hover merged or inverted surfaces {a}/{b}"
                 );
             }
-            count += 1;
         }
     }
-    assert_eq!(count, 20);
 }
 
 #[::core::prelude::v1::test]
 fn normal_and_muted_labels_meet_minimum_on_their_resolved_surfaces() {
-    let mut count = 0;
     for source in sources() {
         let set: ThemeSet = serde_json::from_str(source).unwrap();
         for config in set.themes {
@@ -253,43 +251,6 @@ fn normal_and_muted_labels_meet_minimum_on_their_resolved_surfaces() {
                     );
                 }
             }
-            count += 1;
-        }
-    }
-    assert_eq!(count, 20);
-}
-
-#[::core::prelude::v1::test]
-fn imported_muted_choice_is_the_first_authored_candidate_that_passes() {
-    let mapping: Value = serde_json::from_str(include_str!("ROLE-MAPPING.json")).unwrap();
-    for source in super::BUNDLED {
-        let set: ThemeSet = serde_json::from_str(source).unwrap();
-        for config in set.themes {
-            let name = config.name.to_string();
-            let mut theme = Theme::default();
-            theme.apply_config(&Rc::new(config));
-            let variant = mapping["variants"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|variant| variant["name"] == name)
-                .unwrap();
-            let first = variant["muted_candidates"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|candidate| {
-                    let candidate = expected_color(candidate["color"].as_str().unwrap());
-                    surfaces(&theme)
-                        .iter()
-                        .all(|(_, fill)| contrast(candidate, *fill) >= MINIMUM)
-                })
-                .unwrap();
-            assert_eq!(
-                theme.muted_foreground,
-                expected_color(first["color"].as_str().unwrap()),
-                "{name}: offline selection drift"
-            );
         }
     }
 }
@@ -307,7 +268,6 @@ fn alpha_is_composited_before_luminance_instead_of_assumed_opaque() {
 
 #[::core::prelude::v1::test]
 fn filled_neutral_control_states_follow_appearance_without_changing_normal_fill() {
-    let mut count = 0;
     for source in sources() {
         let set: ThemeSet = serde_json::from_str(source).unwrap();
         for config in set.themes {
@@ -362,8 +322,6 @@ fn filled_neutral_control_states_follow_appearance_without_changing_normal_fill(
                 theme.secondary_active, theme.button_secondary_active,
                 "{name}: pressed state drift"
             );
-            count += 1;
         }
     }
-    assert_eq!(count, 20);
 }

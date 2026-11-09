@@ -1,6 +1,6 @@
 //! Validate the exact shader variants consumed by the patched renderer.
 
-#[test]
+#[::core::prelude::v1::test]
 fn shared_corner_geometry_validates_for_every_shader_transport() {
     let shared = include_str!("../vendor/gpui-fast-wgpu/src/shaders.wgsl");
     let storage = include_str!("../vendor/gpui-fast-wgpu/src/shaders_storage.wgsl");

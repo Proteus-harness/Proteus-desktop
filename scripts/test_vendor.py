@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -29,11 +30,64 @@ FEATURES = {
 }
 
 
+def source_links(source, destination):
+    """Keep manifest-relative inputs attached to their original source files.
+
+    Build scripts resolve relative watches against CARGO_MANIFEST_DIR, even
+    when their own path is absolute. Stable links keep those watches valid and
+    also expose package data such as locales, fixtures and GHOSTTY.lock.
+    """
+    entries = {entry.name: entry for entry in source.iterdir()
+               if entry.name not in {"Cargo.toml", "Cargo.lock", "target", ".git"}}
+    for entry in destination.iterdir():
+        if entry.is_symlink() and entry.name not in entries:
+            entry.unlink()
+    for name, entry in entries.items():
+        link = destination / name
+        target = entry.absolute()
+        if link.is_symlink():
+            if link.readlink() == target:
+                continue
+            link.unlink()
+        elif link.exists():
+            raise ValueError(f"Refusing to replace a non-link in vendor projection: {link}")
+        link.symlink_to(target, target_is_directory=entry.is_dir())
+
+
+def development_profiles(original, profiles):
+    """Share the host's dev/test settings without importing release overrides."""
+    # Published manifests use ordinary table headings. Replace only the
+    # projected dev/test tables; upstream source and release tables stay intact.
+    lines, skip = [], False
+    for line in original.splitlines(keepends=True):
+        if re.match(r"\s*\[", line):
+            skip = bool(re.match(r"\s*\[profile\.(?:dev|test)(?:\.|\])", line))
+        if not skip:
+            lines.append(line)
+
+    def table(path, values):
+        heading = ".".join(json.dumps(part) for part in path)
+        result = [f"\n[{heading}]\n"]
+        for key, value in values.items():
+            if not isinstance(value, dict):
+                result.append(f"{json.dumps(key)} = {json.dumps(value)}\n")
+        for key, value in values.items():
+            if isinstance(value, dict):
+                result.extend(table((*path, key), value))
+        return result
+
+    for name in ("dev", "test"):
+        if name in profiles:
+            lines.extend(table(("profile", name), profiles[name]))
+    return "".join(lines)
+
+
 def manifest(package, root=ROOT):
-    """Project just the manifest; compile the original, unmodified source tree."""
+    """Project the manifest and source links; compile the unmodified checkout."""
     source = root / "vendor" / package
     destination = root / "build/verification/vendor" / package
     destination.mkdir(parents=True, exist_ok=True)
+    source_links(source, destination)
     original = (source / "Cargo.toml").read_text()
     metadata = tomllib.loads(original)
     lib = metadata["lib"].get("path", "src/lib.rs")
@@ -43,13 +97,16 @@ def manifest(package, root=ROOT):
         build = metadata["package"]["build"]
         original = original.replace('build = ' + json.dumps(build),
                                     'build = ' + json.dumps(str(source / build)), 1)
-    patches = tomllib.loads((root / "Cargo.toml").read_text())["patch"]["crates-io"]
+    host = tomllib.loads((root / "Cargo.toml").read_text())
+    original = development_profiles(original, host.get("profile", {}))
+    patches = host["patch"]["crates-io"]
     original += "\n[workspace]\n\n[patch.crates-io]\n"
     for name, value in patches.items():
         if name != package:
             original += f'{name} = {{ path = {json.dumps(str(root / value["path"]))} }}\n'
     path = destination / "Cargo.toml"
-    path.write_text(original)
+    if not path.exists() or path.read_text() != original:
+        path.write_text(original)
     lock = destination / "Cargo.lock"
     # Seed production dependency versions; Cargo adds upstream dev dependencies
     # to this private lock. Repeated runs retain the resolved test graph.

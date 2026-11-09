@@ -458,7 +458,9 @@ fn ambiguous_delete_timeout_invalidates_handle_without_automatic_resume() {
     let script = PEER.replace("result={}\n        deleted=[p['threadId']]", "if p['threadId']=='opaque:delete-timeout': continue\n        result={}\n        deleted=[p['threadId']]");
     let mut launch = Launch::codex(PathBuf::from("python3"), std::env::current_dir().unwrap());
     launch.args = vec!["-u".into(), "-c".into(), script.into()];
-    launch.limits.request_timeout = Duration::from_millis(250);
+    // The same budget covers spawning and handshaking with the Python peer.
+    // Keep the intentional delete timeout without racing parallel test startup.
+    launch.limits.request_timeout = Duration::from_secs(1);
     let service = CodexService::launch(launch).unwrap();
     let opened = service.resume("opaque:delete-timeout").unwrap();
     assert_eq!(

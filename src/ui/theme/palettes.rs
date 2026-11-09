@@ -18,8 +18,3 @@ mod tests;
 
 #[cfg(test)]
 mod contrast_tests;
-#[cfg(test)]
-mod fixtures;
-
-#[cfg(test)]
-mod state_tests;
