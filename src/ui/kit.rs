@@ -34,7 +34,8 @@ mod workspace_surface;
 pub(crate) use controls::{Clipboard, Switch};
 pub(crate) use disclosure::{DisclosureDensity, disclosure_header};
 pub(crate) use frame::{
-    Frame, RowRule, composer_background, record_first_child, surface_hover, surface_selected,
+    Frame, RowRule, composer_background, composer_dock_background, record_first_child,
+    surface_hover, surface_selected,
 };
 pub(crate) use icon_button::icon_button;
 pub(crate) use selection::SelectionCopyMenu;

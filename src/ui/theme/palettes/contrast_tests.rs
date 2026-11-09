@@ -96,7 +96,10 @@ fn surfaces(theme: &Theme) -> [(&'static str, Rgba); 7] {
         ("content", theme.background),
         ("sidebar", theme.sidebar),
         ("card", theme.group_box),
-        ("input dock", theme.secondary),
+        (
+            "input dock",
+            crate::ui::kit::composer_dock_background(theme),
+        ),
         ("composer", crate::ui::kit::composer_background(theme)),
         ("popup", theme.popover),
         ("disclosure", theme.accordion),
@@ -239,7 +242,10 @@ fn normal_and_muted_labels_meet_minimum_on_their_resolved_surfaces() {
                 for (parent, parent_fill) in [
                     ("card", theme.group_box),
                     ("composer", crate::ui::kit::composer_background(&theme)),
-                    ("input dock", theme.secondary),
+                    (
+                        "input dock",
+                        crate::ui::kit::composer_dock_background(&theme),
+                    ),
                 ] {
                     let parent_fill = composite(parent_fill.into(), backdrop);
                     let fill = composite(fill.into(), parent_fill);

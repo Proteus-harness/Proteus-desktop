@@ -328,7 +328,7 @@ impl Host {
                 BadgePlace::ComposerStart | BadgePlace::ComposerEnd => (
                     host.chat?.composer_strip_bounds(),
                     Placement::Top,
-                    theme.secondary,
+                    crate::ui::kit::composer_dock_background(theme),
                 ),
                 BadgePlace::HeaderStart | BadgePlace::HeaderEnd => (
                     host.workspace.header_bounds.get(),

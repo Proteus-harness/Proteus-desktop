@@ -43,10 +43,14 @@ pub(crate) fn surface_selected(cx: &App) -> Hsla {
     cx.theme().group_box.blend(cx.theme().list_active)
 }
 
-/// The writing surface stays closer to the chat than the controls above it.
-/// One part dock fill to two parts page fill preserves their ordered tones
-/// without introducing another independent surface color for each palette.
+/// The writing surface uses the theme's full neutral control fill.
 pub(crate) fn composer_background(theme: &ThemeColor) -> Hsla {
+    theme.secondary
+}
+
+/// The attached controls form an intermediate layer between chat and input.
+/// Share the same theme colors across palettes without adding another token.
+pub(crate) fn composer_dock_background(theme: &ThemeColor) -> Hsla {
     theme.background.blend(theme.secondary.opacity(1. / 3.))
 }
 

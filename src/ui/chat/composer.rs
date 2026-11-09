@@ -55,7 +55,7 @@ impl Chat {
                         .mb_neg_2()
                         .surface_frame(cx)
                         .rounded_b(px(0.))
-                        .bg(theme.secondary)
+                        .bg(kit::composer_dock_background(&theme))
                         .child(dock)
                 }))
                 .child(
