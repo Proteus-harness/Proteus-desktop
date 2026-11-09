@@ -47,6 +47,55 @@ pub(super) fn chain_reveal_key(chat: EntityId, head: u64) -> SharedString {
     format!("tool-chain-{chat}-{head}").into()
 }
 
+/// Geometry only, bounded like the chat's scroll diagnostics. Comparing the
+/// last combined row with the settled virtual rows catches endpoint jumps.
+#[cfg(debug_assertions)]
+pub(super) fn trace_bounds(
+    head: u64,
+    row: u64,
+    moving: bool,
+    frame: std::time::Instant,
+    bounds: Bounds<Pixels>,
+) {
+    trace_geometry("row", head, row, moving, frame, bounds);
+}
+
+#[cfg(debug_assertions)]
+pub(super) fn trace_run(head: u64, frame: std::time::Instant, bounds: Bounds<Pixels>) {
+    trace_geometry("natural-run", head, head, true, frame, bounds);
+}
+
+#[cfg(debug_assertions)]
+fn trace_geometry(
+    kind: &'static str,
+    head: u64,
+    row: u64,
+    moving: bool,
+    frame: std::time::Instant,
+    bounds: Bounds<Pixels>,
+) {
+    use std::sync::{
+        LazyLock,
+        atomic::{AtomicUsize, Ordering},
+    };
+    static ENABLED: LazyLock<bool> =
+        LazyLock::new(|| std::env::var("PROTEUS_SCROLL_TRACE").as_deref() == Ok("1"));
+    static START: LazyLock<std::time::Instant> = LazyLock::new(std::time::Instant::now);
+    static COUNT: AtomicUsize = AtomicUsize::new(0);
+    if !*ENABLED || COUNT.fetch_add(1, Ordering::Relaxed) >= 6000 {
+        return;
+    }
+    eprintln!(
+        "PROTEUS_TOOL_CHAIN {}",
+        serde_json::json!({
+            "kind":kind, "head":head, "row":row, "moving":moving,
+            "frame_ms":frame.saturating_duration_since(*START).as_secs_f64()*1000.,
+            "top":f32::from(bounds.top()), "bottom":f32::from(bounds.bottom()),
+            "height":f32::from(bounds.size.height),
+        })
+    );
+}
+
 pub(super) fn render_chain_header(
     head: u64,
     tools: &[&AppTranscriptTool],
@@ -70,7 +119,7 @@ pub(super) fn render_chain_header(
         .gap_2()
         .text_sm()
         .min_w_0()
-        .disclosure(cx)
+        .inline_disclosure(cx)
         .child(status_icon(chain_status(tools), connected, cx))
         .child(
             div()

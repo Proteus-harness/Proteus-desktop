@@ -146,7 +146,7 @@ pub(super) fn render_tool(
     );
     let header = line_with_name(tool, name, connected, cx)
         .id(row_id("tool", key))
-        .disclosure(cx)
+        .inline_disclosure(cx)
         .when_some(
             terminal_supported.then(|| tool.terminal.clone()).flatten(),
             |header, terminal| {
@@ -209,30 +209,31 @@ impl Fold {
                 h_flex()
                     .gap_1()
                     .child(
-                        h_flex()
-                            .id(ElementId::NamedInteger(
-                                format!("tool-more-{part}").into(),
-                                key,
-                            ))
-                            .flex_1()
-                            .min_w_0()
-                            .gap_1()
-                            .text_xs()
-                            .disclosure(cx)
-                            .child(chevron(
-                                ElementId::NamedInteger(
-                                    format!("tool-more-chevron-{part}").into(),
+                        v_flex().flex_1().min_w_0().child(
+                            h_flex()
+                                .id(ElementId::NamedInteger(
+                                    format!("tool-more-{part}").into(),
                                     key,
-                                ),
-                                full,
-                                theme.muted_foreground,
-                            ))
-                            .child(faded(label))
-                            .on_click(move |_, _, cx| {
-                                cx.stop_propagation();
-                                chat.update(cx, |chat, cx| chat.toggle_full(key, part, cx))
-                                    .ok();
-                            }),
+                                ))
+                                .min_w_0()
+                                .gap_1()
+                                .text_xs()
+                                .inline_disclosure(cx)
+                                .child(chevron(
+                                    ElementId::NamedInteger(
+                                        format!("tool-more-chevron-{part}").into(),
+                                        key,
+                                    ),
+                                    full,
+                                    theme.muted_foreground,
+                                ))
+                                .child(faded(label))
+                                .on_click(move |_, _, cx| {
+                                    cx.stop_propagation();
+                                    chat.update(cx, |chat, cx| chat.toggle_full(key, part, cx))
+                                        .ok();
+                                }),
+                        ),
                     )
                     .child(
                         kit::button(ElementId::NamedInteger(

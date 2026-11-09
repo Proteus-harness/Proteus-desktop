@@ -30,15 +30,28 @@ impl Raster {
         }
     }
 
+    /// Explicit canvases use the authored box's layout aspect, independently
+    /// of the source bitmap contained inside it. Callers keep width/height in
+    /// their own scaled units; auto-height elements retain the intrinsic aspect.
+    pub(in super::super) fn element_in_box(
+        self,
+        id: impl Into<ElementId>,
+        view: EntityId,
+        layout_size: Size<f32>,
+    ) -> impl IntoElement + Styled {
+        self.element(id, view)
+            .aspect_ratio(layout_size.width / layout_size.height)
+    }
+
     pub(in super::super) fn element(
         self,
         id: impl Into<ElementId>,
         view: EntityId,
     ) -> impl IntoElement + Styled {
         let id = id.into();
-        // Img installs the decoded raster's aspect during request_layout.
-        // Canvas needs the same metadata before width/max-width constraints
-        // can derive its height; this does not prepare or allocate a raster.
+        // Auto-height Canvas needs the same intrinsic aspect as Img before
+        // width/max-width constraints derive its height. Explicit boxes use
+        // element_in_box instead; neither path prepares or allocates a raster.
         let aspect = self.key.size.width as f32 / self.key.size.height as f32;
         canvas(
             |_, _, _| {},
@@ -143,8 +156,101 @@ impl Raster {
 mod tests {
     use super::*;
     use crate::ui::render_image::visible;
+    use gpui_kit::base::ElementExt as _;
     use std::cell::Cell;
     use std::rc::Rc;
+
+    #[::core::prelude::v1::test]
+    fn explicit_svg_canvas_keeps_authored_box_when_source_aspect_differs() {
+        let mut app = ::gpui::TestAppContext::single();
+        let window = app.add_empty_window();
+        let view = window.update(|window, _| window.root::<Empty>().flatten().unwrap().entity_id());
+        let renderer = SvgRenderer::new(Arc::new(()));
+        // The raster is portrait, but the extension authored a landscape box.
+        // A source-height aspect must not grow its canvas behind that box's clip.
+        let source = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 720"><rect width="640" height="12" fill="#ff0000"/><rect y="708" width="640" height="12" fill="#00ff00"/></svg>"##;
+        let node = crate::declarative::widget::Node::Svg {
+            source: source.into(),
+            width: 640.,
+            height: 360.,
+            baseline: None,
+            em_size: None,
+        };
+        let mut images = super::super::Images::default();
+        images.prepare_with(&node, &renderer);
+        for dpi in [1., 2.] {
+            images.rasterize_with(&node, dpi);
+            for width in [640., 320.] {
+                let canvas_bounds = Rc::new(Cell::new(None));
+                let flow_bounds = Rc::new(Cell::new(None));
+                let sibling_bounds = Rc::new(Cell::new(None));
+                let actual_canvas = canvas_bounds.clone();
+                let actual_flow = flow_bounds.clone();
+                let actual_sibling = sibling_bounds.clone();
+                let element = images
+                    .get(source, 640., 360.)
+                    .unwrap()
+                    .element_in_box("explicit-box-svg", view, size(640., 360.))
+                    .w(px(640.))
+                    .h(px(360.))
+                    .max_w_full();
+                window.draw(
+                    point(px(0.), px(0.)),
+                    size(
+                        AvailableSpace::Definite(px(width)),
+                        AvailableSpace::MaxContent,
+                    ),
+                    move |_, _| {
+                        div()
+                            .flex()
+                            .flex_col()
+                            .w(px(width))
+                            .child(
+                                // Match Node::Svg's natural-flow wrapper: its
+                                // reserved height must agree with its child.
+                                div()
+                                    .w_full()
+                                    .min_w_0()
+                                    .on_prepaint(move |bounds, _, _| {
+                                        actual_flow.set(Some(bounds));
+                                    })
+                                    .on_children_prepainted(move |children, _, _| {
+                                        actual_canvas.set(children.first().copied());
+                                    })
+                                    .child(element),
+                            )
+                            .child(div().h(px(12.)).on_prepaint(move |bounds, _, _| {
+                                actual_sibling.set(Some(bounds));
+                            }))
+                            .into_any_element()
+                    },
+                );
+                let canvas = canvas_bounds
+                    .get()
+                    .expect("SVG canvas received native prepaint");
+                let flow = flow_bounds
+                    .get()
+                    .expect("SVG flow wrapper received native prepaint");
+                let sibling = sibling_bounds
+                    .get()
+                    .expect("SVG sibling received native prepaint");
+                assert_eq!(
+                    canvas, flow,
+                    "SVG must paint inside exactly its reserved flow bounds at DPI {dpi}, width {width}"
+                );
+                assert_eq!(
+                    canvas.size,
+                    size(px(width), px(width * 360. / 640.)),
+                    "max-width clamp must preserve the authored box's aspect at DPI {dpi}, width {width}"
+                );
+                assert_eq!(
+                    sibling.top(),
+                    flow.bottom(),
+                    "SVG must leave neither an overlap nor an extra gap before its sibling"
+                );
+            }
+        }
+    }
 
     #[::core::prelude::v1::test]
     fn only_a_positive_visible_intersection_admits_a_raster() {

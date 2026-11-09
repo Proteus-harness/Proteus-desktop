@@ -27,16 +27,23 @@ impl Width {
             Self::Editor(state, numbered) => {
                 // xsmall Editor has 4 px input insets on both sides; numbered
                 // fences add the same 6 px inset as their rendered Editor.
-                let insets = px(8.)
-                    + if *numbered {
-                        rems(0.375).to_pixels(window.rem_size())
-                    } else {
-                        px(0.)
-                    };
-                state
+                let insets = embedded_editor_insets(*numbered, window);
+                let unwrapped = state
                     .read(cx)
-                    .unwrapped_content_width(font, size, cap, window)
-                    + insets
+                    .unwrapped_content_width(font, size, cap, window);
+                #[cfg(debug_assertions)]
+                trace_geometry(|| {
+                    serde_json::json!({
+                        "kind":"width", "editor":format!("{:?}",state.entity_id()),
+                        "family":cx.theme().mono_font_family.as_ref(),
+                        "font_size":f32::from(size),
+                        "inherited_font":format!("{:?}",window.text_style().font()),
+                        "rem_size":f32::from(window.rem_size()), "numbered":numbered,
+                        "unwrapped":f32::from(unwrapped), "insets":f32::from(insets),
+                        "natural_width":f32::from(unwrapped+insets), "cap":f32::from(cap),
+                    })
+                });
+                unwrapped + insets
             }
             Self::Source(source) => {
                 let cache = window.use_keyed_state((id.clone(), "source-width"), cx, |_, _| {
@@ -48,6 +55,19 @@ impl Width {
             }
         }
     }
+}
+
+/// Match each authored input padding after GPUI's pre-layout pixel snapping.
+/// Adding fractional paddings first can leave a natural-fit editor narrower
+/// than its text and create a spurious subpixel horizontal scroll range.
+pub(super) fn embedded_editor_insets(numbered: bool, window: &Window) -> Pixels {
+    let padding = gpui_kit::component::Size::XSmall.input_px();
+    window.pixel_snap(padding) * 2.
+        + if numbered {
+            window.pixel_snap(rems(0.375).to_pixels(window.rem_size()))
+        } else {
+            px(0.)
+        }
 }
 
 /// Fallback source already owns a SharedString. Share that snapshot, keeping
@@ -182,6 +202,35 @@ pub(super) fn embedded_editor_scrollbar(
     editor_id: EntityId,
 ) -> EditorScrollbarRenderer {
     std::rc::Rc::new(move |context, window, cx| {
+        #[cfg(debug_assertions)]
+        trace_geometry(|| {
+            let input = owner.upgrade().and_then(|owner| {
+                owner.read(cx).fields.codes.get(&id).and_then(|code| {
+                    code.editor()
+                        .filter(|state| state.entity_id() == editor_id)
+                        .map(|state| state.read(cx).input_bounds())
+                })
+            });
+            serde_json::json!({
+                "kind":"scrollbar", "editor":format!("{editor_id:?}"),
+                "font":format!("{:?}",window.text_style().font()),
+                "font_size":f32::from(window.text_style().font_size.to_pixels(window.rem_size())),
+                "rem_size":f32::from(window.rem_size()),
+                "axis":format!("{:?}",context.axis()),
+                "input_bounds":input.map(|bounds| serde_json::json!({
+                    "x":f32::from(bounds.left()), "y":f32::from(bounds.top()),
+                    "width":f32::from(bounds.size.width), "height":f32::from(bounds.size.height),
+                })),
+                "viewport_width":f32::from(context.viewport_bounds().size.width),
+                "viewport_height":f32::from(context.viewport_bounds().size.height),
+                "scroll_viewport_width":f32::from(context.scroll_viewport_size().width),
+                "scroll_viewport_height":f32::from(context.scroll_viewport_size().height),
+                "content_width":f32::from(context.content_size().width),
+                "content_height":f32::from(context.content_size().height),
+                "horizontal_range":f32::from(context.horizontal_scroll_range()),
+                "offset_x":f32::from(context.offset().x), "offset_y":f32::from(context.offset().y),
+            })
+        });
         let horizontal = matches!(
             context.axis(),
             ScrollbarAxis::Horizontal | ScrollbarAxis::Both
@@ -225,6 +274,30 @@ pub(super) fn embedded_editor_scrollbar(
     })
 }
 
+/// Opt-in bounded diagnostics of sizes/fonts only; never source text.
+#[cfg(debug_assertions)]
+fn trace_geometry(value: impl FnOnce() -> serde_json::Value) {
+    use std::sync::{
+        LazyLock,
+        atomic::{AtomicUsize, Ordering},
+    };
+    use std::time::Instant;
+    static ENABLED: LazyLock<bool> =
+        LazyLock::new(|| std::env::var("PROTEUS_SCROLL_TRACE").as_deref() == Ok("1"));
+    static START: LazyLock<Instant> = LazyLock::new(Instant::now);
+    static COUNT: AtomicUsize = AtomicUsize::new(0);
+    if !*ENABLED {
+        return;
+    }
+    let index = COUNT.fetch_add(1, Ordering::Relaxed);
+    if index < 6000 {
+        eprintln!(
+            "PROTEUS_CODE_GEOMETRY {}",
+            serde_json::json!({"index":index, "elapsed_ms":START.elapsed().as_secs_f64()*1000., "geometry":value()}),
+        );
+    }
+}
+
 /// Called after caret scroll, so fades and the thumb share this frame's text.
 /// Any horizontal track occupies the reserved bottom strip; the gutter stays
 /// outside its viewport, exactly as in the editor's native context.
@@ -262,7 +335,7 @@ fn editor_scrollbar(context: EditorScrollbarContext, _: &mut Window, cx: &mut Ap
 
 /// The plain source uses a native ScrollHandle. Read it during prepaint,
 /// after layout, rather than introducing a one-frame overflow observer.
-pub(super) fn source_fades(handle: ScrollHandle, cx: &App) -> impl IntoElement {
+pub(super) fn source_fades(handle: ScrollHandle, track: Pixels, cx: &App) -> impl IntoElement {
     let color = cx.theme().muted;
     canvas(
         move |bounds, _, _| {
@@ -304,8 +377,19 @@ pub(super) fn source_fades(handle: ScrollHandle, cx: &App) -> impl IntoElement {
         },
     )
     .absolute()
-    .inset_0()
+    .top_0()
+    .left_0()
+    .right_0()
+    .bottom(track)
 }
+
+#[cfg(test)]
+#[path = "code_geometry/editor_tests.rs"]
+mod editor_tests;
+
+#[cfg(test)]
+#[path = "code_geometry/inset_tests.rs"]
+mod inset_tests;
 
 #[cfg(test)]
 mod tests {

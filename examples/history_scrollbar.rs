@@ -138,22 +138,26 @@ impl Render for Fixture {
         let count = self.rows;
         let mixed_heights = self.mixed_heights;
         let height_scale = self.height_scale;
+        let measured_rows = self.scrollbar.clone();
         let rows = list(self.list.clone(), move |index, _, _| {
             if index == count {
-                return div().h(px(0.)).into_any_element();
+                return measured_rows.measure_row(index, div().h(px(0.)));
             }
             let row = start + index;
-            div()
-                .w_full()
-                .h(px(row_height(row, mixed_heights) * height_scale))
-                .px_4()
-                .py_2()
-                .border_b_1()
-                .child(format!("Сообщение {} из {TOTAL}", row + 1))
-                .into_any_element()
+            measured_rows.measure_row(
+                index,
+                div()
+                    .w_full()
+                    .h(px(row_height(row, mixed_heights) * height_scale))
+                    .px_4()
+                    .py_2()
+                    .border_b_1()
+                    .child(format!("Сообщение {} из {TOTAL}", row + 1)),
+            )
         })
         .size_full();
         let laid_out_scrollbar = self.scrollbar.clone();
+        let viewport_scrollbar = self.scrollbar.clone();
         div()
             .flex()
             .flex_col()
@@ -172,6 +176,9 @@ impl Render for Fixture {
                     .relative()
                     .flex_1()
                     .min_h_0()
+                    .on_prepaint(move |bounds, _, _| {
+                        viewport_scrollbar.set_viewport_width(bounds.size.width)
+                    })
                     .child(rows)
                     .child(
                         canvas(

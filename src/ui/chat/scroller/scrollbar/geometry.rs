@@ -56,6 +56,9 @@ struct Anchor {
 pub(super) struct Geometry {
     range: Option<HistoryRange>,
     heights: Vec<Option<Pixels>>,
+    /// Prefix sums of committed heights. Offset reads never rescan the page.
+    prefix: Vec<f64>,
+    prefix_dirty: bool,
     estimate: Pixels,
     viewport: Pixels,
     tail: Pixels,
@@ -83,6 +86,7 @@ impl Geometry {
         estimate: Pixels,
         max: Pixels,
         padding: Pixels,
+        measurements: impl Iterator<Item = (usize, Pixels)>,
     ) {
         let viewport = list.viewport_bounds().size.height;
         let mut changed = std::mem::take(&mut self.invalidated)
@@ -103,26 +107,26 @@ impl Geometry {
                 .collect();
             self.range = Some(range);
             self.tail = px(0.);
+            self.prefix_dirty = true;
         }
+        self.prefix_dirty |= self.estimate != estimate;
         self.estimate = estimate;
         self.viewport = viewport;
         self.max = max;
         self.padding = padding;
-        // bounds_for_item is intentionally unavailable above the viewport.
-        // Retain those already measured heights, bounded by the resident page.
-        for ix in list.logical_scroll_top().item_ix..range.rows {
-            let Some(bounds) = list.bounds_for_item(ix) else {
-                break;
-            };
-            let height = bounds.size.height.max(px(0.));
-            if self.heights[ix] != Some(height) {
-                self.heights[ix] = Some(height);
+        // Consume only a completed layout's batch, including leading overdraw.
+        // Item bounds deliberately hide that overdraw above logical_scroll_top.
+        for (ix, height) in measurements {
+            if ix == range.rows {
+                changed |= self.tail != height;
+                self.tail = height;
+            } else if let Some(cached) = self.heights.get_mut(ix)
+                && *cached != Some(height)
+            {
+                *cached = Some(height);
+                self.prefix_dirty = true;
                 changed = true;
             }
-        }
-        if let Some(bounds) = list.bounds_for_item(range.rows) {
-            changed |= self.tail != bounds.size.height;
-            self.tail = bounds.size.height;
         }
         if changed {
             self.rebuild();
@@ -138,18 +142,25 @@ impl Geometry {
         let ix = row
             .checked_sub(range.start)
             .filter(|ix| *ix <= range.rows)?;
-        Some(
-            (0..ix)
-                .map(|i| f64::from(f32::from(self.height(i))))
-                .sum::<f64>()
-                + f64::from(f32::from(offset)),
-        )
+        self.prefix
+            .get(ix)
+            .map(|prefix| prefix + f64::from(f32::from(offset)))
     }
 
     fn rebuild(&mut self) {
         let Some(range) = self.range else {
             return;
         };
+        if self.prefix_dirty || self.prefix.len() != self.heights.len() + 1 {
+            self.prefix.clear();
+            self.prefix.push(0.);
+            let mut height = 0.;
+            for row in &self.heights {
+                height += f64::from(f32::from(row.unwrap_or(self.estimate)));
+                self.prefix.push(height);
+            }
+            self.prefix_dirty = false;
+        }
         let mut left = Knot {
             pixel: 0.,
             track: f64::from(f32::from(self.estimate)) * range.start as f64,
@@ -231,6 +242,7 @@ impl Geometry {
         for ix in rows {
             if let Some(height) = self.heights.get_mut(ix) {
                 *height = None;
+                self.prefix_dirty = true;
             }
         }
         self.invalidated = true;
@@ -347,6 +359,7 @@ mod tests {
             px(100.),
             px(100000.),
             px(0.),
+            std::iter::empty(),
         );
         let after = geometry.position(ListOffset {
             item_ix: 50,

@@ -198,6 +198,13 @@ pub(crate) trait Pressable: StatefulInteractiveElement + Styled {
             .hover(|style| style.text_color(theme.foreground))
     }
 
+    /// Text-sized chat headings keep hover, focus and click on the visible
+    /// trigger. The surrounding row may fill the transcript without making
+    /// its unused width an interactive disclosure.
+    fn inline_disclosure(self, cx: &App) -> Self {
+        self.disclosure(cx).flex_initial().self_start().max_w_full()
+    }
+
     /// The header shares its panel's painted curve, including at large radii.
     fn disclosure_surface(self, cx: &App) -> Self
     where

@@ -23,6 +23,7 @@ pub(super) struct Choice<T> {
 
 type Pick<T> = Rc<dyn Fn(T, &mut Window, &mut App)>;
 type Back = Rc<dyn Fn(&mut Window, &mut App)>;
+type RenderLabel<T> = Rc<dyn Fn(&Choice<T>, &mut Window, &mut App) -> AnyElement>;
 
 pub(super) struct Picker<T: Clone + PartialEq + 'static> {
     search: Entity<InputState>,
@@ -37,6 +38,7 @@ pub(super) struct Picker<T: Clone + PartialEq + 'static> {
     placeholder: SharedString,
     scroll: UniformListScrollHandle,
     pick: Pick<T>,
+    render_label: Option<RenderLabel<T>>,
     _search: Subscription,
 }
 
@@ -68,6 +70,7 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
             placeholder,
             scroll: UniformListScrollHandle::new(),
             pick: Rc::new(pick),
+            render_label: None,
             _search: subscription,
         };
         picker.filter(None, cx);
@@ -98,6 +101,16 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
 
     pub fn set_pick(&mut self, pick: impl Fn(T, &mut Window, &mut App) + 'static) {
         self.pick = Rc::new(pick);
+    }
+
+    /// Customize only the caption; row geometry, selection, focus and keys
+    /// remain shared with every other picker.
+    pub fn render_label(
+        mut self,
+        render: impl Fn(&Choice<T>, &mut Window, &mut App) -> AnyElement + 'static,
+    ) -> Self {
+        self.render_label = Some(Rc::new(render));
+        self
     }
 
     pub fn set_header(
@@ -237,12 +250,18 @@ impl<T: Clone + PartialEq + 'static> Render for Picker<T> {
         let rows = uniform_list(
             "picker-rows",
             count,
-            cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
+            cx.processor(move |this, range: std::ops::Range<usize>, window, cx| {
                 range
                     .map(|row| {
                         let option = &this.options[this.matches[row]];
                         let cursor = row == this.cursor;
                         let value = option.value.clone();
+                        let label = match &this.render_label {
+                            Some(render) => render(option, window, cx),
+                            None => {
+                                fade::caption("caption", option.label.clone()).into_any_element()
+                            }
+                        };
                         h_flex()
                             .id(("picker-row", row))
                             .role(Role::ListBoxOption)
@@ -268,12 +287,7 @@ impl<T: Clone + PartialEq + 'static> Render for Picker<T> {
                             .when(option.selected, |row| {
                                 row.text_color(cx.theme().sidebar_accent_foreground)
                             })
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .child(fade::caption("caption", option.label.clone())),
-                            )
+                            .child(div().flex_1().min_w_0().child(label))
                             .when(cursor && focused && super::kit::keyboard(), |row| {
                                 row.child(selection::focus(cx))
                             })

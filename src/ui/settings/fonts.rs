@@ -12,7 +12,7 @@ use super::SettingsView;
 use crate::preferences::Preferences;
 use crate::ui::kit::ButtonLabel as _;
 use crate::ui::picker::{Choice, Picker};
-use crate::ui::{kit, motion, prefs, theme};
+use crate::ui::{fade, kit, motion, prefs, theme};
 
 type FontPicker = Picker<Option<SharedString>>;
 
@@ -194,6 +194,16 @@ impl FontControl {
                     });
                 },
             )
+            .render_label(|option, _, cx| {
+                div()
+                    .min_w_0()
+                    .when_some(
+                        theme::resolve(option.value.as_deref(), cx),
+                        |label, family| label.font_family(family),
+                    )
+                    .child(fade::caption("caption", option.label.clone()))
+                    .into_any_element()
+            })
         });
         let focus = picker.read(cx).focus(cx);
         focus.focus(window, cx);
@@ -211,7 +221,11 @@ impl Render for FontControl {
             .unwrap_or(self.target.inherited())
             .to_owned()
             .into();
-        let style = window.text_style();
+        let family = theme::resolve(self.target.value(prefs::current(cx)), cx);
+        let mut style = window.text_style();
+        if let Some(family) = &family {
+            style.font_family = family.clone();
+        }
         let font_size = prefs::scaled(14.).to_pixels(window.rem_size());
         let width = window
             .text_system()
@@ -236,6 +250,14 @@ impl Render for FontControl {
                     .track_focus(&self.focus)
                     .small()
                     .faded_label(value)
+                    .render_label(move |label, clipped, _, _| {
+                        div()
+                            .text_sm()
+                            .min_w_0()
+                            .when_some(family.clone(), |label, family| label.font_family(family))
+                            .child(fade::faded(label).report_clipping(clipped))
+                            .into_any_element()
+                    })
                     .accessibility_label(self.target.label())
                     .px_1p5()
                     .min_w_0()

@@ -225,7 +225,7 @@ impl Chat {
                     let header =
                         render_chain_header(key, &tools, chain_open, self.session.connected, cx);
                     let calls = if chain_moving {
-                        let run = self.render_run(chain.clone(), cx);
+                        let run = self.render_run(chain.clone(), frame_at, cx);
                         motion::reveal_at(
                             chain_reveal.unwrap_or_default(),
                             chain_open,
@@ -273,7 +273,11 @@ impl Chat {
         }
         h_flex()
             .group(super::turn_footer::GROUP)
-            .on_prepaint(|bounds, window, _| {
+            .on_prepaint(move |bounds, window, _| {
+                #[cfg(debug_assertions)]
+                if let Some(head) = chain_head {
+                    super::tool_chain::trace_bounds(head, key, chain_moving, frame_at, bounds);
+                }
                 let visible = window.content_mask().bounds;
                 if bounds.size.width > px(0.)
                     && bounds.size.height > px(0.)
@@ -310,14 +314,21 @@ impl Chat {
 
     /// Every call of a run as one block, spaced as their rows are at rest,
     /// so the block ends exactly where the rows will.
-    fn render_run(&self, run: Range<usize>, cx: &mut Context<Self>) -> AnyElement {
+    fn render_run(
+        &self,
+        run: Range<usize>,
+        _frame_at: Instant,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let entries = self
             .codex
             .as_ref()
             .and_then(|binding| binding.archive.as_ref())
             .unwrap_or_else(|| self.history.displayed(&self.session.transcript))
             .entries();
-        let gap = prefs::scaled((TOOL_SPACING.bottom + TOOL_SPACING.top) * 4.);
+        let count = run.len();
+        #[cfg(debug_assertions)]
+        let head = entries[run.start].key;
         let mut block = v_flex();
         for (n, entry) in entries[run].iter().enumerate() {
             let Some(tool) = &entry.tool else {
@@ -336,8 +347,12 @@ impl Chat {
                 self.supports_core(),
                 cx,
             ));
-            block = block.child(if n == 0 { call.pt_1() } else { call.pt(gap) });
+            block = block.child(run_call(call, n == 0, n + 1 == count));
         }
+        #[cfg(debug_assertions)]
+        let block = block.on_prepaint(move |bounds, _, _| {
+            super::tool_chain::trace_run(head, _frame_at, bounds);
+        });
         block.into_any_element()
     }
 
@@ -412,6 +427,26 @@ const TOOL_SPACING: Spacing = Spacing {
     top: 1.,
     bottom: 1.,
 };
+
+/// Keep the same separate paddings as the settled virtual rows. GPUI snaps
+/// authored lengths to device pixels before layout: round(bottom + top)
+/// differs from round(bottom) + round(top) at fractional interface scales.
+fn run_call(call: Div, first: bool, last: bool) -> Div {
+    let call = if first {
+        call.pt_1()
+    } else {
+        call.pt(prefs::scaled(TOOL_SPACING.top * 4.))
+    };
+    if last {
+        call
+    } else {
+        call.pb(prefs::scaled(TOOL_SPACING.bottom * 4.))
+    }
+}
+
+#[cfg(test)]
+#[path = "thread/layout_tests.rs"]
+mod layout_tests;
 
 fn row_id(name: &'static str, key: u64) -> ElementId {
     ElementId::NamedInteger(name.into(), key)

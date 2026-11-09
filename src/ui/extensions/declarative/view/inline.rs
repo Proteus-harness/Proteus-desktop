@@ -40,12 +40,13 @@ impl DeclarativeView {
         let image = self.images.get(source, *width, *height)?;
         let element = gpui_kit::base::text::InlineElement::new(
             image
-                .element(
+                .element_in_box(
                     ElementId::NamedChild(
                         Arc::new(ElementId::View(cx.entity_id())),
                         "inline-svg".into(),
                     ),
                     cx.entity_id(),
+                    size(geometry.width, geometry.height),
                 )
                 .w(px(geometry.width))
                 .h(px(geometry.height)),

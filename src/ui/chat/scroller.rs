@@ -310,6 +310,7 @@ impl ChatScroller {
     /// glide brings them back. A following list stays at its end. Called
     /// before the list lays out at `size`.
     fn keep_end(&mut self, size: gpui_kit::Size<Pixels>) -> bool {
+        self.scrollbar.set_viewport_width(size.width);
         let last = self.size.replace(size);
         let resized = last.is_some_and(|last| last != size);
         // Closing a completed plan grows the viewport. If the reader is
@@ -326,9 +327,6 @@ impl ChatScroller {
         }
         if resized {
             self.wheel.invalidate(&self.list);
-        }
-        if last.is_some_and(|last| last.width != size.width) {
-            self.scrollbar.invalidate(0..self.row_count());
         }
         if resized && self.following {
             self.list.scroll_to_end();
@@ -602,6 +600,7 @@ impl RenderOnce for ChatList {
         };
         let mut render_row = self.render_row;
         let measured_footer = self.state.clone();
+        let measured_rows = scrollbar.clone();
         let rows = list(list_state.clone(), move |ix, window, cx| {
             if ix == tail_row {
                 // keep_end runs immediately before native list prepaint.
@@ -609,10 +608,9 @@ impl RenderOnce for ChatList {
                 // made before a growing viewport could reserve any room.
                 let tail_height = measured_footer.read(cx).tail.height();
                 let measured = measured_footer.clone();
-                return div()
-                    .w_full()
-                    .min_h(tail_height)
-                    .child(
+                return measured_rows.measure_row(
+                    ix,
+                    div().w_full().min_h(tail_height).child(
                         div().w_full().pb(reading_gap).child(
                             div()
                                 .w_full()
@@ -625,14 +623,13 @@ impl RenderOnce for ChatList {
                                 })
                                 .children(render_footer.as_mut().map(|render| render(window, cx))),
                         ),
-                    )
-                    .into_any_element();
+                    ),
+                );
             }
-            div()
-                .w_full()
-                .min_w_0()
-                .child(render_row(ix, window, cx))
-                .into_any_element()
+            measured_rows.measure_row(
+                ix,
+                div().w_full().min_w_0().child(render_row(ix, window, cx)),
+            )
         })
         .size_full()
         .min_h_0()

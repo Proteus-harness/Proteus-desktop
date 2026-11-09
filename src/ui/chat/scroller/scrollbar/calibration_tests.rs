@@ -2,12 +2,13 @@
 use super::*;
 use ::gpui::{TestAppContext, VisualTestContext};
 
-struct TallTailRows(ListState, HistoryRange);
+struct TallTailRows(HistoryScrollbar, HistoryRange);
 
 impl Render for TallTailRows {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         let range = self.1;
-        list(self.0.clone(), move |ix, _, _| {
+        let measured = self.0.clone();
+        list(self.0.list.clone(), move |ix, _, _| {
             let row = range.start + ix;
             let height = if ix == range.rows {
                 24.
@@ -18,13 +19,13 @@ impl Render for TallTailRows {
             } else {
                 70.
             };
-            div().h(px(height)).w_full().into_any_element()
+            measured.measure_row(ix, div().h(px(height)).w_full())
         })
         .size_full()
     }
 }
 
-struct MixedRows(ListState);
+struct MixedRows(HistoryScrollbar);
 
 fn mixed_height(ix: usize) -> f32 {
     if ix == 50 {
@@ -40,8 +41,9 @@ fn mixed_height(ix: usize) -> f32 {
 
 impl Render for MixedRows {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        list(self.0.clone(), move |ix, _, _| {
-            div().h(px(mixed_height(ix))).w_full().into_any_element()
+        let measured = self.0.clone();
+        list(self.0.list.clone(), move |ix, _, _| {
+            measured.measure_row(ix, div().h(px(mixed_height(ix))).w_full())
         })
         .size_full()
     }
@@ -63,7 +65,8 @@ fn an_ordinary_clipped_row_keeps_wheel_and_drag_uniform_after_the_first_window_r
         offset_in_item: px(0.),
     });
     let paint = |cx: &mut VisualTestContext, height| {
-        let view = cx.update(|_, cx| cx.new(|_| MixedRows(bar.list.clone())));
+        bar.set_viewport_width(px(300.));
+        let view = cx.update(|_, cx| cx.new(|_| MixedRows(bar.clone())));
         cx.draw(point(px(0.), px(0.)), size(px(300.), height), |_, _| {
             view.into_any_element()
         });
@@ -132,7 +135,8 @@ fn a_clipped_tall_tail_does_not_leave_the_whole_thumb_motion_until_the_first_pag
     };
     let bar = HistoryScrollbar::new(ListState::new(51, ListAlignment::Top, px(400.)), px(0.));
     let paint = |cx: &mut VisualTestContext, range| {
-        let view = cx.update(|_, cx| cx.new(|_| TallTailRows(bar.list.clone(), range)));
+        bar.set_viewport_width(px(300.));
+        let view = cx.update(|_, cx| cx.new(|_| TallTailRows(bar.clone(), range)));
         cx.draw(point(px(0.), px(0.)), size(px(300.), px(700.)), |_, _| {
             view.into_any_element()
         });

@@ -358,7 +358,11 @@ impl DeclarativeView {
                 .min_w_0()
                 .children(self.images.get(source, *width, *height).map(|image| {
                     image
-                        .element(format!("svg-{path}"), cx.entity_id())
+                        .element_in_box(
+                            format!("svg-{path}"),
+                            cx.entity_id(),
+                            size(*width, *height),
+                        )
                         .w(prefs::scaled(*width))
                         .h(prefs::scaled(*height))
                         .max_w_full()

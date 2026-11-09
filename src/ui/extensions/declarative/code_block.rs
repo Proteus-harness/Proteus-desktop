@@ -7,6 +7,7 @@
 use super::code_geometry::Width;
 use crate::ui::kit::{self, Frame as _, Hint as _};
 use gpui_kit::base::RoundedFrameCover;
+use gpui_kit::component::scroll::Scrollbar;
 use gpui_kit::component::{ActiveTheme as _, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -138,15 +139,13 @@ impl<F: Fn(&mut Window, &mut App) -> SharedString + 'static> RenderOnce for Shel
             let disclosure =
                 disclosure_width.map(|width| width + rems(0.25).to_pixels(window.rem_size()));
             let actions = if self.controls.is_some() { 52. } else { 28. };
-            let insets = rems(0.75).to_pixels(window.rem_size()) + px(2.);
-            (width.measure(&self.copy_id, window, cx) + insets)
-                .max(
-                    label
-                        + rems(actions / 16.).to_pixels(window.rem_size())
-                        + disclosure.unwrap_or(px(0.))
-                        + insets,
-                )
-                .ceil()
+            fit_width(
+                width.measure(&self.copy_id, window, cx),
+                label
+                    + rems(actions / 16.).to_pixels(window.rem_size())
+                    + disclosure.unwrap_or(px(0.)),
+                window,
+            )
         });
         v_flex()
             .group("code-block")
@@ -200,6 +199,18 @@ impl<F: Fn(&mut Window, &mut App) -> SharedString + 'static> RenderOnce for Shel
     }
 }
 
+/// Reserve the same individually snapped sides that the shell will lay out.
+/// The final width rounds outward on the device grid, so fractional glyph
+/// advances cannot become a tiny scroll range after the frame is fitted.
+pub(super) fn fit_width(body: Pixels, header: Pixels, window: &Window) -> Pixels {
+    let padding = window.pixel_snap(rems(0.375).to_pixels(window.rem_size()));
+    let border = window
+        .pixel_snap(px(1.))
+        .max(px(1. / window.scale_factor()));
+    let width = body.max(header) + (padding + border) * 2.;
+    (width * window.scale_factor()).ceil() / window.scale_factor()
+}
+
 /// Keep the button in the layout and tab order while hidden. A focused child
 /// reveals it too, so keyboard activation retains the native clipboard state.
 #[derive(IntoElement)]
@@ -250,34 +261,95 @@ struct Source {
     id: ElementId,
     text: SharedString,
 }
+
+#[derive(Default)]
+struct SourceScroll {
+    handle: ScrollHandle,
+    horizontal_overflow: bool,
+}
+
 impl RenderOnce for Source {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let handle = window
-            .use_keyed_state((self.id.clone(), "scroll"), cx, |_, _| ScrollHandle::new())
-            .read(cx)
-            .clone();
-        div()
-            .relative()
-            .w_full()
-            .min_w_0()
-            .child(
-                div()
-                    .id(self.id)
-                    .w_full()
-                    .min_w_0()
-                    .overflow_x_scroll()
-                    .track_scroll(&handle)
-                    .font_family(cx.theme().mono_font_family.clone())
-                    .text_size(cx.theme().mono_font_size)
-                    .line_height(relative(1.5))
-                    .whitespace_nowrap()
-                    .child(gpui_kit::base::SelectableText::new(
-                        "source-text",
-                        self.text,
-                    )),
-            )
-            .child(super::code_geometry::source_fades(handle, cx))
+        let state = window.use_keyed_state((self.id.clone(), "scroll"), cx, |_, _| {
+            SourceScroll::default()
+        });
+        source_view(self.id, self.text, state, window, cx)
     }
+}
+
+fn source_view(
+    id: ElementId,
+    text: SharedString,
+    state: Entity<SourceScroll>,
+    window: &mut Window,
+    cx: &App,
+) -> Div {
+    let handle = state.read(cx).handle.clone();
+    let overflowing = state.read(cx).horizontal_overflow;
+    let track = if overflowing {
+        super::code_geometry::horizontal_track_height(cx)
+    } else {
+        px(0.)
+    };
+    let observed = handle.clone();
+    let owner = window.current_view();
+    div()
+        .relative()
+        .w_full()
+        .min_w_0()
+        .pb(track)
+        .child(
+            div()
+                .id(id)
+                .flex()
+                .w_full()
+                .min_w_0()
+                .overflow_x_scroll()
+                // A source fence owns X only. GPUI otherwise redirects a
+                // plain vertical wheel onto X and keeps it from the chat.
+                .restrict_scroll_to_axis()
+                .track_scroll(&handle)
+                .font_family(cx.theme().mono_font_family.clone())
+                .text_size(cx.theme().mono_font_size)
+                .line_height(relative(1.5))
+                .whitespace_nowrap()
+                .child(
+                    div()
+                        .flex_none()
+                        .child(gpui_kit::base::SelectableText::new("source-text", text)),
+                ),
+        )
+        .child(super::code_geometry::source_fades(
+            handle.clone(),
+            track,
+            cx,
+        ))
+        .when(overflowing, |view| {
+            view.child(
+                div().absolute().inset_0().child(
+                    Scrollbar::horizontal(&handle)
+                        .viewport_from_layout()
+                        .styles(|styles| styles.track(|style| style.width(track))),
+                ),
+            )
+        })
+        .child(
+            canvas(
+                move |_, _, cx| {
+                    let horizontal = observed.max_offset().x > px(0.);
+                    if state.read(cx).horizontal_overflow != horizontal {
+                        state.update(cx, |state, _| state.horizontal_overflow = horizontal);
+                        cx.notify(owner);
+                    }
+                },
+                |_, _, _, _| {},
+            )
+            // An overflow observer must not add content to its own area.
+            .absolute()
+            .top_0()
+            .left_0()
+            .size(px(0.)),
+        )
 }
 
 /// Missing providers retain an entity so element ids and native selection
@@ -317,6 +389,10 @@ impl Render for SourceBlock {
         .fit(Width::Source(self.source.clone()))
     }
 }
+
+#[cfg(test)]
+#[path = "code_block/source_tests.rs"]
+mod source_tests;
 
 #[cfg(test)]
 mod tests {

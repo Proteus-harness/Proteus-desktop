@@ -13,7 +13,7 @@ fn height(row: usize) -> Pixels {
 }
 
 struct Rows {
-    state: ListState,
+    bar: HistoryScrollbar,
     range: HistoryRange,
     long_tools: bool,
 }
@@ -22,15 +22,18 @@ impl Render for Rows {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         let range = self.range;
         let long_tools = self.long_tools;
-        list(self.state.clone(), move |ix, _, _| {
-            div()
-                .h(if ix < range.rows {
-                    row_height(range.start + ix, range, long_tools)
-                } else {
-                    px(24.)
-                })
-                .w_full()
-                .into_any_element()
+        let measured = self.bar.clone();
+        list(self.bar.list.clone(), move |ix, _, _| {
+            measured.measure_row(
+                ix,
+                div()
+                    .h(if ix < range.rows {
+                        row_height(range.start + ix, range, long_tools)
+                    } else {
+                        px(24.)
+                    })
+                    .w_full(),
+            )
         })
         .w_full()
         .h_full()
@@ -59,9 +62,10 @@ fn draw_with_tools(
     range: HistoryRange,
     long_tools: bool,
 ) {
+    bar.set_viewport_width(px(300.));
     let view = cx.update(|_, cx| {
         cx.new(|_| Rows {
-            state: bar.list.clone(),
+            bar: bar.clone(),
             range,
             long_tools,
         })
@@ -121,15 +125,18 @@ fn global_pixel(bar: &HistoryScrollbar, range: HistoryRange) -> Pixels {
         + top.offset_in_item
 }
 
-struct UnpagedRows(ListState, usize);
+struct UnpagedRows(HistoryScrollbar, usize);
 impl Render for UnpagedRows {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         let long_row = self.1;
-        list(self.0.clone(), move |ix, _, _| {
-            div()
-                .h(px(if ix == long_row { 50_000. } else { 100. }))
-                .w_full()
-                .into_any_element()
+        let measured = self.0.clone();
+        list(self.0.list.clone(), move |ix, _, _| {
+            measured.measure_row(
+                ix,
+                div()
+                    .h(px(if ix == long_row { 50_000. } else { 100. }))
+                    .w_full(),
+            )
         })
         .w_full()
         .h_full()
@@ -137,11 +144,122 @@ impl Render for UnpagedRows {
 }
 
 fn paint_unpaged(cx: &mut VisualTestContext, bar: &HistoryScrollbar, long_row: usize) {
-    let view = cx.update(|_, cx| cx.new(|_| UnpagedRows(bar.list.clone(), long_row)));
+    bar.set_viewport_width(px(300.));
+    let view = cx.update(|_, cx| cx.new(|_| UnpagedRows(bar.clone(), long_row)));
     cx.draw(point(px(0.), px(0.)), size(px(300.), px(700.)), |_, _| {
         view.into_any_element()
     });
     bar.did_layout();
+}
+
+struct ShortPrefixRows {
+    bar: HistoryScrollbar,
+    heights: [f32; 7],
+}
+
+impl Render for ShortPrefixRows {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let heights = self.heights;
+        let measured = self.bar.clone();
+        list(self.bar.list.clone(), move |ix, _, _| {
+            measured.measure_row(
+                ix,
+                div().w_full().h(px(heights.get(ix).copied().unwrap_or(0.))),
+            )
+        })
+        .size_full()
+    }
+}
+
+fn assert_uniform_upward_motion_across_short_prefix(prefix_height: f32) {
+    let mut app = TestAppContext::single();
+    let cx = app.add_empty_window();
+    let heights = [
+        100.,
+        prefix_height,
+        prefix_height,
+        prefix_height,
+        100.,
+        100.,
+        100.,
+    ];
+    let bar = HistoryScrollbar::new(ListState::new(8, ListAlignment::Top, px(400.)), px(0.));
+    bar.set_range(
+        Some(HistoryRange {
+            start: 0,
+            rows: 7,
+            total: 7,
+        }),
+        false,
+    );
+    let mut first_layout = true;
+    let mut draw = || {
+        bar.set_viewport_width(px(300.));
+        let view = cx.update(|_, cx| {
+            cx.new(|_| ShortPrefixRows {
+                bar: bar.clone(),
+                heights,
+            })
+        });
+        cx.draw(point(px(0.), px(0.)), size(px(300.), px(100.)), |_, _| {
+            view.into_any_element()
+        });
+        if first_layout {
+            // GPUI knows this leading row, but intentionally exposes no item
+            // bounds above the logical top. Provisional reads must not commit
+            // the new measurements with the preceding frame's mapping.
+            assert!(bar.list.bounds_for_item(1).is_none());
+            assert_eq!(bar.geometry.borrow().measured_height(1), None);
+            let _ = bar.offset();
+            assert_eq!(bar.geometry.borrow().measured_height(1), None);
+        }
+        bar.did_layout();
+        if first_layout {
+            assert_eq!(
+                bar.geometry.borrow().measured_height(1),
+                Some(px(prefix_height))
+            );
+            first_layout = false;
+        }
+    };
+    let physical = || {
+        let top = bar.list.logical_scroll_top();
+        px(heights.iter().take(top.item_ix).sum::<f32>()) + top.offset_in_item
+    };
+    bar.list.scroll_to_end();
+    draw();
+    bar.lock_unit();
+    let mut previous_pixel = physical();
+    let mut previous_thumb = -bar.offset().y;
+    let mut steps = Vec::new();
+    for _ in 0..3 {
+        bar.list.scroll_by(px(-100.));
+        draw();
+        let pixel = physical();
+        let thumb = -bar.offset().y;
+        assert!((previous_pixel - pixel - px(100.)).abs() < px(0.05));
+        steps.push(f32::from(previous_thumb - thumb));
+        previous_pixel = pixel;
+        previous_thumb = thumb;
+    }
+    assert!(
+        steps[0] > 0.,
+        "thumb must follow upward physical movement: {steps:?}"
+    );
+    assert!(
+        steps.iter().all(|step| (step - steps[0]).abs() < 0.1),
+        "equal upward pixel steps must move the thumb equally across a measured short prefix: {steps:?}"
+    );
+}
+
+#[::core::prelude::v1::test]
+fn upward_thumb_does_not_accumulate_motion_across_folded_rows() {
+    assert_uniform_upward_motion_across_short_prefix(0.);
+}
+
+#[::core::prelude::v1::test]
+fn upward_thumb_does_not_accumulate_motion_across_short_positive_rows() {
+    assert_uniform_upward_motion_across_short_prefix(20.);
 }
 
 #[::core::prelude::v1::test]

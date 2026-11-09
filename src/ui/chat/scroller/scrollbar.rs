@@ -11,6 +11,9 @@ use gpui_kit::{component::scroll::ScrollbarHandle, *};
 #[path = "scrollbar/geometry.rs"]
 mod geometry;
 use geometry::Geometry;
+#[path = "scrollbar/measurement.rs"]
+mod measurement;
+use measurement::{MeasuredRow, Measurements};
 #[cfg(debug_assertions)]
 #[path = "scroll_trace.rs"]
 pub(super) mod scroll_trace;
@@ -46,6 +49,8 @@ pub(crate) struct HistoryScrollbar {
     list: ListState,
     state: Rc<Cell<State>>,
     geometry: Rc<RefCell<Geometry>>,
+    measurements: Rc<RefCell<Measurements>>,
+    width: Rc<Cell<Pixels>>,
     padding: Pixels,
 }
 
@@ -55,6 +60,8 @@ impl HistoryScrollbar {
             list,
             state: Rc::default(),
             geometry: Rc::default(),
+            measurements: Rc::default(),
+            width: Rc::default(),
             padding,
         }
     }
@@ -62,6 +69,9 @@ impl HistoryScrollbar {
     pub fn set_range(&self, range: Option<HistoryRange>, seeking: bool) -> bool {
         let mut state = self.state.get();
         let changed = state.range != range;
+        if changed {
+            self.measurements.borrow_mut().set_range(range);
+        }
         state.range = range;
         if range.is_some_and(|range| range.start > 0 || range.rows < range.total) {
             state.unit_locked = true;
@@ -105,7 +115,35 @@ impl HistoryScrollbar {
     }
 
     pub fn invalidate(&self, rows: std::ops::Range<usize>) {
-        self.geometry.borrow_mut().invalidate(rows);
+        self.geometry.borrow_mut().invalidate(rows.clone());
+        self.measurements.borrow_mut().invalidate(rows);
+    }
+
+    /// Called by the viewport before its Auto-sized list prepaints. Reading
+    /// ListState here from a row renderer would reborrow GPUI's mutable state.
+    pub fn set_viewport_width(&self, width: Pixels) {
+        if self.width.replace(width) != width
+            && let Some(range) = self.state.get().range
+        {
+            self.invalidate(0..range.rows + 1);
+        }
+    }
+
+    /// Observe the row's existing layout, also when GPUI only measures it in
+    /// the leading overdraw. Rendering and child measurement still happen once.
+    pub fn measure_row(&self, index: usize, child: impl IntoElement) -> AnyElement {
+        let child = child.into_any_element();
+        let Some(range) = self.state.get().range else {
+            return child;
+        };
+        MeasuredRow::new(
+            child,
+            self.width.clone(),
+            self.measurements.clone(),
+            range,
+            index,
+        )
+        .into_any_element()
     }
 
     pub(super) fn lock_unit(&self) {
@@ -280,6 +318,7 @@ impl HistoryScrollbar {
             self.unit(),
             self.max_offset(),
             self.padding,
+            std::iter::empty(),
         );
     }
 
@@ -300,10 +339,6 @@ impl HistoryScrollbar {
         let Some(range) = state.range else {
             return;
         };
-        // Remote/fractional seeks pin their requested position in settle.
-        if state.displayed.is_some() || state.waiting || state.local.is_some() {
-            return;
-        }
         if !state.unit_locked {
             // A fresh whole chat may start with one short user row. Calibrate
             // its growing reply until browsing begins, before freezing scale.
@@ -311,7 +346,21 @@ impl HistoryScrollbar {
             state.unit = None;
             self.state.set(state);
         }
-        self.refresh_geometry(range);
+        // The row observer writes into a separate collector during list
+        // measurement. Commit it only now; offset queries must never see new
+        // heights combined with the mapping of a partially completed layout.
+        self.geometry.borrow_mut().refresh(
+            &self.list,
+            range,
+            self.unit(),
+            self.max_offset(),
+            self.padding,
+            self.measurements.borrow_mut().drain(),
+        );
+        // Remote/fractional seeks pin their requested position in settle.
+        if state.displayed.is_some() || state.waiting || state.local.is_some() {
+            return;
+        }
         let top = self.list.logical_scroll_top();
         if self.at_bottom(range) {
             self.geometry.borrow_mut().pin(top, self.max_offset());
