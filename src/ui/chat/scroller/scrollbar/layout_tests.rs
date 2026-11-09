@@ -77,7 +77,7 @@ fn draw_with_tools(
 }
 
 #[::core::prelude::v1::test]
-fn loading_older_members_of_a_folded_run_keeps_the_thumb_at_the_reading_position() {
+fn loading_older_members_of_a_folded_run_keeps_the_native_reading_position() {
     let mut app = TestAppContext::single();
     let cx = app.add_empty_window();
     let mut range = HistoryRange {
@@ -89,28 +89,40 @@ fn loading_older_members_of_a_folded_run_keeps_the_thumb_at_the_reading_position
     bar.set_range(Some(range), false);
     bar.list.scroll_to_end();
     draw_with_tools(cx, &bar, range, true);
-    // Match ChatScroller::user_scroll: loading starts after actual browsing,
-    // so a page's async calibration must no longer change the track extent.
-    bar.lock_unit();
+    // Match ChatScroller::user_scroll: page facts may refine the estimated
+    // track, while the content itself keeps its native reading anchor.
+    bar.begin_browsing();
     for step in 0..500 {
         bar.list.scroll_by(px(-120.));
         draw_with_tools(cx, &bar, range, true);
         let _ = bar.offset();
         if bar.list.logical_scroll_top().item_ix < 8 && range.start > 0 {
-            let before = bar.offset().y;
             let top = bar.list.logical_scroll_top();
+            let row = range.start + top.item_ix;
             bar.list.splice(0..0, 50);
             range.start -= 50;
             range.rows += 50;
-            // Keep the visible run indivisible, as HistoryWindow::trim does.
+            // Keep this synthetic folded run together to isolate density
+            // changes from the separate open-chain lifecycle during eviction.
             bar.set_range(Some(range), false);
             draw_with_tools(cx, &bar, range, true);
             assert!(
-                (bar.offset().y - before).abs() < px(0.02),
-                "page {} after step {step}, old top {top:?}: thumb {before:?} -> {:?}, new top {:?}",
+                range.start + bar.list.logical_scroll_top().item_ix == row
+                    && (bar.list.logical_scroll_top().offset_in_item - top.offset_in_item).abs()
+                        < px(0.02),
+                "page {} after step {step}, old top {top:?}, new top {:?}",
                 range.start,
-                bar.offset().y,
                 bar.list.logical_scroll_top()
+            );
+            let geometry = bar.geometry.borrow();
+            let top = bar.list.logical_scroll_top();
+            let gain = geometry.position(ListOffset {
+                offset_in_item: top.offset_in_item + px(1.),
+                ..top
+            }) - geometry.position(top);
+            assert!(
+                gain >= px(0.) && gain <= px(1.05),
+                "page facts introduced a catch-up slope: {gain:?}"
             );
         }
         if range.start == 0 && bar.list.logical_scroll_top().item_ix == 0 {
@@ -118,6 +130,15 @@ fn loading_older_members_of_a_folded_run_keeps_the_thumb_at_the_reading_position
         }
     }
     panic!("did not reach beginning");
+}
+
+pub(super) fn track_fraction(bar: &HistoryScrollbar) -> f32 {
+    let max = bar.max_offset();
+    if max > px(0.) {
+        f32::from(-bar.offset().y / max)
+    } else {
+        0.
+    }
 }
 
 fn global_pixel(bar: &HistoryScrollbar, range: HistoryRange) -> Pixels {
@@ -253,7 +274,7 @@ fn assert_uniform_upward_motion_across_short_prefix(prefix_height: f32) {
     };
     bar.list.scroll_to_end();
     draw();
-    bar.lock_unit();
+    bar.begin_browsing();
     let mut previous_pixel = physical();
     let mut previous_thumb = -bar.offset().y;
     let mut steps = Vec::new();
@@ -303,7 +324,7 @@ fn a_short_new_chat_still_gets_a_scrollbar_when_its_first_reply_grows() {
     bar.list.scroll_to_end();
     paint_unpaged(cx, &bar, usize::MAX);
     assert_eq!(bar.content_size().height, px(700.));
-    bar.lock_unit(); // An upward gesture while everything fits must not freeze scale.
+    bar.begin_browsing(); // An upward gesture while everything fits must not freeze scale.
     bar.list.splice(1..1, 1);
     bar.set_range(
         Some(HistoryRange {
@@ -320,7 +341,7 @@ fn a_short_new_chat_still_gets_a_scrollbar_when_its_first_reply_grows() {
 }
 
 #[::core::prelude::v1::test]
-fn measuring_a_long_earlier_reply_does_not_resize_an_unpaged_chat_scrollbar() {
+fn measuring_a_long_earlier_reply_refines_extent_without_moving_native_content() {
     let mut app = TestAppContext::single();
     let cx = app.add_empty_window();
     let range = HistoryRange {
@@ -332,14 +353,26 @@ fn measuring_a_long_earlier_reply_does_not_resize_an_unpaged_chat_scrollbar() {
     bar.set_range(Some(range), false);
     bar.list.scroll_to_end();
     paint_unpaged(cx, &bar, 4);
-    bar.lock_unit();
+    bar.begin_browsing();
     let extent = bar.content_size().height;
     let native_extent = bar.list.content_size().height;
+    let physical = || {
+        let top = bar.list.logical_scroll_top();
+        px((0..top.item_ix)
+            .map(|ix| if ix == 4 { 50_000. } else { 100. })
+            .sum::<f32>())
+            + top.offset_in_item
+    };
     for _ in 0..20 {
+        let before = physical();
         bar.list.scroll_by(px(-120.));
         paint_unpaged(cx, &bar, 4);
-        assert_eq!(bar.content_size().height, extent);
+        assert!((before - physical() - px(120.)).abs() < px(0.02));
     }
+    assert!(
+        bar.content_size().height > extent + px(40_000.),
+        "newly measured content must appear in the estimate instead of being compressed into the old extent"
+    );
     assert!(
         bar.list.content_size().height > native_extent * 10.,
         "must actually measure the previously unknown long reply"
@@ -450,12 +483,19 @@ fn upward_traversal_keeps_content_and_thumb_steady_across_real_page_layouts() {
     draw(cx, &bar, range);
     let mut previous = global_pixel(&bar, range);
     for step in 0..1500 {
-        let thumb = bar.offset().y;
+        let thumb = track_fraction(&bar);
         // No input and no changed source: a fresh measurement must not move it.
         draw(cx, &bar, range);
         assert!(
-            (bar.offset().y - thumb).abs() < px(0.02),
+            (track_fraction(&bar) - thumb).abs() < 0.00001,
             "idle frame {step}"
+        );
+        let top = bar.list.logical_scroll_top();
+        let before = previous;
+        let model = (
+            bar.geometry.borrow().facts_revision(),
+            bar.unit(),
+            bar.max_offset(),
         );
         bar.list.scroll_by(px(-120.));
         draw(cx, &bar, range);
@@ -469,14 +509,23 @@ fn upward_traversal_keeps_content_and_thumb_steady_across_real_page_layouts() {
             "content skipped unmeasured rows at {step}: {previous:?} -> {current:?}"
         );
         previous = current;
-        let moved_thumb = bar.offset().y;
+        let moved_thumb = track_fraction(&bar);
+        let geometry = bar.geometry.borrow();
+        let motion = geometry.position(top) - geometry.position(bar.list.logical_scroll_top());
         assert!(
-            moved_thumb >= thumb - px(0.02),
-            "thumb moved down on upward input at {step}: {thumb:?} -> {moved_thumb:?}"
+            (motion - (before - current)).abs() < px(0.1),
+            "current height facts must map native upward pixels 1:1 at {step}: {motion:?} vs {:?}",
+            before - current
         );
+        if model == (geometry.facts_revision(), bar.unit(), bar.max_offset()) {
+            assert!(
+                moved_thumb <= thumb + 0.00001,
+                "unchanged facts moved the thumb down on upward input at {step}: {thumb:?} -> {moved_thumb:?}"
+            );
+        }
+        drop(geometry);
         if bar.list.logical_scroll_top().item_ix < 8 && range.start > 0 {
             let before_pixel = global_pixel(&bar, range);
-            let before_thumb = bar.offset().y;
             bar.list.splice(0..0, 50);
             range.start -= 50;
             range.rows += 50;
@@ -491,11 +540,16 @@ fn upward_traversal_keeps_content_and_thumb_steady_across_real_page_layouts() {
                 "reading anchor at page {}",
                 range.start
             );
+            let geometry = bar.geometry.borrow();
+            let top = bar.list.logical_scroll_top();
+            let gain = geometry.position(ListOffset {
+                offset_in_item: top.offset_in_item + px(1.),
+                ..top
+            }) - geometry.position(top);
             assert!(
-                (bar.offset().y - before_thumb).abs() < px(0.02),
-                "thumb at page {}: {before_thumb:?} -> {:?}",
-                range.start,
-                bar.offset().y
+                gain >= px(0.) && gain <= px(1.05),
+                "page {} introduced a catch-up slope: {gain:?}",
+                range.start
             );
         }
         if range.start == 0 && bar.list.logical_scroll_top().item_ix == 0 {

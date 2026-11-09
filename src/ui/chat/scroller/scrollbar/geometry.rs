@@ -1,5 +1,5 @@
-//! Bounded pixel geometry. Unknown rows retain the initial height estimate;
-//! learning a height or splicing a page preserves the last painted anchor.
+//! Bounded pixel geometry. Wheel position follows the current committed pixel
+//! estimate; only an explicit seek pins a requested track position.
 use super::HistoryRange;
 use gpui_kit::{ListOffset, ListState, Pixels, px};
 
@@ -22,8 +22,8 @@ impl Mapping {
             .filter(|p| {
                 p.pixel > left.pixel
                     && p.pixel < right.pixel
-                    && p.track > left.track
-                    && p.track < right.track
+                    && p.track >= left.track
+                    && p.track <= right.track
             })
             .unwrap_or(left);
         Self { left, pivot, right }
@@ -55,7 +55,11 @@ struct Anchor {
 #[derive(Default)]
 pub(super) struct Geometry {
     range: Option<HistoryRange>,
+    /// Last committed scalar facts remain useful estimates while a renderer
+    /// remeasures. Freshness separately gates exact fractional positioning.
     heights: Vec<Option<Pixels>>,
+    stale: Vec<bool>,
+    facts_revision: u64,
     /// Prefix sums of committed heights. Offset reads never rescan the page.
     prefix: Vec<f64>,
     prefix_dirty: bool,
@@ -77,6 +81,11 @@ impl Geometry {
         [self.mapping.left, self.mapping.pivot, self.mapping.right].map(|k| [k.pixel, k.track])
     }
 
+    #[cfg(any(debug_assertions, test))]
+    pub fn facts_revision(&self) -> u64 {
+        self.facts_revision
+    }
+
     pub fn represents(&self, range: HistoryRange) -> bool {
         self.range == Some(range)
     }
@@ -88,16 +97,18 @@ impl Geometry {
         let mut sum = px(0.);
         let mut count = 0;
         for height in self.heights.iter().flatten() {
-            if *height > px(0.) && *height <= viewport {
+            if *height >= px(0.) && *height <= viewport * 2. {
                 sum += *height;
                 count += 1;
             }
         }
-        (count > 0).then(|| sum / count as f32)
+        // Zeros participate in a mixed sample, but an entirely folded page
+        // says nothing about the unseen prefix. Keep its ordinary-row prior.
+        (count > 0 && sum > px(0.)).then(|| sum / count as f32)
     }
 
     /// Count each measured reply once, rather than repeating its full height
-    /// over every unknown row. This correction freezes with browsing scale.
+    /// over every unknown row. New facts refine extent and position together.
     pub fn known_correction(&self, estimate: Pixels) -> Option<Pixels> {
         let range = self.range?;
         (self.measured_count > 0 || range.rows == 0).then(|| {
@@ -113,7 +124,8 @@ impl Geometry {
         max: Pixels,
         padding: Pixels,
         measurements: impl Iterator<Item = (usize, Pixels)>,
-    ) {
+    ) -> bool {
+        let mut facts_changed = false;
         let viewport = list.viewport_bounds().size.height;
         let mut changed = std::mem::take(&mut self.invalidated)
             || self.range != Some(range)
@@ -122,7 +134,16 @@ impl Geometry {
             || self.max != max
             || self.padding != padding;
         if self.range != Some(range) {
+            facts_changed = true;
             let old = self.range;
+            let stale = (range.start..range.start + range.rows)
+                .map(|row| {
+                    old.and_then(|old| row.checked_sub(old.start))
+                        .and_then(|ix| self.stale.get(ix))
+                        .copied()
+                        .unwrap_or(false)
+                })
+                .collect();
             self.heights = (range.start..range.start + range.rows)
                 .map(|row| {
                     old.and_then(|old| row.checked_sub(old.start))
@@ -131,6 +152,7 @@ impl Geometry {
                         .flatten()
                 })
                 .collect();
+            self.stale = stale;
             self.range = Some(range);
             self.tail = px(0.);
             self.prefix_dirty = true;
@@ -144,19 +166,33 @@ impl Geometry {
         // Item bounds deliberately hide that overdraw above logical_scroll_top.
         for (ix, height) in measurements {
             if ix == range.rows {
+                facts_changed |= self.tail != height;
                 changed |= self.tail != height;
                 self.tail = height;
-            } else if let Some(cached) = self.heights.get_mut(ix)
-                && *cached != Some(height)
-            {
-                *cached = Some(height);
-                self.prefix_dirty = true;
-                changed = true;
+            } else if let Some(cached) = self.heights.get_mut(ix) {
+                if *cached != Some(height) {
+                    #[cfg(debug_assertions)]
+                    super::scroll_trace::record(|| {
+                        serde_json::json!({"phase":"height", "row":range.start+ix,
+                            "before":cached.map(f32::from), "after":f32::from(height)})
+                    });
+                    *cached = Some(height);
+                    self.prefix_dirty = true;
+                    facts_changed = true;
+                    changed = true;
+                }
+                if let Some(stale) = self.stale.get_mut(ix) {
+                    changed |= std::mem::replace(stale, false);
+                }
             }
+        }
+        if facts_changed {
+            self.facts_revision = self.facts_revision.wrapping_add(1);
         }
         if changed {
             self.rebuild();
         }
+        changed
     }
 
     fn height(&self, ix: usize) -> Pixels {
@@ -193,20 +229,33 @@ impl Geometry {
             }
             self.prefix_dirty = false;
         }
+        let model_max = (self.estimate * range.total as f32
+            + self
+                .known_correction(self.estimate)
+                .unwrap_or(self.tail + self.padding)
+            - self.viewport)
+            .max(px(0.));
+        let scale = if model_max > px(0.) {
+            f64::from(f32::from(self.max / model_max))
+        } else {
+            0.
+        };
+        let before = f64::from(f32::from(self.estimate)) * range.start as f64;
         let mut left = Knot {
             pixel: 0.,
-            track: f64::from(f32::from(self.estimate)) * range.start as f64,
+            track: (before * scale).clamp(0., f64::from(f32::from(self.max))),
         };
         let mut right = Knot {
             pixel: self.pixel(range.start + range.rows, px(0.)).unwrap(),
-            track: f64::from(f32::from(self.estimate)) * (range.start + range.rows) as f64,
+            track: 0.,
         };
         if range.start + range.rows == range.total {
             right.pixel = (right.pixel
                 + f64::from(f32::from(self.tail + self.padding - self.viewport)))
             .max(0.);
-            right.track = f64::from(f32::from(self.max));
         }
+        right.track =
+            ((before + right.pixel) * scale).clamp(left.track, f64::from(f32::from(self.max)));
         right.track = right.track.max(left.track);
         let pivot = self.anchor.and_then(|anchor| {
             self.pixel(anchor.row, anchor.offset).map(|pixel| Knot {
@@ -216,7 +265,7 @@ impl Geometry {
         });
         if let Some(pivot) = pivot.filter(|p| p.pixel >= 0. && p.pixel <= right.pixel) {
             // Window boundaries are estimates, not actual document edges.
-            // Recompute them around the painted anchor: eviction must never
+            // Recompute them around the explicit seek: eviction must never
             // exclude it merely because tall rows moved it past an ordinal.
             let before = f64::from(f32::from(self.estimate)) * range.start as f64;
             let after = f64::from(f32::from(self.estimate))
@@ -248,8 +297,10 @@ impl Geometry {
         px(self.mapping.convert(pixel, false) as f32).clamp(px(0.), self.max)
     }
 
-    /// A completed layout establishes the reader's stable position.
-    pub fn record(&mut self, top: ListOffset, track: Pixels) {
+    /// Only a user-requested seek owns a track anchor. Reusing every painted
+    /// wheel position here would accumulate wrong unknown-row estimates and
+    /// compress the remaining track into the final few physical pixels.
+    pub fn pin(&mut self, top: ListOffset, track: Pixels) {
         let Some(range) = self.range else {
             return;
         };
@@ -258,23 +309,29 @@ impl Geometry {
             offset: top.offset_in_item,
             track,
         });
+        self.rebuild();
     }
 
-    pub fn pin(&mut self, top: ListOffset, track: Pixels) {
-        self.record(top, track);
-        self.rebuild();
+    pub fn release_pin(&mut self) {
+        if self.anchor.take().is_some() {
+            self.rebuild();
+        }
     }
 
     pub fn measured_height(&self, row: usize) -> Option<Pixels> {
         let ix = row.checked_sub(self.range?.start)?;
-        self.heights.get(ix).copied().flatten()
+        if self.stale.get(ix).copied().unwrap_or(false) {
+            None
+        } else {
+            self.heights.get(ix).copied().flatten()
+        }
     }
 
     pub fn invalidate(&mut self, rows: std::ops::Range<usize>) {
+        self.stale.resize(self.heights.len(), false);
         for ix in rows {
-            if let Some(height) = self.heights.get_mut(ix) {
-                *height = None;
-                self.prefix_dirty = true;
+            if let Some(stale) = self.stale.get_mut(ix) {
+                *stale = true;
             }
         }
         self.invalidated = true;
@@ -357,7 +414,7 @@ mod tests {
     }
 
     #[test]
-    fn heterogeneous_page_eviction_keeps_the_painted_anchor_and_remote_seeks() {
+    fn heterogeneous_page_eviction_keeps_an_explicit_seek_anchor_and_remote_seeks() {
         let mut geometry = Geometry {
             range: Some(HistoryRange {
                 start: 0,
@@ -377,9 +434,10 @@ mod tests {
             offset_in_item: px(5.),
         };
         let before = geometry.position(top);
-        geometry.record(top, before);
-        // The row ordinal and its pixel progress differ by orders of magnitude.
-        assert!(before < px(300.));
+        geometry.pin(top, before);
+        // Affine physical progress, not row 100's ordinal position. The
+        // fixture's held extent is 100000, while its current model is 181000.
+        assert!((before - px(1005. * 100000. / 181000.)).abs() < px(0.001));
         let list = ListState::new(201, gpui_kit::ListAlignment::Top, px(400.));
         geometry.refresh(
             &list,
@@ -413,7 +471,7 @@ mod tests {
     }
 
     #[test]
-    fn remeasurement_drops_only_the_invalidated_cached_heights() {
+    fn remeasurement_marks_only_invalidated_cached_heights_as_stale() {
         let mut geometry = Geometry {
             range: Some(HistoryRange {
                 start: 50,

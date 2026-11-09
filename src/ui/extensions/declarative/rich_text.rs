@@ -14,6 +14,10 @@ pub(super) struct RichText {
 }
 
 impl RichText {
+    pub(super) fn ready(&self, cx: &App) -> bool {
+        self.state.read(cx).is_ready()
+    }
+
     fn new(html: &str, cx: &mut Context<DeclarativeView>) -> Self {
         let state = cx.new(|cx| TextViewState::html(html, cx).scrollable(false));
         let changed = cx.observe(&state, |_, _, cx| cx.notify());

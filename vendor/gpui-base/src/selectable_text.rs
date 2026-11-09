@@ -6,6 +6,7 @@ use gpui::{
     Point, SharedString, StyledText, Subscription, TextStyleRefinement, Window, transparent_black,
 };
 
+use crate::text::cursor::text_cursor_bounds;
 use crate::{TextSelection, TextSelectionHandle, TextSelectionRegistration, TextSelectionRun};
 
 /// Plain text that participates in the window-scoped [`TextSelection`].
@@ -145,7 +146,7 @@ impl IntoElement for SelectableText {
 
 impl Element for SelectableText {
     type RequestLayoutState = TextSelectionHandle;
-    type PrepaintState = Hitbox;
+    type PrepaintState = smallvec::SmallVec<[Hitbox; 1]>;
 
     fn id(&self) -> Option<ElementId> {
         Some(self.id.clone())
@@ -216,7 +217,14 @@ impl Element for SelectableText {
             .with_text_bounds(vec![bounds])
             .with_rendered_element(handle, window, cx);
         handle.register(registration, window, cx);
-        hitbox
+        text_cursor_bounds(
+            self.styled_text.layout(),
+            window.text_style().text_align,
+            window.content_mask().bounds,
+        )
+        .into_iter()
+        .map(|bounds| window.insert_hitbox(bounds, HitboxBehavior::Normal))
+        .collect()
     }
 
     fn paint(
@@ -225,11 +233,13 @@ impl Element for SelectableText {
         inspector_id: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
         handle: &mut Self::RequestLayoutState,
-        hitbox: &mut Self::PrepaintState,
+        text_hitboxes: &mut Self::PrepaintState,
         window: &mut Window,
         cx: &mut App,
     ) {
-        window.set_cursor_style(CursorStyle::IBeam, hitbox);
+        for hitbox in text_hitboxes {
+            window.set_cursor_style(CursorStyle::IBeam, hitbox);
+        }
         let layout = self.styled_text.layout().clone();
         let selected_text_before = TextSelection::selected_text(window, cx);
         let projection = handle.update_runs(
@@ -265,8 +275,9 @@ mod tests {
     use std::{cell::Cell, rc::Rc};
 
     use gpui::{
-        Bounds, Context, IntoElement, Modifiers, MouseButton, ParentElement as _, Render,
-        Styled as _, TestAppContext, Window, div, point, px, size,
+        AvailableSpace, Bounds, Context, Element as _, IntoElement, Modifiers, MouseButton,
+        ParentElement as _, Render, Styled as _, TestAppContext, TextAlign, TextStyleRefinement,
+        Window, canvas, div, point, px, size,
     };
 
     use super::SelectableText;
@@ -318,6 +329,88 @@ mod tests {
         cx.update(|window, cx| {
             let _ = window.draw(cx);
             assert_eq!(TextSelection::selected_text(window, cx), "alpha beta");
+        });
+    }
+
+    struct CursorHitboxTestView;
+
+    impl Render for CursorHitboxTestView {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            canvas(
+                |_, window, cx| {
+                    for align in [TextAlign::Left, TextAlign::Center, TextAlign::Right] {
+                        window.with_text_style(
+                            Some(TextStyleRefinement {
+                                text_align: Some(align),
+                                ..Default::default()
+                            }),
+                            |window| {
+                                let text = "short\n\nxy";
+                                let mut element = SelectableText::new("cursor-probe", text);
+                                let (id, ()) =
+                                    element.styled_text.request_layout(None, None, window, cx);
+                                window.compute_layout(
+                                    id,
+                                    size(
+                                        AvailableSpace::Definite(px(240.)),
+                                        AvailableSpace::MinContent,
+                                    ),
+                                    cx,
+                                );
+                                let bounds =
+                                    Bounds::new(point(px(10.), px(20.)), size(px(240.), px(120.)));
+                                let mut handle = TextSelectionHandle::new(text, cx);
+                                let rows =
+                                    element.prepaint(None, None, bounds, &mut handle, window, cx);
+                                let line_height = element.styled_text.layout().line_height();
+                                assert_eq!(rows.len(), 2, "a blank line must not receive IBeam");
+                                assert!(rows.iter().all(|row| row.size.width > px(0.)
+                                    && row.size.width < bounds.size.width));
+                                assert_eq!(rows[1].top(), rows[0].top() + line_height * 2.);
+                                assert!(!rows.iter().any(|row| row.contains(&point(
+                                    bounds.center().x,
+                                    bounds.bottom() - px(1.)
+                                ))));
+                                if align != TextAlign::Left {
+                                    assert!(rows.iter().all(|row| row.left() > bounds.left()));
+                                }
+                                let mask = Bounds::new(
+                                    point(rows[1].left() + px(1.), rows[1].top() + px(1.)),
+                                    size(px(2.), line_height - px(2.)),
+                                );
+                                let clipped = window.with_content_mask(
+                                    Some(gpui::ContentMask { bounds: mask }),
+                                    |window| {
+                                        element.prepaint(
+                                            None,
+                                            None,
+                                            bounds,
+                                            &mut handle,
+                                            window,
+                                            cx,
+                                        )
+                                    },
+                                );
+                                assert_eq!(clipped.len(), 1);
+                                assert_eq!(clipped[0].bounds, mask);
+                            },
+                        );
+                    }
+                },
+                |_, _, _, _| {},
+            )
+            .size_full()
+        }
+    }
+
+    #[gpui::test]
+    fn selectable_text_cursor_hitboxes_follow_real_rows_not_the_selection_container(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(crate::init);
+        let (_, cx) = cx.add_window_view(|_, _| CursorHitboxTestView);
+        cx.update(|window, cx| {
+            let _ = window.draw(cx);
         });
     }
 

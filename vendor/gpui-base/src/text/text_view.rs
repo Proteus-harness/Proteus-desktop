@@ -2062,9 +2062,8 @@ mod tests {
             });
             cx.run_until_parked();
             cx.update(|window, cx| window.draw(cx).clear(cx));
-            measured.push(root.read_with(cx, |root, cx| {
-                root.text_view.read(cx).bounds().size.height
-            }));
+            measured
+                .push(root.read_with(cx, |root, cx| root.text_view.read(cx).bounds().size.height));
         }
         assert_eq!(
             measured[1] - measured[0],

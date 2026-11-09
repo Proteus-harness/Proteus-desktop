@@ -271,6 +271,16 @@ impl TextViewState {
         self.parsed_content.document.source.clone()
     }
 
+    /// Whether the initial document has finished parsing and can be mounted.
+    ///
+    /// A pending full replacement keeps its previously rendered document, so
+    /// it remains ready. This differs from clipboard freshness: old content
+    /// must not supply a copy of a replacement that has not committed yet.
+    /// An empty parsed document and a terminal parse error are ready as well.
+    pub fn is_ready(&self) -> bool {
+        self.committed_revision > 0 || self.parsed_error.is_some()
+    }
+
     /// Set whether the text is selectable, default false.
     pub fn selectable(mut self, selectable: bool) -> Self {
         self.selectable = selectable;
@@ -1766,6 +1776,7 @@ mod tests {
         let state = cx.update(|cx| cx.new(|cx| TextViewState::markdown(markdown, cx)));
 
         state.read_with(cx, |state, _| {
+            assert!(state.is_ready());
             assert_eq!(state.source().as_str(), markdown);
             assert_eq!(state.parsed_content.document.blocks.len(), 1);
         });
@@ -1789,11 +1800,13 @@ mod tests {
         });
 
         markdown_state.read_with(cx, |state, _| {
+            assert!(!state.is_ready());
             assert_eq!(state.text.as_str(), markdown.as_str());
             assert!(state.source().as_str().is_empty());
             assert!(state.parsed_content.document.blocks.is_empty());
         });
         html_state.read_with(cx, |state, _| {
+            assert!(!state.is_ready());
             assert_eq!(state.text.as_str(), html.as_str());
             assert!(state.source().as_str().is_empty());
             assert!(state.parsed_content.document.blocks.is_empty());
@@ -1802,12 +1815,46 @@ mod tests {
         cx.run_until_parked();
 
         markdown_state.read_with(cx, |state, _| {
+            assert!(state.is_ready());
             assert_eq!(state.source().as_str(), markdown.as_str());
             assert!(!state.parsed_content.document.blocks.is_empty());
         });
         html_state.read_with(cx, |state, _| {
+            assert!(state.is_ready());
             assert_eq!(state.source().as_str(), html.as_str());
             assert!(!state.parsed_content.document.blocks.is_empty());
+        });
+    }
+
+    #[gpui::test]
+    fn visual_readiness_retains_a_committed_document_during_replacement(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let empty = cx.update(|cx| cx.new(|cx| TextViewState::html("", cx)));
+        assert!(empty.read_with(cx, |state, _| state.is_ready()));
+
+        let state = cx.update(|cx| cx.new(|cx| TextViewState::html("<p>previous</p>", cx)));
+        let replacement = format!("<p>{}</p>", "new ".repeat(MAX_SYNC_FULL_REPLACE_BYTES));
+        state.update(cx, |state, cx| state.set_text(&replacement, cx));
+        state.read_with(cx, |state, _| {
+            assert!(
+                state.is_ready(),
+                "the previous visual document remains mounted"
+            );
+            assert!(
+                !state.has_current_copy_document(),
+                "copy waits for the replacement"
+            );
+            assert_eq!(state.source().as_str(), "<p>previous</p>");
+        });
+
+        // A second replacement invalidates the pending revision. Its result
+        // must not make the older full document current after it completes.
+        state.update(cx, |state, cx| state.set_text("<p>latest</p>", cx));
+        cx.run_until_parked();
+        state.read_with(cx, |state, _| {
+            assert!(state.is_ready());
+            assert!(state.has_current_copy_document());
+            assert_eq!(state.source().as_str(), "<p>latest</p>");
         });
     }
 

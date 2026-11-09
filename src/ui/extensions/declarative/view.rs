@@ -263,13 +263,42 @@ impl DeclarativeView {
     }
 
     pub(super) fn ready(&self, cx: &App) -> bool {
-        let mut unknown = false;
+        let mut pending = false;
         if let Some(root) = &self.root {
-            root.visit(&mut |node| unknown |= matches!(node, Node::Unknown));
+            root.visit(&mut |node| match node {
+                Node::Unknown => pending = true,
+                Node::RichText { id, .. } => {
+                    pending |= self
+                        .fields
+                        .rich_text
+                        .get(id)
+                        .is_none_or(|text| !text.ready(cx));
+                }
+                _ => {}
+            });
         }
-        !unknown && self.root.as_deref().is_some_and(|root| {
+        !pending && self.root.as_deref().is_some_and(|root| {
             !matches!(root, Node::Stack {children, ..} | Node::Fill {children} if children.is_empty())
         }) && self.error(cx).is_none()
+    }
+
+    /// Prepare an accepted tree before a content shell chooses its fallback.
+    /// Native HTML parsing can finish asynchronously; it must start even while
+    /// the source is still mounted. Revision guards retain controls and caches.
+    pub(super) fn prepare(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        let scale = window.scale_factor() * crate::ui::prefs::scale(cx);
+        let changed = self.preparation.for_frame(self.root_revision, scale);
+        if changed.images && self.images.rasterize(&root, scale, cx) {
+            cx.notify();
+        }
+        if changed.fields {
+            self.prune_fields(&root);
+            self.prepare_steps(&root, cx);
+            self.prepare_fields(&root, window, cx);
+        }
     }
 
     /// Last tree and keys, to seed a reopened popup until the process answers.
@@ -397,20 +426,7 @@ impl Render for DeclarativeView {
             // focus so the visible page gets the normal first-control focus.
             self.focus.focus(window, cx);
         }
-        if let Some(root) = self.root.clone() {
-            let scale = window.scale_factor() * crate::ui::prefs::scale(cx);
-            let changed = self.preparation.for_frame(self.root_revision, scale);
-            if changed.images && self.images.rasterize(&root, scale, cx) {
-                // Propagate a raster error to a content shell before its
-                // next layout; ordinary surfaces use the same error banner.
-                cx.notify();
-            }
-            if changed.fields {
-                self.prune_fields(&root);
-                self.prepare_steps(&root, cx);
-                self.prepare_fields(&root, window, cx);
-            }
-        }
+        self.prepare(window, cx);
         if !self.focus.is_focused(window) {
             self.keep_root_focus = false;
         }

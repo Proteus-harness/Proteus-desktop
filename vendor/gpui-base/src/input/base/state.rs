@@ -5202,7 +5202,7 @@ impl<M: InputModeKind> Render for InputBaseState<M> {
             .when(self.is_multi_line() && !self.disabled, |this| {
                 this.on_modifiers_changed(cx.listener(|_, _, _, cx| cx.notify()))
             })
-            .when(!self.disabled, |this| {
+            .when(!self.disabled && !self.readonly, |this| {
                 if self.is_multi_line() && window.modifiers().alt {
                     this.cursor_crosshair()
                 } else {

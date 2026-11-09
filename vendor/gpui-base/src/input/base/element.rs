@@ -18,6 +18,7 @@ use std::{ops::Range, rc::Rc};
 use crate::{
     Scrollbar,
     input::{RopeExt as _, blink_cursor::CURSOR_WIDTH, display_map::LineLayout},
+    text::cursor::{aligned_row_left, clipped_text_row},
 };
 
 use super::{
@@ -2481,6 +2482,7 @@ pub(super) struct PrepaintState {
     indent_guides_path: Option<Path<Pixels>>,
     /// The whole input, for deciding whether a long press started in it.
     hitbox: Hitbox,
+    text_cursor_hitboxes: SmallVec<[Hitbox; 1]>,
     bounds: Bounds<Pixels>,
     /// Fold icon layout data
     fold_icon_layout: FoldIconLayout,
@@ -2490,6 +2492,52 @@ pub(super) struct PrepaintState {
     /// First line of inline completion (painted after cursor on same line)
     ghost_first_line: Option<ShapedLine>,
     ghost_lines_height: Pixels,
+}
+
+fn aligned_scroll_offset(align: TextAlign, scroll_width: Pixels, viewport: Pixels) -> Pixels {
+    let overflow = (scroll_width - viewport).max(px(0.));
+    match align {
+        TextAlign::Right => overflow,
+        TextAlign::Center => overflow.half(),
+        TextAlign::Left => px(0.),
+    }
+}
+
+/// The same shaped visual rows and origins used by `LineLayout::paint` below.
+/// The broad input hitbox remains responsible for selection, not cursor style.
+fn readonly_text_cursor_bounds(
+    layout: &LastLayout,
+    bounds: Bounds<Pixels>,
+    scroll_size: Size<Pixels>,
+    mask: Bounds<Pixels>,
+    ghost_gap: Option<(usize, Pixels)>,
+) -> SmallVec<[Bounds<Pixels>; 1]> {
+    let x = bounds.left()
+        + layout.line_number_width
+        + aligned_scroll_offset(layout.text_align, scroll_size.width, bounds.size.width);
+    let mut y = bounds.top() + layout.visible_top;
+    let mut rows = SmallVec::new();
+    for (line, &buffer_line) in layout.lines.iter().zip(&layout.visible_buffer_lines) {
+        for (index, shaped) in line.wrapped_lines.iter().enumerate() {
+            let indent = if index == 0 { px(0.) } else { line.wrap_indent };
+            let left = x
+                + indent
+                + aligned_row_left(layout.text_align, layout.content_width, shaped.width);
+            if let Some(row) = clipped_text_row(
+                Bounds::new(point(left, y), size(shaped.width, layout.line_height)),
+                mask,
+            ) {
+                rows.push(row);
+            }
+            y += layout.line_height;
+        }
+        if let Some((row, height)) = ghost_gap
+            && row == buffer_line
+        {
+            y += height;
+        }
+    }
+    rows
 }
 
 impl PrepaintState {
@@ -3201,9 +3249,24 @@ impl<M: InputModeKind> Element for TextElement<M> {
                 cursor_scroll_offset,
                 state,
             )));
+        let readonly_cursor = state.readonly && !state.disabled;
         let fold_icon_layout =
             self.layout_fold_icons(original_x, &bounds, &last_layout, window, cx);
         let hitbox = window.insert_hitbox(input_bounds, HitboxBehavior::Normal);
+        let text_cursor_hitboxes = if readonly_cursor {
+            readonly_text_cursor_bounds(
+                &last_layout,
+                bounds,
+                scroll_size,
+                input_bounds.intersect(&window.content_mask().bounds),
+                current_row.map(|row| (row, ghost_lines_height)),
+            )
+            .into_iter()
+            .map(|bounds| window.insert_hitbox(bounds, HitboxBehavior::Normal))
+            .collect()
+        } else {
+            SmallVec::new()
+        };
         self.request_reveal(
             input_bounds,
             &cursor_infos,
@@ -3217,6 +3280,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
         PrepaintState {
             token_elements,
             hitbox,
+            text_cursor_hitboxes,
             bounds,
             last_layout,
             scroll_size,
@@ -3311,15 +3375,11 @@ impl<M: InputModeKind> Element for TextElement<M> {
         }
 
         // Keep scrollbar offset always be positive，Start from the left position
-        let scroll_offset = if text_align == TextAlign::Right {
-            (prepaint.scroll_size.width - prepaint.bounds.size.width).max(px(0.))
-        } else if text_align == TextAlign::Center {
-            (prepaint.scroll_size.width - prepaint.bounds.size.width)
-                .half()
-                .max(px(0.))
-        } else {
-            px(0.)
-        };
+        let scroll_offset = aligned_scroll_offset(
+            text_align,
+            prepaint.scroll_size.width,
+            prepaint.bounds.size.width,
+        );
 
         // Paint glyph backgrounds
         //
@@ -3565,6 +3625,9 @@ impl<M: InputModeKind> Element for TextElement<M> {
             }
         });
 
+        for hitbox in &prepaint.text_cursor_hitboxes {
+            window.set_cursor_style(gpui::CursorStyle::IBeam, hitbox);
+        }
         if let Some(hitbox) = prepaint.hover_definition_hitbox.as_ref()
             && !window.modifiers().alt
         {
@@ -3961,6 +4024,95 @@ mod tests {
             DecorationHarness(state)
         });
         (editor.unwrap(), window)
+    }
+
+    #[gpui::test]
+    fn readonly_text_cursor_bounds_exclude_blank_rows_gutter_and_trailing_area(
+        cx: &mut TestAppContext,
+    ) {
+        let (editor, window) = embedded_code_editor(cx, "ab cd\n\nxy", false);
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            let state = editor.read(cx);
+            let layout = state.last_layout.as_ref().unwrap();
+            let bounds = state.last_bounds.unwrap();
+            let rows = readonly_text_cursor_bounds(
+                layout,
+                bounds,
+                state.scroll_size,
+                state.input_bounds,
+                None,
+            );
+            assert_eq!(rows.len(), 2);
+            assert!(rows[0].size.width > rows[1].size.width);
+            assert_eq!(rows[1].top() - rows[0].top(), layout.line_height * 2.);
+            let space = rows[0].left()
+                + layout.lines[0].wrapped_lines[0].x_for_index(2)
+                + layout.space_width / 2.;
+            assert!(
+                rows[0].contains(&point(space, rows[0].center().y)),
+                "internal spaces belong to the shaped row"
+            );
+            assert!(rows.iter().all(|row| {
+                !row.contains(&point(state.input_bounds.right() - px(1.), row.center().y))
+            }));
+            let gutter = bounds.left() + layout.line_number_width / 2.;
+            assert!(
+                rows.iter()
+                    .all(|row| !row.contains(&point(gutter, row.center().y)))
+            );
+            assert!(rows.iter().all(|row| !row.contains(&point(
+                rows[0].left() + px(1.),
+                rows[0].top() + layout.line_height * 1.5
+            ))));
+        });
+    }
+
+    #[gpui::test]
+    fn readonly_text_cursor_bounds_follow_actual_wrapped_selection_rows_and_clip(
+        cx: &mut TestAppContext,
+    ) {
+        let text = "    héllo world héllo world héllo world héllo world héllo world héllo world";
+        let (editor, window) = embedded_code_editor(cx, text, true);
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+        cx.update(|window, cx| {
+            editor.update(cx, |state, cx| {
+                state.set_wrapping_indent(crate::input::WrappingIndent::Same, window, cx)
+            });
+            window.draw(cx).clear(cx);
+            let state = editor.read(cx);
+            let layout = state.last_layout.as_ref().unwrap();
+            assert!(layout.lines[0].wrapped_lines.len() > 1);
+            assert!(layout.lines[0].wrap_indent > px(0.));
+            let bounds = state.last_bounds.unwrap();
+            let origin = bounds.origin + point(layout.line_number_width, px(0.));
+            let corners =
+                TextElement::<EditorMode>::layout_range_corners(&(0..text.len()), layout).unwrap();
+            let mask = Bounds::new(
+                state.input_bounds.origin + point(px(15.), layout.line_height / 2.),
+                size(
+                    state.input_bounds.size.width - px(30.),
+                    layout.line_height * 1.5,
+                ),
+            );
+            let expected: Vec<_> = corners
+                .into_iter()
+                .filter_map(|row| {
+                    clipped_text_row(
+                        Bounds::from_corners(origin + row.top_left, origin + row.bottom_right),
+                        mask,
+                    )
+                })
+                .collect();
+            let rows = readonly_text_cursor_bounds(layout, bounds, state.scroll_size, mask, None);
+            assert!(!rows.is_empty());
+            assert_eq!(
+                rows.as_slice(),
+                expected.as_slice(),
+                "cursor targets must follow the editor's existing real shaped selection geometry"
+            );
+        });
     }
 
     #[gpui::test]

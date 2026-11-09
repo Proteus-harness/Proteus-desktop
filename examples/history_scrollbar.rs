@@ -180,7 +180,7 @@ impl Render for Fixture {
                     .on_scroll(move |event, window, _| {
                         let delta = event.delta.pixel_delta(window.line_height());
                         if delta.y != px(0.) && delta.x.abs() <= delta.y.abs() {
-                            input_scrollbar.lock_unit();
+                            input_scrollbar.begin_browsing();
                         }
                     })
                     .on_prepaint(move |bounds, _, _| {
@@ -245,7 +245,7 @@ fn main() {
                         cx.background_executor().timer(Duration::from_millis(100)).await;
                         if this.read_with(cx, |this, _| this.list.viewport_bounds().size.height > px(0.)).unwrap() { break }
                     }
-                    this.read_with(cx, |this, _| this.scrollbar.lock_unit()).unwrap();
+                    this.read_with(cx, |this, _| this.scrollbar.begin_browsing()).unwrap();
                     for _ in 0..7 {
                         this.update(cx, |this, cx| {
                             this.list.scroll_to(ListOffset { item_ix: 3, offset_in_item: px(0.) });

@@ -120,7 +120,7 @@ fn drag_addresses_the_whole_history_and_holds_position_until_the_page_arrives() 
 }
 
 #[test]
-fn drag_freezes_the_extent_even_when_live_messages_arrive() {
+fn drag_keeps_its_extent_through_release_until_ordinary_browsing() {
     let bar = fixture();
     bar.start_drag();
     let extent = bar.content_size();
@@ -134,6 +134,8 @@ fn drag_freezes_the_extent_even_when_live_messages_arrive() {
     );
     assert_eq!(bar.content_size(), extent);
     bar.end_drag();
+    assert_eq!(bar.content_size(), extent);
+    bar.begin_browsing();
     assert_eq!(bar.content_size().height, extent.height + px(100.));
 }
 
@@ -169,6 +171,12 @@ fn failed_remote_seek_releases_the_requested_position() {
     bar.set_range(bar.state.get().range, false);
     assert!(bar.state.get().displayed.is_none());
     assert!(!bar.state.get().waiting);
+    assert!(bar.state.get().seek_height.is_none());
+    let extent = bar.content_size().height;
+    let mut range = bar.state.get().range.unwrap();
+    range.total += 1;
+    bar.set_range(Some(range), false);
+    assert_eq!(bar.content_size().height, extent + px(100.));
 }
 
 #[test]
@@ -212,4 +220,5 @@ fn wheel_input_cancels_a_pending_remote_position() {
     assert!(bar.take_target().is_none());
     assert!(!bar.state.get().waiting);
     assert!(bar.state.get().displayed.is_none());
+    assert!(bar.state.get().seek_height.is_none());
 }

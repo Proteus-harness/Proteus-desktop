@@ -79,7 +79,7 @@ pub(super) fn start(report: PathBuf, cx: &mut Context<Fixture>) {
         .unwrap();
         let mut wheel = vec![settled(&this, cx).await];
         // Direct ListState steps below stand in for real vertical input.
-        this.read_with(cx, |this, _| this.scrollbar.lock_unit())
+        this.read_with(cx, |this, _| this.scrollbar.begin_browsing())
             .unwrap();
         for _ in 0..384 {
             this.update(cx, |this, cx| {
@@ -152,10 +152,23 @@ pub(super) fn start(report: PathBuf, cx: &mut Context<Fixture>) {
             .unwrap();
         let after_remeasure = settled(&this, cx).await;
         let wheel_virtual = steps(&wheel, "offset");
+        // Newly measured rows can refine the estimate of unloaded history.
+        // Compare wheel speed only between samples with the same extent;
+        // native displacement remains exact through calibration as well.
+        let steady_wheel_virtual: Vec<_> = wheel
+            .windows(2)
+            .filter(|pair| {
+                (pair[1]["content_height"].as_f64().unwrap()
+                    - pair[0]["content_height"].as_f64().unwrap())
+                .abs()
+                    < 0.01
+            })
+            .map(|pair| pair[1]["offset"].as_f64().unwrap() - pair[0]["offset"].as_f64().unwrap())
+            .collect();
         let wheel_physical = steps(&wheel, "physical_offset");
         let drag_virtual = steps(&drag, "offset");
         let drag_physical = steps(&drag, "physical_offset");
-        let height = wheel[0]["content_height"].as_f64().unwrap();
+        let height = drag[0]["content_height"].as_f64().unwrap();
         let mut failures = Vec::new();
         if before_remeasure["global_anchor"].as_u64().unwrap() != target_row as u64
             || after_remeasure["global_anchor"].as_u64().unwrap() != target_row as u64
@@ -168,8 +181,8 @@ pub(super) fn start(report: PathBuf, cx: &mut Context<Fixture>) {
         if wheel_physical.iter().any(|step| (step - 8.).abs() > 0.05) {
             failures.push("native wheel displacement differs from 8 px");
         }
-        if !uniform(&wheel_virtual) {
-            failures.push("thumb speed changes across row heights during wheel motion");
+        if steady_wheel_virtual.len() < 200 || !uniform(&steady_wheel_virtual) {
+            failures.push("thumb speed changes while the measured extent is unchanged");
         }
         if !uniform(&drag_physical) {
             failures.push("content stalls or changes speed across row heights during thumb drag");
@@ -177,13 +190,12 @@ pub(super) fn start(report: PathBuf, cx: &mut Context<Fixture>) {
         if drag_virtual.iter().any(|step| (step - 16.).abs() > 0.5) {
             failures.push("thumb does not follow requested drag position");
         }
-        if wheel
+        if drag
             .iter()
-            .chain(&drag)
-            .chain(&endpoints)
+            .chain(std::iter::once(&released))
             .any(|sample| (sample["content_height"].as_f64().unwrap() - height).abs() > 0.1)
         {
-            failures.push("thumb extent changes during the gesture or distant seek");
+            failures.push("thumb extent changes during drag or after release");
         }
         if (released["offset"].as_f64().unwrap() - drag.last().unwrap()["offset"].as_f64().unwrap())
             .abs()
@@ -195,7 +207,8 @@ pub(super) fn start(report: PathBuf, cx: &mut Context<Fixture>) {
             failures.push("top of full history is unreachable");
         }
         let bottom = &endpoints[1];
-        let max = height - bottom["viewport_height"].as_f64().unwrap();
+        let max = bottom["content_height"].as_f64().unwrap()
+            - bottom["viewport_height"].as_f64().unwrap();
         if (bottom["offset"].as_f64().unwrap() - max).abs() > 0.5 {
             failures.push("bottom of full history is unreachable");
         }
@@ -210,6 +223,8 @@ pub(super) fn start(report: PathBuf, cx: &mut Context<Fixture>) {
                 "failures": failures,
                 "metrics": {
                     "wheel_virtual": summary(&wheel_virtual),
+                    "steady_wheel_virtual": summary(&steady_wheel_virtual),
+                    "wheel_calibration_frames": wheel_virtual.len() - steady_wheel_virtual.len(),
                     "wheel_physical": summary(&wheel_physical),
                     "drag_virtual": summary(&drag_virtual),
                     "drag_physical": summary(&drag_physical),

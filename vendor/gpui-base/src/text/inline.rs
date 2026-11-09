@@ -28,6 +28,7 @@ use crate::{
     async_util::Sender,
     input::Selection,
     text::TextViewMultiClickKind,
+    text::cursor::{aligned_row_left, text_cursor_bounds},
     text::node::LinkMark,
     text::range_highlight::RevealAt,
     text::selection::word_range_at,
@@ -1487,45 +1488,6 @@ impl Element for Inline {
     }
 }
 
-/// Actual painted row extents for cursor feedback. Unlike selection geometry,
-/// these boxes never extend through a newline or into the blank row margin.
-/// Wrapped glyph boundaries are already shaped by GPUI, so this is O(rows),
-/// with no source clone or second shaping pass.
-fn text_cursor_bounds(
-    text_layout: &TextLayout,
-    align: TextAlign,
-    mask: Bounds<Pixels>,
-) -> smallvec::SmallVec<[Bounds<Pixels>; 1]> {
-    let bounds = text_layout.bounds();
-    let line_height = text_layout.line_height();
-    let mut result = smallvec::SmallVec::new();
-    let mut y = bounds.top();
-    for line in text_layout.line_layouts() {
-        let layout = &line.unwrapped_layout;
-        let mut start_x = Pixels::ZERO;
-        let row_ends = line
-            .wrap_boundaries
-            .iter()
-            .map(|boundary| {
-                layout.runs[boundary.run_ix].glyphs[boundary.glyph_ix]
-                    .position
-                    .x
-            })
-            .chain([layout.width]);
-        for end_x in row_ends {
-            let width = end_x - start_x;
-            let left = bounds.left() + aligned_row_left(align, bounds.size.width, width);
-            let row = Bounds::new(point(left, y), size(width, line_height)).intersect(&mask);
-            if row.size.width > Pixels::ZERO && row.size.height > Pixels::ZERO {
-                result.push(row);
-            }
-            y += line_height;
-            start_x = end_x;
-        }
-    }
-    result
-}
-
 /// Where one glyph of laid-out text paints: its row, and its horizontal
 /// extent past the text's origin, alignment applied. `text` is the byte range
 /// of the text it draws.
@@ -1616,14 +1578,6 @@ fn glyph_boxes(text_layout: &TextLayout, align: TextAlign, align_width: Pixels) 
         line_start = line_end + 1;
     }
     boxes
-}
-
-fn aligned_row_left(align: TextAlign, align_width: Pixels, width: Pixels) -> Pixels {
-    match align {
-        TextAlign::Left => Pixels::ZERO,
-        TextAlign::Center => (align_width - width) / 2.,
-        TextAlign::Right => align_width - width,
-    }
 }
 
 /// The boxes behind the text of `range`, as a row and the horizontal extent

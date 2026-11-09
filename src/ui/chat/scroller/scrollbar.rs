@@ -42,15 +42,12 @@ struct State {
     range: Option<HistoryRange>,
     unit: Option<Pixels>,
     known_correction: Option<Pixels>,
-    unit_locked: bool,
-    /// Paging fixes its sampling scale before user input, but renderer heights
-    /// may still resolve. Only browsing freezes the measured extent correction.
-    extent_locked: bool,
     pending: Option<ScrollTarget>,
     displayed: Option<(ScrollTarget, Pixels)>,
     local: Option<ScrollTarget>,
     waiting: bool,
     drag_height: Option<Pixels>,
+    seek_height: Option<Pixels>,
 }
 
 #[derive(Clone)]
@@ -96,9 +93,6 @@ impl HistoryScrollbar {
             self.measurements.borrow_mut().set_range(range);
         }
         state.range = range;
-        if range.is_some_and(|range| range.start > 0 || range.rows < range.total) {
-            state.unit_locked = true;
-        }
         if range.is_none() {
             state = State::default();
             *self.geometry.borrow_mut() = Geometry::default();
@@ -113,6 +107,8 @@ impl HistoryScrollbar {
                 })
             }) {
                 state.displayed = None;
+                state.seek_height = None;
+                self.geometry.borrow_mut().release_pin();
             }
         }
         self.state.set(state);
@@ -134,6 +130,7 @@ impl HistoryScrollbar {
         state.local = None;
         state.waiting = false;
         self.state.set(state);
+        self.begin_browsing();
         pending
     }
 
@@ -169,18 +166,29 @@ impl HistoryScrollbar {
         .into_any_element()
     }
 
-    pub(super) fn lock_unit(&self) {
-        let native_scrollable = self.list.max_offset_for_scrollbar().y > px(0.);
-        let history_scrollable = self.max_offset() > px(0.);
+    /// A vertical reading gesture takes over from an explicit seek. Height
+    /// facts may refine the scrollbar estimate; the content anchor stays native.
+    pub(super) fn begin_browsing(&self) {
         let mut state = self.state.get();
-        state.unit_locked |= native_scrollable;
-        state.extent_locked |= history_scrollable;
-        self.state.set(state);
+        let released = state.seek_height.take().is_some();
+        if released {
+            // Explicit seeks can hold an old display extent. Recalibrate once
+            // when ordinary reading takes over, using current committed facts.
+            state.unit = None;
+            self.state.set(state);
+            let unit = self.unit();
+            let mut state = self.state.get();
+            state.known_correction = self.geometry.borrow().known_correction(unit);
+            self.state.set(state);
+        }
+        self.geometry.borrow_mut().release_pin();
+        if released && let Some(range) = self.state.get().range {
+            self.refresh_geometry(range);
+        }
     }
 
     /// Scroll resident data immediately; an unloaded target goes to the owner.
     pub fn scroll_to(&self, target: ScrollTarget) -> bool {
-        self.lock_unit();
         let Some(range) = self.state.get().range else {
             return false;
         };
@@ -267,8 +275,8 @@ impl HistoryScrollbar {
         true
     }
 
-    /// Page loading keeps its initial scale. A fresh whole chat calibrates
-    /// until browsing begins; did_layout clears its provisional sample.
+    /// Recomputed only after committed layout batches. Include folded rows in
+    /// the resident sample: ignoring their zero heights biases raw history high.
     fn unit(&self) -> Pixels {
         if let Some(unit) = self.state.get().unit {
             return unit;
@@ -276,6 +284,13 @@ impl HistoryScrollbar {
         let viewport = self.list.viewport_bounds();
         let start = self.list.logical_scroll_top().item_ix;
         let rows = self.state.get().range.map_or(0, |range| range.rows);
+        if let Some(unit) = self.geometry.borrow().ordinary_height(viewport.size.height) {
+            let unit = unit.max(px(1.));
+            let mut state = self.state.get();
+            state.unit = Some(unit);
+            self.state.set(state);
+            return unit;
+        }
         let mut sample_count = 0;
         let mut sample_height = px(0.);
         for index in start..rows {
@@ -285,7 +300,7 @@ impl HistoryScrollbar {
             if bounds.top() >= viewport.bottom() {
                 break;
             }
-            if bounds.size.height > px(0.) {
+            if bounds.size.height >= px(0.) {
                 // A tall clipped reply is much more likely to intersect the
                 // viewport than a short row. Extrapolating its full height to
                 // every unknown row leaves almost the entire track to cover
@@ -304,13 +319,10 @@ impl HistoryScrollbar {
                 }
             }
         }
-        let unit = if sample_count > 0 {
+        let unit = if sample_count > 0 && sample_height > px(0.) {
             sample_height / sample_count as f32
         } else {
-            self.geometry
-                .borrow()
-                .ordinary_height(viewport.size.height)
-                .unwrap_or(UNKNOWN_ROW_HEIGHT)
+            UNKNOWN_ROW_HEIGHT
         }
         .max(px(1.));
         if viewport.size.height > px(0.) {
@@ -323,7 +335,7 @@ impl HistoryScrollbar {
 
     fn height(&self) -> Pixels {
         let state = self.state.get();
-        state.drag_height.unwrap_or_else(|| {
+        state.drag_height.or(state.seek_height).unwrap_or_else(|| {
             let base = self.unit() * state.range.map_or(0, |r| r.total) as f32;
             let height = state.known_correction.map_or_else(
                 // The first layout has not committed its measurements yet.
@@ -374,7 +386,7 @@ impl HistoryScrollbar {
         // heights combined with the mapping of a partially completed layout.
         let unit = self.unit();
         let max = self.max_offset();
-        self.geometry.borrow_mut().refresh(
+        let changed = self.geometry.borrow_mut().refresh(
             &self.list,
             range,
             unit,
@@ -382,42 +394,30 @@ impl HistoryScrollbar {
             self.padding,
             self.measurements.borrow_mut().drain(),
         );
-        if !state.extent_locked || self.state.get().known_correction.is_none() {
-            if !state.unit_locked {
-                // A fresh chat may still be growing its first reply. Resolve
-                // the provisional sample after this frame's facts committed.
-                let mut state = self.state.get();
-                state.unit = None;
-                self.state.set(state);
-            }
-            let unit = self.unit();
-            if let Some(correction) = self.geometry.borrow().known_correction(unit) {
-                let mut state = self.state.get();
-                state.known_correction = Some(correction);
-                self.state.set(state);
-            }
-            self.refresh_geometry(range);
+        if changed && state.drag_height.is_none() && state.seek_height.is_none() {
+            let mut state = self.state.get();
+            state.unit = None;
+            self.state.set(state);
         }
+        let unit = self.unit();
+        let mut calibrated = self.state.get();
+        calibrated.known_correction = self.geometry.borrow().known_correction(unit);
+        self.state.set(calibrated);
+        self.refresh_geometry(range);
         // Remote/fractional seeks pin their requested position in settle.
         if state.displayed.is_some() || state.waiting || state.local.is_some() {
             return;
         }
-        let top = self.list.logical_scroll_top();
-        if self.at_bottom(range) {
-            self.geometry.borrow_mut().pin(top, self.max_offset());
-        } else {
-            let mut geometry = self.geometry.borrow_mut();
-            let track = geometry.position(top);
-            geometry.record(top, track);
-        }
         #[cfg(debug_assertions)]
         scroll_trace::record(|| {
+            let top = self.list.logical_scroll_top();
             let geometry = self.geometry.borrow();
             serde_json::json!({"phase":"layout", "range":[range.start,range.rows,range.total],
                 "row":range.start+top.item_ix,"row_offset":f32::from(top.offset_in_item),
                 "native_y":f32::from(self.list.scroll_px_offset_for_scrollbar().y),
                 "unit":self.state.get().unit.map(f32::from),"max":f32::from(self.max_offset()),
-                "track":f32::from(geometry.position(top)),"map":geometry.diagnostic_mapping()})
+                "track":f32::from(geometry.position(top)),"map":geometry.diagnostic_mapping(),
+                "facts_revision":geometry.facts_revision()})
         });
     }
 }
@@ -460,11 +460,11 @@ impl ScrollbarHandle for HistoryScrollbar {
     }
 
     fn set_offset(&self, offset: Point<Pixels>) {
-        self.lock_unit();
         let Some(range) = self.state.get().range else {
             return self.list.set_offset(offset);
         };
-        let max = self.max_offset();
+        let held_height = self.height();
+        let max = (held_height - self.list.viewport_bounds().size.height).max(px(0.));
         let offset = (-offset.y).clamp(px(0.), max);
         self.refresh_geometry(range);
         let ordinal = f32::from(offset / self.unit());
@@ -487,23 +487,36 @@ impl ScrollbarHandle for HistoryScrollbar {
             }
         };
         let mut state = self.state.get();
+        state.seek_height = Some(held_height);
         state.pending = Some(target);
         state.displayed = Some((target, offset));
         self.state.set(state);
     }
 
     fn start_drag(&self) {
-        self.lock_unit();
+        // A fresh gesture starts from the currently displayed extent/position,
+        // including an idle explicit seek whose real rows have since resized.
         let height = self.height();
+        let position = -self.offset().y;
+        self.begin_browsing();
         let mut state = self.state.get();
         state.drag_height = Some(height);
+        state.seek_height = Some(height);
         self.state.set(state);
+        if let Some(range) = state.range {
+            self.refresh_geometry(range);
+            self.geometry
+                .borrow_mut()
+                .pin(self.list.logical_scroll_top(), position);
+        }
         self.list.scrollbar_drag_started();
     }
 
     fn end_drag(&self) {
         let mut state = self.state.get();
         state.drag_height = None;
+        // Keep a seek's display extent while idle: releasing the pointer must
+        // not move its visual fraction or the content. New browsing frees it.
         if !state.waiting && state.local.is_none() && state.pending.is_none() {
             state.displayed = None;
         }
@@ -523,3 +536,7 @@ mod layout_tests;
 #[cfg(test)]
 #[path = "scrollbar/calibration_tests.rs"]
 mod calibration_tests;
+
+#[cfg(test)]
+#[path = "scrollbar/density_tests.rs"]
+mod density_tests;

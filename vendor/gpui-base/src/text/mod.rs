@@ -1,3 +1,4 @@
+pub(crate) mod cursor;
 mod document;
 pub mod editor_host;
 mod editor_seam;

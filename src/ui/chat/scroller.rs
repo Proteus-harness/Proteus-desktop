@@ -143,7 +143,7 @@ impl ChatScroller {
         scroll_trace::record(
             || serde_json::json!({"phase":"wheel", "delta":f32::from(delta.y), "top":format!("{:?}",self.list.logical_scroll_top())}),
         );
-        self.scrollbar.lock_unit();
+        self.scrollbar.begin_browsing();
         self.wheel.push(delta.y, &self.list);
         // An explicit gesture takes over from a disclosure's stationary
         // anchor. Scrolling down ends at content, not retained empty room.
@@ -295,6 +295,9 @@ impl ChatScroller {
     /// Bring the latest row into view; follows again when autoscroll is on.
     pub(super) fn scroll_to_end(&mut self, cx: &mut Context<Self>) {
         self.stop_middle(cx);
+        if self.scrollbar.cancel_target() {
+            cx.emit(HistorySeekCanceled);
+        }
         self.wheel.clear(&self.list);
         self.hold = None;
         self.clear_tail();

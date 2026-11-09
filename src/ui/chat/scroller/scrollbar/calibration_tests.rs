@@ -1,5 +1,5 @@
 //! Calibration with real list measurements and heterogeneous visible samples.
-use super::layout_tests::{paint_short_prefix, paint_unpaged};
+use super::layout_tests::{paint_short_prefix, paint_unpaged, track_fraction};
 use super::*;
 use ::gpui::{TestAppContext, VisualTestContext};
 
@@ -80,26 +80,42 @@ fn an_ordinary_clipped_row_keeps_wheel_and_drag_uniform_after_the_first_window_r
         offset_in_item: px(0.),
     });
     paint(cx, px(856.));
-    let mut previous = -bar.offset().y;
-    let mut min = px(f32::INFINITY);
-    let mut max = px(0.);
-    for _ in 0..384 {
-        bar.list.scroll_by(px(8.));
-        paint(cx, px(856.));
-        let current = -bar.offset().y;
-        min = min.min(current - previous);
-        max = max.max(current - previous);
-        previous = current;
-    }
-    assert!(
-        min > px(0.) && max <= min * 1.25 + px(0.25),
-        "ordinary partially visible replies must not bias toward short rows: {min:?}..{max:?}"
-    );
-
     let physical = || {
         let top = bar.list.logical_scroll_top();
         px((0..top.item_ix).map(mixed_height).sum::<f32>()) + top.offset_in_item
     };
+    let mut stable_frames = 0;
+    for _ in 0..384 {
+        let before = bar.list.logical_scroll_top();
+        let pixel = physical();
+        let phi = track_fraction(&bar);
+        let model = (
+            bar.geometry.borrow().facts_revision(),
+            bar.unit(),
+            bar.max_offset(),
+        );
+        bar.list.scroll_by(px(8.));
+        paint(cx, px(856.));
+        assert!((physical() - pixel - px(8.)).abs() < px(0.1));
+        let after = bar.list.logical_scroll_top();
+        let geometry = bar.geometry.borrow();
+        let motion = geometry.position(after) - geometry.position(before);
+        assert!(
+            (motion - px(8.)).abs() < px(0.25),
+            "current height facts must map wheel pixels uniformly: {motion:?}"
+        );
+        if model == (geometry.facts_revision(), bar.unit(), bar.max_offset()) {
+            assert!(
+                track_fraction(&bar) > phi,
+                "unchanged facts cannot reverse downward thumb movement"
+            );
+            stable_frames += 1;
+        }
+    }
+    assert!(
+        stable_frames > 200,
+        "exercise steady movement as well as newly learned row heights"
+    );
     let drag_start = -bar.offset().y;
     bar.start_drag();
     let mut previous = physical();
@@ -148,17 +164,18 @@ fn a_clipped_tall_tail_does_not_leave_the_whole_thumb_motion_until_the_first_pag
     paint(cx, range);
     assert_eq!(range.start + bar.list.logical_scroll_top().item_ix, 59);
     assert!(bar.list.logical_scroll_top().offset_in_item > px(2000.));
-    bar.lock_unit();
-    let max = -bar.offset().y;
+    bar.begin_browsing();
+    let max = track_fraction(&bar);
     let mut previous = max;
-    let mut largest_step = px(0.);
+    let mut largest_step = 0f32;
     for _ in 0..12 {
         // Equal wheel bursts, laid out in bounded animation steps.
         for _ in 0..6 {
             bar.list.scroll_by(px(-120.));
             paint(cx, range);
             if range.start > 0 && bar.list.logical_scroll_top().item_ix < 8 {
-                let before = bar.offset().y;
+                let before = bar.list.logical_scroll_top();
+                let row = range.start + before.item_ix;
                 bar.list.splice(0..0, 12);
                 range = HistoryRange {
                     start: 0,
@@ -167,19 +184,24 @@ fn a_clipped_tall_tail_does_not_leave_the_whole_thumb_motion_until_the_first_pag
                 };
                 bar.set_range(Some(range), false);
                 paint(cx, range);
-                assert!((bar.offset().y - before).abs() < px(0.02));
+                let after = bar.list.logical_scroll_top();
+                assert_eq!(range.start + after.item_ix, row);
+                assert!((after.offset_in_item - before.offset_in_item).abs() < px(0.02));
             }
         }
-        let current = -bar.offset().y;
-        assert!(current <= previous + px(0.02));
+        let current = track_fraction(&bar);
+        assert!(
+            current <= previous + 0.00001,
+            "upward burst moved the thumb down: {previous} -> {current}"
+        );
         largest_step = largest_step.max(previous - current);
         previous = current;
-        if current == px(0.) {
+        if current == 0. {
             break;
         }
     }
     assert_eq!(range.start, 0);
-    assert_eq!(previous, px(0.), "must reach the actual beginning");
+    assert_eq!(previous, 0., "must reach the actual beginning");
     assert!(
         largest_step < max * 0.3,
         "one equal burst consumed most of the track: {largest_step:?} / {max:?}"
@@ -206,7 +228,7 @@ fn learning_short_prefix_above_a_tall_tail_does_not_defer_upward_thumb_motion() 
     );
     bar.list.scroll_to_end();
     paint_unpaged(cx, &bar, long_row);
-    bar.lock_unit();
+    bar.begin_browsing();
     let physical = || {
         let top = bar.list.logical_scroll_top();
         px((0..top.item_ix)
@@ -272,7 +294,7 @@ fn a_lone_clipped_reply_keeps_its_real_height_without_biasing_unknown_rows() {
         bar.unit() <= bar.list.viewport_bounds().size.height,
         "a censored lone reply must not become the unknown-row mean"
     );
-    bar.lock_unit();
+    bar.begin_browsing();
     let mut previous = -bar.offset().y;
     for _ in 0..3 {
         bar.list.scroll_by(px(-120.));
@@ -316,7 +338,7 @@ fn a_censored_viewport_uses_ordinary_cached_rows_before_the_default_prior() {
 }
 
 #[::core::prelude::v1::test]
-fn paged_async_measurements_calibrate_extent_until_browsing_begins() {
+fn paged_async_measurements_keep_refining_extent_after_browsing_begins() {
     let mut app = TestAppContext::single();
     let cx = app.add_empty_window();
     let bar = HistoryScrollbar::new(ListState::new(8, ListAlignment::Top, px(400.)), px(0.));
@@ -341,15 +363,22 @@ fn paged_async_measurements_calibrate_extent_until_browsing_begins() {
         resolved_extent > placeholder_extent + px(40_000.),
         "paged scale must not freeze a renderer's initial placeholder height"
     );
-    bar.lock_unit();
+    bar.begin_browsing();
+    bar.list.scroll_by(px(-120.));
+    paint_short_prefix(cx, &bar, heights, px(700.));
+    let before = bar.list.logical_scroll_top();
     heights[6] = 60_000.;
     bar.invalidate(6..7);
     bar.list.remeasure_items(6..7);
     paint_short_prefix(cx, &bar, heights, px(700.));
     assert_eq!(
-        bar.content_size().height,
-        resolved_extent,
-        "actual browsing freezes the estimated extent until an explicit source replacement"
+        bar.list.logical_scroll_top(),
+        before,
+        "renderer resolution must preserve native reading position"
+    );
+    assert!(
+        (bar.content_size().height - resolved_extent - px(10_000.)).abs() < px(0.1),
+        "new height facts refine the extent even after wheel input"
     );
 }
 

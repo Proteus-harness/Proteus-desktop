@@ -280,10 +280,14 @@ impl ContentView {
 mod tests;
 
 impl Render for ContentView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let enabled = self
             .lifetime
             .allowed(crate::ui::extensions::is_enabled(self.extension, cx));
+        if enabled && !self.show_source {
+            self.rendered
+                .update(cx, |view, cx| view.prepare(window, cx));
+        }
         let view = self.rendered.read(cx);
         let ready = enabled && view.ready(cx);
         let error = view.error(cx);
@@ -327,7 +331,9 @@ impl Render for ContentView {
             .xsmall()
             .quiet(cx)
             .selected(self.show_source)
-            .disabled(!ready)
+            // Leaving source is always possible: the next frame can start
+            // preparing a newly accepted tree while keeping source mounted.
+            .disabled(!ready && !self.show_source)
             .hint(
                 if self.show_source {
                     "Показать визуализацию"

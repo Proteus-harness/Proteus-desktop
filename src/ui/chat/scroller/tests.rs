@@ -1,6 +1,6 @@
 use super::{ChatScroller, FooterState, HistoryRange, Hold};
 use gpui_kit::component::scroll::ScrollbarHandle as _;
-use gpui_kit::{ListOffset, point, px, size};
+use gpui_kit::{AppContext as _, ListOffset, point, px, size};
 use std::time::{Duration, Instant};
 
 use super::jump::JumpStatus;
@@ -60,6 +60,36 @@ fn wheel_after_a_seek_cancels_positioning_but_horizontal_child_input_does_not() 
     assert_eq!(state.user_scroll(point(px(0.), px(3.))), Some(false));
     state.step(Instant::now());
     assert!(!state.following);
+}
+
+#[test]
+fn explicit_latest_cancels_pending_seek_and_releases_its_held_extent() {
+    let mut app = ::gpui::TestAppContext::single();
+    let cx = app.add_empty_window();
+    let scroller = cx.update(|_, cx| cx.new(|_| folded_tail(true)));
+    cx.update(|_, cx| {
+        scroller.update(cx, |state, cx| {
+            state.scrollbar.set_offset(point(px(0.), px(-30.)));
+            let target = state.scrollbar.take_target().unwrap();
+            assert!(!state.scrollbar.scroll_to(target));
+            let extent = state.scrollbar.content_size().height;
+            state.scroll_to_end(cx);
+            assert!(state.following);
+            assert!(
+                !state.scrollbar.cancel_target(),
+                "Latest already cancelled the pending target"
+            );
+            state.scrollbar.set_range(
+                Some(HistoryRange {
+                    start: 166,
+                    rows: 51,
+                    total: 217,
+                }),
+                false,
+            );
+            assert_eq!(state.scrollbar.content_size().height, extent + px(100.));
+        })
+    });
 }
 
 #[test]
