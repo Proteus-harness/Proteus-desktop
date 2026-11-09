@@ -164,6 +164,7 @@ impl Runtime {
 
     /// Starts the process again, e.g. after the user fixed it.
     pub(super) fn restart(&mut self, cx: &mut Context<Self>) {
+        super::super::bump_render_generation(cx);
         self.stop(Reset::Restart, cx);
         self.error = None;
         self.start(cx);

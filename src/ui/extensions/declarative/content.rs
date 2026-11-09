@@ -113,6 +113,7 @@ pub(in crate::ui) struct ContentView {
     lifetime: crate::ui::extensions::host::Lifetime,
     show_source: bool,
     body: bool,
+    layout_ready: crate::ui::layout_readiness::Token,
     _rendered: Subscription,
     _resize: Subscription,
 }
@@ -131,8 +132,9 @@ impl ContentView {
         let extension = host.extension();
         let lifetime = host.runtime_scope().lifetime;
         let runtime = super::runtime(&host, window, cx).expect("registered content extension");
+        let layout_ready = crate::ui::layout_readiness::Token::default();
         let rendered = cx.new(|cx| {
-            DeclarativeView::with_content(
+            let mut view = DeclarativeView::with_content(
                 runtime,
                 host,
                 SurfaceKind::Content,
@@ -140,7 +142,9 @@ impl ContentView {
                 Some(content.clone()),
                 window,
                 cx,
-            )
+            );
+            view.layout_owner = Some(layout_ready.clone());
+            view
         });
         Self {
             _rendered: cx.observe(&rendered, |_, _, cx| cx.notify()),
@@ -153,6 +157,14 @@ impl ContentView {
             lifetime,
             show_source: false,
             body: false,
+            layout_ready,
+        }
+    }
+
+    pub(super) fn set_layout_parent(&self, parent: Option<&crate::ui::layout_readiness::Token>) {
+        if let Some(parent) = parent {
+            let linked = self.layout_ready.set_parent(parent);
+            debug_assert!(linked, "content layout dependencies must be acyclic");
         }
     }
 
@@ -236,14 +248,21 @@ impl ContentView {
         window: &mut Window,
         cx: &mut App,
     ) -> Option<gpui_kit::base::text::InlineElement> {
-        if !self
+        let enabled = self
             .lifetime
-            .allowed(crate::ui::extensions::is_enabled(self.extension, cx))
-        {
+            .allowed(crate::ui::extensions::is_enabled(self.extension, cx));
+        self.layout_ready
+            .set_ready(!enabled || !self.rendered.read(cx).layout_pending(cx));
+        crate::ui::layout_readiness::track(&self.layout_ready);
+        if !enabled {
+            self.layout_ready.set_descendants_active(false);
             return None;
         }
-        self.rendered
-            .update(cx, |view, cx| view.inline_element(context, window, cx))
+        let element = self
+            .rendered
+            .update(cx, |view, cx| view.inline_element(context, window, cx));
+        self.layout_ready.set_descendants_active(element.is_some());
+        element
     }
 
     pub(in crate::ui) fn set_source(
@@ -258,6 +277,7 @@ impl ContentView {
         let Some(content) = updated_content(&self.content, language, source, context) else {
             return;
         };
+        self.layout_ready.set_ready(false);
         self.content = content.clone();
         self.rendered
             .update(cx, |view, cx| view.set_content(content, window, cx));
@@ -270,6 +290,7 @@ impl ContentView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.layout_ready.set_ready(false);
         self.rendered
             .update(cx, |view, cx| view.rehost(workspace, window, cx));
         cx.notify();
@@ -291,6 +312,11 @@ impl Render for ContentView {
         let view = self.rendered.read(cx);
         let ready = enabled && view.ready(cx);
         let error = view.error(cx);
+        self.layout_ready
+            .set_ready(!enabled || self.show_source || !view.layout_pending(cx));
+        self.layout_ready
+            .set_descendants_active(enabled && !self.show_source && ready);
+        crate::ui::layout_readiness::track(&self.layout_ready);
         let raw = self.show_source || !ready;
         let mut width = (!raw)
             .then(|| view.preferred_width())

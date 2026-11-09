@@ -5684,6 +5684,7 @@ dependencies = [
  "chrono",
  "gpui-fast",
  "gpui-kit",
+ "gpui-pre-sum-tree",
  "image",
  "libc",
  "naga",

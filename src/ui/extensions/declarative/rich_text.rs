@@ -91,7 +91,15 @@ impl DeclarativeView {
             .remove(id)
             .unwrap_or_else(|| RichText::new(html, cx));
         text.set_html(html, cx);
-        text.slots.sync(id, inlines, host, &text.state, window, cx);
+        text.slots.sync(
+            id,
+            inlines,
+            host,
+            self.layout_owner.as_ref(),
+            &text.state,
+            window,
+            cx,
+        );
         self.fields.rich_text.insert(id.into(), text);
     }
 
@@ -109,7 +117,10 @@ impl DeclarativeView {
             && content.renderer == renderer
         {
             if let Some(view) = &content.view {
-                view.update(cx, |view, cx| view.set_source(language, source, window, cx));
+                view.update(cx, |view, cx| {
+                    view.set_layout_parent(self.layout_owner.as_ref());
+                    view.set_source(language, source, window, cx);
+                });
             } else if let Some(fallback) = &content.fallback {
                 fallback.update(cx, |view, cx| view.set_source(source, cx));
             }
@@ -118,6 +129,9 @@ impl DeclarativeView {
         let view = self
             .host(cx)
             .and_then(|host| ContentView::child(host, id.into(), language, source, window, cx));
+        if let Some(view) = &view {
+            view.read(cx).set_layout_parent(self.layout_owner.as_ref());
+        }
         let changed = view
             .as_ref()
             .map(|view| cx.observe(view, |_, _, cx| cx.notify()));

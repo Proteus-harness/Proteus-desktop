@@ -12,6 +12,9 @@ impl DeclarativeView {
         cx: &mut Context<Self>,
     ) -> Option<gpui_kit::base::text::InlineElement> {
         if self.accepted_source_revision != self.source_revision || !self.ready(cx) {
+            if self.layout_pending(cx) {
+                crate::ui::layout_readiness::pending();
+            }
             return None;
         }
         let root = self.root.clone()?;

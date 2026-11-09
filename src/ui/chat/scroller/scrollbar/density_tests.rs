@@ -161,7 +161,7 @@ fn paged_density_learning_never_compresses_wheel_motion_into_a_short_prefix() {
 }
 
 #[::core::prelude::v1::test]
-fn folded_rows_participate_in_the_unknown_row_density_sample() {
+fn folded_rows_replace_their_own_prior_without_rescaling_unknown_rows() {
     let mut app = TestAppContext::single();
     let cx = app.add_empty_window();
     let range = HistoryRange {
@@ -173,10 +173,11 @@ fn folded_rows_participate_in_the_unknown_row_density_sample() {
     bar.set_range(Some(range), false);
     bar.list.scroll_to_end();
     paint(cx, &bar, range, true);
-    assert!(
-        bar.unit() < px(80.),
-        "raw-row density must include the folded zero-height members"
-    );
+    assert_eq!(bar.unit(), UNKNOWN_ROW_HEIGHT);
+    assert_eq!(bar.content_size().height, px(2034.));
+    for row in 2..9 {
+        assert_eq!(bar.geometry.borrow().measured_height(row), Some(px(0.)));
+    }
 }
 
 #[::core::prelude::v1::test]

@@ -11,6 +11,10 @@ use gpui_kit::{component::scroll::ScrollbarHandle, *};
 #[path = "scrollbar/geometry.rs"]
 mod geometry;
 use geometry::Geometry;
+#[path = "scrollbar/height_cache.rs"]
+mod height_cache;
+#[path = "scrollbar/height_map.rs"]
+mod height_map;
 #[path = "scrollbar/measurement.rs"]
 mod measurement;
 use measurement::{MeasuredRow, Measurements};
@@ -18,9 +22,8 @@ use measurement::{MeasuredRow, Measurements};
 #[path = "scroll_trace.rs"]
 pub(super) mod scroll_trace;
 
-/// Prior for an unknown ordinary row, used only when the viewport is entirely
-/// censored and no ordinary resident measurement exists yet. A 50,000px reply
-/// is evidence for that one reply, never the mean of all unknown messages.
+/// Stable prior for never measured rows. Learning one row replaces only its
+/// own estimate; it never rescales every other message in the history.
 const UNKNOWN_ROW_HEIGHT: Pixels = px(100.);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,7 +44,6 @@ pub(crate) struct ScrollTarget {
 struct State {
     range: Option<HistoryRange>,
     unit: Option<Pixels>,
-    known_correction: Option<Pixels>,
     pending: Option<ScrollTarget>,
     displayed: Option<(ScrollTarget, Pixels)>,
     local: Option<ScrollTarget>,
@@ -86,8 +88,11 @@ impl HistoryScrollbar {
             if state.drag_height.is_some() {
                 self.list.scrollbar_drag_ended();
             }
+            let mut geometry = self.geometry.borrow_mut();
+            if state.range.is_some_and(|old| geometry.represents(old)) {
+                geometry.rebase(None);
+            }
             state = State::default();
-            *self.geometry.borrow_mut() = Geometry::default();
         }
         if changed {
             self.measurements.borrow_mut().set_range(range);
@@ -139,19 +144,63 @@ impl HistoryScrollbar {
         self.measurements.borrow_mut().invalidate(rows);
     }
 
+    /// A new raw document generation is independent of resident page splices.
+    pub(super) fn rebase_history(&self, keep_prefix: Option<usize>) -> bool {
+        if keep_prefix == Some(usize::MAX) {
+            return false;
+        }
+        let cancelled = self.cancel_target();
+        self.geometry.borrow_mut().rebase(keep_prefix);
+        self.invalidate_measurements();
+        cancelled
+    }
+
+    pub(super) fn invalidate_history_rows(&self, rows: std::ops::Range<usize>) {
+        self.geometry.borrow_mut().invalidate_document_rows(rows);
+        self.invalidate_measurements();
+    }
+
+    /// Width/font/renderer changes invalidate estimates outside the viewport,
+    /// too. Old wrappers may not publish into the new layout generation.
+    pub(super) fn invalidate_layout(&self) {
+        self.geometry.borrow_mut().reset_layout();
+        self.invalidate_measurements();
+    }
+
+    fn invalidate_measurements(&self) {
+        let count = self.state.get().range.map_or(0, |range| range.rows + 1);
+        self.measurements.borrow_mut().invalidate(0..count);
+    }
+
     /// Called by the viewport before its Auto-sized list prepaints. Reading
     /// ListState here from a row renderer would reborrow GPUI's mutable state.
     pub fn set_viewport_width(&self, width: Pixels) {
-        if self.width.replace(width) != width
-            && let Some(range) = self.state.get().range
-        {
-            self.invalidate(0..range.rows + 1);
+        if self.width.replace(width) != width && self.state.get().range.is_some() {
+            self.invalidate_layout();
         }
     }
 
     /// Observe the row's existing layout, also when GPUI only measures it in
     /// the leading overdraw. Rendering and child measurement still happen once.
     pub fn measure_row(&self, index: usize, child: impl IntoElement) -> AnyElement {
+        self.measure_child(index, child, true)
+    }
+
+    /// A partial chat window has no successor context for its final turn footer.
+    pub(super) fn measure_chat_row(&self, index: usize, child: impl IntoElement) -> AnyElement {
+        let complete =
+            self.state.get().range.is_none_or(|range| {
+                index + 1 != range.rows || range.start + range.rows == range.total
+            });
+        self.measure_child(index, child, complete)
+    }
+
+    fn measure_child(
+        &self,
+        index: usize,
+        child: impl IntoElement,
+        context_complete: bool,
+    ) -> AnyElement {
         let child = child.into_any_element();
         let Some(range) = self.state.get().range else {
             return child;
@@ -162,6 +211,10 @@ impl HistoryScrollbar {
             self.measurements.clone(),
             range,
             index,
+            (index < range.rows)
+                .then(|| self.geometry.borrow().estimated_height(range.start + index))
+                .flatten(),
+            context_complete,
         )
         .into_any_element()
     }
@@ -172,13 +225,6 @@ impl HistoryScrollbar {
         let mut state = self.state.get();
         let released = state.seek_height.take().is_some();
         if released {
-            // Explicit seeks can hold an old display extent. Recalibrate once
-            // when ordinary reading takes over, using current committed facts.
-            state.unit = None;
-            self.state.set(state);
-            let unit = self.unit();
-            let mut state = self.state.get();
-            state.known_correction = self.geometry.borrow().known_correction(unit);
             self.state.set(state);
         }
         self.geometry.borrow_mut().release_pin();
@@ -275,74 +321,25 @@ impl HistoryScrollbar {
         true
     }
 
-    /// Recomputed only after committed layout batches. Include folded rows in
-    /// the resident sample: ignoring their zero heights biases raw history high.
+    /// Stable coordinates for never measured rows. Only their own completed
+    /// measurements replace this prior; resident sampling never rescales it.
     fn unit(&self) -> Pixels {
-        if let Some(unit) = self.state.get().unit {
-            return unit;
-        }
-        let viewport = self.list.viewport_bounds();
-        let start = self.list.logical_scroll_top().item_ix;
-        let rows = self.state.get().range.map_or(0, |range| range.rows);
-        if let Some(unit) = self.geometry.borrow().ordinary_height(viewport.size.height) {
-            let unit = unit.max(px(1.));
+        if self.state.get().unit.is_none() {
             let mut state = self.state.get();
-            state.unit = Some(unit);
-            self.state.set(state);
-            return unit;
-        }
-        let mut sample_count = 0;
-        let mut sample_height = px(0.);
-        for index in start..rows {
-            let Some(bounds) = self.list.bounds_for_item(index) else {
-                break;
-            };
-            if bounds.top() >= viewport.bottom() {
-                break;
-            }
-            if bounds.size.height >= px(0.) {
-                // A tall clipped reply is much more likely to intersect the
-                // viewport than a short row. Extrapolating its full height to
-                // every unknown row leaves almost the entire track to cover
-                // at the beginning of the history. Omit rows hiding more
-                // than a viewport of content. Ordinary clipped replies still
-                // contribute, even in the smaller first window layout, so
-                // the sample is not biased toward the shortest messages.
-                // A censored-only viewport uses ordinary cached measurements
-                // or the explicit prior below, not the full clipped reply.
-                let visible = (bounds.bottom().min(viewport.bottom())
-                    - bounds.top().max(viewport.top()))
-                .max(px(0.));
-                if bounds.size.height - visible <= viewport.size.height {
-                    sample_height += bounds.size.height;
-                    sample_count += 1;
-                }
-            }
-        }
-        let unit = if sample_count > 0 && sample_height > px(0.) {
-            sample_height / sample_count as f32
-        } else {
-            UNKNOWN_ROW_HEIGHT
-        }
-        .max(px(1.));
-        if viewport.size.height > px(0.) {
-            let mut state = self.state.get();
-            state.unit = Some(unit);
+            state.unit = Some(UNKNOWN_ROW_HEIGHT);
             self.state.set(state);
         }
-        unit
+        UNKNOWN_ROW_HEIGHT
     }
 
     fn height(&self) -> Pixels {
         let state = self.state.get();
         state.drag_height.or(state.seek_height).unwrap_or_else(|| {
-            let base = self.unit() * state.range.map_or(0, |r| r.total) as f32;
-            let height = state.known_correction.map_or_else(
-                // The first layout has not committed its measurements yet.
-                // Keep even a single long reply scrollable during that frame.
-                || base.max(self.list.content_size().height + self.padding),
-                |correction| base + correction,
-            );
+            let height = state.range.map_or(px(0.), |range| {
+                self.geometry
+                    .borrow()
+                    .document_height(range, self.unit(), self.padding)
+            });
             height.max(self.list.viewport_bounds().size.height)
         })
     }
@@ -386,7 +383,7 @@ impl HistoryScrollbar {
         // heights combined with the mapping of a partially completed layout.
         let unit = self.unit();
         let max = self.max_offset();
-        let changed = self.geometry.borrow_mut().refresh(
+        self.geometry.borrow_mut().refresh(
             &self.list,
             range,
             unit,
@@ -394,15 +391,6 @@ impl HistoryScrollbar {
             self.padding,
             self.measurements.borrow_mut().drain(),
         );
-        if changed && state.drag_height.is_none() && state.seek_height.is_none() {
-            let mut state = self.state.get();
-            state.unit = None;
-            self.state.set(state);
-        }
-        let unit = self.unit();
-        let mut calibrated = self.state.get();
-        calibrated.known_correction = self.geometry.borrow().known_correction(unit);
-        self.state.set(calibrated);
         self.refresh_geometry(range);
         // Remote/fractional seeks pin their requested position in settle.
         if state.displayed.is_some() || state.waiting || state.local.is_some() {
@@ -417,7 +405,8 @@ impl HistoryScrollbar {
                 "native_y":f32::from(self.list.scroll_px_offset_for_scrollbar().y),
                 "unit":self.state.get().unit.map(f32::from),"max":f32::from(self.max_offset()),
                 "track":f32::from(geometry.position(top)),"map":geometry.diagnostic_mapping(),
-                "facts_revision":geometry.facts_revision()})
+                "facts_revision":geometry.facts_revision(), "height_cache":geometry.diagnostic_cache(),
+                "bottom":self.at_bottom(range), "viewport":f32::from(self.list.viewport_bounds().size.height)})
         });
     }
 }
@@ -453,7 +442,8 @@ impl ScrollbarHandle for HistoryScrollbar {
         } else {
             // A range can change before the list lays out. Until did_layout
             // measures it, this is only an estimate, never a new anchor.
-            (self.unit() * (range.start + top.item_ix) as f32 + top.offset_in_item)
+            geometry
+                .estimated_position(range.start + top.item_ix, top.offset_in_item)
                 .clamp(px(0.), max)
         };
         point(px(0.), -offset)
@@ -540,3 +530,7 @@ mod calibration_tests;
 #[cfg(test)]
 #[path = "scrollbar/density_tests.rs"]
 mod density_tests;
+
+#[cfg(test)]
+#[path = "scrollbar/global_tests.rs"]
+mod global_tests;

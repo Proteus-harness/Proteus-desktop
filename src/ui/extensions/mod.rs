@@ -23,6 +23,23 @@ use super::prefs;
 use crate::declarative::manifest::Problem;
 use crate::preferences::BadgePlace;
 
+/// Content-size estimates can outlive their native renderer views. Keep their
+/// generation separate from process/view lifetime so hidden chats invalidate
+/// old measurements when a renderer's behavior changes.
+#[derive(Default)]
+struct RenderGeneration(u64);
+impl Global for RenderGeneration {}
+
+pub(in crate::ui) fn render_generation(cx: &App) -> u64 {
+    cx.try_global::<RenderGeneration>()
+        .map_or(0, |epoch| epoch.0)
+}
+
+pub(in crate::ui) fn bump_render_generation(cx: &mut App) {
+    let next = render_generation(cx).wrapping_add(1);
+    cx.set_global(RenderGeneration(next));
+}
+
 /// Builds an icon view. Runs inside a workspace update, so it must not read
 /// the [`Host`] synchronously.
 pub(super) type BuildView = fn(Host, &mut Window, &mut App) -> AnyView;
@@ -205,6 +222,7 @@ pub(super) async fn settle_removal(
 
 /// Rebind native state only after the worker has published/scanned packages.
 pub(super) fn packages_changed(cx: &mut App) {
+    bump_render_generation(cx);
     declarative::reload_runtimes(cx);
     cx.refresh_windows();
 }

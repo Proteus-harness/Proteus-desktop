@@ -44,7 +44,10 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use gpui_kit::component::input::{InputEvent, TextareaState};
+use gpui_kit::component::{
+    Theme,
+    input::{InputEvent, TextareaState},
+};
 use gpui_kit::*;
 use proteus_contracts::app_protocol::AppSessionActivity;
 
@@ -100,6 +103,37 @@ pub(super) enum ChatEvent {
     },
     /// The user sent a message, so the chat is worth keeping open.
     Sent,
+}
+
+/// All resolved font metrics used by prose, native code and tool controls.
+/// Theme color changes alone do not discard measurements.
+#[derive(Clone, PartialEq)]
+struct RowFonts {
+    chat: SharedString,
+    interface: SharedString,
+    mono: SharedString,
+    interface_size: Pixels,
+    mono_size: Pixels,
+}
+
+impl RowFonts {
+    fn current(cx: &App) -> Self {
+        let theme = Theme::global(cx);
+        Self {
+            chat: prefs::chat_font(cx),
+            interface: theme.font_family.clone(),
+            mono: theme.mono_font_family.clone(),
+            interface_size: theme.font_size,
+            mono_size: theme.mono_font_size,
+        }
+    }
+}
+
+fn row_sizes_changed(before: ViewPreferences, after: ViewPreferences) -> bool {
+    before.scale != after.scale
+        || before.chat_text != after.chat_text
+        || before.chat_width != after.chat_width
+        || before.compact_tools != after.compact_tools
 }
 
 impl ChatEvent {
@@ -166,7 +200,7 @@ pub(super) struct Chat {
     _composer_events: Subscription,
     /// Sizes the row heights were measured with.
     view: ViewPreferences,
-    chat_font: SharedString,
+    row_fonts: RowFonts,
     enter_sends: bool,
     _pump: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
@@ -247,18 +281,11 @@ impl Chat {
                     this.composer
                         .update(cx, |state, cx| state.set_submit_on_enter(enter_sends, cx));
                 }
-                // Row heights are cached; sizes change with them.
-                let view = prefs::current(cx).view;
-                let chat_font = prefs::chat_font(cx);
-                if this.view != view || this.chat_font != chat_font {
-                    this.view = view;
-                    this.chat_font = chat_font;
-                    this.scroller.update(cx, |scroller, cx| {
-                        scroller.set_autoscroll(view.autoscroll, cx);
-                        scroller.remeasure(cx);
-                    });
-                }
+                this.refresh_row_metrics(cx);
             }),
+            // System appearance and resolved theme fonts can change without
+            // a ClientPreferences write (including a different mono family).
+            cx.observe_global::<Theme>(|this, cx| this.refresh_row_metrics(cx)),
         ];
         let composer_events = Self::subscribe_composer(&composer, window, cx);
         Self {
@@ -296,10 +323,33 @@ impl Chat {
             window_handle: window.window_handle(),
             _composer_events: composer_events,
             view: prefs::current(cx).view,
-            chat_font: prefs::chat_font(cx),
+            row_fonts: RowFonts::current(cx),
             enter_sends,
             _pump: None,
             _subscriptions: subscriptions,
+        }
+    }
+
+    fn refresh_row_metrics(&mut self, cx: &mut Context<Self>) {
+        let view = prefs::current(cx).view;
+        let fonts = RowFonts::current(cx);
+        let remeasure = row_sizes_changed(self.view, view) || self.row_fonts != fonts;
+        let autoscroll_changed = self.view.autoscroll != view.autoscroll;
+        let appearance_changed = self.view.surface_radius != view.surface_radius;
+        self.view = view;
+        self.row_fonts = fonts;
+        if remeasure || autoscroll_changed {
+            self.scroller.update(cx, |scroller, cx| {
+                if autoscroll_changed {
+                    scroller.set_autoscroll(view.autoscroll, cx);
+                }
+                if remeasure {
+                    scroller.remeasure(cx);
+                }
+            });
+        }
+        if appearance_changed {
+            cx.notify();
         }
     }
 
@@ -436,5 +486,27 @@ impl Focusable for Chat {
             || self.composer.focus_handle(cx),
             |binding| binding.focus.clone(),
         )
+    }
+}
+
+#[cfg(test)]
+mod metric_tests {
+    use super::{ViewPreferences, row_sizes_changed};
+
+    #[test]
+    fn scrolling_policy_and_corner_style_preserve_visited_row_sizes() {
+        let before = ViewPreferences::default();
+        let mut after = before;
+        after.autoscroll = !before.autoscroll;
+        after.surface_radius = 0;
+        assert!(!row_sizes_changed(before, after));
+
+        // Independent geometry changes must still invalidate sizes even
+        // when the non-geometric settings changed in the same update.
+        after.chat_text += 1;
+        assert!(row_sizes_changed(before, after));
+        after.chat_text = before.chat_text;
+        after.compact_tools = !before.compact_tools;
+        assert!(row_sizes_changed(before, after));
     }
 }

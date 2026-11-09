@@ -30,6 +30,7 @@ impl Slots {
         id: &str,
         specifications: &[InlineContent],
         host: Option<Host>,
+        parent: Option<&crate::ui::layout_readiness::Token>,
         text: &Entity<gpui_kit::component::text::TextViewState>,
         window: &mut Window,
         cx: &mut Context<DeclarativeView>,
@@ -53,6 +54,7 @@ impl Slots {
             {
                 if let Some(view) = &slot.view {
                     view.update(cx, |view, cx| {
+                        view.set_layout_parent(parent);
                         view.set_source(&specification.language, &specification.source, window, cx)
                     });
                 }
@@ -68,6 +70,9 @@ impl Slots {
                     cx,
                 )
             });
+            if let Some(view) = &view {
+                view.read(cx).set_layout_parent(parent);
+            }
             let text = text.clone();
             let changed_subscription = view.as_ref().map(|view| {
                 cx.observe(view, move |_, _, cx| {

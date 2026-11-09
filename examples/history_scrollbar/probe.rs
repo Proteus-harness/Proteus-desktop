@@ -141,7 +141,7 @@ pub(super) fn start(report: PathBuf, cx: &mut Context<Fixture>) {
             .update(cx, |this, cx| {
                 this.height_scale = 0.5;
                 this.list.remeasure();
-                this.scrollbar.invalidate(0..this.rows);
+                this.scrollbar.invalidate_layout();
                 this.scrollbar.scroll_to(ScrollTarget {
                     row: target_row,
                     fraction: 0.5,

@@ -23,6 +23,12 @@ pub(super) enum Direction {
 pub(super) struct History {
     cursor: Option<AppTranscriptCursor>,
     archive: Option<HistoryWindow>,
+    /// A snapshot can replace raw row identities without changing the visible
+    /// window's indices. Paging alone never queues this document-level rebase.
+    height_rebase: Option<Option<usize>>,
+    /// Live-tail text may change while the immutable archive revision stays
+    /// the same. It still invalidates sizes retained from an earlier visit.
+    height_tail: Option<usize>,
     epoch: u64,
     loading: bool,
     seek: Option<ScrollTarget>,
@@ -70,6 +76,36 @@ impl HistoryWindow {
 }
 
 impl History {
+    fn take_height_rebase(&mut self) -> Option<Option<usize>> {
+        self.height_rebase.take()
+    }
+
+    fn take_live_height_rows(&mut self) -> Option<Range<usize>> {
+        self.height_tail.take().map(|start| start..usize::MAX)
+    }
+
+    fn queue_height_rebase(&mut self, prefix: Option<usize>) {
+        if prefix == Some(usize::MAX) {
+            return;
+        }
+        // The final unchanged row may acquire a footer when its successor
+        // changes. Old sizes remain estimates; do not keep it as a proven
+        // unchanged measurement across the new document generation.
+        let prefix = prefix.map(|prefix| prefix.saturating_sub(1));
+        self.height_rebase = Some(match self.height_rebase.take() {
+            None => prefix,
+            Some(previous) => previous.zip(prefix).map(|(a, b)| a.min(b)),
+        });
+    }
+
+    fn live_start(&self) -> usize {
+        self.cursor.as_ref().map_or(0, |cursor| cursor.before)
+    }
+
+    pub(super) fn mutable_tail(&self) -> Range<usize> {
+        self.live_start().saturating_sub(1)..usize::MAX
+    }
+
     pub(super) fn seeking(&self) -> bool {
         self.seek.is_some()
     }
@@ -134,6 +170,7 @@ impl History {
         messages: Vec<AppTranscriptMessage>,
         next: Option<AppTranscriptCursor>,
     ) -> (Change, Vec<Change>) {
+        let old_live_start = self.live_start();
         let prefix = match (&self.cursor, &next) {
             (Some(old), Some(next)) if old.revision == next.revision => Some(usize::MAX),
             (Some(old), Some(next)) => next
@@ -143,7 +180,13 @@ impl History {
                 .map(|base| base.common_prefix),
             _ => None,
         };
+        self.queue_height_rebase(prefix);
         let change = live.reset(messages);
+        if change != Change::None {
+            let next_start = next.as_ref().map_or(0, |cursor| cursor.before);
+            let start = old_live_start.min(next_start).saturating_sub(1);
+            self.height_tail = Some(self.height_tail.map_or(start, |old| old.min(start)));
+        }
         let display = match (&mut self.archive, prefix) {
             (Some(window), Some(prefix)) if prefix > window.start => {
                 if prefix < window.end() {
@@ -324,6 +367,7 @@ impl Chat {
     }
 
     pub(super) fn apply_history_changes(&mut self, changes: Vec<Change>, cx: &mut Context<Self>) {
+        self.sync_height_rebase(cx);
         for change in changes {
             self.apply_change(change, cx);
         }
@@ -351,10 +395,22 @@ impl Chat {
     }
 
     pub(super) fn sync_history_range(&mut self, cx: &mut Context<Self>) {
+        self.sync_height_rebase(cx);
         let range = self.history.range(&self.session.transcript);
         self.scroller.update(cx, |state, cx| {
             state.set_history_range(range, self.history.seek.is_some(), cx);
         });
+    }
+
+    fn sync_height_rebase(&mut self, cx: &mut Context<Self>) {
+        if let Some(prefix) = self.history.take_height_rebase() {
+            self.scroller
+                .update(cx, |state, cx| state.rebase_history(prefix, cx));
+        }
+        if let Some(rows) = self.history.take_live_height_rows() {
+            self.scroller
+                .update(cx, |state, cx| state.invalidate_history_rows(rows, cx));
+        }
     }
 
     pub(super) fn seek_history(&mut self, target: ScrollTarget, cx: &mut Context<Self>) {

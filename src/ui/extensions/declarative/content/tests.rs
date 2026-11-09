@@ -112,8 +112,9 @@ fn native_rich_text_prepares_behind_fallback_and_keeps_ready_replacements_visibl
                 context: serde_json::Value::Null,
                 source_revision: Some(0),
             });
+            let layout_ready = crate::ui::layout_readiness::Token::default();
             let rendered = cx.new(|cx| {
-                DeclarativeView::with_content(
+                let mut view = DeclarativeView::with_content(
                     runtime.clone(),
                     host,
                     SurfaceKind::Content,
@@ -121,7 +122,9 @@ fn native_rich_text_prepares_behind_fallback_and_keeps_ready_replacements_visibl
                     Some(source.clone()),
                     window,
                     cx,
-                )
+                );
+                view.layout_owner = Some(layout_ready.clone());
+                view
             });
             ContentView {
                 _rendered: cx.observe(&rendered, |_, _, cx| cx.notify()),
@@ -134,6 +137,7 @@ fn native_rich_text_prepares_behind_fallback_and_keeps_ready_replacements_visibl
                 lifetime: Lifetime::Preview,
                 show_source: false,
                 body: false,
+                layout_ready,
             }
         });
         (content, runtime)

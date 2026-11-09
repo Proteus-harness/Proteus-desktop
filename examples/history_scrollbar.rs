@@ -6,6 +6,12 @@ use std::{path::PathBuf, time::Duration};
 use gpui_kit::component::scroll::{ScrollableElement as _, ScrollableMask, ScrollbarHandle};
 use gpui_kit::{component::*, *};
 
+#[path = "../src/ui/layout_readiness.rs"]
+pub(crate) mod layout_readiness;
+mod ui {
+    pub(crate) use crate::layout_readiness;
+}
+
 #[path = "../src/ui/chat/scroller/scrollbar.rs"]
 mod scrollbar;
 use scrollbar::{HistoryRange, HistoryScrollbar, ScrollTarget};

@@ -307,7 +307,7 @@ fn a_lone_clipped_reply_keeps_its_real_height_without_biasing_unknown_rows() {
 }
 
 #[::core::prelude::v1::test]
-fn a_censored_viewport_uses_ordinary_cached_rows_before_the_default_prior() {
+fn a_censored_viewport_preserves_known_rows_without_recalibrating_the_prior() {
     let mut app = TestAppContext::single();
     let cx = app.add_empty_window();
     let bar = HistoryScrollbar::new(ListState::new(8, ListAlignment::Top, px(400.)), px(0.));
@@ -327,8 +327,8 @@ fn a_censored_viewport_uses_ordinary_cached_rows_before_the_default_prior() {
     assert_eq!(bar.list.logical_scroll_top().item_ix, 6);
     assert_eq!(
         bar.unit(),
-        px(70.),
-        "previous ordinary rows are independent of viewport censoring"
+        UNKNOWN_ROW_HEIGHT,
+        "ordinary measurements replace their own rows without changing the unknown-row prior"
     );
     assert_eq!(
         bar.content_size().height,

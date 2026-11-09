@@ -3,7 +3,17 @@
 #[path = "../../src/ui/floor.rs"]
 mod floor;
 
+#[path = "../../src/ui/layout_readiness.rs"]
+mod layout_readiness;
+
 pub(super) mod chat;
+
+mod extensions {
+    // This fixture has static native rows and no replaceable renderer packages.
+    pub fn render_generation(_: &gpui_kit::App) -> u64 {
+        0
+    }
+}
 
 mod prefs {
     pub fn scaled(value: f32) -> gpui_kit::Rems {

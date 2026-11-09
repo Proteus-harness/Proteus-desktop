@@ -60,6 +60,9 @@ pub(super) fn runtimes(extension: &str, cx: &App) -> Vec<Entity<Runtime>> {
 }
 
 fn broadcast_kind(extension: &str, all: bool, cx: &mut App) {
+    // Settings can affect a previously visited row whose content surface is
+    // currently unloaded. Active-runtime notifications alone cannot reach it.
+    crate::ui::extensions::bump_render_generation(cx);
     for runtime in runtimes(extension, cx) {
         runtime.update(cx, |runtime, cx| {
             if all {
@@ -138,5 +141,18 @@ mod tests {
             ]
         );
         assert!(targets("absent-renderer", entries).is_empty());
+    }
+
+    #[test]
+    fn settings_invalidation_advances_content_generation_without_a_mounted_runtime() {
+        let cx = ::gpui::TestAppContext::single();
+        cx.update(|cx| {
+            let before = crate::ui::extensions::render_generation(cx);
+            super::broadcast("unmounted-fixture-renderer", cx);
+            let content = crate::ui::extensions::render_generation(cx);
+            assert_ne!(content, before);
+            super::broadcast_surfaces("unmounted-fixture-renderer", cx);
+            assert_ne!(crate::ui::extensions::render_generation(cx), content);
+        });
     }
 }

@@ -181,6 +181,7 @@ struct Effects {
     shortcuts: bool,
     motion: bool,
     chat_font: bool,
+    renderers: bool,
     refresh: bool,
 }
 
@@ -192,6 +193,7 @@ impl Effects {
             shortcuts: true,
             motion: true,
             chat_font: true,
+            renderers: true,
             refresh: true,
         }
     }
@@ -206,6 +208,8 @@ impl Effects {
             shortcuts: previous.shortcuts != value.shortcuts,
             motion: previous.motion != value.motion,
             chat_font: previous.fonts.chat != value.fonts.chat,
+            renderers: previous.extensions.disabled != value.extensions.disabled
+                || previous.extensions.order != value.extensions.order,
             refresh: previous.theme != value.theme
                 || previous.themes != value.themes
                 || previous.fonts != value.fonts
@@ -224,6 +228,9 @@ impl Effects {
 }
 
 fn apply(value: &Preferences, effects: Effects, cx: &mut App) {
+    if effects.renderers {
+        super::extensions::bump_render_generation(cx);
+    }
     if effects.theme {
         super::theme::select(&value.themes, value.fonts.interface.as_deref(), cx);
         match value.theme {
@@ -291,6 +298,7 @@ mod tests {
         assert!(!effects.shortcuts);
         assert!(!effects.motion);
         assert!(!effects.chat_font);
+        assert!(!effects.renderers);
     }
 
     #[::core::prelude::v1::test]
@@ -324,5 +332,33 @@ mod tests {
         assert!(Effects::between(&before, &after).sizes);
         after.motion = MotionPreference::Off;
         assert!(Effects::between(&before, &after).motion);
+    }
+
+    #[::core::prelude::v1::test]
+    fn content_renderer_selection_changes_its_epoch_but_badge_placement_does_not() {
+        let cx = ::gpui::TestAppContext::single();
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            init_in_memory(cx);
+            let initial = super::super::extensions::render_generation(cx);
+            update(cx, |preferences| {
+                preferences
+                    .extensions
+                    .set_enabled("fixture-renderer", false)
+            });
+            let disabled = super::super::extensions::render_generation(cx);
+            assert_ne!(disabled, initial);
+            update(cx, |preferences| {
+                preferences.extensions.order.push("fixture-renderer".into())
+            });
+            let reordered = super::super::extensions::render_generation(cx);
+            assert_ne!(reordered, disabled);
+            update(cx, |preferences| {
+                preferences
+                    .extensions
+                    .set_badge_place("fixture-renderer", crate::preferences::BadgePlace::Hidden)
+            });
+            assert_eq!(super::super::extensions::render_generation(cx), reordered);
+        });
     }
 }

@@ -48,6 +48,7 @@ pub(super) struct DeclarativeView {
     resize_on_reply: bool,
     source_revision: Option<u64>,
     accepted_source_revision: Option<u64>,
+    pub(super) layout_owner: Option<crate::ui::layout_readiness::Token>,
     focus_page: bool,
     /// A reset can remove its control on an asynchronous reply. Keep the
     /// surviving root focused until the user explicitly moves to a control.
@@ -132,6 +133,7 @@ impl DeclarativeView {
             resize_on_reply: false,
             source_revision,
             accepted_source_revision: None,
+            layout_owner: None,
             focus_page: false,
             keep_root_focus: false,
             presentation: None,
@@ -260,6 +262,13 @@ impl DeclarativeView {
             self.failure = Some(error);
             cx.notify();
         }
+    }
+
+    /// A previously accepted root may stay visible while its replacement is
+    /// in flight, but that root is not a final size for the current source.
+    pub(super) fn layout_pending(&self, cx: &App) -> bool {
+        self.error(cx).is_none()
+            && (self.accepted_source_revision != self.source_revision || !self.ready(cx))
     }
 
     pub(super) fn ready(&self, cx: &App) -> bool {

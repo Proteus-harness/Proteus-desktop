@@ -2,7 +2,7 @@
 use super::*;
 use ::gpui::{TestAppContext, VisualTestContext};
 
-fn height(row: usize) -> Pixels {
+pub(super) fn height(row: usize) -> Pixels {
     px(match row % 5 {
         0 => 70.,
         1 => 55.,
@@ -40,7 +40,7 @@ impl Render for Rows {
     }
 }
 
-fn draw(cx: &mut VisualTestContext, bar: &HistoryScrollbar, range: HistoryRange) {
+pub(super) fn draw(cx: &mut VisualTestContext, bar: &HistoryScrollbar, range: HistoryRange) {
     draw_with_tools(cx, bar, range, false);
 }
 

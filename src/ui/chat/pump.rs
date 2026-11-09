@@ -51,6 +51,8 @@ impl Chat {
                         for change in outcome.layout_changes() {
                             self.apply_change(change, cx);
                         }
+                    } else if outcome.layout_changes().next().is_some() {
+                        self.invalidate_archived_live_heights(cx);
                     }
                     if outcome.shown() {
                         self.sync_history_range(cx);
@@ -235,6 +237,8 @@ impl Chat {
             self.apply_history_changes(changes, cx);
         } else if !self.history.archived() {
             self.apply_change(change, cx);
+        } else if change != Change::None {
+            self.invalidate_archived_live_heights(cx);
         }
         self.sync_history_range(cx);
         if refresh_context {
@@ -247,6 +251,14 @@ impl Chat {
             cx.emit(ChatEvent::state_changed());
         }
         shown
+    }
+
+    /// Hidden live rows can still have cached heights from an earlier visit.
+    /// Their raw coordinates differ from those of the archived native list.
+    fn invalidate_archived_live_heights(&mut self, cx: &mut Context<Self>) {
+        let rows = self.history.mutable_tail();
+        self.scroller
+            .update(cx, |state, cx| state.invalidate_history_rows(rows, cx));
     }
 
     pub(super) fn apply_change(&mut self, change: Change, cx: &mut Context<Self>) {

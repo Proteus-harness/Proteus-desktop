@@ -44,6 +44,100 @@ fn fixture() -> (History, Transcript) {
 }
 
 #[test]
+fn height_document_rebases_are_separate_from_paging_and_distant_seeks() {
+    let (mut history, mut live) = fixture();
+    assert_eq!(history.take_height_rebase(), Some(None));
+    history.apply(&mut live, rows(950, 1000), Some(cursor("first", 950)));
+    assert_eq!(history.take_height_rebase(), None);
+
+    let requested = history.request(Direction::Older, &live).unwrap();
+    history
+        .accept_page(&live, Direction::Older, &requested, page(900, 950), 0..2)
+        .unwrap();
+    assert_eq!(history.take_height_rebase(), None);
+    history.seek = Some(super::ScrollTarget {
+        row: 500,
+        fraction: 0.25,
+    });
+    let requested = history.seek_cursor().unwrap();
+    history
+        .accept_seek(&live, &requested, page(475, 525))
+        .unwrap();
+    assert_eq!(history.take_height_rebase(), None);
+    history.latest(&live);
+    assert_eq!(history.take_height_rebase(), None);
+}
+
+#[test]
+fn snapshot_live_updates_invalidate_visited_tail_even_with_the_same_archive_revision() {
+    let (mut history, mut live) = fixture();
+    history.take_height_rebase();
+    history.take_live_height_rows();
+    history.apply(&mut live, rows(950, 1000), Some(cursor("first", 950)));
+    assert_eq!(history.take_live_height_rows(), None);
+
+    let mut updated = rows(950, 1000);
+    updated.last_mut().unwrap().text = "a live row grew without rewriting the archive".into();
+    history.apply(&mut live, updated, Some(cursor("first", 950)));
+    assert_eq!(history.take_height_rebase(), None);
+    assert_eq!(history.take_live_height_rows(), Some(949..usize::MAX));
+    assert_eq!(history.take_live_height_rows(), None);
+}
+
+#[test]
+fn verified_snapshot_rebases_merge_to_the_oldest_proven_prefix_and_unknown_wins() {
+    let (mut history, mut live) = fixture();
+    history.take_height_rebase();
+    let mut next = cursor("second", 952);
+    next.base = Some(AppTranscriptBase {
+        revision: "first".into(),
+        common_prefix: 1000,
+    });
+    history.apply(&mut live, rows(952, 1002), Some(next));
+    let mut next = cursor("third", 952);
+    next.base = Some(AppTranscriptBase {
+        revision: "second".into(),
+        common_prefix: 975,
+    });
+    history.apply(&mut live, rows(952, 1002), Some(next));
+    // The previous row's timestamp/footer depends on its new successor.
+    assert_eq!(history.take_height_rebase(), Some(Some(974)));
+
+    history.apply(&mut live, rows(952, 1002), Some(cursor("unrelated", 952)));
+    let mut next = cursor("related-again", 952);
+    next.base = Some(AppTranscriptBase {
+        revision: "unrelated".into(),
+        common_prefix: 1002,
+    });
+    history.apply(&mut live, rows(952, 1002), Some(next));
+    assert_eq!(history.take_height_rebase(), Some(None));
+    assert_eq!(history.take_height_rebase(), None);
+}
+
+#[test]
+fn hidden_live_height_invalidation_uses_global_tail_coordinates_after_paging() {
+    let (mut history, live) = fixture();
+    assert_eq!(history.mutable_tail(), 949..usize::MAX);
+    for end in [950, 900, 850] {
+        let requested = history.request(Direction::Older, &live).unwrap();
+        assert_eq!(requested.before, end);
+        history
+            .accept_page(
+                &live,
+                Direction::Older,
+                &requested,
+                page(end - 50, end),
+                0..2,
+            )
+            .unwrap();
+        assert_eq!(history.mutable_tail(), 949..usize::MAX);
+    }
+    assert!(history.archived());
+    assert_ne!(history.archive.as_ref().unwrap().start, 949);
+    assert_eq!(History::default().mutable_tail(), 0..usize::MAX);
+}
+
+#[test]
 fn unchanged_snapshot_cancels_request_and_same_edge_can_retry_without_duplicate_completion() {
     let (mut history, mut live) = fixture();
     let keys: Vec<_> = live.entries().iter().map(|entry| entry.key).collect();

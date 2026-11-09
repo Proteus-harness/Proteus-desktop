@@ -71,6 +71,7 @@ pub(super) struct ChatScroller {
     middle: MiddleScroll,
     history_edges: (bool, bool),
     archived: bool,
+    renderer_generation: u64,
     footer: FooterState,
     footer_height: Pixels,
     reading_gap: Pixels,
@@ -115,6 +116,7 @@ impl ChatScroller {
             middle: MiddleScroll::default(),
             history_edges: (false, false),
             archived: false,
+            renderer_generation: 0,
             footer: FooterState::default(),
             footer_height: px(0.),
             reading_gap: px(0.),
@@ -233,6 +235,18 @@ impl ChatScroller {
         }
     }
 
+    pub(super) fn rebase_history(&mut self, keep_prefix: Option<usize>, cx: &mut Context<Self>) {
+        if self.scrollbar.rebase_history(keep_prefix) {
+            cx.emit(HistorySeekCanceled);
+        }
+        cx.notify();
+    }
+
+    pub(super) fn invalidate_history_rows(&mut self, rows: Range<usize>, cx: &mut Context<Self>) {
+        self.scrollbar.invalidate_history_rows(rows);
+        cx.notify();
+    }
+
     pub(super) fn scroll_to_history(&mut self, target: ScrollTarget, cx: &mut Context<Self>) {
         self.stop_middle(cx);
         self.following = false;
@@ -260,7 +274,7 @@ impl ChatScroller {
     pub(super) fn remeasure(&mut self, cx: &mut Context<Self>) {
         self.wheel.invalidate(&self.list);
         self.list.remeasure();
-        self.scrollbar.invalidate(0..self.row_count());
+        self.scrollbar.invalidate_layout();
         self.changed(cx);
     }
 
@@ -611,7 +625,7 @@ impl RenderOnce for ChatList {
                 // made before a growing viewport could reserve any room.
                 let tail_height = measured_footer.read(cx).tail.height();
                 let measured = measured_footer.clone();
-                return measured_rows.measure_row(
+                return measured_rows.measure_chat_row(
                     ix,
                     div().w_full().min_h(tail_height).child(
                         div().w_full().pb(reading_gap).child(
@@ -629,7 +643,7 @@ impl RenderOnce for ChatList {
                     ),
                 );
             }
-            measured_rows.measure_row(
+            measured_rows.measure_chat_row(
                 ix,
                 div().w_full().min_w_0().child(render_row(ix, window, cx)),
             )
@@ -691,6 +705,11 @@ impl RenderOnce for ChatList {
                     // Ahead of the rows, so it runs before the list lays out.
                     .on_prepaint(move |bounds, _, cx| {
                         resized.update(cx, |state, cx| {
+                            let generation = crate::ui::extensions::render_generation(cx);
+                            if state.renderer_generation != generation {
+                                state.renderer_generation = generation;
+                                state.remeasure(cx);
+                            }
                             if state.keep_end(bounds.size) {
                                 cx.notify();
                             }
