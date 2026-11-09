@@ -2045,6 +2045,35 @@ mod tests {
     }
 
     #[gpui::test]
+    fn image_only_paragraph_reserves_the_authored_height(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let (root, cx) = cx.add_window_view(|_, cx| InlineImageTextViewTestRoot {
+            text_view: cx.new(|cx| TextViewState::html("", cx)),
+        });
+        let mut measured = Vec::new();
+        for height in [60, 140] {
+            root.update(cx, |root, cx| {
+                root.text_view.update(cx, |state, cx| {
+                    state.set_text(
+                        &format!(r#"<p><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=" width="240" height="{height}"></p>"#),
+                        cx,
+                    );
+                });
+            });
+            cx.run_until_parked();
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            measured.push(root.read_with(cx, |root, cx| {
+                root.text_view.read(cx).bounds().size.height
+            }));
+        }
+        assert_eq!(
+            measured[1] - measured[0],
+            px(80.),
+            "an image-only paragraph must reserve changes in authored height"
+        );
+    }
+
+    #[gpui::test]
     fn inline_image_keeps_surrounding_text_on_same_line(cx: &mut TestAppContext) {
         cx.update(crate::init);
         let (content, cx) = cx.add_window_view(|_, cx| InlineImageTextViewTestRoot::new(cx));

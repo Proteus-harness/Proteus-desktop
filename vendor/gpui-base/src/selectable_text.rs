@@ -1,9 +1,9 @@
 use std::ops::Range;
 
 use gpui::{
-    App, BorderStyle, Bounds, Corners, Edges, Element, ElementId, GlobalElementId, Hitbox,
-    HitboxBehavior, Hsla, InspectorElementId, IntoElement, LayoutId, PaintQuad, Pixels, Point,
-    SharedString, StyledText, TextStyleRefinement, Window, transparent_black,
+    App, BorderStyle, Bounds, Corners, CursorStyle, Edges, Element, ElementId, GlobalElementId,
+    Hitbox, HitboxBehavior, Hsla, InspectorElementId, IntoElement, LayoutId, PaintQuad, Pixels,
+    Point, SharedString, StyledText, Subscription, TextStyleRefinement, Window, transparent_black,
 };
 
 use crate::{TextSelection, TextSelectionHandle, TextSelectionRegistration, TextSelectionRun};
@@ -24,6 +24,14 @@ pub struct SelectableText {
     document_order: u64,
     text_style: Option<TextStyleRefinement>,
     selection_color: Option<Hsla>,
+}
+
+/// Retain one refresh listener with the element's selection participant. Unlike
+/// TextView, this lightweight element has no view entity observing the handle.
+struct SelectionState {
+    handle: TextSelectionHandle,
+    shared: bool,
+    _subscription: Subscription,
 }
 
 impl SelectableText {
@@ -154,16 +162,31 @@ impl Element for SelectableText {
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
-        let handle = self.handle.clone().unwrap_or_else(|| {
-            window.with_element_state(
-                global_id.expect("SelectableText must have a stable element id"),
-                |retained: Option<TextSelectionHandle>, _| {
-                    let handle =
-                        retained.unwrap_or_else(|| TextSelectionHandle::new(self.text.clone(), cx));
-                    (handle.clone(), handle)
-                },
-            )
-        });
+        let handle = window.with_element_state(
+            global_id.expect("SelectableText must have a stable element id"),
+            |retained: Option<SelectionState>, window| {
+                let retained = retained.filter(|state| {
+                    state.shared == self.handle.is_some()
+                        && self
+                            .handle
+                            .as_ref()
+                            .is_none_or(|handle| state.handle.entity_id() == handle.entity_id())
+                });
+                let state = retained.unwrap_or_else(|| {
+                    let handle = self
+                        .handle
+                        .clone()
+                        .unwrap_or_else(|| TextSelectionHandle::new(self.text.clone(), cx));
+                    let subscription = handle.refresh_window_on_change(window, cx);
+                    SelectionState {
+                        handle,
+                        shared: self.handle.is_some(),
+                        _subscription: subscription,
+                    }
+                });
+                (state.handle.clone(), state)
+            },
+        );
         let (layout_id, ()) = if let Some(style) = self.text_style.clone() {
             window.with_text_style(Some(style), |window| {
                 self.styled_text
@@ -202,10 +225,11 @@ impl Element for SelectableText {
         inspector_id: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
         handle: &mut Self::RequestLayoutState,
-        _: &mut Self::PrepaintState,
+        hitbox: &mut Self::PrepaintState,
         window: &mut Window,
         cx: &mut App,
     ) {
+        window.set_cursor_style(CursorStyle::IBeam, hitbox);
         let layout = self.styled_text.layout().clone();
         let selected_text_before = TextSelection::selected_text(window, cx);
         let projection = handle.update_runs(
@@ -238,6 +262,8 @@ impl Element for SelectableText {
 
 #[cfg(test)]
 mod tests {
+    use std::{cell::Cell, rc::Rc};
+
     use gpui::{
         Bounds, Context, IntoElement, Modifiers, MouseButton, ParentElement as _, Render,
         Styled as _, TestAppContext, Window, div, point, px, size,
@@ -293,6 +319,66 @@ mod tests {
             let _ = window.draw(cx);
             assert_eq!(TextSelection::selected_text(window, cx), "alpha beta");
         });
+    }
+
+    struct LiveSelectionTestView {
+        handle: Option<TextSelectionHandle>,
+        renders: Rc<Cell<usize>>,
+    }
+
+    impl Render for LiveSelectionTestView {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            self.renders.set(self.renders.get() + 1);
+            let text = "alpha beta gamma delta";
+            let element = if let Some(handle) = &self.handle {
+                SelectableText::with_handle("live", handle.clone(), text)
+            } else {
+                SelectableText::new("live", text)
+            };
+            div()
+                .size_full()
+                .child(TextSelectionLayer)
+                .child(div().w(px(320.)).h(px(32.)).child(element))
+        }
+    }
+
+    #[gpui::test]
+    fn drag_repaints_plain_text_before_mouse_release(cx: &mut TestAppContext) {
+        for shared in [false, true] {
+            let renders = Rc::new(Cell::new(0));
+            let (_, cx) = cx.add_window_view(|_, cx| LiveSelectionTestView {
+                handle: shared.then(|| TextSelectionHandle::new("alpha beta gamma delta", cx)),
+                renders: renders.clone(),
+            });
+            cx.update(|window, cx| {
+                let _ = window.draw(cx);
+            });
+            cx.run_until_parked();
+            cx.simulate_mouse_down(
+                point(px(1.), px(12.)),
+                MouseButton::Left,
+                Modifiers::default(),
+            );
+            let before = renders.get();
+            cx.simulate_mouse_move(
+                point(px(70.), px(12.)),
+                Some(MouseButton::Left),
+                Modifiers::default(),
+            );
+            assert!(
+                renders.get() > before,
+                "drag must invalidate the rendered text"
+            );
+            let selection = cx.update(TextSelection::selected_text);
+            assert!(!selection.is_empty());
+            assert_ne!(selection, "alpha beta gamma delta");
+            cx.simulate_mouse_up(
+                point(px(70.), px(12.)),
+                MouseButton::Left,
+                Modifiers::default(),
+            );
+            assert_eq!(cx.update(TextSelection::selected_text), selection);
+        }
     }
 
     #[test]

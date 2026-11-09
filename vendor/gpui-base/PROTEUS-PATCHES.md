@@ -3,6 +3,9 @@
 Source: crates.io `gpui-base` 0.8.1, upstream https://github.com/longbridge/gpui-kit.
 The upstream source and manifest are retained under Apache-2.0.
 
+Image-only text paragraphs honor both authored width and height, matching
+inline images and Zed's Markdown image layout.
+
 The shared input engine rebinds window focus, blur and activation listeners when
 an existing Input/Textarea/Editor entity moves to another native window. Its
 text, selections, undo manager and language state remain in the same entity.
@@ -70,3 +73,9 @@ Verification boundary: standalone vendor test compilation is possible through
 an isolated manifest with upstream dev dependencies. The broad baseline suite
 has existing failures; it is not reported as a green application release gate.
 Focused regressions and default Desktop checking are reported separately.
+
+Plain SelectableText retains a window refresh subscription for its selection
+handle, including explicit shared handles. Drag updates invalidate cached text
+before mouse release; replacing or removing the element drops its listener.
+Its painted text hitbox declares the I-beam cursor, as the rich-text path does,
+without making retained paragraphs depend on every pointer movement.

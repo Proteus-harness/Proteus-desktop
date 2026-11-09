@@ -288,7 +288,10 @@ impl Render for ContentView {
         let ready = enabled && view.ready(cx);
         let error = view.error(cx);
         let raw = self.show_source || !ready;
-        let mut source_width = None;
+        let mut width = (!raw)
+            .then(|| view.preferred_width())
+            .flatten()
+            .map(super::code_geometry::Width::Preview);
         let body = v_flex()
             .w_full()
             .min_w_0()
@@ -306,7 +309,7 @@ impl Render for ContentView {
             })
             .child(if raw {
                 let source = SharedString::from(self.content.source.clone());
-                source_width = Some(source.clone());
+                width = Some(super::code_geometry::Width::Source(source.clone()));
                 if self.body {
                     gpui_kit::base::SelectableText::new("content-source-text", source)
                         .into_any_element()
@@ -349,9 +352,7 @@ impl Render for ContentView {
             body.into_any_element(),
             cx,
         )
-        .when_some(source_width, |shell, source| {
-            shell.fit(super::code_geometry::Width::Source(source))
-        })
+        .when_some(width, |shell, width| shell.fit(width))
         .into_any_element()
     }
 }

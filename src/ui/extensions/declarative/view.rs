@@ -62,6 +62,15 @@ pub(super) struct DeclarativeView {
 }
 
 impl DeclarativeView {
+    /// Finite visual content keeps its authored width inside the common shell.
+    /// Text and composite layouts continue to use the available column width.
+    pub(super) fn preferred_width(&self) -> Option<f32> {
+        match self.root.as_deref()? {
+            Node::Svg { width, .. } => Some(*width),
+            _ => None,
+        }
+    }
+
     /// Settings pages share their outer scroll area with growing text fields.
     pub(super) fn settings_page(&self) -> bool {
         self.surface == SurfaceKind::Page

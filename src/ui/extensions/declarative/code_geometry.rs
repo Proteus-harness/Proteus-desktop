@@ -13,6 +13,7 @@ use gpui_kit::*;
 pub(super) enum Width {
     Editor(Entity<EditorState>, bool),
     Source(SharedString),
+    Preview(f32),
 }
 
 impl Width {
@@ -24,6 +25,7 @@ impl Width {
         let size = cx.theme().mono_font_size;
         let cap = window.viewport_size().width;
         match self {
+            Self::Preview(width) => crate::ui::prefs::scaled(*width).to_pixels(window.rem_size()),
             Self::Editor(state, numbered) => {
                 // xsmall Editor has 4 px input insets on both sides; numbered
                 // fences add the same 6 px inset as their rendered Editor.
