@@ -1,9 +1,123 @@
 use super::{ChatScroller, FooterState, HistoryRange, Hold};
 use gpui_kit::component::scroll::ScrollbarHandle as _;
 use gpui_kit::{AppContext as _, ListOffset, point, px, size};
+use gpui_kit::{Context, Entity, IntoElement, Render, Styled, Window, div};
 use std::time::{Duration, Instant};
 
 use super::jump::JumpStatus;
+
+struct DisclosureRows {
+    scroller: Entity<ChatScroller>,
+    height: std::rc::Rc<std::cell::Cell<gpui_kit::Pixels>>,
+}
+
+impl Render for DisclosureRows {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let height = self.height.get();
+        super::ChatList::new(
+            "disclosure-tail-regression",
+            self.scroller.clone(),
+            move |ix, _, _| {
+                div()
+                    .h(if ix == 3 { height } else { px(100.) })
+                    .into_any_element()
+            },
+        )
+    }
+}
+
+#[test]
+fn a_middle_disclosure_reserves_native_room_without_a_temporary_scrollbar_extent() {
+    let mut app = ::gpui::TestAppContext::single();
+    app.update(|cx| {
+        gpui_kit::init(cx);
+        crate::ui::prefs::init_in_memory(cx);
+    });
+    let cx = app.add_empty_window();
+    let scroller = cx.update(|_, cx| {
+        cx.new(|_| {
+            let mut state = ChatScroller::new(false);
+            state.list.splice(0..0, 20);
+            state.scrollbar.set_range(
+                Some(HistoryRange {
+                    start: 0,
+                    rows: 20,
+                    total: 20,
+                }),
+                false,
+            );
+            state.following = false;
+            state.wheel_up = true;
+            state.list.scroll_to(ListOffset {
+                item_ix: 3,
+                offset_in_item: px(0.),
+            });
+            state
+        })
+    });
+    let height = std::rc::Rc::new(std::cell::Cell::new(px(100.)));
+    let view = cx.update(|_, cx| {
+        cx.new(|_| DisclosureRows {
+            scroller: scroller.clone(),
+            height: height.clone(),
+        })
+    });
+    let draw = |cx: &mut ::gpui::VisualTestContext| {
+        cx.draw(point(px(0.), px(0.)), size(px(300.), px(600.)), |_, _| {
+            view.clone().into_any_element()
+        });
+    };
+    draw(cx);
+    draw(cx);
+    let (extent, anchor) = cx.update(|_, cx| {
+        let state = scroller.read(cx);
+        (
+            state.scrollbar.content_size().height,
+            state.list.logical_scroll_top(),
+        )
+    });
+    cx.update(|_, cx| scroller.update(cx, |state, cx| state.toggled(3..4, cx)));
+    draw(cx);
+    cx.update(|_, cx| {
+        let state = scroller.read(cx);
+        assert_eq!(
+            state.tail.height(),
+            px(600.),
+            "native collapse protection is still reserved"
+        );
+        assert_eq!(
+            state.scrollbar.content_size().height,
+            extent,
+            "unused reserve is not document content"
+        );
+        assert_eq!(state.list.logical_scroll_top(), anchor);
+    });
+    height.set(px(300.));
+    cx.update(|_, cx| scroller.update(cx, |state, cx| state.remeasure_items(3..4, cx)));
+    draw(cx);
+    cx.update(|_, cx| {
+        let state = scroller.read(cx);
+        assert_eq!(state.scrollbar.content_size().height, extent + px(200.));
+        assert_eq!(state.list.logical_scroll_top(), anchor);
+    });
+    cx.update(|_, cx| {
+        scroller.update(cx, |state, _| {
+            let after = state.hold.as_ref().unwrap().until + Duration::from_millis(1);
+            state.step(after);
+        })
+    });
+    draw(cx);
+    cx.update(|_, cx| {
+        let state = scroller.read(cx);
+        assert_eq!(state.tail.height(), px(0.));
+        assert_eq!(
+            state.scrollbar.content_size().height,
+            extent + px(200.),
+            "hold expiry must not move the thumb back"
+        );
+        assert_eq!(state.list.logical_scroll_top(), anchor);
+    });
+}
 
 fn folded_tail(autoscroll: bool) -> ChatScroller {
     let state = ChatScroller::new(autoscroll);

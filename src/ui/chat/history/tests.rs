@@ -1,4 +1,4 @@
-use super::{CACHE_ROWS, Direction, History};
+use super::{CACHE_ROWS, Direction, History, HistoryRange, ScrollTarget, seek_context};
 use crate::transcript::{Change, Transcript};
 use proteus_contracts::app_protocol::AppTranscriptBase;
 use proteus_contracts::app_protocol::{
@@ -533,4 +533,78 @@ fn returning_to_resident_data_invalidates_an_older_in_flight_seek() {
             .is_none()
     );
     assert!(!history.archived());
+}
+
+#[test]
+fn fractional_edge_seeks_request_missing_context_instead_of_waiting_forever_in_place() {
+    let range = HistoryRange {
+        start: 195,
+        rows: 50,
+        total: 245,
+    };
+    assert_eq!(
+        seek_context(
+            range,
+            ScrollTarget {
+                row: 195,
+                fraction: 0.5
+            }
+        ),
+        Some(Direction::Older)
+    );
+    assert_eq!(
+        seek_context(
+            range,
+            ScrollTarget {
+                row: 195,
+                fraction: 0.
+            }
+        ),
+        None
+    );
+    assert_eq!(
+        seek_context(
+            range,
+            ScrollTarget {
+                row: 244,
+                fraction: 0.5
+            }
+        ),
+        None
+    );
+    let archive = HistoryRange {
+        start: 0,
+        rows: 200,
+        total: 245,
+    };
+    assert_eq!(
+        seek_context(
+            archive,
+            ScrollTarget {
+                row: 199,
+                fraction: 0.5
+            }
+        ),
+        Some(Direction::Newer)
+    );
+    assert_eq!(
+        seek_context(
+            archive,
+            ScrollTarget {
+                row: 0,
+                fraction: 0.5
+            }
+        ),
+        None
+    );
+    assert_eq!(
+        seek_context(
+            archive,
+            ScrollTarget {
+                row: 100,
+                fraction: 0.5
+            }
+        ),
+        None
+    );
 }

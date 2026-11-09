@@ -59,6 +59,7 @@ pub(crate) struct HistoryScrollbar {
     geometry: Rc<RefCell<Geometry>>,
     measurements: Rc<RefCell<Measurements>>,
     width: Rc<Cell<Pixels>>,
+    footer: Rc<Cell<Option<Pixels>>>,
     padding: Pixels,
 }
 
@@ -70,6 +71,7 @@ impl HistoryScrollbar {
             geometry: Rc::default(),
             measurements: Rc::default(),
             width: Rc::default(),
+            footer: Rc::default(),
             padding,
         }
     }
@@ -101,6 +103,7 @@ impl HistoryScrollbar {
         if range.is_none() {
             state = State::default();
             *self.geometry.borrow_mut() = Geometry::default();
+            self.footer.set(None);
         } else if state.waiting && !seeking {
             state.waiting = false;
             // An accepted page still needs layout and fractional positioning.
@@ -125,6 +128,13 @@ impl HistoryScrollbar {
         let target = state.pending.take();
         self.state.set(state);
         target
+    }
+
+    /// Physical anti-clamp room is not document content. Queue the natural
+    /// footer plus only its required visible floor for the completed layout.
+    pub(super) fn set_footer_height(&self, height: Pixels) -> bool {
+        self.footer.set(Some(height));
+        self.geometry.borrow().footer_height() != height
     }
 
     pub fn cancel_target(&self) -> bool {
@@ -382,6 +392,10 @@ impl HistoryScrollbar {
         let Some(range) = state.range else {
             return;
         };
+        let footer = self.footer.get();
+        if let Some(height) = footer {
+            self.geometry.borrow_mut().set_footer_height(height);
+        }
         // The row observer writes into a separate collector during list
         // measurement. Commit it only now; offset queries must never see new
         // heights combined with the mapping of a partially completed layout.
@@ -393,7 +407,16 @@ impl HistoryScrollbar {
             unit,
             max,
             self.padding,
-            self.measurements.borrow_mut().drain(),
+            self.measurements.borrow_mut().drain().map(|(ix, height)| {
+                (
+                    ix,
+                    if ix == range.rows {
+                        footer.unwrap_or(height)
+                    } else {
+                        height
+                    },
+                )
+            }),
         );
         self.refresh_geometry(range);
         // Remote/fractional seeks pin their requested position in settle.

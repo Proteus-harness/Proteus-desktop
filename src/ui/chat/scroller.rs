@@ -473,6 +473,19 @@ impl ChatScroller {
         self.list.remeasure_items(tail..tail + 1);
     }
 
+    /// The native tail keeps a conservative anti-clamp minimum while a
+    /// disclosure animates. Only real footer content and blank room still
+    /// visible below the viewport belong in the document's scrollbar extent.
+    fn measure_footer_layout(&mut self, bounds: Bounds<Pixels>) -> bool {
+        let changed = self.measure_footer(bounds.size.height);
+        let needed = (self.list.viewport_bounds().bottom() - bounds.top() - EDGE * 2.)
+            .max(px(0.))
+            .min(self.tail.height());
+        self.scrollbar
+            .set_footer_height((self.footer_height + self.reading_gap).max(needed));
+        changed
+    }
+
     fn clear_tail(&mut self) {
         if self.tail.clear() {
             self.remeasure_tail();
@@ -633,7 +646,7 @@ impl RenderOnce for ChatList {
                                 .w_full()
                                 .on_prepaint(move |bounds, _, cx| {
                                     measured.update(cx, |state, cx| {
-                                        if state.measure_footer(bounds.size.height) {
+                                        if state.measure_footer_layout(bounds) {
                                             cx.notify();
                                         }
                                     });
@@ -713,6 +726,12 @@ impl RenderOnce for ChatList {
                             if state.keep_end(bounds.size) {
                                 cx.notify();
                             }
+                            // The footer itself may be outside native
+                            // overdraw. Start with its real content; visible
+                            // footer layout refines only the needed floor.
+                            state
+                                .scrollbar
+                                .set_footer_height(state.footer_height + state.reading_gap);
                         })
                     })
                     .child(rows)

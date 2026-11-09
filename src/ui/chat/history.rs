@@ -19,6 +19,20 @@ pub(super) enum Direction {
     Newer,
 }
 
+/// A fractional target on a clipped edge needs its neighboring page before
+/// that row can supply an authoritative native height.
+fn seek_context(range: HistoryRange, target: ScrollTarget) -> Option<Direction> {
+    if target.fraction == 0. {
+        None
+    } else if target.row == range.start && range.start > 0 {
+        Some(Direction::Older)
+    } else if target.row + 1 == range.start + range.rows && range.start + range.rows < range.total {
+        Some(Direction::Newer)
+    } else {
+        None
+    }
+}
+
 #[derive(Default)]
 pub(super) struct History {
     cursor: Option<AppTranscriptCursor>,
@@ -421,6 +435,9 @@ impl Chat {
             self.show_latest(cx);
         } else if (range.start..range.start + range.rows).contains(&target.row) {
             self.cancel_history_seek(cx);
+            if let Some(direction) = seek_context(range, target) {
+                self.load_history(direction, cx);
+            }
         } else if target.row >= self.history.cursor.as_ref().unwrap().before {
             let changes = self.history.latest(&self.session.transcript);
             self.apply_history_changes(changes, cx);

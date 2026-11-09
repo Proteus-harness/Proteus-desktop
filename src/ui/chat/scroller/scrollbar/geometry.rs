@@ -99,6 +99,17 @@ impl Geometry {
         self.range == Some(range)
     }
 
+    pub fn footer_height(&self) -> Pixels {
+        self.tail
+    }
+
+    pub fn set_footer_height(&mut self, height: Pixels) {
+        if self.tail != height {
+            self.tail = height;
+            self.invalidated = true;
+        }
+    }
+
     pub fn document_height(&self, range: HistoryRange, prior: Pixels, padding: Pixels) -> Pixels {
         let pixels = self.cache.read(|map| {
             map.prefix(range.total)
