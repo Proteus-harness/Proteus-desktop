@@ -18,6 +18,7 @@ pub(super) struct Measurements {
     pending: Vec<Option<Pixels>>,
     dirty: Vec<usize>,
     readiness: Vec<crate::ui::layout_readiness::Observation>,
+    fraction_ready: Vec<bool>,
 }
 
 impl Measurements {
@@ -48,6 +49,7 @@ impl Measurements {
         self.range = range;
         self.epoch = self.epoch.wrapping_add(1);
         self.pending = vec![None; range.map_or(0, |range| range.rows + 1)];
+        self.fraction_ready = vec![false; self.pending.len()];
         self.dirty.clear();
     }
 
@@ -56,6 +58,7 @@ impl Measurements {
         for index in rows {
             if let Some(height) = self.pending.get_mut(index) {
                 *height = None;
+                self.fraction_ready[index] = false;
             }
         }
         self.dirty.retain(|index| self.pending[*index].is_some());
@@ -79,6 +82,10 @@ impl Measurements {
         dirty
             .drain(..)
             .filter_map(|index| pending[index].take().map(|height| (index, height)))
+    }
+
+    pub fn fraction_ready(&self, index: usize) -> bool {
+        self.fraction_ready.get(index).copied().unwrap_or(false)
     }
 }
 
@@ -173,7 +180,9 @@ impl Element for MeasuredRow {
             measurements.range == Some(self.range) && measurements.epoch == self.epoch
         };
         if current {
-            self.measurements.borrow_mut().readiness[self.index] = observation;
+            let mut measurements = self.measurements.borrow_mut();
+            measurements.readiness[self.index] = observation;
+            measurements.fraction_ready[self.index] = ready;
         }
         // A remounted asynchronous surface may briefly lay out source text or
         // an incomplete nested preview. Keep its compatible scalar placeholder

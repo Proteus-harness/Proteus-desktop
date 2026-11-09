@@ -156,6 +156,7 @@ impl HeightMap {
     pub fn span_count(&self) -> usize {
         self.tree.summary().spans
     }
+    #[cfg(any(test, debug_assertions))]
     pub fn measured_rows(&self) -> usize {
         self.tree.summary().measured
     }

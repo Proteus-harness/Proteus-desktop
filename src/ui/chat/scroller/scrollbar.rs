@@ -186,13 +186,17 @@ impl HistoryScrollbar {
         self.measure_child(index, child, true)
     }
 
-    /// A partial chat window has no successor context for its final turn footer.
+    /// Partial window edges lack context for group headings and turn footers.
     pub(super) fn measure_chat_row(&self, index: usize, child: impl IntoElement) -> AnyElement {
-        let complete =
-            self.state.get().range.is_none_or(|range| {
-                index + 1 != range.rows || range.start + range.rows == range.total
-            });
-        self.measure_child(index, child, complete)
+        let complete = self.state.get().range.is_none_or(|range| {
+            (index != 0 || range.start == 0)
+                && (index + 1 != range.rows || range.start + range.rows == range.total)
+        });
+        if complete {
+            self.measure_row(index, child)
+        } else {
+            self.measure_child(index, child, false)
+        }
     }
 
     fn measure_child(
@@ -251,13 +255,7 @@ impl HistoryScrollbar {
         self.refresh_geometry(range);
         // Resident drag positions already have real pixel geometry. Do not
         // publish a frame at row offset zero before applying its fraction.
-        if target.fraction == 0.
-            || self.geometry.borrow().measured_height(target.row).is_some()
-            || self
-                .list
-                .bounds_for_item(target.row - range.start)
-                .is_some()
-        {
+        if target.fraction == 0. || self.native_height(target.row).is_some() {
             self.settle();
             return true;
         }
@@ -286,16 +284,7 @@ impl HistoryScrollbar {
         };
         let height = if target.fraction == 0. {
             px(0.)
-        } else if let Some(height) =
-            self.geometry
-                .borrow()
-                .measured_height(target.row)
-                .or_else(|| {
-                    self.list
-                        .bounds_for_item(index)
-                        .map(|bounds| bounds.size.height)
-                })
-        {
+        } else if let Some(height) = self.native_height(target.row) {
             height
         } else {
             return true;
@@ -319,6 +308,21 @@ impl HistoryScrollbar {
         }
         self.state.set(state);
         true
+    }
+
+    fn native_height(&self, row: usize) -> Option<Pixels> {
+        let range = self.state.get().range?;
+        let index = row.checked_sub(range.start)?;
+        // A held placeholder is laid out natively but still contains only a
+        // compatible old scalar. It cannot settle a fractional seek.
+        if !self.measurements.borrow().fraction_ready(index) {
+            return None;
+        }
+        self.geometry.borrow().measured_height(row).or_else(|| {
+            self.list
+                .bounds_for_item(index)
+                .map(|bounds| bounds.size.height)
+        })
     }
 
     /// Stable coordinates for never measured rows. Only their own completed

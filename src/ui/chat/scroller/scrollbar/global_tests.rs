@@ -291,3 +291,74 @@ fn full_heterogeneous_history_keeps_warm_extent_and_wheel_ratio_across_both_page
         traverse(cx, &bar, &mut range, &prefix, true, Some(expected));
     }
 }
+
+struct ContextRows(HistoryScrollbar);
+impl Render for ContextRows {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let bar = self.0.clone();
+        let range = bar.state.get().range.unwrap();
+        list(bar.list.clone(), move |ix, _, _| {
+            let height = if ix == range.rows {
+                0.
+            } else if range.start + ix == 100 {
+                150.
+            } else {
+                100.
+            };
+            bar.measure_chat_row(ix, div().w_full().h(px(height)))
+        })
+        .size_full()
+    }
+}
+
+#[::core::prelude::v1::test]
+fn a_clipped_group_heading_keeps_its_old_height_without_settling_a_fractional_seek() {
+    let mut app = TestAppContext::single();
+    let cx = app.add_empty_window();
+    let bar = visited_then_evicted(cx);
+    bar.invalidate(0..1);
+    bar.list.remeasure_items(0..1);
+    let draw = |cx: &mut VisualTestContext| {
+        let view = cx.update(|_, cx| cx.new(|_| ContextRows(bar.clone())));
+        cx.draw(point(px(0.), px(0.)), size(px(300.), px(400.)), |_, _| {
+            view.into_any_element()
+        });
+        bar.did_layout();
+    };
+    draw(cx);
+    assert_eq!(bar.list.bounds_for_item(0).unwrap().size.height, px(100.));
+    assert_eq!(bar.geometry.borrow().estimated_height(100), Some(px(100.)));
+    assert_eq!(
+        bar.native_height(100),
+        None,
+        "native bounds contain a cached placeholder"
+    );
+    let target = ScrollTarget {
+        row: 100,
+        fraction: 0.5,
+    };
+    assert!(bar.scroll_to(target));
+    assert!(
+        bar.state.get().local.is_some(),
+        "placeholder bounds cannot settle the seek"
+    );
+    bar.list.splice(0..0, 1);
+    bar.set_range(
+        Some(HistoryRange {
+            start: 99,
+            rows: 8,
+            total: 107,
+        }),
+        false,
+    );
+    draw(cx);
+    bar.settle();
+    assert_eq!(bar.native_height(100), Some(px(150.)));
+    assert_eq!(
+        bar.list.logical_scroll_top(),
+        ListOffset {
+            item_ix: 1,
+            offset_in_item: px(75.)
+        }
+    );
+}
