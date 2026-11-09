@@ -59,6 +59,8 @@ pub(super) struct Geometry {
     /// Prefix sums of committed heights. Offset reads never rescan the page.
     prefix: Vec<f64>,
     prefix_dirty: bool,
+    measured_sum: Pixels,
+    measured_count: usize,
     estimate: Pixels,
     viewport: Pixels,
     tail: Pixels,
@@ -77,6 +79,30 @@ impl Geometry {
 
     pub fn represents(&self, range: HistoryRange) -> bool {
         self.range == Some(range)
+    }
+
+    /// A censored viewport can contain only the middle of one huge reply.
+    /// Ordinary measurements elsewhere in this resident page are a better
+    /// sample for unknown rows and need no additional rendering.
+    pub fn ordinary_height(&self, viewport: Pixels) -> Option<Pixels> {
+        let mut sum = px(0.);
+        let mut count = 0;
+        for height in self.heights.iter().flatten() {
+            if *height > px(0.) && *height <= viewport {
+                sum += *height;
+                count += 1;
+            }
+        }
+        (count > 0).then(|| sum / count as f32)
+    }
+
+    /// Count each measured reply once, rather than repeating its full height
+    /// over every unknown row. This correction freezes with browsing scale.
+    pub fn known_correction(&self, estimate: Pixels) -> Option<Pixels> {
+        let range = self.range?;
+        (self.measured_count > 0 || range.rows == 0).then(|| {
+            self.measured_sum - estimate * self.measured_count as f32 + self.tail + self.padding
+        })
     }
 
     pub fn refresh(
@@ -155,9 +181,15 @@ impl Geometry {
             self.prefix.clear();
             self.prefix.push(0.);
             let mut height = 0.;
+            self.measured_sum = px(0.);
+            self.measured_count = 0;
             for row in &self.heights {
                 height += f64::from(f32::from(row.unwrap_or(self.estimate)));
                 self.prefix.push(height);
+                if let Some(row) = row {
+                    self.measured_sum += *row;
+                    self.measured_count += 1;
+                }
             }
             self.prefix_dirty = false;
         }

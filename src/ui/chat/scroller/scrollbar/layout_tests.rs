@@ -89,6 +89,9 @@ fn loading_older_members_of_a_folded_run_keeps_the_thumb_at_the_reading_position
     bar.set_range(Some(range), false);
     bar.list.scroll_to_end();
     draw_with_tools(cx, &bar, range, true);
+    // Match ChatScroller::user_scroll: loading starts after actual browsing,
+    // so a page's async calibration must no longer change the track extent.
+    bar.lock_unit();
     for step in 0..500 {
         bar.list.scroll_by(px(-120.));
         draw_with_tools(cx, &bar, range, true);
@@ -143,7 +146,7 @@ impl Render for UnpagedRows {
     }
 }
 
-fn paint_unpaged(cx: &mut VisualTestContext, bar: &HistoryScrollbar, long_row: usize) {
+pub(super) fn paint_unpaged(cx: &mut VisualTestContext, bar: &HistoryScrollbar, long_row: usize) {
     bar.set_viewport_width(px(300.));
     let view = cx.update(|_, cx| cx.new(|_| UnpagedRows(bar.clone(), long_row)));
     cx.draw(point(px(0.), px(0.)), size(px(300.), px(700.)), |_, _| {
@@ -160,15 +163,37 @@ struct ShortPrefixRows {
 impl Render for ShortPrefixRows {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         let heights = self.heights;
+        let rows = self.bar.state.get().range.unwrap().rows;
         let measured = self.bar.clone();
         list(self.bar.list.clone(), move |ix, _, _| {
             measured.measure_row(
                 ix,
-                div().w_full().h(px(heights.get(ix).copied().unwrap_or(0.))),
+                div()
+                    .w_full()
+                    .h(px(if ix < rows { heights[ix] } else { 0. })),
             )
         })
         .size_full()
     }
+}
+
+pub(super) fn paint_short_prefix(
+    cx: &mut VisualTestContext,
+    bar: &HistoryScrollbar,
+    heights: [f32; 7],
+    viewport: Pixels,
+) {
+    bar.set_viewport_width(px(300.));
+    let view = cx.update(|_, cx| {
+        cx.new(|_| ShortPrefixRows {
+            bar: bar.clone(),
+            heights,
+        })
+    });
+    cx.draw(point(px(0.), px(0.)), size(px(300.), viewport), |_, _| {
+        view.into_any_element()
+    });
+    bar.did_layout();
 }
 
 fn assert_uniform_upward_motion_across_short_prefix(prefix_height: f32) {

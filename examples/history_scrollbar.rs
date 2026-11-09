@@ -158,6 +158,7 @@ impl Render for Fixture {
         .size_full();
         let laid_out_scrollbar = self.scrollbar.clone();
         let viewport_scrollbar = self.scrollbar.clone();
+        let input_scrollbar = self.scrollbar.clone();
         div()
             .flex()
             .flex_col()
@@ -176,6 +177,12 @@ impl Render for Fixture {
                     .relative()
                     .flex_1()
                     .min_h_0()
+                    .on_scroll(move |event, window, _| {
+                        let delta = event.delta.pixel_delta(window.line_height());
+                        if delta.y != px(0.) && delta.x.abs() <= delta.y.abs() {
+                            input_scrollbar.lock_unit();
+                        }
+                    })
                     .on_prepaint(move |bounds, _, _| {
                         viewport_scrollbar.set_viewport_width(bounds.size.width)
                     })
@@ -238,6 +245,7 @@ fn main() {
                         cx.background_executor().timer(Duration::from_millis(100)).await;
                         if this.read_with(cx, |this, _| this.list.viewport_bounds().size.height > px(0.)).unwrap() { break }
                     }
+                    this.read_with(cx, |this, _| this.scrollbar.lock_unit()).unwrap();
                     for _ in 0..7 {
                         this.update(cx, |this, cx| {
                             this.list.scroll_to(ListOffset { item_ix: 3, offset_in_item: px(0.) });

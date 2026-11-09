@@ -18,6 +18,11 @@ use measurement::{MeasuredRow, Measurements};
 #[path = "scroll_trace.rs"]
 pub(super) mod scroll_trace;
 
+/// Prior for an unknown ordinary row, used only when the viewport is entirely
+/// censored and no ordinary resident measurement exists yet. A 50,000px reply
+/// is evidence for that one reply, never the mean of all unknown messages.
+const UNKNOWN_ROW_HEIGHT: Pixels = px(100.);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct HistoryRange {
     pub start: usize,
@@ -36,7 +41,11 @@ pub(crate) struct ScrollTarget {
 struct State {
     range: Option<HistoryRange>,
     unit: Option<Pixels>,
+    known_correction: Option<Pixels>,
     unit_locked: bool,
+    /// Paging fixes its sampling scale before user input, but renderer heights
+    /// may still resolve. Only browsing freezes the measured extent correction.
+    extent_locked: bool,
     pending: Option<ScrollTarget>,
     displayed: Option<(ScrollTarget, Pixels)>,
     local: Option<ScrollTarget>,
@@ -69,6 +78,20 @@ impl HistoryScrollbar {
     pub fn set_range(&self, range: Option<HistoryRange>, seeking: bool) -> bool {
         let mut state = self.state.get();
         let changed = state.range != range;
+        if state
+            .range
+            .zip(range)
+            .is_some_and(|(old, new)| new.total < old.total)
+        {
+            // A replacement/rewritten snapshot can remove rows. Its ordinal
+            // space no longer owns the old correction or seek anchors; the
+            // native splice retains the surviving physical reading position.
+            if state.drag_height.is_some() {
+                self.list.scrollbar_drag_ended();
+            }
+            state = State::default();
+            *self.geometry.borrow_mut() = Geometry::default();
+        }
         if changed {
             self.measurements.borrow_mut().set_range(range);
         }
@@ -147,11 +170,12 @@ impl HistoryScrollbar {
     }
 
     pub(super) fn lock_unit(&self) {
-        if self.list.max_offset_for_scrollbar().y > px(0.) {
-            let mut state = self.state.get();
-            state.unit_locked = true;
-            self.state.set(state);
-        }
+        let native_scrollable = self.list.max_offset_for_scrollbar().y > px(0.);
+        let history_scrollable = self.max_offset() > px(0.);
+        let mut state = self.state.get();
+        state.unit_locked |= native_scrollable;
+        state.extent_locked |= history_scrollable;
+        self.state.set(state);
     }
 
     /// Scroll resident data immediately; an unloaded target goes to the owner.
@@ -252,8 +276,6 @@ impl HistoryScrollbar {
         let viewport = self.list.viewport_bounds();
         let start = self.list.logical_scroll_top().item_ix;
         let rows = self.state.get().range.map_or(0, |range| range.rows);
-        let mut count = 0;
-        let mut height = px(0.);
         let mut sample_count = 0;
         let mut sample_height = px(0.);
         for index in start..rows {
@@ -264,8 +286,6 @@ impl HistoryScrollbar {
                 break;
             }
             if bounds.size.height > px(0.) {
-                height += bounds.size.height;
-                count += 1;
                 // A tall clipped reply is much more likely to intersect the
                 // viewport than a short row. Extrapolating its full height to
                 // every unknown row leaves almost the entire track to cover
@@ -273,8 +293,8 @@ impl HistoryScrollbar {
                 // than a viewport of content. Ordinary clipped replies still
                 // contribute, even in the smaller first window layout, so
                 // the sample is not biased toward the shortest messages.
-                // Fall back to all intersecting rows when none qualify
-                // (including a single long first reply).
+                // A censored-only viewport uses ordinary cached measurements
+                // or the explicit prior below, not the full clipped reply.
                 let visible = (bounds.bottom().min(viewport.bottom())
                     - bounds.top().max(viewport.top()))
                 .max(px(0.));
@@ -284,26 +304,34 @@ impl HistoryScrollbar {
                 }
             }
         }
-        if sample_count > 0 {
-            height = sample_height;
-            count = sample_count;
+        let unit = if sample_count > 0 {
+            sample_height / sample_count as f32
+        } else {
+            self.geometry
+                .borrow()
+                .ordinary_height(viewport.size.height)
+                .unwrap_or(UNKNOWN_ROW_HEIGHT)
         }
-        if count > 0 {
-            let unit = (height / count as f32).max(px(1.));
+        .max(px(1.));
+        if viewport.size.height > px(0.) {
             let mut state = self.state.get();
             state.unit = Some(unit);
             self.state.set(state);
-            unit
-        } else {
-            viewport.size.height.max(px(1.))
         }
+        unit
     }
 
     fn height(&self) -> Pixels {
         let state = self.state.get();
         state.drag_height.unwrap_or_else(|| {
-            (self.unit() * state.range.map_or(0, |r| r.total) as f32)
-                .max(self.list.viewport_bounds().size.height)
+            let base = self.unit() * state.range.map_or(0, |r| r.total) as f32;
+            let height = state.known_correction.map_or_else(
+                // The first layout has not committed its measurements yet.
+                // Keep even a single long reply scrollable during that frame.
+                || base.max(self.list.content_size().height + self.padding),
+                |correction| base + correction,
+            );
+            height.max(self.list.viewport_bounds().size.height)
         })
     }
 
@@ -312,11 +340,13 @@ impl HistoryScrollbar {
     }
 
     fn refresh_geometry(&self, range: HistoryRange) {
+        let unit = self.unit();
+        let max = self.max_offset();
         self.geometry.borrow_mut().refresh(
             &self.list,
             range,
-            self.unit(),
-            self.max_offset(),
+            unit,
+            max,
             self.padding,
             std::iter::empty(),
         );
@@ -339,24 +369,35 @@ impl HistoryScrollbar {
         let Some(range) = state.range else {
             return;
         };
-        if !state.unit_locked {
-            // A fresh whole chat may start with one short user row. Calibrate
-            // its growing reply until browsing begins, before freezing scale.
-            let mut state = self.state.get();
-            state.unit = None;
-            self.state.set(state);
-        }
         // The row observer writes into a separate collector during list
         // measurement. Commit it only now; offset queries must never see new
         // heights combined with the mapping of a partially completed layout.
+        let unit = self.unit();
+        let max = self.max_offset();
         self.geometry.borrow_mut().refresh(
             &self.list,
             range,
-            self.unit(),
-            self.max_offset(),
+            unit,
+            max,
             self.padding,
             self.measurements.borrow_mut().drain(),
         );
+        if !state.extent_locked || self.state.get().known_correction.is_none() {
+            if !state.unit_locked {
+                // A fresh chat may still be growing its first reply. Resolve
+                // the provisional sample after this frame's facts committed.
+                let mut state = self.state.get();
+                state.unit = None;
+                self.state.set(state);
+            }
+            let unit = self.unit();
+            if let Some(correction) = self.geometry.borrow().known_correction(unit) {
+                let mut state = self.state.get();
+                state.known_correction = Some(correction);
+                self.state.set(state);
+            }
+            self.refresh_geometry(range);
+        }
         // Remote/fractional seeks pin their requested position in settle.
         if state.displayed.is_some() || state.waiting || state.local.is_some() {
             return;

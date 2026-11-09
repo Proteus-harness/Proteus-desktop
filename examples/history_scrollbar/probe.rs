@@ -78,6 +78,9 @@ pub(super) fn start(report: PathBuf, cx: &mut Context<Fixture>) {
         })
         .unwrap();
         let mut wheel = vec![settled(&this, cx).await];
+        // Direct ListState steps below stand in for real vertical input.
+        this.read_with(cx, |this, _| this.scrollbar.lock_unit())
+            .unwrap();
         for _ in 0..384 {
             this.update(cx, |this, cx| {
                 // This uses the native list's wheel path, excluding OS input
