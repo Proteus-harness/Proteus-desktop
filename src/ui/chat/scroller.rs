@@ -75,6 +75,7 @@ pub(super) struct ChatScroller {
     footer: FooterState,
     footer_height: Pixels,
     reading_gap: Pixels,
+    footer_viewport: Bounds<Pixels>,
     jump: Option<Entity<jump::JumpButton>>,
 }
 
@@ -120,6 +121,7 @@ impl ChatScroller {
             footer: FooterState::default(),
             footer_height: px(0.),
             reading_gap: px(0.),
+            footer_viewport: Bounds::default(),
             jump: None,
         }
     }
@@ -478,7 +480,7 @@ impl ChatScroller {
     /// visible below the viewport belong in the document's scrollbar extent.
     fn measure_footer_layout(&mut self, bounds: Bounds<Pixels>) -> bool {
         let changed = self.measure_footer(bounds.size.height);
-        let needed = (self.list.viewport_bounds().bottom() - bounds.top() - EDGE * 2.)
+        let needed = (self.footer_viewport.bottom() - bounds.top() - EDGE * 2.)
             .max(px(0.))
             .min(self.tail.height());
         self.scrollbar
@@ -718,6 +720,7 @@ impl RenderOnce for ChatList {
                     // Ahead of the rows, so it runs before the list lays out.
                     .on_prepaint(move |bounds, _, cx| {
                         resized.update(cx, |state, cx| {
+                            state.footer_viewport = bounds;
                             let generation = crate::ui::extensions::render_generation(cx);
                             if state.renderer_generation != generation {
                                 state.renderer_generation = generation;
