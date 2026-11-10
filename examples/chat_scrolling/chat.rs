@@ -25,6 +25,12 @@ mod history {
 
 const ROWS: usize = 400;
 
+fn height_layout_fingerprint(_: &App) -> [u8; 32] {
+    // This fixture has fixed native rows, no package configuration, and never
+    // binds a persistent archive. Renderer policy belongs to its chat owner.
+    [0; 32]
+}
+
 fn row_height(row: usize) -> f32 {
     if row % 7 == 0 {
         880.

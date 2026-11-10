@@ -35,6 +35,17 @@ pub(in crate::ui) fn render_generation(cx: &App) -> u64 {
         .map_or(0, |epoch| epoch.0)
 }
 
+/// Reuses the registry's source revision. No filesystem scan or process launch.
+pub(in crate::ui) fn scalar_layout_fingerprint(cx: &App) -> Vec<(&'static str, u64)> {
+    ordered(cx)
+        .into_iter()
+        .filter(|manifest| is_enabled(manifest.id, cx))
+        .filter_map(|manifest| {
+            declarative::installed(manifest.id).map(|installed| (manifest.id, installed.revision))
+        })
+        .collect()
+}
+
 pub(in crate::ui) fn bump_render_generation(cx: &mut App) {
     let next = render_generation(cx).wrapping_add(1);
     cx.set_global(RenderGeneration(next));

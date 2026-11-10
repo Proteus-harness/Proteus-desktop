@@ -10,6 +10,7 @@ use std::{
 };
 
 use super::height_map::{DEFAULT_MAX_SPANS, HeightMap, SPAN_BYTES};
+use super::height_store::{self, Key, Snapshot};
 
 const MAX_BYTES: usize = 8 * 1024 * 1024;
 const IDLE: Duration = Duration::from_secs(1);
@@ -51,10 +52,47 @@ struct Owner {
     map: RefCell<HeightMap>,
     budget: Rc<Budget>,
     touched: Cell<Instant>,
+    persistence: RefCell<Option<Persisted>>,
+}
+
+struct Persisted {
+    key: Key,
+    exported: u64,
+    last_export: Instant,
+}
+
+impl Owner {
+    fn export(&self, map: &HeightMap, force: bool) {
+        let mut persistence = self.persistence.borrow_mut();
+        let Some(state) = persistence.as_mut() else {
+            return;
+        };
+        if state.exported == map.revision()
+            || (!force && state.last_export.elapsed() < height_store::THROTTLE)
+        {
+            return;
+        }
+        let Some(store) = height_store::global() else {
+            return;
+        };
+        let Some(permit) = store.reserve() else {
+            return;
+        };
+        let mut key = state.key.clone();
+        key.prefix = key.prefix.min(map.total_rows());
+        let spans = map.cold_spans(key.prefix);
+        state.exported = map.revision();
+        state.last_export = Instant::now();
+        if spans.iter().all(|span| span.kind == 0) {
+            return;
+        }
+        store.submit(Snapshot::new(key, spans, permit));
+    }
 }
 
 impl Drop for Owner {
     fn drop(&mut self) {
+        self.export(&self.map.borrow(), true);
         if let Ok(mut registry) = self.budget.registry.try_borrow_mut() {
             registry.remove(self.id);
         }
@@ -148,6 +186,7 @@ impl HeightCache {
             map: RefCell::new(HeightMap::with_limit(total, prior, budget.map_spans)),
             budget: budget.clone(),
             touched: Cell::new(Instant::now()),
+            persistence: RefCell::default(),
         });
         budget.registry.borrow_mut().entries.insert(
             id,
@@ -166,6 +205,66 @@ impl HeightCache {
 
     pub fn revision(&self) -> u64 {
         self.read(HeightMap::revision)
+    }
+
+    pub fn bind(&self, key: Key) -> Option<async_channel::Receiver<Option<Snapshot>>> {
+        if self
+            .0
+            .persistence
+            .borrow()
+            .as_ref()
+            .is_some_and(|state| state.key == key)
+        {
+            return None;
+        }
+        // Changing document/layout identity must never label the previous
+        // geometry as belonging to a new revision. Invalidation happens first.
+        *self.0.persistence.borrow_mut() = Some(Persisted {
+            key: key.clone(),
+            exported: u64::MAX,
+            last_export: Instant::now(),
+        });
+        height_store::global()?.load(key)
+    }
+
+    pub fn unbind(&self) {
+        *self.0.persistence.borrow_mut() = None;
+    }
+
+    pub fn import(&self, snapshot: Snapshot, total: usize, protected: Range<usize>) -> bool {
+        if !height_store::available() {
+            return false;
+        }
+        let valid = self.0.persistence.borrow().as_ref().is_some_and(|state| {
+            state.key.identity == snapshot.key.identity
+                && state.key.revision == snapshot.key.revision
+                && state.key.layout == snapshot.key.layout
+                && state.key.prefix >= snapshot.key.prefix
+        });
+        if !valid {
+            return false;
+        }
+        self.mutate(protected.clone(), snapshot.spans.len(), |map, allowed| {
+            map.resize(total);
+            map.merge_cold_protected(&snapshot.spans, snapshot.key.prefix, allowed, protected);
+        });
+        true
+    }
+
+    pub fn flush_all() {
+        SHARED.with(|budget| {
+            let mut owners: Vec<_> = budget
+                .registry
+                .borrow()
+                .entries
+                .values()
+                .filter_map(|entry| entry.owner.upgrade())
+                .collect();
+            owners.sort_unstable_by_key(|owner| std::cmp::Reverse(owner.touched.get()));
+            for owner in owners {
+                owner.export(&owner.map.borrow(), true);
+            }
+        });
     }
 
     /// Reserve a completed batch's worst-case growth before its tree edits.
@@ -242,6 +341,7 @@ impl Drop for Mutation<'_> {
             .registry
             .borrow_mut()
             .account(self.owner.id, charged(&self.map));
+        self.owner.export(&self.map, false);
     }
 }
 

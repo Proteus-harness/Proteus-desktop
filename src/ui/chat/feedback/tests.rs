@@ -88,7 +88,7 @@ fn reconnect_uses_run_or_queued_message_identity() {
 }
 
 #[test]
-fn thinking_yields_to_text_tools_questions_cancel_and_settlement() {
+fn activity_survives_text_and_yields_to_tools_questions_cancel_and_settlement() {
     let mut feedback = Feedback::default();
     let mut execution = running("one");
     feedback.execution(&execution);
@@ -112,7 +112,7 @@ fn thinking_yields_to_text_tools_questions_cancel_and_settlement() {
         phase: None,
         text: "answer".into(),
     });
-    assert!(!feedback.thinking(&execution, false));
+    assert!(feedback.thinking(&execution, false));
     feedback.runtime(&Event::ModelRequestPrepared {
         model: ModelRef::new("fake", "fake"),
     });

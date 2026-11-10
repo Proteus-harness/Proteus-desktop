@@ -208,6 +208,32 @@ pub(super) struct Chat {
 
 impl EventEmitter<ChatEvent> for Chat {}
 
+pub(in crate::ui) fn invalidate_height_cache() {
+    scroller::invalidate_height_cache();
+}
+
+/// The chat owns renderer/font policy; its scroller only adds physical width.
+fn height_layout_fingerprint(cx: &App) -> [u8; 32] {
+    let fonts = RowFonts::current(cx);
+    let view = prefs::current(cx).view;
+    // Source stamps were collected by extension discovery already.
+    scroller::height_hash(format!(
+        "scalar-v1:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{:?}",
+        env!("PROTEUS_BUILD_COMMIT"),
+        fonts.chat,
+        fonts.interface,
+        fonts.mono,
+        f32::from(fonts.interface_size).to_bits(),
+        f32::from(fonts.mono_size).to_bits(),
+        view.scale,
+        view.chat_text,
+        view.chat_width,
+        view.compact_tools,
+        crate::version::LABEL,
+        crate::ui::extensions::scalar_layout_fingerprint(cx)
+    ))
+}
+
 impl Chat {
     pub fn new(
         api: Api,

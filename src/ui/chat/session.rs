@@ -42,7 +42,19 @@ pub(in crate::ui) enum ChatState {
     Trouble(&'static str),
 }
 
+/// One persistent root-turn caption. Tool names remain the same identifiers
+/// as the transcript; rendering does not parse or clone their arguments.
+pub(super) struct Activity<'a> {
+    pub text: &'a str,
+    pub animated: bool,
+}
+
 impl Session {
+    /// Durable session identity, independent of stream/reconnect generations.
+    pub(super) fn durable_id(&self) -> Option<SessionId> {
+        self.snapshot_identity.as_ref().map(|(id, _)| *id)
+    }
+
     pub(super) fn new(dir: PathBuf) -> Self {
         Self {
             key: proteus_tabs::ChatKey::Proteus(dir.clone()),
@@ -174,6 +186,7 @@ impl Session {
             && self.feedback.runtime(&envelope.event)
     }
 
+    #[cfg(test)]
     pub(super) fn thinking(&self) -> bool {
         if let Some(external) = &self.external {
             return self.connected && external.thinking();
@@ -189,6 +202,63 @@ impl Session {
                 .is_some_and(|tool| super::tool_row::is_running(&tool.status))
         });
         !tools_running && self.feedback.thinking(&self.execution, waiting)
+    }
+
+    pub(super) fn activity(&self) -> Option<Activity<'_>> {
+        if !self.connected {
+            return None;
+        }
+        let canceling = self.external.as_ref().map_or_else(
+            || {
+                self.execution
+                    .active
+                    .as_ref()
+                    .is_some_and(|run| run.status == AppRunStatus::CancelRequested)
+            },
+            |run| run.canceling,
+        );
+        if canceling {
+            return Some(Activity {
+                text: "Остановка…",
+                animated: false,
+            });
+        }
+        let waiting = self.pending.as_ref().is_some_and(|pending| {
+            !pending.approvals.is_empty() || !pending.user_inputs.is_empty()
+        }) || self.external.as_ref().is_some_and(|run| run.waiting);
+        if waiting {
+            return self.running().then_some(Activity {
+                text: "Жду ответа",
+                animated: false,
+            });
+        }
+        let active = self.external.as_ref().map_or_else(
+            || self.feedback.active(&self.execution),
+            |run| run.running(),
+        );
+        if !active {
+            return None;
+        }
+        let tool = self
+            .transcript
+            .entries()
+            .iter()
+            .rev()
+            .filter_map(|entry| entry.tool.as_ref())
+            .find(|tool| super::tool_row::is_running(&tool.status));
+        Some(Activity {
+            text: tool.map_or_else(
+                || {
+                    if self.feedback.preparing_tools() {
+                        "Подготавливаю инструменты"
+                    } else {
+                        "Думаю"
+                    }
+                },
+                |tool| tool.name.as_str(),
+            ),
+            animated: true,
+        })
     }
 
     pub fn state(&self) -> ChatState {

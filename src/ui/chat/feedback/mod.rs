@@ -160,8 +160,8 @@ impl Feedback {
         }
     }
 
-    /// The caller filters child-thread events. Tool activity and streamed text
-    /// have their own visible rows; the thinking label yields to them.
+    /// The caller filters child-thread events. Text and tool preparation are
+    /// intermediate work, never a terminal signal for the root activity.
     pub fn runtime(&mut self, event: &Event) -> bool {
         let before = self.phase;
         self.phase = match event {
@@ -181,13 +181,21 @@ impl Feedback {
         before != self.phase
     }
 
+    #[cfg(test)]
     pub fn thinking(&self, execution: &AppExecutionState, waiting_for_user: bool) -> bool {
-        !waiting_for_user
-            && execution
-                .active
-                .as_ref()
-                .is_some_and(|run| run.status == AppRunStatus::Running)
-            && self.phase == Phase::Thinking
+        !waiting_for_user && self.active(execution) && self.phase != Phase::Tools
+    }
+
+    pub fn active(&self, execution: &AppExecutionState) -> bool {
+        execution
+            .active
+            .as_ref()
+            .is_some_and(|run| run.status == AppRunStatus::Running)
+            && self.phase != Phase::Idle
+    }
+
+    pub fn preparing_tools(&self) -> bool {
+        self.phase == Phase::Tools
     }
 
     pub fn clear_activity(&mut self) {

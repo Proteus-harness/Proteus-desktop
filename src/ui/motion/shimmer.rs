@@ -9,11 +9,28 @@ const SWEEP: Duration = Duration::from_millis(1_800);
 
 pub(in crate::ui) struct Shimmer {
     text: SharedString,
+    animated: bool,
 }
 
 impl Shimmer {
     pub(in crate::ui) fn new(text: impl Into<SharedString>) -> Self {
-        Self { text: text.into() }
+        Self {
+            text: text.into(),
+            animated: true,
+        }
+    }
+
+    pub(in crate::ui) fn set_caption(
+        &mut self,
+        text: &str,
+        animated: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if self.text.as_ref() != text || self.animated != animated {
+            self.text = text.to_owned().into();
+            self.animated = animated;
+            cx.notify();
+        }
     }
 }
 
@@ -23,7 +40,7 @@ impl Shimmer {
 /// use_keyed_state observes child changes and would invalidate the parent too.
 impl Render for Shimmer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let moving = super::moves() && !cx.reduce_motion();
+        let moving = self.animated && super::moves() && !cx.reduce_motion();
         let phase = if moving {
             super::ticker::next_tick(window, cx);
             super::ticker::phase(SWEEP)

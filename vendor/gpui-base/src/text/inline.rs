@@ -2404,12 +2404,14 @@ pub(super) mod test_fonts {
 
     pub(crate) const BODY: &str = "Body";
     pub(crate) const MONO: &str = "Mono";
+    pub(crate) const MONO_WITHOUT_CAP_HEIGHT: &str = "Mono without cap height";
     const BODY_ID: FontId = FontId(1);
     const MONO_ID: FontId = FontId(2);
     const BOLD_BODY_ID: FontId = FontId(3);
     const BOLD_MONO_ID: FontId = FontId(4);
     const SEMIBOLD_BODY_ID: FontId = FontId(5);
     const SEMIBOLD_MONO_ID: FontId = FontId(6);
+    const MONO_WITHOUT_CAP_HEIGHT_ID: FontId = FontId(7);
     const UNITS_PER_EM: f32 = 1000.;
 
     pub(crate) struct WideMonoTextSystem;
@@ -2418,7 +2420,7 @@ pub(super) mod test_fonts {
         /// Advance of one glyph in `font_id`, in em units.
         fn advance_units(font_id: FontId) -> f32 {
             match font_id {
-                MONO_ID => 1000.,
+                MONO_ID | MONO_WITHOUT_CAP_HEIGHT_ID => 1000.,
                 BOLD_MONO_ID => 1250.,
                 BODY_ID => 500.,
                 BOLD_BODY_ID => 750.,
@@ -2463,10 +2465,13 @@ pub(super) mod test_fonts {
         }
 
         fn all_font_names(&self) -> Vec<String> {
-            vec![BODY.into(), MONO.into()]
+            vec![BODY.into(), MONO.into(), MONO_WITHOUT_CAP_HEIGHT.into()]
         }
 
         fn font_id(&self, descriptor: &Font) -> anyhow::Result<FontId> {
+            if descriptor.family.as_ref() == MONO_WITHOUT_CAP_HEIGHT {
+                return Ok(MONO_WITHOUT_CAP_HEIGHT_ID);
+            }
             if descriptor.weight == FontWeight::SEMIBOLD {
                 return Ok(if descriptor.family.as_ref() == MONO {
                     SEMIBOLD_MONO_ID
@@ -2487,7 +2492,7 @@ pub(super) mod test_fonts {
             )
         }
 
-        fn font_metrics(&self, _font_id: FontId) -> FontMetrics {
+        fn font_metrics(&self, font_id: FontId) -> FontMetrics {
             FontMetrics {
                 units_per_em: UNITS_PER_EM as u32,
                 ascent: 800.,
@@ -2495,7 +2500,11 @@ pub(super) mod test_fonts {
                 line_gap: 0.,
                 underline_position: -100.,
                 underline_thickness: 50.,
-                cap_height: 700.,
+                cap_height: if font_id == MONO_WITHOUT_CAP_HEIGHT_ID {
+                    0.
+                } else {
+                    700.
+                },
                 x_height: 500.,
                 bounding_box: Bounds {
                     origin: point(0., -200.),

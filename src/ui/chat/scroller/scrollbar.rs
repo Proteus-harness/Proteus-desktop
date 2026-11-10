@@ -15,9 +15,16 @@ use geometry::Geometry;
 mod height_cache;
 #[path = "scrollbar/height_map.rs"]
 mod height_map;
+#[path = "scrollbar/height_store.rs"]
+mod height_store;
+pub(in super::super) use height_store::Key as HeightCacheKey;
 #[path = "scrollbar/measurement.rs"]
 mod measurement;
 use measurement::{MeasuredRow, Measurements};
+
+pub(super) fn invalidate_height_cache() {
+    height_store::invalidate();
+}
 #[cfg(debug_assertions)]
 #[path = "scroll_trace.rs"]
 pub(super) mod scroll_trace;
@@ -64,6 +71,56 @@ pub(crate) struct HistoryScrollbar {
 }
 
 impl HistoryScrollbar {
+    pub(super) fn exclude_document_disk(&self, rows: std::ops::Range<usize>, total: usize) {
+        self.geometry.borrow().exclude_document_disk(rows, total);
+    }
+
+    pub(super) fn exclude_disk(&self, rows: std::ops::Range<usize>) {
+        self.geometry.borrow().exclude_disk(rows);
+    }
+
+    pub(super) fn unbind_height_cache(&self) {
+        self.geometry.borrow().unbind_height_cache();
+    }
+
+    pub(super) fn bind_height_cache(
+        &self,
+        key: HeightCacheKey,
+    ) -> Option<async_channel::Receiver<Option<height_store::Snapshot>>> {
+        self.geometry.borrow().bind_height_cache(key)
+    }
+
+    pub(super) fn import_height_cache(&self, snapshot: height_store::Snapshot) -> bool {
+        let total = self.state.get().range.map_or(0, |range| range.total);
+        let imported = self
+            .geometry
+            .borrow_mut()
+            .import_height_cache(snapshot, total);
+        if imported {
+            self.list.remeasure();
+            crate::startup_trace::mark("chat.height_cache.restored");
+        }
+        imported
+    }
+
+    pub(super) fn init_height_cache(cx: &mut App) {
+        #[derive(Default)]
+        struct Initialized;
+        impl Global for Initialized {}
+        if cx.try_global::<Initialized>().is_some() {
+            return;
+        }
+        cx.set_global(Initialized);
+        cx.on_app_quit(|_| {
+            height_cache::HeightCache::flush_all();
+            if let Some(store) = height_store::global() {
+                store.shutdown(std::time::Duration::from_millis(300));
+            }
+            async {}
+        })
+        .detach();
+    }
+
     pub fn new(list: ListState, padding: Pixels) -> Self {
         Self {
             list,

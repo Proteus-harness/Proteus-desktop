@@ -1,6 +1,6 @@
 //! Shared dividers for sidebars, split panes and data columns.
-//! Static seams stay transparent. A resizable seam keeps a faint one-pixel
-//! line and a seven-pixel grip, with a brighter hover/drag mark. Every source
+//! Static seams stay transparent. A resizable seam keeps a seven-pixel grip
+//! and an optional quiet line, with a brighter hover/drag mark. Every source
 //! must call `drag::start` with its own stable key in the drag constructor.
 
 use super::{drag, prefs};
@@ -30,6 +30,7 @@ pub(super) struct ResizeSeam {
     axis: Axis,
     visible_start: Pixels,
     hit_start: Pixels,
+    idle_line: bool,
 }
 
 impl ResizeSeam {
@@ -38,6 +39,7 @@ impl ResizeSeam {
             axis,
             visible_start: px(0.),
             hit_start: px(0.),
+            idle_line: true,
         }
     }
 
@@ -48,7 +50,15 @@ impl ResizeSeam {
             axis: Axis::Row,
             visible_start,
             hit_start,
+            idle_line: true,
         }
+    }
+
+    /// Adjacent surface fills already separate the sidebar from the chat.
+    /// Keep its drag target and hover mark without an idle hairline.
+    pub(super) fn quiet(mut self) -> Self {
+        self.idle_line = false;
+        self
     }
 
     /// Paint a functional hairline, then its deferred interactive grip.
@@ -65,7 +75,7 @@ impl ResizeSeam {
         };
         line(self.axis, cx)
             .relative()
-            .child(hairline)
+            .when(self.idle_line, |line| line.child(hairline))
             .child(deferred(grip))
     }
 

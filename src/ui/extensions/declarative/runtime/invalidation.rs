@@ -63,6 +63,7 @@ fn broadcast_kind(extension: &str, all: bool, cx: &mut App) {
     // Settings can affect a previously visited row whose content surface is
     // currently unloaded. Active-runtime notifications alone cannot reach it.
     crate::ui::extensions::bump_render_generation(cx);
+    crate::ui::chat::invalidate_height_cache();
     for runtime in runtimes(extension, cx) {
         runtime.update(cx, |runtime, cx| {
             if all {

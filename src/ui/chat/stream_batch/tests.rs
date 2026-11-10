@@ -67,7 +67,7 @@ fn ready() -> (Session, History) {
 }
 
 #[test]
-fn accepted_empty_text_still_hides_thinking_but_lagged_or_child_text_does_not() {
+fn accepted_empty_text_and_child_or_lagged_text_do_not_finish_activity() {
     let (mut session, mut history) = ready();
     session.connected = true;
     session.execution.active = Some(AppRun {
@@ -118,7 +118,7 @@ fn accepted_empty_text_still_hides_thinking_but_lagged_or_child_text_does_not() 
     assert!(outcome.shown());
     assert_eq!(outcome.event_changes().count(), 0);
     assert!(session.transcript.entries().is_empty());
-    assert!(!session.thinking());
+    assert!(session.thinking());
 }
 
 fn run(events: Vec<Box<AppServerEvent>>) -> TextRun {

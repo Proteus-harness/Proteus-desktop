@@ -52,7 +52,7 @@ fn first_turn_child_errors_and_tool_results_cannot_change_parent_thinking() {
             text: "answer".into(),
         },
     ));
-    assert!(!session.thinking());
+    assert!(session.thinking(), "streamed text is not a terminal event");
     session.runtime_feedback(&envelope(
         child,
         Event::ToolFinished {
@@ -60,8 +60,8 @@ fn first_turn_child_errors_and_tool_results_cannot_change_parent_thinking() {
         },
     ));
     assert!(
-        !session.thinking(),
-        "child results must not resurrect parent activity"
+        session.thinking(),
+        "child results must not interrupt parent activity"
     );
     session.runtime_feedback(&envelope(child, started(child)));
     assert_eq!(session.root_thread, Some(root));
@@ -141,4 +141,68 @@ fn reconnect_and_parallel_completion_yield_to_an_approved_running_tool() {
         session.thinking(),
         "model waiting resumes after the remaining tool finishes"
     );
+}
+
+#[test]
+fn activity_caption_stays_visible_through_text_parallel_tools_and_cancel() {
+    let mut session = Session::new("synthetic".into());
+    session.connected = true;
+    session.execution.active = Some(AppRun {
+        run_id: "active".into(),
+        options: Default::default(),
+        status: AppRunStatus::Running,
+        error: None,
+    });
+    session.feedback.execution(&session.execution);
+    assert_eq!(session.activity().unwrap().text, "Думаю");
+    session.feedback.runtime(&Event::AssistantMessageCompleted {
+        message_id: Uuid::from_u128(30),
+        text: "Intermediate reply".into(),
+        phase: None,
+    });
+    assert_eq!(session.activity().unwrap().text, "Думаю");
+    let tool = |name: &str, status: &str| AppTranscriptMessage {
+        timestamp_ms: None,
+        message_id: None,
+        role: "tool".into(),
+        text: String::new(),
+        phase: None,
+        images: vec![],
+        subagent: None,
+        streaming: false,
+        tool: Some(AppTranscriptTool {
+            call_id: name.into(),
+            name: name.into(),
+            args: serde_json::Value::Null,
+            effective_args: None,
+            status: status.into(),
+            result: None,
+            metadata: serde_json::Value::Null,
+            terminal: None,
+        }),
+    };
+    session.transcript.reset(vec![
+        tool("read_file", "approved"),
+        tool("shell", "running"),
+    ]);
+    assert_eq!(session.activity().unwrap().text, "shell");
+    session
+        .transcript
+        .reset(vec![tool("read_file", "approved"), tool("shell", "done")]);
+    session.feedback.runtime(&Event::ToolFinished {
+        result: ToolResult::ok("shell".into(), "done"),
+    });
+    assert_eq!(session.activity().unwrap().text, "read_file");
+    session
+        .transcript
+        .reset(vec![tool("read_file", "done"), tool("shell", "done")]);
+    assert_eq!(session.activity().unwrap().text, "Думаю");
+    session.execution.active.as_mut().unwrap().status = AppRunStatus::CancelRequested;
+    session.feedback.execution(&session.execution);
+    let stopping = session.activity().unwrap();
+    assert_eq!(stopping.text, "Остановка…");
+    assert!(!stopping.animated);
+    session.execution.active = None;
+    session.feedback.execution(&session.execution);
+    assert!(session.activity().is_none());
 }

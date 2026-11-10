@@ -14,6 +14,15 @@ use sum_tree::{Bias, Dimension, Item, SeekTarget, SumTree, Summary};
 pub(super) const SPAN_BYTES: usize = 128;
 pub(super) const DEFAULT_MAX_SPANS: usize = 16 * 1024;
 
+/// Cache storage contains scalar runs only. Measured and stale facts have the
+/// same representation: reopening never restores native layout authority.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct ColdSpan {
+    pub rows: usize,
+    pub pixels: f64,
+    pub kind: u8,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Kind {
     Unknown,
@@ -27,6 +36,9 @@ struct Span {
     rows: usize,
     pixels: f64,
     kind: Kind,
+    /// Disclosures are view-local and reset on reopen. Keep their native
+    /// geometry, but never teach a new view their transient expanded height.
+    persistent: bool,
 }
 
 impl Span {
@@ -51,7 +63,9 @@ impl Span {
     }
 
     fn joins(self, other: Self) -> bool {
-        self.kind == other.kind && self.height() == other.height()
+        self.kind == other.kind
+            && self.persistent == other.persistent
+            && self.height() == other.height()
     }
 }
 
@@ -129,6 +143,115 @@ pub(super) struct HeightMap {
 }
 
 impl HeightMap {
+    pub fn cold_spans(&self, end: usize) -> Vec<ColdSpan> {
+        let mut remaining = end.min(self.total_rows());
+        let mut result: Vec<ColdSpan> = Vec::with_capacity(self.span_count());
+        for span in self.tree.iter() {
+            if remaining == 0 {
+                break;
+            }
+            let rows = remaining.min(span.rows);
+            remaining -= rows;
+            let next = ColdSpan {
+                rows,
+                pixels: if span.persistent {
+                    span.height()
+                } else {
+                    self.prior
+                } * rows as f64,
+                kind: if !span.persistent {
+                    0
+                } else {
+                    match span.kind {
+                        Kind::Unknown => 0,
+                        Kind::Measured | Kind::Stale => 1,
+                        Kind::Approx => 2,
+                    }
+                },
+            };
+            if let Some(previous) = result.last_mut().filter(|previous| {
+                previous.kind == next.kind
+                    && previous.pixels / previous.rows as f64 == next.pixels / next.rows as f64
+            }) {
+                previous.rows += next.rows;
+                previous.pixels += next.pixels;
+            } else {
+                result.push(next);
+            }
+        }
+        result
+    }
+
+    /// Merge an asynchronously read prefix without replacing any facts learned
+    /// since the read started. Imported facts are estimates, including singletons.
+    #[cfg(test)]
+    pub fn merge_cold(&mut self, spans: &[ColdSpan], end: usize, allowed: usize) {
+        self.merge_cold_protected(spans, end, allowed, 0..0);
+    }
+
+    pub fn merge_cold_protected(
+        &mut self,
+        spans: &[ColdSpan],
+        end: usize,
+        allowed: usize,
+        protected: Range<usize>,
+    ) {
+        let mut next = SumTree::new(());
+        let mut cold = spans.iter();
+        let mut candidate = cold.next().copied();
+        let mut row = 0;
+        for native in self.tree.iter() {
+            let mut remaining = native.rows;
+            while remaining > 0 {
+                let rows = candidate.map_or(remaining, |span| remaining.min(span.rows));
+                let restored = candidate.filter(|span| {
+                    row < end
+                        && native.persistent
+                        && (native.kind == Kind::Unknown
+                            || native.kind == Kind::Approx && span.kind != 0)
+                });
+                let span = restored.map_or(
+                    Span {
+                        rows,
+                        pixels: native.height() * rows as f64,
+                        ..*native
+                    },
+                    |span| {
+                        let rows = rows.min(end - row);
+                        Span {
+                            rows,
+                            pixels: span.pixels / span.rows as f64 * rows as f64,
+                            kind: match span.kind {
+                                1 => Kind::Stale,
+                                2 => Kind::Approx,
+                                _ => Kind::Unknown,
+                            },
+                            persistent: true,
+                        }
+                    },
+                );
+                let rows = span.rows;
+                next = join(next, SumTree::from_item(span, ()));
+                remaining -= rows;
+                row += rows;
+                if let Some(span) = candidate.as_mut() {
+                    span.pixels -= span.pixels / span.rows as f64 * rows as f64;
+                    span.rows -= rows;
+                    if span.rows == 0 {
+                        candidate = cold.next().copied();
+                    }
+                }
+            }
+        }
+        self.assign(next);
+        if self.span_count() > allowed {
+            self.compact(protected, allowed);
+            if self.span_count() > allowed {
+                self.compact(0..0, 1);
+            }
+        }
+    }
+
     #[cfg(test)]
     pub fn new(total: usize, prior: f64) -> Self {
         Self::with_limit(total, prior, DEFAULT_MAX_SPANS)
@@ -228,6 +351,7 @@ impl HeightMap {
             rows: 1,
             pixels: height,
             kind: Kind::Measured,
+            persistent: self.span_at(row).is_none_or(|span| span.persistent),
         };
         if self
             .span_at(row)
@@ -263,6 +387,7 @@ impl HeightMap {
                         rows: before_rows,
                         pixels: before_pixels,
                         kind: Kind::Approx,
+                        persistent: span.persistent,
                     },
                     (),
                 );
@@ -274,6 +399,7 @@ impl HeightMap {
                         rows: after_rows,
                         pixels: remaining - before_pixels,
                         kind: Kind::Approx,
+                        persistent: span.persistent,
                     },
                     (),
                 );
@@ -343,6 +469,32 @@ impl HeightMap {
             );
         }
         self.assign(join(join(left, stale), right));
+    }
+
+    pub fn exclude_disk(&mut self, rows: Range<usize>) {
+        let rows = rows.start.min(self.total_rows())..rows.end.min(self.total_rows());
+        if rows.is_empty() {
+            return;
+        }
+        let (left, rest) = split(&self.tree, rows.start);
+        let (middle, right) = split(&rest, rows.len());
+        if middle.iter().all(|span| !span.persistent) {
+            return;
+        }
+        let mut excluded = SumTree::new(());
+        for span in middle.iter() {
+            excluded = join(
+                excluded,
+                SumTree::from_item(
+                    Span {
+                        persistent: false,
+                        ..*span
+                    },
+                    (),
+                ),
+            );
+        }
+        self.assign(join(join(left, excluded), right));
     }
 
     pub fn invalidate_all(&mut self) {
@@ -419,6 +571,7 @@ impl HeightMap {
                             rows,
                             pixels: self.prior * rows as f64,
                             kind: Kind::Unknown,
+                            persistent: true,
                         },
                         (),
                     ),
@@ -436,7 +589,21 @@ impl HeightMap {
         {
             return;
         }
-        self.assign(SumTree::new(()));
+        let mut unknown = SumTree::new(());
+        for span in self.tree.iter() {
+            unknown = join(
+                unknown,
+                SumTree::from_item(
+                    Span {
+                        pixels: prior * span.rows as f64,
+                        kind: Kind::Unknown,
+                        ..*span
+                    },
+                    (),
+                ),
+            );
+        }
+        self.assign(unknown);
         self.prior = prior;
         self.resize(total);
     }
@@ -501,6 +668,8 @@ fn coarse(tree: SumTree<Span>) -> SumTree<Span> {
             rows: tree.summary().rows,
             pixels: tree.summary().pixels,
             kind: Kind::Approx,
+            // Pressure can broaden an exclusion, never silently drop it.
+            persistent: tree.iter().all(|span| span.persistent),
         },
         (),
     )

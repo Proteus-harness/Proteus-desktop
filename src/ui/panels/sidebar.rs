@@ -67,7 +67,7 @@ impl Workspace {
         );
         let name = SharedString::from("sidebar-edge");
         let header = prefs::scaled(crate::ui::tabs::BAR_HEIGHT).to_pixels(cx.theme().font_size);
-        let seam = divider::ResizeSeam::vertical(header + cx.theme().radius_lg, header);
+        let seam = divider::ResizeSeam::vertical(header + cx.theme().radius_lg, header).quiet();
         let grip = seam
             .grip(name.clone(), cx)
             .on_drag(SidebarDrag, move |drag, _, _, cx| {
@@ -84,6 +84,7 @@ impl Workspace {
         let theme = cx.theme();
         let side = div()
             .flex()
+            .bg(theme.sidebar)
             .flex_none()
             .h_full()
             .w(width)

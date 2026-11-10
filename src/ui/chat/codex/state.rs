@@ -22,8 +22,9 @@ impl RunState {
     pub fn running(&self) -> bool {
         self.starting || self.turn.is_some()
     }
+    #[cfg(test)]
     pub fn thinking(&self) -> bool {
-        self.running() && !self.output && !self.waiting && !self.canceling
+        self.running() && !self.waiting && !self.canceling
     }
     pub fn begin(&mut self) -> bool {
         if self.running() {
@@ -157,7 +158,7 @@ mod tests {
         assert!(state.take_interrupt().is_none());
     }
     #[::core::prelude::v1::test]
-    fn request_and_output_suppress_thinking() {
+    fn request_pauses_activity_but_streamed_output_does_not_finish_it() {
         let mut state = RunState::default();
         state.begin();
         assert!(state.thinking());
@@ -165,7 +166,7 @@ mod tests {
         assert!(!state.thinking());
         state.waiting = false;
         state.output = true;
-        assert!(!state.thinking());
+        assert!(state.thinking());
     }
     #[::core::prelude::v1::test]
     fn stop_before_start_is_delivered_once_and_cannot_leak_into_next_turn() {

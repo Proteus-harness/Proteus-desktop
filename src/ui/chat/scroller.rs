@@ -34,10 +34,12 @@ mod scrollbar;
 mod wheel;
 pub(super) use footer::FooterState;
 use middle::MiddleScroll;
+pub(super) use scrollbar::HeightCacheKey;
 use scrollbar::HistoryScrollbar;
 #[cfg(debug_assertions)]
 use scrollbar::scroll_trace;
 pub(super) use scrollbar::{HistoryRange, ScrollTarget};
+use sha2::{Digest, Sha256};
 use wheel::WheelScroll;
 
 const OVERDRAW: Pixels = px(400.);
@@ -49,6 +51,14 @@ const SETTLED: Pixels = px(0.5);
 const EDGE: Pixels = px(8.);
 /// Frames past a disclosure's motion during which the list still holds.
 const HOLD_TAIL: Duration = Duration::from_millis(50);
+
+pub(super) fn height_hash(value: impl AsRef<[u8]>) -> [u8; 32] {
+    Sha256::digest(value.as_ref()).into()
+}
+
+pub(super) fn invalidate_height_cache() {
+    scrollbar::invalidate_height_cache();
+}
 
 pub(super) struct ChatScroller {
     list: ListState,
@@ -72,6 +82,9 @@ pub(super) struct ChatScroller {
     history_edges: (bool, bool),
     archived: bool,
     renderer_generation: u64,
+    height_key: Option<HeightCacheKey>,
+    height_load: Option<Task<()>>,
+    height_metrics: Option<[u8; 32]>,
     footer: FooterState,
     footer_height: Pixels,
     reading_gap: Pixels,
@@ -95,6 +108,10 @@ struct Hold {
 }
 
 impl ChatScroller {
+    pub(super) fn exclude_document_disk(&self, rows: Range<usize>, total: usize) {
+        self.scrollbar.exclude_document_disk(rows, total);
+    }
+
     /// The track spans the chat column, including its fixed composer. The
     /// logical viewport remains the native message list's measured viewport.
     pub(super) fn scrollbar(&self) -> gpui_kit::component::scroll::Scrollbar {
@@ -127,12 +144,59 @@ impl ChatScroller {
             history_edges: (false, false),
             archived: false,
             renderer_generation: 0,
+            height_key: None,
+            height_load: None,
+            height_metrics: None,
             footer: FooterState::default(),
             footer_height: px(0.),
             reading_gap: px(0.),
             footer_viewport: Bounds::default(),
             jump: None,
         }
+    }
+
+    pub(super) fn bind_height_cache(
+        &mut self,
+        key: Option<HeightCacheKey>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.height_key == key {
+            return;
+        }
+        self.height_key = key;
+        self.refresh_height_binding(cx);
+    }
+
+    fn refresh_height_binding(&mut self, cx: &mut Context<Self>) {
+        let Some(mut key) = self.height_key.clone() else {
+            self.height_load = None;
+            self.scrollbar.unbind_height_cache();
+            return;
+        };
+        let Some(size) = self.size.filter(|size| size.width > px(0.)) else {
+            return;
+        };
+        let metrics = *self
+            .height_metrics
+            .get_or_insert_with(|| super::height_layout_fingerprint(cx));
+        let mut hash = Sha256::new();
+        hash.update(metrics);
+        hash.update(f32::from(size.width).to_bits().to_le_bytes());
+        key.layout = hash.finalize().into();
+        HistoryScrollbar::init_height_cache(cx);
+        let Some(receiver) = self.scrollbar.bind_height_cache(key) else {
+            return;
+        };
+        self.height_load = Some(cx.spawn(async move |this, cx| {
+            let Ok(Some(snapshot)) = receiver.recv().await else {
+                return;
+            };
+            let _ = this.update(cx, |this, cx| {
+                if this.scrollbar.import_height_cache(snapshot) {
+                    cx.notify();
+                }
+            });
+        }));
     }
 
     pub(super) fn set_autoscroll(&mut self, autoscroll: bool, cx: &mut Context<Self>) {
@@ -294,6 +358,8 @@ impl ChatScroller {
         self.wheel.invalidate(&self.list);
         self.list.remeasure();
         self.scrollbar.invalidate_layout();
+        self.height_metrics = None;
+        self.refresh_height_binding(cx);
         self.changed(cx);
     }
 
@@ -316,6 +382,7 @@ impl ChatScroller {
     /// list stops following meanwhile: the row stays under the pointer and
     /// grows downwards instead of being pulled up after the end.
     pub(super) fn toggled(&mut self, rows: Range<usize>, cx: &mut Context<Self>) {
+        self.scrollbar.exclude_disk(rows.clone());
         self.wheel.clear(&self.list);
         self.following = false;
         if self.tail.hold(self.list.viewport_bounds().size.height) {
@@ -763,8 +830,14 @@ impl RenderOnce for ChatList {
                                 state.renderer_generation = generation;
                                 state.remeasure(cx);
                             }
+                            let width_changed = state
+                                .size
+                                .is_none_or(|size| size.width != bounds.size.width);
                             if state.keep_end(bounds.size) {
                                 cx.notify();
+                            }
+                            if width_changed {
+                                state.refresh_height_binding(cx);
                             }
                             // The footer itself may be outside native
                             // overdraw. Start with its real content; visible

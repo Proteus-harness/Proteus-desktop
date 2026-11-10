@@ -26,7 +26,13 @@ impl Render for Chat {
             this.render_row(ix, frame_at, window, cx)
         });
         let live = !self.archived();
-        let thinking = live && self.session.thinking();
+        let activity = live.then(|| self.session.activity()).flatten();
+        let thinking = activity.is_some();
+        if let Some(activity) = activity {
+            self.thinking_caption.update(cx, |caption, cx| {
+                caption.set_caption(activity.text, activity.animated, cx);
+            });
+        }
         let footer_state = FooterState {
             thinking,
             receipt: live
@@ -188,6 +194,7 @@ impl Chat {
                                 div()
                                     .pt_4()
                                     .pb_1()
+                                    .truncate()
                                     .text_size(prefs::chat_text(cx))
                                     .child(self.thinking_caption.clone()),
                             )

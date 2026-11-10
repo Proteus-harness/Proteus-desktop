@@ -8,13 +8,34 @@ use gpui_kit::{component::*, *};
 
 #[path = "../src/ui/layout_readiness.rs"]
 pub(crate) mod layout_readiness;
+#[path = "../src/startup_trace.rs"]
+mod startup_trace;
+const APP_ID: &str = "dev.proteus.history-scrollbar-fixture";
+
+// Mirror the production module ancestry so restricted renderer/cache types
+// retain exactly the same visibility in this standalone native fixture.
+#[path = "../src/ui"]
 mod ui {
     pub(crate) use crate::layout_readiness;
+    pub(crate) mod chat {
+        pub(crate) mod scroller {
+            #[path = "scrollbar.rs"]
+            pub(crate) mod scrollbar;
+            pub(crate) fn begin_browsing(bar: &scrollbar::HistoryScrollbar) {
+                bar.begin_browsing();
+            }
+            pub(crate) fn did_layout(bar: &scrollbar::HistoryScrollbar) {
+                bar.did_layout();
+            }
+            pub(crate) fn invalidate_layout(bar: &scrollbar::HistoryScrollbar) {
+                bar.invalidate_layout();
+            }
+        }
+    }
 }
 
-#[path = "../src/ui/chat/scroller/scrollbar.rs"]
-mod scrollbar;
 use scrollbar::{HistoryRange, HistoryScrollbar, ScrollTarget};
+use ui::chat::scroller::{self as fixture_scroll, scrollbar};
 
 #[path = "history_scrollbar/probe.rs"]
 mod probe;
@@ -186,7 +207,7 @@ impl Render for Fixture {
                     .on_scroll(move |event, window, _| {
                         let delta = event.delta.pixel_delta(window.line_height());
                         if delta.y != px(0.) && delta.x.abs() <= delta.y.abs() {
-                            input_scrollbar.begin_browsing();
+                            fixture_scroll::begin_browsing(&input_scrollbar);
                         }
                     })
                     .on_prepaint(move |bounds, _, _| {
@@ -195,7 +216,7 @@ impl Render for Fixture {
                     .child(rows)
                     .child(
                         canvas(
-                            move |_, _, _| laid_out_scrollbar.did_layout(),
+                            move |_, _, _| fixture_scroll::did_layout(&laid_out_scrollbar),
                             |_, _, _, _| {},
                         )
                         .absolute()
@@ -251,7 +272,7 @@ fn main() {
                         cx.background_executor().timer(Duration::from_millis(100)).await;
                         if this.read_with(cx, |this, _| this.list.viewport_bounds().size.height > px(0.)).unwrap() { break }
                     }
-                    this.read_with(cx, |this, _| this.scrollbar.begin_browsing()).unwrap();
+                    this.read_with(cx, |this, _| fixture_scroll::begin_browsing(&this.scrollbar)).unwrap();
                     for _ in 0..7 {
                         this.update(cx, |this, cx| {
                             this.list.scroll_to(ListOffset { item_ix: 3, offset_in_item: px(0.) });

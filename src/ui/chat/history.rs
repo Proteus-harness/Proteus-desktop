@@ -433,8 +433,30 @@ impl Chat {
     pub(super) fn sync_history_range(&mut self, cx: &mut Context<Self>) {
         self.sync_height_rebase(cx);
         let range = self.history.range(&self.session.transcript);
+        // The archive revision owns only completed rows before the cursor.
+        // Its last row also depends on the mutable successor's group/footer.
+        let height_key = self.history.cursor.as_ref().and_then(|cursor| {
+            let session = self.session.durable_id()?;
+            let root = self.session.root_thread?;
+            Some(super::scroller::HeightCacheKey {
+                identity: super::scroller::height_hash(format!(
+                    "{}:{session}:{root}",
+                    self.session.key.tab_id()
+                )),
+                revision: super::scroller::height_hash(&cursor.revision),
+                layout: [0; 32],
+                prefix: cursor.before.saturating_sub(1),
+                base: cursor.base.as_ref().map(|base| {
+                    (
+                        super::scroller::height_hash(&base.revision),
+                        base.common_prefix.saturating_sub(1),
+                    )
+                }),
+            })
+        });
         self.scroller.update(cx, |state, cx| {
             state.set_history_range(range, self.history.seek.is_some(), cx);
+            state.bind_height_cache(height_key, cx);
         });
     }
 
@@ -442,11 +464,50 @@ impl Chat {
         if let Some(prefix) = self.history.take_height_rebase() {
             self.scroller
                 .update(cx, |state, cx| state.rebase_history(prefix, cx));
+            // A rewritten suffix may move still-open view state to another
+            // ordinal. Rebind only the bounded resident disclosure identities;
+            // do not retain IDs for the whole history or scan on each layout.
+            if let Some(range) = self.history.range(&self.session.transcript) {
+                let exclusions = self.disclosed_height_rows();
+                self.scroller.update(cx, |state, _| {
+                    for rows in exclusions {
+                        state.exclude_document_disk(
+                            range.start + rows.start..range.start + rows.end,
+                            range.total,
+                        );
+                    }
+                });
+            }
         }
         if let Some(rows) = self.history.take_live_height_rows() {
             self.scroller
                 .update(cx, |state, cx| state.invalidate_history_rows(rows, cx));
         }
+    }
+
+    fn disclosed_height_rows(&self) -> Vec<Range<usize>> {
+        let entries = self.display_transcript().entries();
+        let mut excluded: Vec<Range<usize>> = Vec::new();
+        for (row, entry) in entries.iter().enumerate() {
+            let key = entry.key;
+            if self.expanded.contains(&key)
+                || self.full_blocks.contains(&(key, 0))
+                || self.full_blocks.contains(&(key, 1))
+                || self.open_chains.contains(&key)
+                || self.tool_diffs.contains_key(&key)
+            {
+                let rows = crate::transcript::affected_rows(entries, row);
+                if let Some(previous) = excluded
+                    .last_mut()
+                    .filter(|previous| previous.end >= rows.start)
+                {
+                    previous.end = previous.end.max(rows.end);
+                } else {
+                    excluded.push(rows);
+                }
+            }
+        }
+        excluded
     }
 
     pub(super) fn seek_history(&mut self, target: ScrollTarget, cx: &mut Context<Self>) {

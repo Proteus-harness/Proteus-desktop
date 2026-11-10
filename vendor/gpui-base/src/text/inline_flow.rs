@@ -1272,7 +1272,16 @@ fn code_background(
         .iter()
         .map(|run| {
             let font = window.text_system().resolve_font(&run.font);
-            window.text_system().cap_height(font, font_size)
+            let cap_height = window.text_system().cap_height(font, font_size);
+            // OS/2 versions before 2 do not have sCapHeight. For example,
+            // DejaVu Sans Mono reports zero through the Linux text backend.
+            // Keep the chip around the measured glyph body in that case;
+            // treating the missing metric as a height collapses it at the baseline.
+            if cap_height > Pixels::ZERO {
+                cap_height
+            } else {
+                shaped_line.ascent
+            }
         })
         .fold(Pixels::ZERO, Pixels::max);
     let vertical_padding = font_size * 0.125 + shaped_line.descent / 2.;
@@ -2381,6 +2390,92 @@ mod tests {
             let layout = layout_flow(&items, &[None], &style, None, window, cx);
             assert_eq!(layout.size.height, window.pixel_snap(px(30.)));
         });
+    }
+
+    #[test]
+    fn inline_code_without_cap_height_keeps_its_background_around_the_glyph_body() {
+        use super::super::inline::test_fonts::{
+            BODY, MONO, MONO_WITHOUT_CAP_HEIGHT, WideMonoTextSystem,
+        };
+        use gpui::{Empty, HighlightStyle, TestApp, UnderlineStyle};
+
+        let mut app = TestApp::with_text_system(Arc::new(WideMonoTextSystem));
+        let mut window = app.open_window(|_, _| Empty);
+        for body_size in [16., 32.] {
+            for explicit_padding in [false, true] {
+                window.update(|_, window, cx| {
+                    let text_style = TextStyle {
+                        font_family: BODY.into(),
+                        font_size: px(body_size).into(),
+                        ..Default::default()
+                    };
+                    let underline = UnderlineStyle::default();
+                    let layout = |family: &str, window: &mut Window, cx: &mut App| {
+                        let items = vec![MeasureItem::Text {
+                            text: "before git diff --check after".into(),
+                            links: vec![],
+                            highlights: vec![(
+                                7..23,
+                                InlineHighlight {
+                                    font_family: Some(family.to_string().into()),
+                                    font_size_scale: Some(0.875),
+                                    code_style: explicit_padding
+                                        .then(|| StyleRefinement::default().py(px(1.))),
+                                    style: HighlightStyle {
+                                        background_color: Some(gpui::green()),
+                                        underline: Some(underline),
+                                        ..Default::default()
+                                    },
+                                },
+                            )],
+                        }];
+                        layout_flow(&items, &[None], &text_style, None, window, cx)
+                    };
+                    let reference = layout(MONO, window, cx);
+                    let missing = layout(MONO_WITHOUT_CAP_HEIGHT, window, cx);
+                    assert_eq!(missing.size, reference.size, "chip must not change layout");
+                    for (fragment, expected) in missing.fragments.iter().zip(&reference.fragments) {
+                        let PositionedFragment::Text {
+                            text,
+                            origin,
+                            size,
+                            font_size,
+                            highlights,
+                            code_background,
+                            ..
+                        } = fragment
+                        else {
+                            panic!("expected text")
+                        };
+                        let PositionedFragment::Text {
+                            origin: expected_origin,
+                            size: expected_size,
+                            ..
+                        } = expected
+                        else {
+                            panic!("expected text")
+                        };
+                        assert_eq!((origin, size), (expected_origin, expected_size));
+                        if text.as_ref() != "git diff --check" {
+                            assert!(code_background.is_none());
+                            continue;
+                        }
+                        let code = code_background.as_ref().expect("code background");
+                        let runs = text_runs(text.len(), &text_style, highlights);
+                        let shaped = shape_line(text.clone(), *font_size, &runs, window);
+                        let insets = code_insets(highlights, *font_size, window.rem_size());
+                        let baseline = origin.y
+                            + insets.top
+                            + centered_baseline(&shaped, size.height - insets.top - insets.bottom);
+                        assert!(code.bounds.top() <= baseline - *font_size * 0.7);
+                        assert!(code.bounds.bottom() >= baseline + shaped.descent);
+                        assert_eq!(code.bounds.size.width, size.width);
+                        assert_eq!(code.style.background, Some(gpui::green().into()));
+                        assert_eq!(highlights[0].1.style.underline, Some(underline));
+                    }
+                });
+            }
+        }
     }
 
     #[test]

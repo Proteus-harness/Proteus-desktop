@@ -79,6 +79,48 @@ pub(super) struct Geometry {
 }
 
 impl Geometry {
+    pub fn exclude_disk(&self, rows: std::ops::Range<usize>) {
+        if let Some(range) = self.range {
+            let start = range.start + rows.start.min(range.rows);
+            let end = range.start + rows.end.min(range.rows);
+            self.exclude_document_disk(start..end, range.total);
+        }
+    }
+
+    pub fn exclude_document_disk(&self, rows: std::ops::Range<usize>, total: usize) {
+        self.cache.mutate(rows.clone(), 4, |map, _| {
+            map.resize(total);
+            map.exclude_disk(rows);
+        });
+    }
+
+    pub fn unbind_height_cache(&self) {
+        self.cache.unbind();
+    }
+
+    pub fn bind_height_cache(
+        &self,
+        key: super::HeightCacheKey,
+    ) -> Option<async_channel::Receiver<Option<super::height_store::Snapshot>>> {
+        self.cache.bind(key)
+    }
+
+    pub fn import_height_cache(
+        &mut self,
+        snapshot: super::height_store::Snapshot,
+        total: usize,
+    ) -> bool {
+        let protected = self
+            .range
+            .map_or(0..0, |range| range.start..range.start + range.rows);
+        if !self.cache.import(snapshot, total, protected) {
+            return false;
+        }
+        self.prefix_dirty = true;
+        self.invalidated = true;
+        true
+    }
+
     #[cfg(debug_assertions)]
     pub fn diagnostic_mapping(&self) -> [[f64; 2]; 3] {
         [self.mapping.left, self.mapping.pivot, self.mapping.right].map(|k| [k.pixel, k.track])
@@ -397,6 +439,9 @@ impl Geometry {
         self.cache.mutate(0..0, 0, |map, _| {
             map.reset(total, f64::from(f32::from(super::UNKNOWN_ROW_HEIGHT)))
         });
+        // Even an equivalent explicit reset may have discarded all scalars;
+        // allow the following bind to reload its compatible disk estimates.
+        self.cache.unbind();
         self.heights.fill(None);
         self.stale.fill(true);
         self.resident_delta = 0.;
