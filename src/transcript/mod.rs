@@ -611,6 +611,7 @@ pub(crate) use text_run::{TextRun, TextRunOutcome};
 
 pub use cache::window_changes;
 
+pub(crate) use chains::tool_run;
 pub use chains::{affected_rows, tool_chain};
 
 #[cfg(test)]

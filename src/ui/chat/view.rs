@@ -39,8 +39,16 @@ impl Render for Chat {
                 .unwrap_or_else(|| div().into_any_element())
         });
         let running = self.session.connected && self.session.running();
+        let scrollbar = self.scroller.read(cx).scrollbar();
+        let incomplete_rows = super::row_layout::row_context(
+            self.display_transcript().entries(),
+            prefs::current(cx).view.compact_tools,
+            self.history.range(&self.session.transcript),
+        )
+        .incomplete_rows();
         v_flex()
             .id("chat")
+            .relative()
             .when_some(
                 self.readonly.as_ref().map(|binding| binding.focus.clone()),
                 |view, focus| view.track_focus(&focus),
@@ -63,6 +71,8 @@ impl Render for Chat {
                     .min_h_0()
                     .child(
                         ChatList::new("thread", self.scroller.clone(), renderer)
+                            .scrollbar(false)
+                            .incomplete_rows(incomplete_rows)
                             .footer(footer_state, move |window, cx| footer(thinking, window, cx))
                             .running(running),
                     )
@@ -96,6 +106,7 @@ impl Render for Chat {
             .when(self.readonly.is_none(), |view| {
                 view.child(self.render_composer(window, cx))
             })
+            .child(div().absolute().inset_0().child(scrollbar))
     }
 }
 

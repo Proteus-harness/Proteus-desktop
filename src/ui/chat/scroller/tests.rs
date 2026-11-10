@@ -11,6 +11,91 @@ struct DisclosureRows {
     height: std::rc::Rc<std::cell::Cell<gpui_kit::Pixels>>,
 }
 
+#[test]
+fn a_cancelled_context_request_drops_its_unresolved_fraction_without_moving_the_reader() {
+    let mut app = ::gpui::TestAppContext::single();
+    app.update(|cx| {
+        cx.new(|cx| {
+            let mut state = ChatScroller::new(false);
+            state.list.splice(0..0, 50);
+            state.scrollbar.set_range(
+                Some(HistoryRange {
+                    start: 50,
+                    rows: 50,
+                    total: 200,
+                }),
+                false,
+            );
+            assert!(state.scrollbar.scroll_to(super::ScrollTarget {
+                row: 75,
+                fraction: 0.5
+            }));
+            assert!(state.scrollbar.settle(), "fraction still waits for context");
+            let anchor = state.list.logical_scroll_top();
+            state.history_cancelled(cx);
+            assert!(
+                !state.scrollbar.settle(),
+                "cancelled loader must not drive frames forever"
+            );
+            assert_eq!(state.list.logical_scroll_top(), anchor);
+            state
+        })
+    });
+}
+
+#[test]
+fn repeated_known_row_remeasurement_does_not_starve_queued_wheel() {
+    let mut app = ::gpui::TestAppContext::single();
+    app.update(|cx| {
+        gpui_kit::init(cx);
+        crate::ui::prefs::init_in_memory(cx);
+    });
+    let cx = app.add_empty_window();
+    let scroller = cx.update(|_, cx| {
+        cx.new(|_| {
+            let mut state = ChatScroller::new(false);
+            state.list.splice(0..0, 20);
+            state.following = false;
+            state.wheel_up = true;
+            state.list.scroll_to(ListOffset {
+                item_ix: 3,
+                offset_in_item: px(0.),
+            });
+            state
+        })
+    });
+    let view = cx.update(|_, cx| {
+        cx.new(|_| DisclosureRows {
+            scroller: scroller.clone(),
+            height: std::rc::Rc::new(std::cell::Cell::new(px(100.))),
+        })
+    });
+    let draw = |cx: &mut ::gpui::VisualTestContext| {
+        cx.draw(point(px(0.), px(0.)), size(px(300.), px(400.)), |_, _| {
+            view.clone().into_any_element()
+        });
+    };
+    draw(cx);
+    cx.update(|_, cx| {
+        scroller.update(cx, |state, _| {
+            state.user_scroll(point(px(0.), px(-600.)));
+        });
+    });
+    for _ in 0..3 {
+        // A content reply arrives before every frame, including for a row
+        // the queued movement will cross. It must retain one measured step.
+        cx.update(|_, cx| {
+            scroller.update(cx, |state, cx| state.remeasure_items(6..7, cx));
+        });
+        draw(cx);
+    }
+    cx.update(|_, cx| {
+        let top = scroller.read(cx).list.logical_scroll_top();
+        assert_eq!(top.item_ix, 9);
+        assert_eq!(top.offset_in_item, px(0.));
+    });
+}
+
 impl Render for DisclosureRows {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         let height = self.height.get();

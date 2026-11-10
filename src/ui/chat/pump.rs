@@ -129,7 +129,7 @@ impl Chat {
                 let (change, display) = session.apply_snapshot(*snapshot, &mut self.history);
                 if cancelled {
                     self.scroller
-                        .update(cx, |state, cx| state.history_ready(cx));
+                        .update(cx, |state, cx| state.history_cancelled(cx));
                 }
                 if settled {
                     cx.emit(ChatEvent::RunSettled);

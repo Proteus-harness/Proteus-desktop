@@ -305,7 +305,7 @@ impl Render for ContextRows {
             } else {
                 100.
             };
-            bar.measure_chat_row(ix, div().w_full().h(px(height)))
+            bar.measure_chat_row(ix, div().w_full().h(px(height)), true)
         })
         .size_full()
     }

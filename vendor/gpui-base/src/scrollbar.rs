@@ -821,6 +821,7 @@ pub struct Scrollbar {
     viewport_bounds: Option<Bounds<Pixels>>,
     // Scroll range may use a smaller viewport than the padded track bounds.
     scroll_viewport_size: Option<Size<Pixels>>,
+    scroll_viewport_from_handle: bool,
     use_layout_bounds: bool,
     /// Maximum frames per second for scrolling by drag. Default is 120 FPS.
     ///
@@ -846,6 +847,7 @@ impl Scrollbar {
             scroll_size: None,
             viewport_bounds: None,
             scroll_viewport_size: None,
+            scroll_viewport_from_handle: false,
             use_layout_bounds: false,
             styles: ScrollbarStyles::default(),
         }
@@ -901,6 +903,26 @@ impl Scrollbar {
     pub(crate) fn scroll_viewport_size(mut self, size: Size<Pixels>) -> Self {
         self.scroll_viewport_size = Some(size);
         self
+    }
+
+    /// Use the handle's current viewport size for the scroll range and thumb ratio.
+    ///
+    /// Combine with [`Self::viewport_from_layout`] when the track spans a larger
+    /// composite widget than its scrolling content. The handle is read during
+    /// prepaint, after content layout. An explicit logical viewport size wins.
+    pub fn scroll_viewport_from_handle(mut self) -> Self {
+        self.scroll_viewport_from_handle = true;
+        self
+    }
+
+    fn resolved_scroll_viewport_size(&self, track_size: Size<Pixels>) -> Size<Pixels> {
+        self.scroll_viewport_size.unwrap_or_else(|| {
+            if self.scroll_viewport_from_handle {
+                self.scroll_handle.viewport_bounds().size
+            } else {
+                track_size
+            }
+        })
     }
 
     /// Use the scrollbar element's layout bounds as its viewport.
@@ -1379,7 +1401,7 @@ impl Element for Scrollbar {
         let scroll_size = self
             .scroll_size
             .unwrap_or(self.scroll_handle.content_size());
-        let scroll_viewport_size = self.scroll_viewport_size.unwrap_or(hitbox.size);
+        let scroll_viewport_size = self.resolved_scroll_viewport_size(hitbox.size);
 
         let has_both = has_both
             && scroll_size.width > scroll_viewport_size.width
@@ -1447,31 +1469,72 @@ impl Element for Scrollbar {
                 },
             };
 
-            let is_always_to_show = mode.is_always();
-            let is_hover_to_show = mode.is_hover();
-            let is_hovered_on_bar = state.get().hovered_axis == Some(axis);
-            let is_hovered_on_thumb = state.get().hovered_on_thumb == Some(axis);
-
-            let (thumb_bg, bar_bg, bar_border, mut thumb_width, inset, radius, min_length) =
-                if state.get().dragged_axis == Some(axis) {
+            let resolve_style = |inner: ScrollbarStateInner| {
+                if inner.dragged_axis == Some(axis) {
                     self.style_for_active(cx)
-                } else if (is_hover_to_show || mode == ScrollbarMode::Scrolling)
-                    && (is_hovered_on_bar || is_hovered_on_thumb)
-                {
-                    if is_hovered_on_thumb {
-                        self.style_for_hovered_thumb(cx)
-                    } else {
-                        self.style_for_hovered_bar(cx)
-                    }
-                } else if is_always_to_show && (is_hovered_on_bar || is_hovered_on_thumb) {
-                    if is_hovered_on_thumb {
-                        self.style_for_hovered_thumb(cx)
-                    } else {
-                        self.style_for_hovered_bar(cx)
-                    }
+                } else if inner.hovered_on_thumb == Some(axis) {
+                    self.style_for_hovered_thumb(cx)
+                } else if inner.hovered_axis == Some(axis) {
+                    self.style_for_hovered_bar(cx)
                 } else {
                     self.style_for_normal(cx)
-                };
+                }
+            };
+            let origin = if is_vertical {
+                bounds.origin.y
+            } else {
+                bounds.origin.x
+            };
+            let geometry_for_style = |inset, min_length| {
+                ThumbGeometry::new(
+                    origin,
+                    container_size,
+                    scroll_viewport_size,
+                    scroll_area_size,
+                    margin_end,
+                    inset,
+                    min_length,
+                )
+            };
+            let thumb_bounds_for_geometry = |geometry: ThumbGeometry| {
+                let thumb_start = geometry.start(scroll_position) - origin;
+                if is_vertical {
+                    Bounds::from_anchor_and_size(
+                        Anchor::TopRight,
+                        bounds.top_right() + point(-geometry.inset, thumb_start),
+                        size(track_width, geometry.length),
+                    )
+                } else {
+                    Bounds::from_anchor_and_size(
+                        Anchor::BottomLeft,
+                        bounds.bottom_left() + point(thumb_start, -geometry.inset),
+                        size(geometry.length, track_width),
+                    )
+                }
+            };
+
+            let mut style = resolve_style(state.get());
+            let mut geometry = geometry_for_style(style.4, style.6);
+            let mut thumb_bounds = thumb_bounds_for_geometry(geometry);
+            let inner = state.get();
+            if inner.dragged_axis.is_none()
+                && inner.hovered_axis == Some(axis)
+                && tracks_thumb_hover(mode, visible || visibility.opacity > 0.0)
+            {
+                // Wheel scrolling and layout can move the thumb beneath a
+                // stationary pointer. Reconcile against this frame's geometry
+                // before choosing its colour and width, not on the next mouse
+                // move. The established track hover retains hitbox occlusion.
+                let hovered = thumb_bounds.contains(&window.mouse_position());
+                if hovered != (inner.hovered_on_thumb == Some(axis)) {
+                    let hovered_axis = hovered.then_some(axis);
+                    state.set(inner.with_hovered_on_thumb(hovered_axis));
+                    style = resolve_style(state.get());
+                    geometry = geometry_for_style(style.4, style.6);
+                    thumb_bounds = thumb_bounds_for_geometry(geometry);
+                }
+            }
+            let (thumb_bg, bar_bg, bar_border, mut thumb_width, inset, radius, _) = style;
 
             let mut width_animation = if is_vertical {
                 state.get().vertical_width
@@ -1491,47 +1554,10 @@ impl Element for Scrollbar {
                 window.request_animation_frame();
             }
 
-            let origin = if is_vertical {
-                bounds.origin.y
-            } else {
-                bounds.origin.x
-            };
-            let geometry = ThumbGeometry::new(
-                origin,
-                container_size,
-                scroll_viewport_size,
-                scroll_area_size,
-                margin_end,
-                inset,
-                min_length,
-            );
             let (_, _, _, _, active_inset, _, active_min_length) = self.style_for_active(cx);
-            let active_geometry = ThumbGeometry::new(
-                origin,
-                container_size,
-                scroll_viewport_size,
-                scroll_area_size,
-                margin_end,
-                active_inset,
-                active_min_length,
-            );
+            let active_geometry = geometry_for_style(active_inset, active_min_length);
             let thumb_start = geometry.start(scroll_position) - origin;
-
-            // The clickable area of the thumb
             let thumb_length = geometry.length;
-            let thumb_bounds = if is_vertical {
-                Bounds::from_anchor_and_size(
-                    Anchor::TopRight,
-                    bounds.top_right() + point(-inset, thumb_start),
-                    size(track_width, thumb_length),
-                )
-            } else {
-                Bounds::from_anchor_and_size(
-                    Anchor::BottomLeft,
-                    bounds.bottom_left() + point(thumb_start, -inset),
-                    size(thumb_length, track_width),
-                )
-            };
 
             // The actual render area of the thumb
             let thumb_fill_bounds = if is_vertical {
@@ -2936,6 +2962,13 @@ mod tests {
                                 Modifiers::default(),
                             );
                         }
+                        // Moves update the handle immediately, but painting is
+                        // coalesced at the configured 120 Hz. Let that trailing
+                        // notification run before checking painted geometry.
+                        cx.run_until_parked();
+                        cx.executor()
+                            .advance_clock(Duration::from_secs_f64(1. / 120.));
+                        cx.run_until_parked();
                         cx.update(|window, cx| window.draw(cx).clear(cx));
                         if delta == 0. {
                             reference_offset = axis_value(handle.offset());
@@ -3043,3 +3076,7 @@ mod tests {
         assert_eq!(handle.drag_ends.get(), 1);
     }
 }
+
+#[cfg(test)]
+#[path = "scrollbar/interaction_tests.rs"]
+mod interaction_tests;

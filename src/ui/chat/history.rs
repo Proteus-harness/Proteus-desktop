@@ -9,6 +9,9 @@ use proteus_contracts::app_protocol::{
     AppTranscriptCursor, AppTranscriptMessage, AppTranscriptPage,
 };
 
+mod context;
+use context::ContextSeek;
+
 const PAGE_ROWS: usize = 50;
 const CACHE_ROWS: usize = 200;
 const CACHE_BYTES: usize = 8 * 1024 * 1024;
@@ -46,6 +49,7 @@ pub(super) struct History {
     epoch: u64,
     loading: bool,
     seek: Option<ScrollTarget>,
+    context_seek: Option<ContextSeek>,
 }
 
 struct HistoryWindow {
@@ -124,7 +128,7 @@ impl History {
         self.seek.is_some()
     }
     pub(super) fn request_pending(&self) -> bool {
-        self.loading || self.seek.is_some()
+        self.loading || self.seek.is_some() || self.context_seek.is_some()
     }
 
     pub(super) fn begin_request(&mut self) -> Option<u64> {
@@ -164,7 +168,7 @@ impl History {
             .is_none_or(|range| range.start + range.rows == range.total)
     }
 
-    fn range(&self, live: &Transcript) -> Option<HistoryRange> {
+    pub(super) fn range(&self, live: &Transcript) -> Option<HistoryRange> {
         // No cursor still means a virtual list with unmeasured earlier rows.
         let before = self.cursor.as_ref().map_or(0, |cursor| cursor.before);
         let rows = self.displayed(live).entries().len();
@@ -220,6 +224,7 @@ impl History {
         self.epoch += 1;
         self.loading = false;
         self.seek = None;
+        self.context_seek = None;
         (change, display)
     }
 
@@ -227,6 +232,7 @@ impl History {
         self.epoch += 1;
         self.loading = false;
         self.seek = None;
+        self.context_seek = None;
         self.archive.take().map_or_else(Vec::new, |window| {
             window_changes(window.transcript.entries(), live.entries())
         })
@@ -271,6 +277,8 @@ impl History {
         {
             return None;
         }
+        let loaded_count = page.messages.len();
+        let visible = self.context_visible(visible);
         let window = self.archive.get_or_insert_with(|| HistoryWindow {
             start: self.cursor.as_ref().unwrap().before,
             transcript: live.clone(),
@@ -290,6 +298,14 @@ impl History {
             _ => return None,
         };
         let mut changes = vec![change];
+        if let Some(seek) = &mut self.context_seek {
+            let entries = window.transcript.entries();
+            let loaded = match direction {
+                Direction::Older => &entries[..loaded_count],
+                Direction::Newer => &entries[entries.len() - loaded_count..],
+            };
+            seek.loaded(loaded);
+        }
         if let Some(change) = window.trim(direction, visible) {
             changes.push(change);
         }
@@ -297,6 +313,7 @@ impl History {
     }
 
     fn merge_tail(&mut self, live: &Transcript, visible: Range<usize>) -> Vec<Change> {
+        let visible = self.context_visible(visible);
         let Some(cursor) = &self.cursor else {
             return Vec::new();
         };
@@ -313,6 +330,9 @@ impl History {
             return self.latest(live);
         }
         let mut changes = vec![window.transcript.append_known(&live.entries()[offset..])];
+        if let Some(seek) = &mut self.context_seek {
+            seek.loaded(&live.entries()[offset..]);
+        }
         if let Some(change) = window.trim(Direction::Newer, visible) {
             changes.push(change);
         }
@@ -327,7 +347,9 @@ impl History {
     }
 
     fn cancel_seek(&mut self) -> bool {
-        if self.seek.take().is_none() {
+        let seek = self.seek.take();
+        let context = self.context_seek.take();
+        if seek.is_none() && context.is_none() {
             return false;
         }
         self.epoch += 1;
@@ -435,8 +457,9 @@ impl Chat {
             self.show_latest(cx);
         } else if (range.start..range.start + range.rows).contains(&target.row) {
             self.cancel_history_seek(cx);
-            if let Some(direction) = seek_context(range, target) {
-                self.load_history(direction, cx);
+            if target.fraction != 0. {
+                self.history.context_seek = Some(ContextSeek::new(target));
+                self.resume_history_context(cx);
             }
         } else if target.row >= self.history.cursor.as_ref().unwrap().before {
             let changes = self.history.latest(&self.session.transcript);
@@ -444,6 +467,7 @@ impl Chat {
             self.scroller
                 .update(cx, |state, cx| state.scroll_to_history(target, cx));
         } else {
+            self.history.context_seek = None;
             self.history.seek = Some(target);
             self.load_history_seek(cx);
         }
@@ -465,9 +489,12 @@ impl Chat {
             return;
         };
         let Some(request) = self.begin_history_request(false) else {
+            self.stop_history_context(cx);
             return;
         };
         let Some(api) = self.api.clone() else {
+            self.finish_history_request(request, cx);
+            self.stop_history_context(cx);
             return;
         };
         let dir = self.session.dir.clone();
@@ -529,14 +556,25 @@ impl Chat {
             if direction == Direction::Newer && self.history.archived() {
                 let visible = self.scroller.read(cx).visible_rows();
                 let changes = self.history.merge_tail(&self.session.transcript, visible);
+                let progressed = !changes.is_empty();
                 self.apply_history_changes(changes, cx);
+                if progressed {
+                    self.resume_history_context(cx);
+                } else {
+                    self.stop_history_context(cx);
+                }
+            } else {
+                self.stop_history_context(cx);
             }
             return;
         };
         let Some(request) = self.begin_history_request(false) else {
+            self.stop_history_context(cx);
             return;
         };
         let Some(api) = self.api.clone() else {
+            self.finish_history_request(request, cx);
+            self.stop_history_context(cx);
             return;
         };
         let dir = self.session.dir.clone();
@@ -565,11 +603,14 @@ impl Chat {
                             visible,
                         ) {
                             this.apply_history_changes(changes, cx);
+                            this.resume_history_context(cx);
                         } else {
+                            this.stop_history_context(cx);
                             this.history_changed(cx);
                         }
                     }
                     Err(error) => {
+                        this.stop_history_context(cx);
                         this.show_notice(format!("Не удалось загрузить историю: {error:#}"), cx)
                     }
                 }

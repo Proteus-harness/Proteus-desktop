@@ -171,9 +171,9 @@ impl Element for MeasuredRow {
                 cx,
             )
         });
-        // A partial window's last raw row has no successor context yet: a
-        // turn footer/group ending can change when the next page arrives.
-        // Its temporary edge layout is not a document-level height fact.
+        // A clipped semantic group or footer lacks its surrounding context.
+        // Its temporary layout is not a document-level height fact, including
+        // when its owner is an interior raw row of the resident window.
         let ready = observation.is_ready() && self.context_complete;
         let current = {
             let measurements = self.measurements.borrow();

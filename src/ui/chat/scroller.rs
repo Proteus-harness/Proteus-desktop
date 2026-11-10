@@ -95,6 +95,15 @@ struct Hold {
 }
 
 impl ChatScroller {
+    /// The track spans the chat column, including its fixed composer. The
+    /// logical viewport remains the native message list's measured viewport.
+    pub(super) fn scrollbar(&self) -> gpui_kit::component::scroll::Scrollbar {
+        gpui_kit::component::scroll::Scrollbar::vertical(&self.scrollbar)
+            .id("chat-scrollbar")
+            .viewport_from_layout()
+            .scroll_viewport_from_handle()
+    }
+
     pub(super) fn new(autoscroll: bool) -> Self {
         // A permanent empty final row owns retained room. Large bottom
         // padding cannot do this: gpui skips row prepaint if the padding
@@ -268,6 +277,14 @@ impl ChatScroller {
         cx.notify();
     }
 
+    /// A server baseline cancels the matching request even when its identical
+    /// revision leaves the resident geometry intact. Do not keep animating an
+    /// unresolved fraction after its context loader has been discarded.
+    pub(super) fn history_cancelled(&mut self, cx: &mut Context<Self>) {
+        self.scrollbar.cancel_target();
+        self.history_ready(cx);
+    }
+
     pub(super) fn append(&mut self, count: usize, cx: &mut Context<Self>) {
         let end = self.row_count();
         self.splice(end..end, count, cx);
@@ -284,7 +301,10 @@ impl ChatScroller {
         if range.start > range.end || range.end > self.row_count() {
             return;
         }
-        self.wheel.invalidate(&self.list);
+        // Native remeasurement retains the previous item size as a hint.
+        // Keep the completed layout's wheel credit: repeated content replies
+        // must not postpone every queued step until all renderers fall idle.
+        // Splices and metric changes still invalidate it separately.
         self.scrollbar.invalidate(range.clone());
         self.list.remeasure_items(range);
         self.changed(cx);
@@ -545,8 +565,10 @@ pub(super) struct ChatList {
     id: ElementId,
     state: Entity<ChatScroller>,
     render_row: RenderRow,
+    incomplete_rows: Vec<Range<usize>>,
     footer: Option<(FooterState, RenderFooter)>,
     running: bool,
+    scrollbar: bool,
 }
 
 impl ChatList {
@@ -559,8 +581,10 @@ impl ChatList {
             id: id.into(),
             state,
             render_row: Box::new(render_row),
+            incomplete_rows: Vec::new(),
             footer: None,
             running: false,
+            scrollbar: true,
         }
     }
 
@@ -573,8 +597,18 @@ impl ChatList {
         self
     }
 
+    pub(super) fn incomplete_rows(mut self, rows: Vec<Range<usize>>) -> Self {
+        self.incomplete_rows = rows;
+        self
+    }
+
     pub(super) fn running(mut self, running: bool) -> Self {
         self.running = running;
+        self
+    }
+
+    pub(super) fn scrollbar(mut self, visible: bool) -> Self {
+        self.scrollbar = visible;
         self
     }
 }
@@ -633,6 +667,7 @@ impl RenderOnce for ChatList {
         let mut render_row = self.render_row;
         let measured_footer = self.state.clone();
         let measured_rows = scrollbar.clone();
+        let incomplete_rows = self.incomplete_rows;
         let rows = list(list_state.clone(), move |ix, window, cx| {
             if ix == tail_row {
                 // keep_end runs immediately before native list prepaint.
@@ -656,11 +691,13 @@ impl RenderOnce for ChatList {
                                 .children(render_footer.as_mut().map(|render| render(window, cx))),
                         ),
                     ),
+                    true,
                 );
             }
             measured_rows.measure_chat_row(
                 ix,
                 div().w_full().min_w_0().child(render_row(ix, window, cx)),
+                !incomplete_rows.iter().any(|rows| rows.contains(&ix)),
             )
         })
         .size_full()
@@ -751,7 +788,7 @@ impl RenderOnce for ChatList {
                         .left_0()
                         .size_full(),
                     )
-                    .vertical_scrollbar(&scrollbar),
+                    .when(self.scrollbar, |view| view.vertical_scrollbar(&scrollbar)),
             )
             .when_some(middle_origin, |this, origin| {
                 this.child(middle::indicator(origin, viewport_origin, window, cx))

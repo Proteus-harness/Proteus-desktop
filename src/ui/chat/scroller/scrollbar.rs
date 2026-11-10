@@ -196,12 +196,19 @@ impl HistoryScrollbar {
         self.measure_child(index, child, true)
     }
 
-    /// Partial window edges lack context for group headings and turn footers.
-    pub(super) fn measure_chat_row(&self, index: usize, child: impl IntoElement) -> AnyElement {
-        let complete = self.state.get().range.is_none_or(|range| {
-            (index != 0 || range.start == 0)
-                && (index + 1 != range.rows || range.start + range.rows == range.total)
-        });
+    /// The chat owns semantic group/footer context; raw edges also lack the
+    /// adjacent row needed for first-row spacing and turn boundaries.
+    pub(super) fn measure_chat_row(
+        &self,
+        index: usize,
+        child: impl IntoElement,
+        context_complete: bool,
+    ) -> AnyElement {
+        let complete = context_complete
+            && self.state.get().range.is_none_or(|range| {
+                (index != 0 || range.start == 0)
+                    && (index + 1 != range.rows || range.start + range.rows == range.total)
+            });
         if complete {
             self.measure_row(index, child)
         } else {
@@ -561,3 +568,7 @@ mod density_tests;
 #[cfg(test)]
 #[path = "scrollbar/global_tests.rs"]
 mod global_tests;
+
+#[cfg(test)]
+#[path = "scrollbar/context_tests.rs"]
+mod context_tests;

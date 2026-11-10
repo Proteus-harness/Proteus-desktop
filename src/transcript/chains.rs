@@ -58,7 +58,8 @@ pub fn affected_rows(entries: &[Entry], ix: usize) -> Range<usize> {
     rows
 }
 
-fn tool_run(entries: &[Entry], ix: usize) -> Option<Range<usize>> {
+/// The semantic tool run, including short fragments at partial page edges.
+pub(crate) fn tool_run(entries: &[Entry], ix: usize) -> Option<Range<usize>> {
     if !entries.get(ix).is_some_and(is_tool) {
         return None;
     }
