@@ -11,6 +11,7 @@ use proteus_contracts::app_protocol::{
 
 mod context;
 use context::ContextSeek;
+mod height_key;
 
 const PAGE_ROWS: usize = 50;
 const CACHE_ROWS: usize = 200;
@@ -433,27 +434,11 @@ impl Chat {
     pub(super) fn sync_history_range(&mut self, cx: &mut Context<Self>) {
         self.sync_height_rebase(cx);
         let range = self.history.range(&self.session.transcript);
-        // The archive revision owns only completed rows before the cursor.
-        // Its last row also depends on the mutable successor's group/footer.
-        let height_key = self.history.cursor.as_ref().and_then(|cursor| {
-            let session = self.session.durable_id()?;
-            let root = self.session.root_thread?;
-            Some(super::scroller::HeightCacheKey {
-                identity: super::scroller::height_hash(format!(
-                    "{}:{session}:{root}",
-                    self.session.key.tab_id()
-                )),
-                revision: super::scroller::height_hash(&cursor.revision),
-                layout: [0; 32],
-                prefix: cursor.before.saturating_sub(1),
-                base: cursor.base.as_ref().map(|base| {
-                    (
-                        super::scroller::height_hash(&base.revision),
-                        base.common_prefix.saturating_sub(1),
-                    )
-                }),
-            })
-        });
+        let height_key = self
+            .history
+            .cursor
+            .as_ref()
+            .and_then(|cursor| height_key::key(&self.session, cursor));
         self.scroller.update(cx, |state, cx| {
             state.set_history_range(range, self.history.seek.is_some(), cx);
             state.bind_height_cache(height_key, cx);

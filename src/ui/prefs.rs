@@ -1,7 +1,10 @@
 //! Client preferences in the running app: a global plus the effects of each
 //! setting (theme, motion level).
 
+mod appearance;
 mod persistence;
+
+pub(super) use appearance::observe as observe_appearance;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -234,7 +237,7 @@ fn apply(value: &Preferences, effects: Effects, cx: &mut App) {
     if effects.theme {
         super::theme::select(&value.themes, value.fonts.interface.as_deref(), cx);
         match value.theme {
-            ThemePreference::System => Theme::sync_system_appearance(None, cx),
+            ThemePreference::System => Theme::change(appearance::current(cx), None, cx),
             ThemePreference::Dark => Theme::change(ThemeMode::Dark, None, cx),
             ThemePreference::Light => Theme::change(ThemeMode::Light, None, cx),
         }

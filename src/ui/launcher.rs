@@ -26,6 +26,7 @@ pub struct Launcher {
     focus: FocusHandle,
     preparation: Option<super::Preparation>,
     _workspace_requests: Option<Subscription>,
+    _appearance: Subscription,
 }
 
 enum Stage {
@@ -50,6 +51,7 @@ impl Launcher {
             },
         );
         Self {
+            _appearance: prefs::observe_appearance(window, cx),
             tooltips: super::tip::layer(window, cx),
             stage: Stage::Ready(view),
             target,
@@ -86,6 +88,7 @@ impl Launcher {
         let focus = cx.focus_handle();
         focus.focus(window, cx);
         let mut launcher = Self {
+            _appearance: prefs::observe_appearance(window, cx),
             tooltips: super::tip::layer(window, cx),
             stage: Stage::Picking { error: None },
             target,

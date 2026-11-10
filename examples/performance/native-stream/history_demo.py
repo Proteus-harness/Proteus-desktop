@@ -11,7 +11,7 @@ import subprocess
 import time
 from urllib.parse import parse_qs, urlsplit
 
-from fixture_server import Fixture, SESSION_ID, THREAD_ID, message, require
+from fixture_server import Fixture, SESSION_ID, message, require
 from run import digest, launched_executable, stop_native
 from status_demo import DIRECTORIES, delivered, record
 
@@ -73,8 +73,9 @@ class HistoryFixture(Fixture):
     def start(self):
         self.thread.start()
         self.emit({"type": "session_snapshot", "snapshot": {
-            "session_id": SESSION_ID, "stream_id": "native-fixture-incarnation",
-            "seq": 0, "root_thread_id": THREAD_ID,
+            "session_id": SESSION_ID, "stream_id": secrets.token_hex(16),
+            # A real idle restored Core session has no runtime root yet.
+            "seq": 0, "root_thread_id": None,
             "transcript": self.transcript if self.unpaged else self.transcript[-PAGE:],
             "history": None if self.unpaged else {"revision": REVISION,
                 "before": len(self.transcript) - PAGE, "base": None},

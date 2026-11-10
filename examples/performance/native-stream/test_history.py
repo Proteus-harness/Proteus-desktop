@@ -27,6 +27,7 @@ class HistoryTests(unittest.TestCase):
                     snapshot = json.loads(line[6:])["event"]["snapshot"]
                     self.assertEqual(snapshot["transcript"], rows[12:])
                     self.assertEqual(snapshot["history"]["before"], 12)
+                    self.assertIsNone(snapshot["root_thread_id"])
                     with get("/history/page", {"session_dir": fixture.session,
                                               "revision": REVISION, "before": 12}) as response:
                         page = json.load(response)
