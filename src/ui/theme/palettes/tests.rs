@@ -124,6 +124,11 @@ fn explicit_roles(theme: &Theme) -> impl Iterator<Item = (&'static str, Hsla, Th
             theme.tokens.button_secondary_foreground,
         ),
         (
+            "chat.secondary.foreground",
+            theme.chat_secondary_foreground,
+            theme.tokens.chat_secondary_foreground,
+        ),
+        (
             "muted.foreground",
             theme.muted_foreground,
             theme.tokens.muted_foreground,

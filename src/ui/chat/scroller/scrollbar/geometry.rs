@@ -55,8 +55,9 @@ struct Anchor {
 #[derive(Default)]
 pub(super) struct Geometry {
     range: Option<HistoryRange>,
-    /// Native dimensions are authoritative only in this resident layout.
-    /// The global map supplies estimates, never a stale fractional seek.
+    /// Current resident pixels, including temporary semantic page edges.
+    /// Only non-stale entries authorize a fractional seek; the separate global
+    /// map retains completed dimensions for estimates and persistence.
     heights: Vec<Option<Pixels>>,
     stale: Vec<bool>,
     cache: super::height_cache::HeightCache,
@@ -165,6 +166,7 @@ impl Geometry {
         px((pixels + local) as f32) + self.tail + padding
     }
 
+    #[cfg(test)]
     pub fn refresh(
         &mut self,
         list: &ListState,
@@ -173,6 +175,25 @@ impl Geometry {
         max: Pixels,
         padding: Pixels,
         measurements: impl Iterator<Item = (usize, Pixels)>,
+    ) -> bool {
+        self.refresh_observed(
+            list,
+            range,
+            estimate,
+            max,
+            padding,
+            measurements.map(|(index, height)| (index, height, true)),
+        )
+    }
+
+    pub fn refresh_observed(
+        &mut self,
+        list: &ListState,
+        range: HistoryRange,
+        estimate: Pixels,
+        max: Pixels,
+        padding: Pixels,
+        measurements: impl Iterator<Item = (usize, Pixels, bool)>,
     ) -> bool {
         let viewport = list.viewport_bounds().size.height;
         let mut changed = std::mem::take(&mut self.invalidated)
@@ -209,7 +230,7 @@ impl Geometry {
         let mut updates = Vec::new();
         let cache = self.cache.clone();
         cache.read(|map| {
-            for (ix, height) in measurements {
+            for (ix, height, ready) in measurements {
                 if ix == range.rows {
                     changed |= self.tail != height;
                     self.tail = height;
@@ -225,9 +246,12 @@ impl Geometry {
                         self.prefix_dirty = true;
                         changed = true;
                     }
-                    changed |= std::mem::replace(&mut self.stale[ix], false);
+                    changed |= std::mem::replace(&mut self.stale[ix], !ready) != !ready;
                     let value = f64::from(f32::from(height));
-                    if map.lookup(range.start + ix) != Some((value, true)) {
+                    // Provisional native pixels belong only to this resident
+                    // layout. They are neither persisted facts nor fractional
+                    // seek authority, even when their size happens to match.
+                    if ready && map.lookup(range.start + ix) != Some((value, true)) {
                         updates.push((range.start + ix, value));
                     }
                 }

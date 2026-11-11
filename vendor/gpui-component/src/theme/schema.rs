@@ -469,6 +469,9 @@ pub struct ThemeConfigColors {
     /// Muted text color, as used in disabled text.
     #[serde(rename = "muted.foreground")]
     pub muted_foreground: Option<SharedString>,
+    /// Secondary operational captions in chat. Defaults to muted.foreground.
+    #[serde(rename = "chat.secondary.foreground")]
+    pub chat_secondary_foreground: Option<SharedString>,
     /// Background color for Popover.
     #[serde(rename = "popover.background")]
     pub popover: Option<SharedString>,
@@ -793,6 +796,7 @@ impl ThemeColor {
             muted_foreground,
             fallback = self.muted.blend(self.foreground.opacity(0.7))
         );
+        apply_color!(chat_secondary_foreground, fallback = self.muted_foreground);
 
         // Button colors
         let active_darken = if config.mode.is_dark() { 0.2 } else { 0.1 };

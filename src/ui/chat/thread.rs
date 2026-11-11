@@ -507,8 +507,12 @@ fn render_assistant(entry: &Entry, reply: Vec<super::replies::Part>, cx: &App) -
 
 fn render_note(entry: &Entry, cx: &App) -> AnyElement {
     div()
+        .id(row_id("note", entry.key))
+        .self_start()
+        .max_w_full()
         .text_xs()
-        .text_color(cx.theme().muted_foreground)
+        .text_color(cx.theme().chat_secondary_foreground)
+        .hover(|style| style.text_color(cx.theme().foreground))
         .min_w_0()
         .child(faded(format::clip(&entry.text, 200)))
         .into_any_element()
@@ -541,24 +545,30 @@ fn render_subagent(
     };
     h_flex()
         .id(row_id("subagent", key))
-        .w_full()
+        .flex_initial()
+        .self_start()
+        .max_w_full()
         .min_w_0()
         .gap_2()
         .py_1()
         .text_sm()
         .when(available, |row| {
-            row.disclosure(cx).on_click(cx.listener(move |_, _, _, cx| {
-                cx.emit(ChatEvent::OpenSubagent {
-                    child_thread_id: child_thread_id.clone(),
-                    session: session.clone().expect("available child session"),
-                });
-            }))
+            row.chat_disclosure(cx)
+                .on_click(cx.listener(move |_, _, _, cx| {
+                    cx.emit(ChatEvent::OpenSubagent {
+                        child_thread_id: child_thread_id.clone(),
+                        session: session.clone().expect("available child session"),
+                    });
+                }))
         })
-        .when(!available, |row| row.text_color(theme.muted_foreground))
+        .when(!available, |row| {
+            row.text_color(theme.chat_secondary_foreground)
+                .hover(|style| style.text_color(theme.foreground))
+        })
         .child(if agent.status == "unknown" {
             Icon::new(gpui_kit::assets::IconName::MessageSquare)
                 .small()
-                .text_color(theme.muted_foreground)
+                .text_color(theme.chat_secondary_foreground)
                 .into_any_element()
         } else {
             status_icon(status, connected, cx).into_any_element()

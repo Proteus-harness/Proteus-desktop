@@ -331,3 +331,54 @@ fn filled_neutral_control_states_follow_appearance_without_changing_normal_fill(
         }
     }
 }
+
+#[::core::prelude::v1::test]
+fn operational_chat_captions_stay_readable_and_quieter_than_replies() {
+    for source in sources() {
+        let set: ThemeSet = serde_json::from_str(source).unwrap();
+        for config in set.themes {
+            let name = config.name.to_string();
+            let mut theme = Theme::default();
+            theme.apply_config(&Rc::new(config));
+            let backdrop = theme.background.into();
+            assert_readable(
+                &name,
+                "chat secondary",
+                theme.chat_secondary_foreground,
+                backdrop,
+            );
+            assert!(
+                contrast(theme.chat_secondary_foreground, backdrop)
+                    < contrast(theme.foreground, backdrop),
+                "{name}: operational captions must be quieter than reply text"
+            );
+        }
+    }
+}
+
+#[::core::prelude::v1::test]
+fn custom_chat_caption_role_is_optional_and_does_not_change_settings_labels() {
+    for explicit in [None, Some("#939ab7")] {
+        let mut colors = serde_json::json!({"muted.foreground": "#b8c0e0"});
+        if let Some(color) = explicit {
+            colors["chat.secondary.foreground"] = color.into();
+        }
+        let set: ThemeSet = serde_json::from_value(serde_json::json!({
+            "name":"Chat caption fixture", "themes":[{
+                "name":"Chat caption fixture", "mode":"dark", "colors": colors
+            }]
+        }))
+        .unwrap();
+        let mut theme = Theme::default();
+        theme.apply_config(&Rc::new(set.themes.into_iter().next().unwrap()));
+        assert_eq!(theme.muted_foreground, expected_color("#b8c0e0"));
+        assert_eq!(
+            theme.chat_secondary_foreground,
+            expected_color(explicit.unwrap_or("#b8c0e0"))
+        );
+        assert_eq!(
+            theme.tokens.chat_secondary_foreground.color,
+            theme.chat_secondary_foreground
+        );
+    }
+}

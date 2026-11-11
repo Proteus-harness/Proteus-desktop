@@ -16,8 +16,8 @@ impl Render for Chat {
         if !self.display_transcript().entries().is_empty() {
             crate::startup_trace::first("chat.transcript.render");
         }
-        // The chat is cached apart from the window, so it drives its own
-        // disclosures.
+        // The chat is retained apart from the window and drives its own
+        // disclosures; caption ticks update their retained child separately.
         motion::drive(window, cx);
         self.prepare_tool_diffs(cx);
         self.prepare_turn_stamp(cx);
@@ -181,13 +181,23 @@ impl Chat {
                                             )))
                                         }),
                                 )
-                                .child(div().text_xs().text_color(theme.muted_foreground).child(
-                                    if previous == 0 {
-                                        send.status().to_owned()
-                                    } else {
-                                        format!("{} · ещё сообщений: {previous}", send.status())
-                                    },
-                                ))
+                                .child(
+                                    div()
+                                        .id(SharedString::from(format!(
+                                            "sending-status-{}",
+                                            send.id
+                                        )))
+                                        .flex_initial()
+                                        .max_w_full()
+                                        .text_xs()
+                                        .text_color(theme.chat_secondary_foreground)
+                                        .hover(|style| style.text_color(theme.foreground))
+                                        .child(if previous == 0 {
+                                            send.status().to_owned()
+                                        } else {
+                                            format!("{} · ещё сообщений: {previous}", send.status())
+                                        }),
+                                )
                         }))
                         .when(thinking, |footer| {
                             footer.child(
@@ -196,7 +206,7 @@ impl Chat {
                                     .pb_1()
                                     .truncate()
                                     .text_size(prefs::chat_text(cx))
-                                    .child(self.thinking_caption.clone()),
+                                    .child(h_flex().min_w_0().child(self.thinking_caption.clone())),
                             )
                         }),
                 )

@@ -133,6 +133,10 @@ fn visit(
     );
     bar.list.scroll_to(ListOffset::default());
     bar.set_viewport_width(px(700.));
+    paint(cx, bar, chat);
+}
+
+fn paint(cx: &mut VisualTestContext, bar: &HistoryScrollbar, chat: &Entity<Chat>) {
     let view = cx.update(|_, cx| {
         cx.new(|_| GroupedRows {
             bar: bar.clone(),
@@ -145,6 +149,41 @@ fn visit(
         });
         bar.did_layout();
     }
+}
+
+/// A partial page is allowed to render a temporary head/footer, but only the
+/// resident native pixels change; the canonical whole-document facts do not.
+fn assert_local_extent(bar: &HistoryScrollbar, rows: Range<usize>, facts: &[Pixels]) {
+    for (row, height) in facts.iter().enumerate() {
+        assert_eq!(
+            bar.geometry.borrow().estimated_height(row),
+            Some(*height),
+            "a temporary page edge must leave canonical row {row} unchanged"
+        );
+    }
+    let native = rows
+        .clone()
+        .enumerate()
+        .map(|(ix, _)| {
+            bar.list
+                .bounds_for_item(ix)
+                .expect("small fixture is fully measured")
+                .size
+                .height
+        })
+        .fold(px(0.), |sum, height| sum + height);
+    let all = facts
+        .iter()
+        .copied()
+        .fold(px(0.), |sum, height| sum + height);
+    let canonical = facts[rows]
+        .iter()
+        .copied()
+        .fold(px(0.), |sum, height| sum + height);
+    assert_eq!(
+        bar.content_size().height,
+        (all + native - canonical).max(bar.list.viewport_bounds().size.height)
+    );
 }
 
 #[::core::prelude::v1::test]
@@ -165,12 +204,15 @@ fn clipped_tool_runs_keep_complete_group_facts_on_repeated_native_visits() {
     assert!(facts[0] > px(0.));
     assert_eq!(&facts[1..], &[px(0.); 4]);
     let extent = bar.content_size().height;
+    let document: Vec<_> = (0..messages.len())
+        .map(|row| bar.geometry.borrow().estimated_height(row).unwrap())
+        .collect();
     for _ in 0..3 {
         // Leading run creates a false interior head; a two-call trailing run
         // unfolds full tool cards; a longer trailing run loses its footer.
         for rows in [0..3, 3..10, 4..10, 0..6] {
             visit(cx, &bar, &chat, &messages, rows.clone());
-            assert_eq!(bar.content_size().height, extent, "window {rows:?}");
+            assert_local_extent(&bar, rows.clone(), &document);
             for (row, expected) in (1..6).zip(&facts) {
                 assert_eq!(
                     bar.geometry.borrow().estimated_height(row),
@@ -220,10 +262,12 @@ fn hidden_progress_suffix_keeps_the_interior_folded_footer_owner_incomplete() {
     let bar = HistoryScrollbar::new(ListState::new(0, ListAlignment::Top, px(400.)), px(0.));
     visit(cx, &bar, &chat, &messages, 0..messages.len());
     let height = bar.geometry.borrow().estimated_height(1).unwrap();
-    let extent = bar.content_size().height;
+    let document: Vec<_> = (0..messages.len())
+        .map(|row| bar.geometry.borrow().estimated_height(row).unwrap())
+        .collect();
     for _ in 0..3 {
         visit(cx, &bar, &chat, &messages, 0..7);
-        assert_eq!(bar.content_size().height, extent);
+        assert_local_extent(&bar, 0..7, &document);
         assert_eq!(bar.geometry.borrow().estimated_height(1), Some(height));
         assert_eq!(bar.native_height(1), None, "head is interior to the page");
         assert!(bar.scroll_to(ScrollTarget {
@@ -236,6 +280,92 @@ fn hidden_progress_suffix_keeps_the_interior_folded_footer_owner_incomplete() {
         bar.settle();
         assert!(bar.state.get().local.is_none());
         assert_eq!(bar.native_height(1), Some(height));
+    }
+}
+
+#[::core::prelude::v1::test]
+fn a_clipped_long_tool_run_stays_reachable_with_cold_and_warm_zero_member_facts() {
+    for warm in [false, true] {
+        let mut app = TestAppContext::single();
+        app.update(|cx| {
+            gpui_kit::init(cx);
+            crate::ui::prefs::init_in_memory(cx);
+        });
+        let cx = app.add_empty_window();
+        let chat = chat(cx);
+        let sample = messages(false);
+        let messages: Vec<_> = (0..600)
+            .map(|row| {
+                let mut message = sample[if (200..500).contains(&row) { 1 } else { 0 }].clone();
+                message.message_id = Some(uuid::Uuid::from_u128(row as u128 + 1));
+                if let Some(tool) = message.tool.as_mut() {
+                    tool.call_id = format!("long-run-{row}");
+                }
+                message
+            })
+            .collect();
+        let bar = HistoryScrollbar::new(ListState::new(0, ListAlignment::Top, px(400.)), px(0.));
+        if warm {
+            visit(cx, &bar, &chat, &messages, 0..600);
+            bar.list.scroll_to(ListOffset {
+                item_ix: 200,
+                offset_in_item: px(0.),
+            });
+            paint(cx, &bar, &chat);
+            assert_eq!(bar.geometry.borrow().estimated_height(400), Some(px(0.)));
+        }
+        visit(cx, &bar, &chat, &messages, 400..550);
+        assert!(
+            bar.list.bounds_for_item(0).unwrap().size.height > px(0.),
+            "a clipped run's temporary header must not inherit a canonical member's zero"
+        );
+        assert_eq!(
+            bar.geometry.borrow().estimated_height(400),
+            warm.then_some(px(0.))
+        );
+        assert_eq!(bar.native_height(400), None);
+        bar.begin_browsing();
+        bar.list.scroll_by(px(500.));
+        paint(cx, &bar, &chat);
+        bar.list.scroll_by(px(-5000.));
+        paint(cx, &bar, &chat);
+        assert_eq!(
+            bar.list.logical_scroll_top(),
+            ListOffset::default(),
+            "ordinary wheel-up must reach the Older-page edge rather than stop after 100 hidden members"
+        );
+
+        // Model the bounded 50-row Older prepend. The former temporary head
+        // becomes hidden; the new leading head owns the same folded run.
+        cx.update(|_, cx| {
+            chat.update(cx, |chat, _| {
+                chat.session.transcript.reset(messages[350..550].to_vec());
+            })
+        });
+        bar.list.splice(0..0, 50);
+        bar.set_range(
+            Some(HistoryRange {
+                start: 350,
+                rows: 200,
+                total: 600,
+            }),
+            false,
+        );
+        paint(cx, &bar, &chat);
+        assert_eq!(bar.list.bounds_for_item(50).unwrap().size.height, px(0.));
+        assert_eq!(
+            bar.geometry.borrow().estimated_height(400),
+            warm.then_some(px(0.))
+        );
+        // The raw native anchor survives the prepend; no pixel distance is
+        // fabricated to consume an entirely hidden prefix.
+        assert_eq!(bar.list.logical_scroll_top().item_ix, 50);
+        bar.list.scroll_by(px(-1.));
+        paint(cx, &bar, &chat);
+        assert!(
+            bar.list.logical_scroll_top().item_ix < 8,
+            "the next ordinary upward gesture must reach the new partial head"
+        );
     }
 }
 

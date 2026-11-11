@@ -364,13 +364,20 @@ impl Chat {
             .into()
         });
         Some(
-            h_flex()
-                .px_4()
-                .py_2()
-                .gap_2()
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child(div().flex_1().min_w_0().child(status)),
+            h_flex().px_4().py_2().gap_2().text_sm().child(
+                div()
+                    .id("readonly-status-caption")
+                    .flex_initial()
+                    .max_w_full()
+                    .min_w_0()
+                    .text_color(if binding.error.is_some() {
+                        cx.theme().muted_foreground
+                    } else {
+                        cx.theme().chat_secondary_foreground
+                    })
+                    .hover(|style| style.text_color(cx.theme().foreground))
+                    .child(status),
+            ),
         )
     }
 }

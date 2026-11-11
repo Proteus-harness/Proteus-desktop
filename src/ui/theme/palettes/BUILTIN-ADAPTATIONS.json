@@ -546,5 +546,37 @@
       "secondary.hover.background"
     ],
     "method": "First verify the committed original payload against its previous hash and old excluded fields; compute the narrower protected hash from that same committed payload after excluding the new mutable state fields. Never hash the edited payload to choose an expected value."
+  },
+  "chat_secondary_policy": {
+    "role": "chat.secondary.foreground",
+    "custom_fallback": "muted.foreground",
+    "native_variants": [
+      {
+        "name": "Proteus Graphite",
+        "value": "#8f8f8f",
+        "token": "Proteus secondary chat gray"
+      },
+      {
+        "name": "Proteus Slate",
+        "value": "#929bad",
+        "token": "Proteus secondary chat slate gray"
+      },
+      {
+        "name": "Proteus Light",
+        "value": "neutral-600",
+        "token": "native neutral-600"
+      },
+      {
+        "name": "Default Light",
+        "value": "neutral-600",
+        "token": "native neutral-600"
+      },
+      {
+        "name": "Default Dark",
+        "value": "neutral-400",
+        "token": "native neutral-400"
+      }
+    ],
+    "note": "Explicit native neutral caption colors; imported palette tokens and exceptions are in ROLE-MAPPING.json. No runtime brightness or percentage generation."
   }
 }

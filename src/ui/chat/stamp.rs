@@ -47,7 +47,8 @@ pub(super) fn turn_time(key: u64, time: Option<i64>, cx: &App) -> Option<AnyElem
         .flex_none()
         .px_1()
         .text_xs()
-        .text_color(cx.theme().muted_foreground)
+        .text_color(cx.theme().chat_secondary_foreground)
+        .hover(|style| style.text_color(cx.theme().foreground))
         .child(short(time, Local::now()))
         .tip_text(full(time));
     Some(element.into_any_element())

@@ -22,6 +22,8 @@ use swash::{
 };
 use unicode_segmentation::UnicodeSegmentation;
 
+mod emoji;
+
 pub struct CosmicTextSystem(RwLock<CosmicTextSystemState>);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -58,6 +60,8 @@ struct CosmicTextSystemState {
     /// Caches the `FontId`s associated with a specific family to avoid iterating the font database
     /// for every font face in a family.
     font_ids_by_family_cache: HashMap<FontKey, SmallVec<[FontId; 4]>>,
+    /// Outer None means the supported emoji face has not been resolved yet.
+    preferred_emoji_font: Option<Option<(FontId, SharedString)>>,
     system_font_fallback: String,
     missing_glyph_sink: Option<Arc<dyn MissingGlyphSink>>,
 }
@@ -140,6 +144,7 @@ impl CosmicTextSystem {
             loaded_fonts: Vec::new(),
             loaded_font_ids_by_key: HashMap::default(),
             font_ids_by_family_cache: HashMap::default(),
+            preferred_emoji_font: None,
             system_font_fallback: system_font_fallback.to_string(),
             missing_glyph_sink: None,
         }))
@@ -159,6 +164,7 @@ impl CosmicTextSystem {
             loaded_fonts: Vec::new(),
             loaded_font_ids_by_key: HashMap::default(),
             font_ids_by_family_cache: HashMap::default(),
+            preferred_emoji_font: None,
             system_font_fallback: system_font_fallback.to_string(),
             missing_glyph_sink: None,
         }))
@@ -329,6 +335,7 @@ impl CosmicTextSystemState {
     #[profiling::function]
     fn add_fonts(&mut self, fonts: Vec<Cow<'static, [u8]>>) -> Result<()> {
         self.font_ids_by_family_cache.clear();
+        self.preferred_emoji_font = None;
         let db = self.font_system.db_mut();
         for bytes in fonts {
             let installed =
@@ -565,8 +572,8 @@ impl CosmicTextSystemState {
     ///
     /// Note that callers shouldn't use this `FontId` somewhere that will retrieve the corresponding
     /// `LoadedFont.features`, as it will have an arbitrarily chosen or empty value. The only
-    /// current use of this field is for the *input* of `layout_line`, and so it's fine to use
-    /// `font_id_for_cosmic_id` when computing the *output* of `layout_line`.
+    /// use of this field is for the *input* of `layout_line`. Layout output and the explicit
+    /// emoji attributes (which supply their own features) do not read this field.
     fn font_id_for_cosmic_id(&mut self, id: cosmic_text::fontdb::ID) -> Result<FontId> {
         if let Some(ix) = self
             .loaded_fonts
@@ -700,6 +707,7 @@ impl CosmicTextSystemState {
         font_runs: &[FontRun],
     ) -> LineLayout {
         let mut attrs_list = AttrsList::new(&Attrs::new());
+        let emoji_font = self.preferred_emoji_font();
         let mut offs = 0;
         for run in font_runs {
             let run_end = offs + run.len;
@@ -738,12 +746,31 @@ impl CosmicTextSystemState {
                 )
             };
 
+            let emoji_attrs = emoji_font.as_ref().map(|(id, family)| {
+                Attrs::new()
+                    .metadata(id.0)
+                    .family(Family::Name(family))
+                    .font_features(properties.features.clone())
+            });
             for span in spans {
                 let attrs = match span.slot {
                     None => &primary_attrs,
                     Some(ix) => &fallback_attrs[ix],
                 };
-                attrs_list.add_span(span.start..span.end, attrs);
+                if let (Some((emoji_id, _)), Some(emoji_attrs)) = (&emoji_font, &emoji_attrs) {
+                    // Presentation applies to complete graphemes, so selectors, skin tones,
+                    // flags and joined emoji stay in the same shaping run.
+                    emoji::presentation_spans(
+                        text,
+                        span.start..span.end,
+                        |ch| charmap_covers(&self.loaded_fonts, *emoji_id, ch),
+                        |range, use_emoji| {
+                            attrs_list.add_span(range, if use_emoji { emoji_attrs } else { attrs });
+                        },
+                    );
+                } else {
+                    attrs_list.add_span(span.start..span.end, attrs);
+                }
             }
             offs = run_end;
         }
@@ -1324,9 +1351,10 @@ mod tests {
         }
     }
 
-    const IBM_PLEX: &[u8] = include_bytes!("../test-assets/ibm-plex-sans/IBMPlexSans-Regular.ttf");
-    const LILEX: &[u8] = include_bytes!("../test-assets/lilex/Lilex-Regular.ttf");
-    const NOTO_EMOJI: &[u8] =
+    pub(super) const IBM_PLEX: &[u8] =
+        include_bytes!("../test-assets/ibm-plex-sans/IBMPlexSans-Regular.ttf");
+    pub(super) const LILEX: &[u8] = include_bytes!("../test-assets/lilex/Lilex-Regular.ttf");
+    pub(super) const NOTO_EMOJI: &[u8] =
         include_bytes!("../../../assets/fonts/noto-color-emoji/NotoColorEmoji.ttf");
 
     /// A synthetic same-family COLRv1-only face, without a host-font dependency.

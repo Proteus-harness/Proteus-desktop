@@ -104,7 +104,7 @@ pub(super) fn render_chain_header(
     cx: &mut Context<Chat>,
 ) -> AnyElement {
     let theme = cx.theme();
-    let muted = theme.muted_foreground;
+    let muted = theme.chat_secondary_foreground;
     let mut labels: Vec<(&str, usize)> = Vec::new();
     for tool in tools {
         if let Some((_, count)) = labels.iter_mut().find(|(name, _)| *name == tool.name) {
@@ -119,7 +119,7 @@ pub(super) fn render_chain_header(
         .gap_2()
         .text_sm()
         .min_w_0()
-        .inline_disclosure(cx)
+        .chat_disclosure(cx)
         .child(status_icon(chain_status(tools), connected, cx))
         .child(
             div()
@@ -142,7 +142,6 @@ pub(super) fn render_chain_header(
                             .id(SharedString::from(format!("tool-chain-name-{head}-{name}")))
                             .flex_initial()
                             .min_w_0()
-                            .text_color(muted)
                             .child(faded(label)),
                         weak.clone(),
                         head,

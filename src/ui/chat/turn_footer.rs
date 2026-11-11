@@ -30,12 +30,13 @@ impl Chat {
         let pending = selected && self.turn_copy.pending;
         let copied = selected && self.turn_copy.copied;
         h_flex()
+            .self_start()
             .h_5()
             .gap_1()
             .items_center()
             .invisible()
             .group_hover(GROUP, |style| style.visible())
-            .text_color(cx.theme().muted_foreground)
+            .text_color(cx.theme().chat_secondary_foreground)
             .when(copyable, |row| {
                 row.child(
                     kit::button(ElementId::NamedInteger("copy-turn".into(), key))

@@ -1,15 +1,16 @@
-//! A quiet moving highlight within a status caption. Uses the shared ticker;
+//! A focused moving highlight within a status caption. Uses the shared ticker;
 //! reduced motion leaves a static caption and schedules no animation frames.
 use std::time::Duration;
 
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::*;
 
-const SWEEP: Duration = Duration::from_millis(1_800);
+const SWEEP: Duration = Duration::from_millis(1_200);
 
 pub(in crate::ui) struct Shimmer {
     text: SharedString,
     animated: bool,
+    hovered: bool,
 }
 
 impl Shimmer {
@@ -17,6 +18,7 @@ impl Shimmer {
         Self {
             text: text.into(),
             animated: true,
+            hovered: false,
         }
     }
 
@@ -40,7 +42,7 @@ impl Shimmer {
 /// use_keyed_state observes child changes and would invalidate the parent too.
 impl Render for Shimmer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let moving = self.animated && super::moves() && !cx.reduce_motion();
+        let moving = self.animated && !self.hovered && super::moves() && !cx.reduce_motion();
         let phase = if moving {
             super::ticker::next_tick(window, cx);
             super::ticker::phase(SWEEP)
@@ -56,19 +58,39 @@ impl Render for Shimmer {
             .enumerate()
             .map(|(index, ch)| {
                 let mut run = style.to_run(ch.len_utf8());
-                let distance = (index as f32 / count - (phase * 1.8 - 0.4)).abs();
+                let distance = (index as f32 / count - (phase * 1.4 - 0.2)).abs();
                 let highlight = if moving {
-                    (1. - distance / 0.35).max(0.)
+                    (1. - distance / 0.2).max(0.)
                 } else {
                     0.
                 };
-                run.color = theme
-                    .muted_foreground
-                    .blend(theme.foreground.opacity(highlight))
-                    .into();
+                run.color = if self.hovered {
+                    theme.foreground
+                } else {
+                    theme
+                        .chat_secondary_foreground
+                        .blend(theme.foreground.opacity(highlight))
+                }
+                .into();
                 run
             })
             .collect();
-        StyledText::new(self.text.clone()).with_runs(runs)
+        div()
+            .id("chat-status-caption")
+            .debug_selector(|| "chat-status-caption".into())
+            .flex_initial()
+            .self_start()
+            .max_w_full()
+            .on_hover(cx.listener(|this, hovered, _, cx| {
+                if this.hovered != *hovered {
+                    this.hovered = *hovered;
+                    cx.notify();
+                }
+            }))
+            .child(StyledText::new(self.text.clone()).with_runs(runs))
     }
 }
+
+#[cfg(test)]
+#[path = "shimmer/tests.rs"]
+mod tests;

@@ -206,6 +206,13 @@ pub(crate) trait Pressable: StatefulInteractiveElement + Styled {
         self.disclosure(cx).flex_initial().self_start().max_w_full()
     }
 
+    /// Operational chat labels are quieter than settings labels. Keep their
+    /// foreground hover and hit region on the compact caption, not the row.
+    fn chat_disclosure(self, cx: &App) -> Self {
+        self.inline_disclosure(cx)
+            .text_color(cx.theme().chat_secondary_foreground)
+    }
+
     /// The header shares its panel's painted curve, including at large radii.
     fn disclosure_surface(self, cx: &App) -> Self
     where

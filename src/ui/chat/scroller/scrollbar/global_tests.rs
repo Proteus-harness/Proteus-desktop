@@ -312,7 +312,7 @@ impl Render for ContextRows {
 }
 
 #[::core::prelude::v1::test]
-fn a_clipped_group_heading_keeps_its_old_height_without_settling_a_fractional_seek() {
+fn a_clipped_group_heading_uses_local_pixels_without_replacing_its_global_fact() {
     let mut app = TestAppContext::single();
     let cx = app.add_empty_window();
     let bar = visited_then_evicted(cx);
@@ -326,12 +326,17 @@ fn a_clipped_group_heading_keeps_its_old_height_without_settling_a_fractional_se
         bar.did_layout();
     };
     draw(cx);
-    assert_eq!(bar.list.bounds_for_item(0).unwrap().size.height, px(100.));
+    assert_eq!(bar.list.bounds_for_item(0).unwrap().size.height, px(150.));
     assert_eq!(bar.geometry.borrow().estimated_height(100), Some(px(100.)));
+    assert_eq!(
+        bar.content_size().height,
+        px(15_210.),
+        "only the current resident extent includes the temporary 50px difference"
+    );
     assert_eq!(
         bar.native_height(100),
         None,
-        "native bounds contain a cached placeholder"
+        "temporary native bounds do not contain the missing group context"
     );
     let target = ScrollTarget {
         row: 100,
@@ -340,7 +345,7 @@ fn a_clipped_group_heading_keeps_its_old_height_without_settling_a_fractional_se
     assert!(bar.scroll_to(target));
     assert!(
         bar.state.get().local.is_some(),
-        "placeholder bounds cannot settle the seek"
+        "partial-context bounds cannot settle the seek"
     );
     bar.list.splice(0..0, 1);
     bar.set_range(

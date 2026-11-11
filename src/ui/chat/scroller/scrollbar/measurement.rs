@@ -77,11 +77,18 @@ impl Measurements {
         *slot = Some(height.max(px(0.)));
     }
 
-    pub fn drain(&mut self) -> impl Iterator<Item = (usize, Pixels)> + '_ {
-        let Self { pending, dirty, .. } = self;
-        dirty
-            .drain(..)
-            .filter_map(|index| pending[index].take().map(|height| (index, height)))
+    pub fn drain(&mut self) -> impl Iterator<Item = (usize, Pixels, bool)> + '_ {
+        let Self {
+            pending,
+            dirty,
+            fraction_ready,
+            ..
+        } = self;
+        dirty.drain(..).filter_map(|index| {
+            pending[index]
+                .take()
+                .map(|height| (index, height, fraction_ready[index]))
+        })
     }
 
     pub fn fraction_ready(&self, index: usize) -> bool {
@@ -187,13 +194,16 @@ impl Element for MeasuredRow {
         // A remounted asynchronous surface may briefly lay out source text or
         // an incomplete nested preview. Keep its compatible scalar placeholder
         // until the rendered layout is ready; it cannot become a fresh fact.
-        let held = current && !ready && self.previous_height.is_some();
+        // A canonical scalar can belong to a hidden member of a clipped tool
+        // group, while this partial page temporarily renders its header here.
+        // Hold only asynchronous content with the same semantic surroundings.
+        let held = current && self.context_complete && !ready && self.previous_height.is_some();
         let height = if held {
             self.previous_height.unwrap()
         } else {
             natural.height
         };
-        if ready {
+        if current {
             self.measurements
                 .borrow_mut()
                 .record(self.range, self.epoch, self.index, height);
@@ -254,7 +264,10 @@ mod tests {
         measurements.record(range, epoch, 1, px(0.));
         measurements.invalidate(0..1);
         measurements.record(range, epoch, 0, px(999.));
-        assert_eq!(measurements.drain().collect::<Vec<_>>(), vec![(1, px(0.))]);
+        assert_eq!(
+            measurements.drain().collect::<Vec<_>>(),
+            vec![(1, px(0.), false)]
+        );
         measurements.set_range(Some(HistoryRange { start: 60, ..range }));
         measurements.record(range, epoch, 2, px(999.));
         assert!(measurements.drain().next().is_none());
@@ -300,12 +313,15 @@ mod readiness_tests {
             })
             .0
         };
-        assert!(paint(cx, false));
-        assert!(measurements.borrow_mut().drain().next().is_none());
+        assert!(!paint(cx, false));
+        assert_eq!(
+            measurements.borrow_mut().drain().collect::<Vec<_>>(),
+            vec![(49, px(52.), false)]
+        );
         assert!(!paint(cx, true));
         assert_eq!(
             measurements.borrow_mut().drain().collect::<Vec<_>>(),
-            vec![(49, px(52.))]
+            vec![(49, px(52.), true)]
         );
     }
 
@@ -366,14 +382,20 @@ mod readiness_tests {
             make(view.into_any_element())
         });
         assert!(held);
-        assert!(measurements.borrow_mut().drain().next().is_none());
+        assert_eq!(
+            measurements.borrow_mut().drain().collect::<Vec<_>>(),
+            vec![(0, px(437.), false)]
+        );
         // The retained subtree can skip Render entirely. Its previous owner's
         // token must still prevent this temporary height from being committed.
         let (held, ()) = cx.draw(point(px(0.), px(0.)), size(px(320.), px(1200.)), |_, _| {
             make(div().h(px(809.)).into_any_element())
         });
         assert!(held);
-        assert!(measurements.borrow_mut().drain().next().is_none());
+        assert_eq!(
+            measurements.borrow_mut().drain().collect::<Vec<_>>(),
+            vec![(0, px(437.), false)]
+        );
         token.set_ready(true);
         let (held, ()) = cx.draw(point(px(0.), px(0.)), size(px(320.), px(1200.)), |_, _| {
             make(div().h(px(437.)).into_any_element())
@@ -381,7 +403,7 @@ mod readiness_tests {
         assert!(!held);
         assert_eq!(
             measurements.borrow_mut().drain().collect::<Vec<_>>(),
-            vec![(0, px(437.))]
+            vec![(0, px(437.), true)]
         );
     }
 }

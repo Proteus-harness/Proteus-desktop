@@ -226,14 +226,12 @@ impl Workspace {
         let id = pane.id;
         let content = match pane.active.as_deref() {
             Some(tab) if tabs::is_chat(tab) => match self.chats.get(tab) {
-                // A chat redraws only when it changes itself, not on every
-                // frame of the window's spinners and ripples.
+                // Ordinary retained views splice dirty descendants without
+                // rendering the whole chat. An explicit cached-style wrapper
+                // instead rebuilds this parent on each caption animation tick.
                 Some(chat) => div()
                     .size_full()
-                    .child(
-                        AnyView::from(chat.view.clone())
-                            .cached(StyleRefinement::default().size_full()),
-                    )
+                    .child(AnyView::from(chat.view.clone()))
                     .into_any_element(),
                 None => {
                     if let Some(key) = tabs::chat_key(tab) {

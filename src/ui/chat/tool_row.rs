@@ -50,7 +50,7 @@ pub(super) fn status_icon(status: &str, connected: bool, cx: &App) -> AnyElement
         // Settled or unconfirmed state does not animate.
         _ => Icon::new(Lucide::CircleStop)
             .xsmall()
-            .text_color(theme.muted_foreground)
+            .text_color(theme.chat_secondary_foreground)
             .into_any_element(),
     }
 }
@@ -108,7 +108,7 @@ pub(super) fn render_tool(
     terminal_supported: bool,
     cx: &mut Context<Chat>,
 ) -> AnyElement {
-    let muted = cx.theme().muted_foreground;
+    let muted = cx.theme().chat_secondary_foreground;
     let fold = Fold {
         key,
         full,
@@ -146,7 +146,7 @@ pub(super) fn render_tool(
     );
     let header = line_with_name(tool, name, connected, cx)
         .id(row_id("tool", key))
-        .inline_disclosure(cx)
+        .chat_disclosure(cx)
         .when_some(
             terminal_supported.then(|| tool.terminal.clone()).flatten(),
             |header, terminal| {
@@ -218,14 +218,14 @@ impl Fold {
                                 .min_w_0()
                                 .gap_1()
                                 .text_xs()
-                                .inline_disclosure(cx)
+                                .chat_disclosure(cx)
                                 .child(chevron(
                                     ElementId::NamedInteger(
                                         format!("tool-more-chevron-{part}").into(),
                                         key,
                                     ),
                                     full,
-                                    theme.muted_foreground,
+                                    theme.chat_secondary_foreground,
                                 ))
                                 .child(faded(label))
                                 .on_click(move |_, _, cx| {

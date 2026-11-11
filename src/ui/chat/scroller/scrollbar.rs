@@ -429,7 +429,7 @@ impl HistoryScrollbar {
     fn refresh_geometry(&self, range: HistoryRange) {
         let unit = self.unit();
         let max = self.max_offset();
-        self.geometry.borrow_mut().refresh(
+        self.geometry.borrow_mut().refresh_observed(
             &self.list,
             range,
             unit,
@@ -465,22 +465,26 @@ impl HistoryScrollbar {
         // heights combined with the mapping of a partially completed layout.
         let unit = self.unit();
         let max = self.max_offset();
-        self.geometry.borrow_mut().refresh(
+        self.geometry.borrow_mut().refresh_observed(
             &self.list,
             range,
             unit,
             max,
             self.padding,
-            self.measurements.borrow_mut().drain().map(|(ix, height)| {
-                (
-                    ix,
-                    if ix == range.rows {
-                        footer.unwrap_or(height)
-                    } else {
-                        height
-                    },
-                )
-            }),
+            self.measurements
+                .borrow_mut()
+                .drain()
+                .map(|(ix, height, ready)| {
+                    (
+                        ix,
+                        if ix == range.rows {
+                            footer.unwrap_or(height)
+                        } else {
+                            height
+                        },
+                        ready,
+                    )
+                }),
         );
         self.refresh_geometry(range);
         // Remote/fractional seeks pin their requested position in settle.
@@ -629,3 +633,7 @@ mod global_tests;
 #[cfg(test)]
 #[path = "scrollbar/context_tests.rs"]
 mod context_tests;
+
+#[cfg(test)]
+#[path = "scrollbar/provisional_tests.rs"]
+mod provisional_tests;
