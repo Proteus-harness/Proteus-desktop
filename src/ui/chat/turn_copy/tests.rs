@@ -54,7 +54,7 @@ fn core_copy_pages_only_to_user_preserving_reply_order_and_original_whitespace()
                     message("assistant", "previous turn"),
                     message("user", "question"),
                     message("assistant", " first\n"),
-                    message("system", "reasoning"),
+                    message("reasoning", "reasoning"),
                 ],
             ),
             _ => panic!("copy must stop at the preceding user"),

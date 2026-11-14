@@ -14,10 +14,11 @@ use serde_json::Value;
 
 const MAX_SUBAGENT_TOOLS: usize = 64;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Role {
     User,
     Assistant,
+    Reasoning,
     System,
 }
 
@@ -217,12 +218,18 @@ impl Transcript {
         Change::Pushed
     }
 
-    /// Records `at` (Unix milliseconds) as the time of the row `change`
-    /// pushed.
+    /// Records `at` (Unix milliseconds) for newly inserted runtime rows.
     pub fn stamp(&mut self, change: Change, at: i64) {
-        if change == Change::Pushed
-            && let Some(entry) = self.entries.last_mut()
-        {
+        let rows = match change {
+            Change::Pushed => self.entries.len().saturating_sub(1)..self.entries.len(),
+            Change::Spliced {
+                start,
+                removed: 0,
+                inserted,
+            } => start..start + inserted,
+            _ => return,
+        };
+        for entry in &mut self.entries[rows] {
             entry.time.get_or_insert(at);
         }
     }
@@ -246,6 +253,18 @@ impl Transcript {
             Event::AssistantMessageCompleted {
                 message_id, text, ..
             } if self.is_turn_thread(thread_id) => self.assistant_text(*message_id, text, None),
+            Event::AssistantReasoningTextDelta {
+                offset,
+                message_id,
+                text,
+            } if self.is_turn_thread(thread_id) => {
+                self.reasoning_text(*message_id, Some(*offset), text)
+            }
+            Event::AssistantReasoningMessageCompleted { message_id, text }
+                if self.is_turn_thread(thread_id) =>
+            {
+                self.reasoning_text(*message_id, None, text)
+            }
             Event::SteeringDelivered {
                 message_id,
                 text,
@@ -395,11 +414,9 @@ impl Transcript {
         if !completed {
             self.text_work.delta_lookups += 1;
         }
-        if let Some(index) = self
-            .entries
-            .iter()
-            .rposition(|entry| entry.message_id == Some(message_id))
-        {
+        if let Some(index) = self.entries.iter().rposition(|entry| {
+            entry.message_id == Some(message_id) && entry.role == Role::Assistant
+        }) {
             let entry = &mut self.entries[index];
             entry.text = match offset {
                 Some(offset) => {
@@ -486,6 +503,7 @@ impl Transcript {
         let role = match message.role.as_str() {
             "user" => Role::User,
             "assistant" => Role::Assistant,
+            "reasoning" => Role::Reasoning,
             _ => Role::System,
         };
         Entry {
@@ -504,14 +522,14 @@ impl Transcript {
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 enum Identity {
-    Message(MessageId),
+    Message(MessageId, Role),
     Tool(String),
     Subagent(String),
 }
 
 fn identity_of(entry: &Entry) -> Option<Identity> {
     if let Some(id) = entry.message_id {
-        return Some(Identity::Message(id));
+        return Some(Identity::Message(id, entry.role));
     }
     if let Some(tool) = &entry.tool {
         return Some(Identity::Tool(tool.call_id.clone()));
@@ -567,6 +585,7 @@ fn finish_tool(tool: &mut AppTranscriptTool, result: &ToolResult) {
 /// Whether a row renders the same after a snapshot replaced it.
 fn same_row(before: &Entry, after: &Entry) -> bool {
     before.key == after.key
+        && before.role == after.role
         && Arc::ptr_eq(&before.text, &after.text)
         && before.time == after.time
         && before.streaming == after.streaming
@@ -604,6 +623,9 @@ fn same_tool(a: &AppTranscriptTool, b: &AppTranscriptTool) -> bool {
 mod cache;
 mod chains;
 mod external;
+mod reasoning;
+#[cfg(test)]
+mod reasoning_tests;
 pub(crate) mod subagent;
 mod text_run;
 

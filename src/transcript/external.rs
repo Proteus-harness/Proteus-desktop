@@ -11,9 +11,8 @@ impl Transcript {
         let (role, text, tool) = match item.kind {
             ItemKind::User { text } => (Role::User, text, None),
             ItemKind::Assistant { text } | ItemKind::Plan { text } => (Role::Assistant, text, None),
-            ItemKind::Reasoning { text } | ItemKind::Other { text, .. } => {
-                (Role::System, text, None)
-            }
+            ItemKind::Reasoning { text } => (Role::Reasoning, text, None),
+            ItemKind::Other { text, .. } => (Role::System, text, None),
             ItemKind::Tool {
                 name,
                 input,

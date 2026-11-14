@@ -132,7 +132,7 @@ fn text_plans_preserve_appends_fresh_keys_dirty_chains_and_no_snapshot_reconcili
                 .collect::<Vec<_>>(),
             expected_updates,
         );
-        if case == 0 {
+        if case != 1 {
             assert_eq!(actual_effects.appends, 1);
             assert_eq!(actual_effects.fresh_keys.len(), 1);
         } else {
@@ -140,7 +140,13 @@ fn text_plans_preserve_appends_fresh_keys_dirty_chains_and_no_snapshot_reconcili
             assert!(actual_effects.fresh_keys.is_empty());
         }
         if case == 2 {
-            assert_eq!(actual_effects.dirty_rows, BTreeSet::from([0, 1, 2]));
+            // A tool row sharing an id is not an assistant text channel.
+            // Text appends a new row, leaving the whole tool chain unchanged.
+            assert_eq!(actual_effects.dirty_rows, BTreeSet::from([3]));
+            assert_eq!(actual.transcript.entries().len(), 4);
+            assert!(actual.transcript.entries()[..3].iter().all(|entry| {
+                entry.role == crate::transcript::Role::System && &*entry.text == "tool row"
+            }));
             assert_eq!(
                 row_layout(actual.transcript.entries(), Change::Updated(1))
                     .unwrap()

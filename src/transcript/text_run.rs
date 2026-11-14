@@ -138,10 +138,9 @@ impl Transcript {
         {
             self.text_work.delta_lookups += 1;
         }
-        let index = self
-            .entries
-            .iter()
-            .rposition(|entry| entry.message_id == Some(first.message_id));
+        let index = self.entries.iter().rposition(|entry| {
+            entry.message_id == Some(first.message_id) && entry.role == super::Role::Assistant
+        });
         let base = index.map(|index| self.entries[index].text.clone());
         let mut edit = DeltaEdit::new(base.as_deref().unwrap_or(""));
         let row = index.unwrap_or(self.entries.len());

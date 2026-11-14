@@ -47,6 +47,7 @@ pub(in crate::ui) fn entries(
             role: match entry.role {
                 Role::User => "user",
                 Role::Assistant => "assistant",
+                Role::Reasoning => "reasoning",
                 Role::System => "system",
             },
             tool: entry.tool.clone(),

@@ -105,6 +105,15 @@ fn activity_survives_text_and_yields_to_tools_questions_cancel_and_settlement() 
     feedback.runtime(&Event::AssistantReasoningDelta {
         text: "summary".into(),
     });
+    feedback.runtime(&Event::AssistantReasoningTextDelta {
+        message_id: new_message_id(),
+        offset: 0,
+        text: "provider reasoning".into(),
+    });
+    feedback.runtime(&Event::AssistantReasoningMessageCompleted {
+        message_id: new_message_id(),
+        text: "provider reasoning".into(),
+    });
     assert!(feedback.thinking(&execution, false));
     feedback.runtime(&Event::AssistantTextDelta {
         offset: 0,

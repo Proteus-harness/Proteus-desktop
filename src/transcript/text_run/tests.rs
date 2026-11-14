@@ -292,15 +292,17 @@ fn reverse_identity_lookup_preserves_nonassistant_metadata() {
     };
     let mut actual = make();
     let mut expected = make();
+    let nonassistant = actual.entries[2].clone();
     let events = [event(6, "replacement", 11), event(0, "", 12)];
     let changes = apply_oracle(&mut expected, &events);
     let outcome = actual.apply_text_run(&run(&events));
     assert_eq!(outcome.changes, changes);
-    assert_eq!(changes, [Change::Updated(2), Change::Updated(2)]);
+    assert_eq!(changes, [Change::Updated(1), Change::Updated(1)]);
     assert_transcript(&actual, &expected);
     assert_eq!(actual.entries[2].role, Role::User);
     assert_eq!(actual.entries[2].time, Some(42));
-    assert_eq!(&*actual.entries[1].text, "older duplicate");
+    assert_entry(&actual.entries[2], &nonassistant);
+    assert_eq!(&*actual.entries[1].text, "");
 }
 
 #[test]

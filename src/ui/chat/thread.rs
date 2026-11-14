@@ -177,7 +177,7 @@ impl Chat {
                 bottom: 0.,
             },
             (Role::System, Some(_)) => TOOL_SPACING,
-            (Role::System, None) => Spacing {
+            (Role::System, None) | (Role::Reasoning, _) => Spacing {
                 top: 2.,
                 bottom: 2.,
             },
@@ -188,6 +188,12 @@ impl Chat {
         }
         let body = match (&entry.role, &entry.tool, &entry.subagent) {
             (Role::User, _, _) => render_user(entry, &self.sent_images, cx),
+            (Role::Reasoning, _, _) => super::reasoning::render(
+                entry,
+                expanded,
+                self.session.connected && self.session.running(),
+                cx,
+            ),
             (Role::Assistant, _, _) => {
                 let reply = self.replies.parts(
                     entry.key,

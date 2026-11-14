@@ -20,6 +20,7 @@ mod notice;
 mod pump;
 mod question_card;
 pub(in crate::ui) mod readonly;
+mod reasoning;
 mod replies;
 mod requests;
 mod row_layout;

@@ -167,7 +167,9 @@ impl Feedback {
         self.phase = match event {
             Event::TurnStarted { .. }
             | Event::ModelRequestPrepared { .. }
-            | Event::AssistantReasoningDelta { .. } => Phase::Thinking,
+            | Event::AssistantReasoningDelta { .. }
+            | Event::AssistantReasoningTextDelta { .. }
+            | Event::AssistantReasoningMessageCompleted { .. } => Phase::Thinking,
             Event::AssistantTextDelta { .. } | Event::AssistantMessageCompleted { .. } => {
                 Phase::Writing
             }
