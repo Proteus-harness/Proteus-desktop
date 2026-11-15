@@ -62,6 +62,17 @@ python3 scripts/portable.py --components desktop extensions --base /absolute/rea
 `--reuse-binaries` копирует целую базу; изменённые исходники расширений при этом
 не упаковываются. Этот режим не подтверждает свежесть исходников.
 
+Выбор всех четырёх компонентов, в том числе через `--components`, создаёт
+чистую поставку так же, как `--full`, без копирования базы. Установленные
+отдельно Pi/OpenCode Node runtimes в неё автоматически не попадают. Если
+профиль их использует, после такой сборки выполните соответствующий
+`tool/pi-tools/install.py --prefix /absolute/Proteus` или
+`workflow/opencode-runtime/install.py --prefix /absolute/Proteus` из Modules.
+Эти installers устанавливают закреплённые npm dependencies; runtime нужно
+переносить целиком вместе с его launcher, а не одним изменённым `.mjs`.
+Частичное обновление с сохранением базы и `--reuse-binaries` сохраняют эти
+дополнительные runtimes.
+
 `share/release-sources.json` сохраняет provenance повторно используемых
 компонентов. Выборочная сборка обновляет записи только выбранных исходников,
 записывает `build_components` и SHA256 поставляемых бинарников. Подготовка идёт
