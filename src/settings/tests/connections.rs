@@ -53,7 +53,9 @@ fn editing_and_saving_mcp_connection_preserves_its_sandbox_policy() {
     draft
         .set_mcp_text(0, McpText::Command, "db-mcp-new")
         .unwrap();
-    draft.set_mcp_text(0, McpText::Args, "--stdio").unwrap();
+    draft
+        .set_mcp_text(0, McpText::Args, r#"["--stdio"]"#)
+        .unwrap();
     draft.set_mcp("db", true);
     let update = draft.changes(&baseline).addon_settings.unwrap();
     let saved: proteus_contracts::app_protocol::addons::AppAddonsUpdate =
@@ -116,29 +118,35 @@ fn new_server_is_checked_before_saving_and_parses_its_fields() {
     for (field, text) in [
         (McpText::Name, "files"),
         (McpText::Command, " files-mcp "),
-        (McpText::Args, "--root\n\n /tmp \n"),
+        (McpText::Args, r#"["--root", "/tmp"]"#),
         (McpText::Cwd, " ~/work "),
-        (McpText::Env, "A=1\nB = two\n"),
+        (McpText::Env, r#"{"A": "1", "B": "two"}"#),
         (McpText::TimeoutMs, "500"),
         (McpText::ProtocolVersion, " "),
     ] {
         draft.set_mcp_text(ix, field, text).unwrap();
     }
     assert!(mcp_problems(&draft, Some(&addons)).is_empty());
-    assert_eq!(
-        draft.set_mcp_text(ix, McpText::Env, "A=1\noops"),
-        Err("Строка 2: нужно KEY=VALUE".to_string())
+    assert!(
+        draft
+            .set_mcp_text(ix, McpText::Env, r#"{"A": "1", "B": 2}"#)
+            .is_err()
     );
-    assert_eq!(
-        draft.set_mcp_text(ix, McpText::Env, "A=1\nA=2"),
-        Err("A задана дважды".to_string())
+    assert!(
+        draft
+            .set_mcp_text(ix, McpText::Env, r#"{"A": "1", "A": "2"}"#)
+            .unwrap_err()
+            .contains("A задана дважды")
     );
     assert!(draft.set_mcp_text(ix, McpText::TimeoutMs, "0").is_err());
     let server = &draft.addons.mcp_servers[ix];
     assert_eq!(server.command, "files-mcp");
     assert_eq!(server.args, ["--root", "/tmp"]);
     assert_eq!(server.cwd.as_deref(), Some(Path::new("~/work")));
-    assert_eq!(mcp_text(server, McpText::Env), "A=1\nB=two");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&mcp_text(server, McpText::Env)).unwrap(),
+        json!({"A": "1", "B": "two"})
+    );
     assert_eq!(server.timeout_ms, Some(500));
     assert_eq!(server.protocol_version, mcp_protocol_version());
 

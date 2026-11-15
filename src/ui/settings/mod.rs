@@ -86,7 +86,7 @@ struct Feedback {
 pub struct SettingsView {
     context: SettingsContext,
     state: LoadState,
-    /// A reload of a shown profile is running; the page stays in place.
+    /// One profile read is running; an already shown page stays in place.
     reloading: bool,
     addons: addons::AddonsState,
     baseline: Draft,
@@ -99,6 +99,8 @@ pub struct SettingsView {
     saving: bool,
     /// Includes raw editor changes that have no parsed draft value yet.
     edit_revision: u64,
+    /// Local sequence of accepted profile snapshots, independent of edits.
+    profile_revision: u64,
     feedback: Option<Feedback>,
     feedback_timer: Option<Task<()>>,
     /// A saved catalog delta overlaps a newer local addon edit. Keep this
@@ -198,6 +200,7 @@ impl SettingsView {
             open: HashSet::new(),
             saving: false,
             edit_revision: 0,
+            profile_revision: 0,
             feedback: None,
             feedback_timer: None,
             catalog_conflict: None,
@@ -230,15 +233,19 @@ impl SettingsView {
 
     /// Reads the profile; a shown one stays on screen until the new arrives.
     fn load(&mut self, cx: &mut Context<Self>) {
+        if self.reloading {
+            return;
+        }
         let Some(context::Profile { api, dir }) = self.context.profile.clone() else {
             self.state = LoadState::Unavailable;
             return;
         };
-        if self.snapshot().is_some() {
-            self.reloading = true;
-        } else {
+        self.reloading = true;
+        if self.snapshot().is_none() {
             self.state = LoadState::Loading;
         }
+        let profile_revision = self.profile_revision;
+        let edit_revision = self.edit_revision;
         self.load_addons(cx);
         self.refresh_history(cx);
         cx.spawn(async move |this, cx| {
@@ -247,31 +254,49 @@ impl SettingsView {
                 .spawn(async move { api.config_builder(&dir) })
                 .await;
             this.update(cx, |this, cx| {
-                this.reloading = false;
-                match result {
-                    // Edits made while the profile was read win over it.
-                    Ok(_) if this.dirty() => {}
-                    Ok(snapshot) => this.accept(snapshot),
-                    Err(error) if this.snapshot().is_some() => this.show_feedback(
-                        format!("Не удалось перечитать профиль: {error:#}"),
-                        true,
-                        cx,
-                    ),
-                    Err(error) => this.state = LoadState::Failed(format!("{error:#}").into()),
-                }
-                cx.notify();
+                this.finish_load(result, profile_revision, edit_revision, cx);
             })
             .ok();
         })
         .detach();
     }
 
+    fn finish_load(
+        &mut self,
+        result: anyhow::Result<ConfigBuilderSnapshot>,
+        profile_revision: u64,
+        edit_revision: u64,
+        cx: &mut Context<Self>,
+    ) {
+        self.reloading = false;
+        match result {
+            // A newer accepted snapshot supersedes this read, including errors.
+            _ if profile_revision != self.profile_revision => {}
+            // Raw edits and edit-then-undo also win even when dirty is false.
+            Ok(_) if edit_revision != self.edit_revision || self.dirty() => {}
+            Ok(snapshot) => self.accept(snapshot),
+            Err(error) if self.snapshot().is_some() => self.show_feedback(
+                format!("Не удалось перечитать профиль: {error:#}"),
+                true,
+                cx,
+            ),
+            Err(error) => self.state = LoadState::Failed(format!("{error:#}").into()),
+        }
+        cx.notify();
+    }
+
+    /// Accept a profile snapshot without changing newer local editor state.
+    fn accept_baseline(&mut self, snapshot: ConfigBuilderSnapshot) {
+        self.baseline = Draft::from_snapshot(&snapshot);
+        self.state = LoadState::Ready(Box::new(snapshot));
+        self.profile_revision = self.profile_revision.wrapping_add(1);
+    }
+
     fn accept(&mut self, snapshot: ConfigBuilderSnapshot) {
         self.catalog_conflict = None;
-        self.baseline = Draft::from_snapshot(&snapshot);
+        self.accept_baseline(snapshot);
         self.draft = self.baseline.clone();
         self.forget_editors();
-        self.state = LoadState::Ready(Box::new(snapshot));
     }
 
     fn snapshot(&self) -> Option<&ConfigBuilderSnapshot> {

@@ -9,8 +9,7 @@ impl SettingsView {
         if self.edit_revision == submitted_revision {
             self.accept(snapshot);
         } else {
-            self.baseline = Draft::from_snapshot(&snapshot);
-            self.state = LoadState::Ready(Box::new(snapshot));
+            self.accept_baseline(snapshot);
         }
     }
 

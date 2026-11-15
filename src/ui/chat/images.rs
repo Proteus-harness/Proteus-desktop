@@ -42,12 +42,24 @@ struct Slot {
     key: Key,
     ticket: u64,
     owner: Arc<()>,
+    /// A reconnect permits one retry if this pre-existing attempt fails.
+    rearm_on_failure: bool,
     state: Stored,
 }
 
 impl Slot {
     fn matches(&self, key: &Key, ticket: u64) -> bool {
         self.key == *key && self.ticket == ticket && matches!(self.state, Stored::Loading)
+    }
+
+    /// Called only after the completion's key/ticket/Loading check.
+    fn complete(&mut self, result: std::result::Result<Weak<cache::Bitmap>, SharedString>) {
+        let rearm = std::mem::take(&mut self.rearm_on_failure);
+        self.state = match result {
+            Ok(bitmap) => Stored::Ready(bitmap),
+            Err(_) if rearm => Stored::Waiting,
+            Err(reason) => Stored::Failed(reason),
+        };
     }
 }
 
@@ -67,6 +79,18 @@ pub(super) struct SentImages {
 }
 
 impl SentImages {
+    /// Rearm demanded rows after stream recovery, without starting work here.
+    /// Attempts already queued/running get one chance if their result fails.
+    pub(super) fn rearm_after_reconnect(&mut self) {
+        for slot in self.by_id.values_mut() {
+            match &slot.state {
+                Stored::Failed(_) => slot.state = Stored::Waiting,
+                Stored::Loading => slot.rearm_on_failure = true,
+                Stored::Ready(_) | Stored::Waiting => {}
+            }
+        }
+    }
+
     pub(super) fn retain(&mut self, entries: &[crate::transcript::Entry]) {
         let ids: std::collections::HashSet<_> = entries
             .iter()
@@ -164,6 +188,7 @@ impl Chat {
                     key,
                     ticket,
                     owner,
+                    rearm_on_failure: false,
                     state: if accepted {
                         Stored::Loading
                     } else {

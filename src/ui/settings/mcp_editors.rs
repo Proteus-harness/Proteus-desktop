@@ -33,9 +33,9 @@ fn placeholder(field: McpText) -> String {
     match field {
         McpText::Name => "Имя сервера".into(),
         McpText::Command => "Например, npx".into(),
-        McpText::Args => "Аргумент на строку".into(),
+        McpText::Args => r#"["--stdio"]"#.into(),
         McpText::Cwd => "Рабочая папка агента".into(),
-        McpText::Env => "KEY=VALUE".into(),
+        McpText::Env => r#"{"KEY": "VALUE"}"#.into(),
         McpText::EnvAllowlist => "Имя переменной на строку".into(),
         McpText::TimeoutMs | McpText::MaxResponseBytes => "По умолчанию".into(),
         McpText::ProtocolVersion => mcp_protocol_version(),

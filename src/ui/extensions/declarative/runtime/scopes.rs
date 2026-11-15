@@ -60,6 +60,9 @@ pub(super) struct Scope {
 }
 
 #[cfg(test)]
+mod bootstrap_tests;
+
+#[cfg(test)]
 mod tests {
     use super::workspace_update;
     use std::path::{Path, PathBuf};
@@ -203,6 +206,7 @@ impl Runtime {
         let Some(scope) = self.scopes.get(context) else {
             return;
         };
+        let initialize_navigation = !scope.announced;
         let host = scope.host.clone();
         let session = self
             .lifetime
@@ -226,10 +230,20 @@ impl Runtime {
         if self.lifetime.session() && self.extension.manifest.session_events && !snapshot_known {
             self.send(&host.session_snapshot(self.extension.manifest.session_entries, cx));
         }
+        if self.lifetime.session() && initialize_navigation {
+            // Context/snapshot do not carry per-context document selection.
+            self.send(&Outgoing::Event {
+                context: context.into(),
+                event: HostEventKind::NavigationChanged,
+                session_dir: session.clone(),
+                document: host.active_document(cx),
+            });
+        }
         if let Some(scope) = self.scopes.get_mut(context) {
             scope.session = session;
             scope.workspace = workspace;
-            scope.announced = true;
+            // A deferred launch must not inherit an announcement sent to no process.
+            scope.announced = self.process.is_some();
         }
     }
 

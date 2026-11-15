@@ -38,7 +38,7 @@ impl McpText {
         Self::ProtocolVersion,
     ];
 
-    /// Fields edited one entry per line.
+    /// JSON collections and the one-name-per-line environment allowlist.
     pub fn is_multiline(self) -> bool {
         matches!(self, Self::Args | Self::Env | Self::EnvAllowlist)
     }
@@ -121,7 +121,10 @@ impl Draft {
                 self.follow_rename(&old, &new);
             }
             McpText::Command => server.command = text.trim().to_string(),
-            McpText::Args => server.args = parse_lines(text),
+            McpText::Args => {
+                server.args = serde_json::from_str::<Vec<String>>(text)
+                    .map_err(|error| format!("Нужен JSON-массив строк: {error}"))?;
+            }
             McpText::Cwd => {
                 let text = text.trim();
                 server.cwd = (!text.is_empty()).then(|| PathBuf::from(text));
@@ -192,19 +195,16 @@ pub fn mcp_text(server: &ConfiguredMcpServerConfig, field: McpText) -> String {
     match field {
         McpText::Name => server.name.clone(),
         McpText::Command => server.command.clone(),
-        McpText::Args => server.args.join("\n"),
+        McpText::Args => {
+            serde_json::to_string_pretty(&server.args).expect("MCP argument strings serialize")
+        }
         McpText::Cwd => server
             .cwd
             .as_ref()
             .map(|cwd| cwd.display().to_string())
             .unwrap_or_default(),
-        McpText::Env => server
-            .environment
-            .env
-            .iter()
-            .map(|(key, value)| format!("{key}={value}"))
-            .collect::<Vec<_>>()
-            .join("\n"),
+        McpText::Env => serde_json::to_string_pretty(&server.environment.env)
+            .expect("MCP environment strings serialize"),
         McpText::EnvAllowlist => server.environment.env_allowlist.join("\n"),
         McpText::TimeoutMs => server
             .timeout_ms
@@ -267,26 +267,38 @@ fn parse_lines(text: &str) -> Vec<String> {
 }
 
 fn parse_env(text: &str) -> Result<BTreeMap<String, String>, String> {
-    let mut env = BTreeMap::new();
-    for (ix, line) in text.lines().enumerate() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
+    // Read entries before collecting the map: deserializing a Value/BTreeMap
+    // first would already have discarded duplicate JSON keys.
+    struct EnvVisitor;
+    impl<'de> serde::de::Visitor<'de> for EnvVisitor {
+        type Value = BTreeMap<String, String>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("JSON-объект со строковыми значениями")
         }
-        let Some((key, value)) = line
-            .split_once('=')
-            .filter(|(key, _)| !key.trim().is_empty())
-        else {
-            return Err(format!("Строка {}: нужно KEY=VALUE", ix + 1));
-        };
-        let key = key.trim();
-        if env
-            .insert(key.to_string(), value.trim().to_string())
-            .is_some()
-        {
-            return Err(format!("{key} задана дважды"));
+
+        fn visit_map<M: serde::de::MapAccess<'de>>(
+            self,
+            mut map: M,
+        ) -> Result<Self::Value, M::Error> {
+            let mut env = BTreeMap::new();
+            while let Some((key, value)) = map.next_entry::<String, String>()? {
+                if key.trim().is_empty() {
+                    return Err(serde::de::Error::custom("Укажите имя переменной"));
+                }
+                if env.insert(key.clone(), value).is_some() {
+                    return Err(serde::de::Error::custom(format!("{key} задана дважды")));
+                }
+            }
+            Ok(env)
         }
     }
+    let mut decoder = serde_json::Deserializer::from_str(text);
+    let env = serde::Deserializer::deserialize_map(&mut decoder, EnvVisitor)
+        .map_err(|error| format!("Нужен JSON-объект строк: {error}"))?;
+    decoder
+        .end()
+        .map_err(|error| format!("Неверный JSON: {error}"))?;
     Ok(env)
 }
 

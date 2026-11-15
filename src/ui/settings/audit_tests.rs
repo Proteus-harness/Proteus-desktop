@@ -5,6 +5,7 @@ use crate::ui::extensions::OpenDocument;
 use crate::ui::workspace::Workspace;
 
 mod catalog_save;
+mod reload;
 
 fn snapshot(provider: &str) -> ConfigBuilderSnapshot {
     ConfigBuilderSnapshot {

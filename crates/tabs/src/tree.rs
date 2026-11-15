@@ -258,6 +258,7 @@ impl Node {
             let node = Node::Pane(Pane::new(id));
             children.insert(slot, Child { size, node });
         }
+        let mut children = reconcile_empty(children, keep);
         match children.len() {
             0 => None,
             1 => children.pop().map(|child| child.node),
@@ -293,4 +294,46 @@ impl Node {
         }
         Ok(())
     }
+}
+
+/// A child holder may have acquired new siblings when its wrapper collapsed
+/// and merged above. Decide every removal against these final siblings before
+/// handing shares over, so a removed holder cannot receive another's share.
+fn reconcile_empty(children: Vec<Child>, keep: Option<PaneId>) -> Vec<Child> {
+    let empty = |child: &Child| matches!(&child.node, Node::Pane(pane) if pane.tabs.is_empty() && Some(pane.id) != keep);
+    let weighted = children
+        .iter()
+        .any(|child| !empty(child) && !child.size.is_fixed());
+    let locked = children.iter().any(|child| {
+        !empty(child)
+            && child.size.is_fixed()
+            && matches!(&child.node, Node::Pane(pane) if pane.locked)
+    });
+    let room = if !weighted && locked {
+        children
+            .iter()
+            .position(|child| empty(child) && !child.size.is_fixed())
+    } else {
+        None
+    };
+    if children
+        .iter()
+        .enumerate()
+        .all(|(ix, child)| !empty(child) || Some(ix) == room)
+    {
+        return children;
+    }
+    let mut entries: Vec<_> = children
+        .into_iter()
+        .enumerate()
+        .map(|(ix, child)| {
+            let retain = !empty(&child) || Some(ix) == room;
+            (child.size, retain.then_some(child.node))
+        })
+        .collect();
+    size::hand_over(&mut entries);
+    entries
+        .into_iter()
+        .filter_map(|(size, node)| node.map(|node| Child { size, node }))
+        .collect()
 }

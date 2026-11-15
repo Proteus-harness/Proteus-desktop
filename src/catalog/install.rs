@@ -208,18 +208,24 @@ pub fn connect(
                 && let Some(current) = draft.configured_mcp(&old.name)
             {
                 ensure!(
-                    current == old,
+                    same_mcp_binding(current, old),
                     "Сервер изменён вручную; сначала удалите его на странице MCP"
                 );
             }
             if let Some(current) = draft.configured_mcp(&server.name) {
                 ensure!(
-                    old.is_some_and(|old| current == old),
+                    old.is_some_and(|old| same_mcp_binding(current, old)),
                     "Имя MCP-сервера уже занято: {}",
                     server.name
                 );
             }
-            let disabled = old.is_some_and(|old| !draft.mcp_enabled(&old.name));
+            // Preserve the effective switch of an existing binding, not the
+            // new manifest's default. A stale receipt only carries an explicit
+            // disabled tombstone; an absent binding is not implicitly enabled.
+            let enabled = old.and_then(|old| {
+                let enabled = draft.mcp_enabled(&old.name);
+                (draft.configured_mcp(&old.name).is_some() || !enabled).then_some(enabled)
+            });
             if let Some(old) = old {
                 if let Some(ix) = draft
                     .addons
@@ -231,8 +237,8 @@ pub fn connect(
                 }
             }
             draft.addons.mcp_servers.push(server.clone());
-            if disabled {
-                draft.set_mcp(&server.name, false);
+            if let Some(enabled) = enabled {
+                draft.set_mcp(&server.name, enabled);
             }
         }
         _ => {}
@@ -250,7 +256,7 @@ pub fn disconnect(draft: &mut Draft, installed: &Installed) -> Result<()> {
                 .position(|item| item.name == server.name)
             {
                 ensure!(
-                    draft.addons.mcp_servers[ix] == *server,
+                    same_mcp_binding(&draft.addons.mcp_servers[ix], server),
                     "Сервер изменён вручную; удалите его на странице MCP"
                 );
                 draft.remove_mcp(ix);
@@ -262,6 +268,18 @@ pub fn disconnect(draft: &mut Draft, installed: &Installed) -> Result<()> {
         _ => {}
     }
     Ok(())
+}
+
+/// A receipt owns the exact binding, apart from its user-controlled switch.
+/// Normalize only that field so every other current or future field still
+/// participates in the derived equality check.
+fn same_mcp_binding(
+    current: &ConfiguredMcpServerConfig,
+    receipt: &ConfiguredMcpServerConfig,
+) -> bool {
+    let mut expected = receipt.clone();
+    expected.enabled = current.enabled;
+    current == &expected
 }
 
 /// Only immediate, receipted children of the applicable managed root.

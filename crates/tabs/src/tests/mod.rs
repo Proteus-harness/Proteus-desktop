@@ -4,6 +4,7 @@ use super::{Node, PaneId, Size, TabLayout, chat, chat_dir, split_document};
 
 mod chat_context;
 mod history;
+mod normalization;
 mod pins;
 mod sizes;
 mod tree;

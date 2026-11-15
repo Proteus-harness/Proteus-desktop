@@ -4,7 +4,7 @@ use std::sync::Weak;
 
 use gpui_kit::*;
 
-use super::{Chat, Key, SHARED, Stored};
+use super::{Chat, Key, SHARED};
 
 pub(super) const MAX_RUNNING: usize = 2;
 const MAX_PENDING: usize = 512;
@@ -111,8 +111,8 @@ pub(super) fn drain(cx: &mut App) {
                         if !slot.matches(&request.key, request.ticket) {
                             return;
                         }
-                        slot.state = match result {
-                            Ok(preview) => {
+                        let result = result
+                            .map(|preview| {
                                 let image = SHARED.with(|shared| {
                                     shared.borrow_mut().cache.insert(
                                         request.key,
@@ -121,10 +121,10 @@ pub(super) fn drain(cx: &mut App) {
                                         Some(cx),
                                     )
                                 });
-                                Stored::Ready(std::sync::Arc::downgrade(&image))
-                            }
-                            Err(error) => Stored::Failed(format!("{error:#}").into()),
-                        };
+                                std::sync::Arc::downgrade(&image)
+                            })
+                            .map_err(|error| format!("{error:#}").into());
+                        slot.complete(result);
                         cx.notify();
                     })
                     .ok();

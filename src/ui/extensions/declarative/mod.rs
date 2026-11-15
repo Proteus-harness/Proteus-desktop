@@ -189,7 +189,8 @@ pub(super) fn icon(name: Option<&str>) -> Lucide {
         .unwrap_or(Lucide::Puzzle)
 }
 
-/// Every surface shares one process, retained until its workspace closes.
+/// Default runtime selected for new surfaces in a host. Rehosting can replace
+/// a default while existing surfaces still retain the previous runtime.
 #[derive(Default)]
 struct Runtimes(HashMap<(EntityId, &'static str), WeakEntity<Runtime>>);
 
@@ -200,6 +201,34 @@ impl Global for Runtimes {}
 #[derive(Default)]
 struct ViewRuntimes(HashMap<(super::host::ViewOwner, &'static str), WeakEntity<Runtime>>);
 impl Global for ViewRuntimes {}
+
+/// Live recipients created by runtime(), independent of host default selection.
+/// Weak entries do not extend surface/workspace ownership; later registrations
+/// remove expired entries. Entity identity also removes rehost aliases.
+#[derive(Default)]
+struct LiveRuntimes(HashMap<EntityId, (&'static str, WeakEntity<Runtime>)>);
+impl Global for LiveRuntimes {}
+
+fn register_runtime(extension: &'static str, runtime: &Entity<Runtime>, cx: &mut App) {
+    let runtimes = &mut cx.default_global::<LiveRuntimes>().0;
+    runtimes.retain(|_, (_, runtime)| runtime.upgrade().is_some());
+    runtimes.insert(runtime.entity_id(), (extension, runtime.downgrade()));
+}
+
+/// Snapshot recipients before callbacks, without borrowing individual runtimes.
+/// None selects every package for reload; Some preserves package-local fanout.
+fn live_runtimes(extension: Option<&str>, cx: &App) -> Vec<Entity<Runtime>> {
+    cx.try_global::<LiveRuntimes>()
+        .map(|runtimes| {
+            runtimes
+                .0
+                .values()
+                .filter(|(owner, _)| extension.is_none_or(|extension| *owner == extension))
+                .filter_map(|(_, runtime)| runtime.upgrade())
+                .collect()
+        })
+        .unwrap_or_default()
+}
 
 fn runtime_of(host: &Host, cx: &App) -> Option<Entity<Runtime>> {
     if let Some(owner) = host.runtime_scope().owner {
@@ -221,6 +250,7 @@ fn runtime(host: &Host, window: &Window, cx: &mut App) -> Option<Entity<Runtime>
         return Some(runtime);
     }
     let runtime = cx.new(|cx| Runtime::new(extension, host.clone(), window, cx));
+    register_runtime(&extension.manifest.id, &runtime, cx);
     if let Some(owner) = host.runtime_scope().owner {
         let runtimes = &mut cx.default_global::<ViewRuntimes>().0;
         runtimes.retain(|_, runtime| runtime.upgrade().is_some());
@@ -346,30 +376,7 @@ fn settings_surface(
 
 /// Reload packages in live surfaces after an explicit install/update/rescan.
 pub(super) fn reload_runtimes(cx: &mut App) {
-    let runtimes: Vec<_> = cx
-        .try_global::<Runtimes>()
-        .map(|runtimes| {
-            runtimes
-                .0
-                .values()
-                .filter_map(WeakEntity::upgrade)
-                .collect()
-        })
-        .unwrap_or_default();
-    for runtime in runtimes {
-        runtime.update(cx, |runtime, cx| runtime.reload(cx));
-    }
-    let view_runtimes: Vec<_> = cx
-        .try_global::<ViewRuntimes>()
-        .map(|runtimes| {
-            runtimes
-                .0
-                .values()
-                .filter_map(WeakEntity::upgrade)
-                .collect()
-        })
-        .unwrap_or_default();
-    for runtime in view_runtimes {
+    for runtime in live_runtimes(None, cx) {
         runtime.update(cx, |runtime, cx| runtime.reload(cx));
     }
 }

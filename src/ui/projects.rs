@@ -47,12 +47,34 @@ impl Workspace {
             if let Some(key) = latest_main_session(&self.sessions, &project, agent) {
                 return self.open_chat(key, project_open(), window, cx);
             }
+        }
+        self.request_project_catalog(project, agent, navigation, window, cx);
+    }
+
+    /// Retry only the catalog read, preserving the user's original destination
+    /// and driver. Starting navigation again would supersede a newer intention.
+    fn request_project_catalog(
+        &mut self,
+        project: PathBuf,
+        agent: AgentKind,
+        navigation: u64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let epoch = self.session_catalog_epoch;
+        if agent == AgentKind::Codex {
             let listed_project = project.clone();
             return self.call_codex_in(
                 window,
                 cx,
                 move |service| Ok(service.list_until_main(&listed_project)?),
                 move |this, summaries, window, cx| {
+                    if epoch != this.session_catalog_epoch {
+                        if navigation == this.navigation_generation {
+                            this.request_project_catalog(project, agent, navigation, window, cx);
+                        }
+                        return;
+                    }
                     for summary in summaries {
                         let summary = crate::conversations::from_codex(&summary);
                         this.sessions.retain(|row| row.key != summary.key);
@@ -73,14 +95,20 @@ impl Workspace {
             cx,
             |api| api.sessions(),
             move |this, sessions, window, cx| {
+                if epoch != this.session_catalog_epoch {
+                    if navigation == this.navigation_generation {
+                        this.request_project_catalog(project, agent, navigation, window, cx);
+                    }
+                    return;
+                }
                 this.set_sessions(sessions, cx);
                 this.finish_project_navigation(project, AgentKind::Proteus, navigation, window, cx);
             },
         );
     }
 
-    /// Catalog data may arrive after any later destination. It is still useful
-    /// metadata, but only the surviving user intention can select a workspace.
+    /// Admitted catalog data may arrive after any later destination. It is still
+    /// useful metadata, but only the surviving intention can select a workspace.
     pub(super) fn finish_project_navigation(
         &mut self,
         project: PathBuf,

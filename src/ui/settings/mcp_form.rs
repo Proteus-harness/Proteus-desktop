@@ -52,7 +52,7 @@ fn describe_field(field: McpText) -> (&'static str, &'static str, &'static str) 
         ),
         McpText::Args => (
             "Аргументы",
-            "Аргументы команды, по одному на строку.",
+            "JSON-массив строк. Пробелы и пустые строки сохраняются; пустой список — [].",
             "args",
         ),
         McpText::Cwd => (
@@ -62,7 +62,7 @@ fn describe_field(field: McpText) -> (&'static str, &'static str, &'static str) 
         ),
         McpText::Env => (
             "Переменные окружения",
-            "Свои значения переменных для сервера, по строке KEY=VALUE.",
+            "JSON-объект со строковыми значениями. Повторные имена запрещены; пустой набор — {}.",
             "env",
         ),
         McpText::EnvAllowlist => (

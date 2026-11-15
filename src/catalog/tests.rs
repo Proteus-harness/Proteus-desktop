@@ -7,6 +7,7 @@ use std::{
 use super::{schema::Kind, *};
 use crate::{packages::Contents, settings::Draft};
 
+mod mcp_switch;
 mod plugin_identity;
 mod source_download;
 

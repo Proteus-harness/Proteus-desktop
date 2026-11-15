@@ -78,6 +78,7 @@ impl Chat {
                 self.context_requests.invalidate();
                 session.stream_connected();
                 if reconnecting {
+                    self.sent_images.rearm_after_reconnect();
                     self.load_config(cx);
                 }
                 cx.emit(ChatEvent::state_changed());
