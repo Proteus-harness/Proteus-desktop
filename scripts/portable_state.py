@@ -1,4 +1,6 @@
 """Ready-package validation, provenance and transactional publication; no builds."""
+from contextlib import contextmanager
+import fcntl
 import hashlib
 import json
 import os
@@ -92,6 +94,16 @@ def verify_protocol(base, native, selected, record):
     # not an unrelated, unselected Desktop checkout.
 
 
+def verify_packaged_extensions(base, record):
+    """Validate the final package, without blocking repairs of the input base."""
+    expected = record.get("desktop_protocol")
+    if expected is None:
+        raise SystemExit("Ready Desktop has no protocol provenance; explicitly rebuild Desktop first")
+    if extension_protocols(base) != {expected}:
+        raise SystemExit("Packaged extensions use another protocol than the packaged Desktop; select compatible Desktop and extensions")
+    verify_features((base / "share/extensions").glob("*/extension.json"), record.get("desktop_features"))
+
+
 def verify_extension_source(base, extensions, record):
     expected = record.get("desktop_protocol")
     if expected is None:
@@ -128,6 +140,18 @@ def clear_modules(stage):
     for name in ("proteus-hook-worker", "proteus-claude-hooks-inspect"):
         (stage / "bin" / name).unlink(missing_ok=True)
     shutil.rmtree(stage / "share/modules", ignore_errors=True)
+
+
+@contextmanager
+def update_lock(destination):
+    """Serialize cooperating updates of one Linux portable, including its base read."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    # Keep this inode after close: unlinking would split existing waiters from
+    # new entrants. The sibling stays stable while the package is renamed.
+    path = destination.parent / f".{destination.name}.update.lock"
+    with path.open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
 
 
 def publish(stage, destination):

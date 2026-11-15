@@ -452,7 +452,8 @@ class PortableSelectionTests(unittest.TestCase):
 
     def test_full_is_explicit_and_invokes_all_components_without_requiring_base(self):
         # Keep the real selector/installer paths, substitute metadata/config IO only.
-        full_record = {"version": "9.0.0", "sources": {name: {"commit": "new"}
+        full_record = {"version": "9.0.0", "desktop_protocol": 4, "desktop_features": [],
+                       "sources": {name: {"commit": "new"}
                        for name in self.portable.SOURCE_NAMES.values()}}
         def metadata(stage, *roots):
             self.write_json(stage / "share/release-sources.json", full_record)

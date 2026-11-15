@@ -5,6 +5,7 @@ Unselected components are copied intact from --base (default build/Proteus).
 An explicit --full bootstraps all components. --plan never builds or clones.
 """
 import argparse
+from contextlib import nullcontext
 import copy
 import json
 import os
@@ -16,13 +17,14 @@ import sys
 import tarfile
 import tempfile
 
+from portable_state import verify_packaged_extensions
 from sources import resolve
 from limits import limit
 from cargo_binary import build_binary
 from desktop_toolchain import prepare_desktop
 from portable_modules import assemble as assemble_modules
 from portable_state import (COMPONENTS, SOURCE_NAMES, binary_hashes, clear_modules,
-                            desktop_features, desktop_protocol, publish, read_record, verify_extension_source, verify_protocol)
+                            desktop_features, desktop_protocol, publish, read_record, update_lock, verify_extension_source, verify_protocol)
 from release_metadata import install_component_notices, source_record, version, write_manifest
 
 NATIVE = Path(__file__).resolve().parent.parent
@@ -154,6 +156,11 @@ def main(argv=None):
     selected = tuple(COMPONENTS if args.full else args.components or ("desktop",))
     if args.reuse_binaries:
         selected = ()
+    with nullcontext() if args.plan else update_lock(PORTABLE):
+        _update(args, selected)
+
+
+def _update(args, selected):
     base = (args.base or PORTABLE).resolve()
     print(f"Base: {base}")
     for component in COMPONENTS:
@@ -184,7 +191,8 @@ def main(argv=None):
         if selected:
             assemble(stage, selected, roots, "debug" if args.debug else "release", record)
         # Reject incomplete selected packaging before replacing a working installation.
-        read_record(stage)
+        stage_record = read_record(stage)
+        verify_packaged_extensions(stage, stage_record)
         publish(stage, PORTABLE)
     finally:
         if stage.exists():
