@@ -12,8 +12,8 @@ use super::addons::{
     mcp_servers, missing_skills, normalized, package_contents, package_state, tool_server,
 };
 use super::catalog::{
-    CONNECTION_PAGES, CONTEXT_PROVIDER_SLOT, PackState, PageId, agent_pages, area_page,
-    missing_tools, module_info, pack_summary, page_title, plural, slot_page, tool_pack,
+    CLIENT_PAGES, CONNECTION_PAGES, CONTEXT_PROVIDER_SLOT, PackState, PageId, agent_pages,
+    area_page, missing_tools, module_info, pack_summary, page_title, plural, slot_page, tool_pack,
 };
 use super::draft::Area;
 use super::history::describe_changes;
@@ -179,6 +179,9 @@ fn pages_cover_known_slots_and_append_unknown_ones() {
         assert!(pages.contains(&page));
     }
     assert!(CONNECTION_PAGES.iter().all(|page| !pages.contains(page)));
+    assert!(CLIENT_PAGES.contains(&PageId::Configurations));
+    assert!(!PageId::Configurations.is_agent());
+    assert!(!pages.contains(&PageId::Configurations));
     assert_eq!(
         slot_page(CONTEXT_PROVIDER_SLOT),
         PageId::Slot("context".into())

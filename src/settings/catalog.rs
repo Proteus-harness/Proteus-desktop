@@ -35,6 +35,7 @@ pub enum PageId {
     /// Agent Plugins packages.
     Packages,
     History,
+    Configurations,
     Appearance,
     Chat,
     Shortcuts,
@@ -49,6 +50,7 @@ impl PageId {
         !matches!(
             self,
             Self::Catalog
+                | Self::Configurations
                 | Self::Appearance
                 | Self::Chat
                 | Self::Shortcuts
@@ -129,7 +131,8 @@ pub const CONNECTION_PAGES: [PageId; 5] = [
     PageId::History,
 ];
 
-pub const CLIENT_PAGES: [PageId; 4] = [
+pub const CLIENT_PAGES: [PageId; 5] = [
+    PageId::Configurations,
     PageId::Appearance,
     PageId::Chat,
     PageId::Shortcuts,
@@ -153,6 +156,7 @@ pub fn page_title(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId) -> St
         PageId::Skills => "Skills".into(),
         PageId::Packages => "Packages".into(),
         PageId::History => "History".into(),
+        PageId::Configurations => "Конфигурации".into(),
         PageId::Appearance => "Внешний вид".into(),
         PageId::Chat => "Чат".into(),
         PageId::Shortcuts => "Сочетания клавиш".into(),
@@ -194,6 +198,9 @@ pub fn page_description(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId)
         }
         PageId::History => {
             "Каждое сохранение настроек агента запоминает состояние профиля, которое оно заменило. «Вернуть как было» загружает это состояние в черновик: проверьте изменения внизу и сохраните. Откат тоже попадает в историю."
+        }
+        PageId::Configurations => {
+            "Выбор файлов агента и оформления Desktop, default и привязки для этого окна."
         }
         PageId::Appearance => "Тема, шрифты, размеры, анимации и подсказки интерфейса.",
         PageId::Chat => "Вид сообщений и поведение чата.",

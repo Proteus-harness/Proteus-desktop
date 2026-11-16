@@ -123,6 +123,7 @@ impl SettingsView {
             PageId::Skills => self.skills_page(cx),
             PageId::Packages => self.packages_page(cx),
             PageId::History => self.history_page(cx),
+            PageId::Configurations => self.configurations_page(cx),
             PageId::Appearance => self.appearance_page(cx),
             PageId::Chat => self.chat_page(cx),
             PageId::Shortcuts => self.shortcuts_page(cx),

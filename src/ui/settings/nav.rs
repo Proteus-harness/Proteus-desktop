@@ -45,6 +45,7 @@ pub(super) fn page_icon(page: &PageId) -> Icon {
         PageId::Skills => Icon::new(Lucide::Sparkles),
         PageId::Packages => Icon::new(Lucide::Package),
         PageId::History => Icon::new(Lucide::Clock),
+        PageId::Configurations => Icon::new(Lucide::Files),
         PageId::Appearance => Icon::new(IconName::Palette),
         PageId::Chat => Icon::new(Lucide::MessageSquare),
         PageId::Shortcuts => Icon::new(Lucide::Keyboard),

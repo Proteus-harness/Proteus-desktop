@@ -265,6 +265,7 @@ impl Effects {
                 || previous.label_truncation != value.label_truncation
                 || previous.extensions != value.extensions
                 || previous.catalogs != value.catalogs
+                || previous.visual_configs != value.visual_configs
                 || previous.sidebar != value.sidebar
                 || previous.send != value.send
                 || previous.notifications != value.notifications,
@@ -343,6 +344,22 @@ mod tests {
         assert!(!effects.motion);
         assert!(!effects.chat_font);
         assert!(!effects.renderers);
+    }
+
+    #[::core::prelude::v1::test]
+    fn visual_registry_refreshes_controls_without_reapplying_window_appearance() {
+        let before = Preferences::default();
+        let mut after = before.clone();
+        after.visual_configs.default_config = Some("/fixture/desktop.json".into());
+        let effects = Effects::between(&before, &after);
+        assert!(effects.refresh);
+        assert!(!effects.theme && !effects.sizes && !effects.motion && !effects.chat_font);
+        assert!(!effects.shortcuts && !effects.renderers);
+        after
+            .visual_configs
+            .bindings
+            .insert("/fixture/agent.toml".into(), "/fixture/desktop.json".into());
+        assert!(Effects::between(&before, &after).refresh);
     }
 
     #[::core::prelude::v1::test]

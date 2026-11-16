@@ -337,15 +337,25 @@ impl Launcher {
                         )
                     })
                     .child(
-                        h_flex().child(
-                            kit::button("choose-workspace")
-                                .icon(Lucide::FolderOpen)
-                                .faded_label("Открыть папку…")
-                                .primary()
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.choose_folder(window, cx)
-                                })),
-                        ),
+                        h_flex()
+                            .gap_2()
+                            .child(
+                                kit::button("choose-workspace")
+                                    .icon(Lucide::FolderOpen)
+                                    .faded_label("Открыть папку…")
+                                    .primary()
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.choose_folder(window, cx)
+                                    })),
+                            )
+                            .child(
+                                kit::button("picker-settings")
+                                    .icon(Lucide::Settings)
+                                    .faded_label("Настройки")
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.open_configuration_settings(window, cx)
+                                    })),
+                            ),
                     ),
             )
             .into_any_element()
@@ -371,7 +381,6 @@ impl Render for Launcher {
             Stage::Picking { error } => {
                 let launcher = cx.weak_entity();
                 let chooser = launcher.clone();
-                let config_picker = launcher.clone();
                 let projects = Projects::new(
                     None,
                     move |path, window, cx| {
@@ -390,16 +399,7 @@ impl Render for Launcher {
                     .size_full()
                     .track_focus(&self.focus)
                     .child(super::wheel::layer())
-                    .child(chrome::picker_top_bar(
-                        projects,
-                        move |window, cx| {
-                            config_picker
-                                .update(cx, |this, cx| this.choose_config(window, cx))
-                                .ok();
-                        },
-                        window,
-                        cx,
-                    ))
+                    .child(chrome::picker_top_bar(projects, window, cx))
                     .child(
                         div()
                             .flex_1()

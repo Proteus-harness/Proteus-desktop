@@ -4,6 +4,7 @@
 mod addons;
 mod catalog;
 mod client;
+pub(in crate::ui) mod configurations;
 mod context;
 mod dismiss;
 mod editors;

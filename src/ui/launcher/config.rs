@@ -7,6 +7,43 @@ use super::*;
 use crate::conversations::AgentKind;
 
 impl Launcher {
+    pub(super) fn open_configuration_settings(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let agent = match &self.target {
+            Target::Spawn {
+                profile: Some(profile),
+            } => Some(PathBuf::from(profile)),
+            _ => None,
+        };
+        if let Some(path) = agent.as_ref().filter(|path| path.is_file()) {
+            prefs::set_visual_agent(path, window, cx);
+        }
+        let launcher = cx.weak_entity();
+        let open_agent: crate::ui::settings::configurations::OpenAgent =
+            std::rc::Rc::new(move |window, cx| {
+                launcher
+                    .update(cx, |this, cx| this.choose_config(window, cx))
+                    .ok();
+            });
+        window.open_dialog(cx, move |dialog, _, cx| {
+            dialog
+                .title("Конфигурации")
+                .w(px(680.))
+                .child(
+                    v_flex()
+                        .gap_6()
+                        .children(crate::ui::settings::configurations::controls(
+                            agent.clone(),
+                            open_agent.clone(),
+                            cx,
+                        )),
+                )
+        });
+    }
+
     pub(super) fn choose_config(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let workspace = match &self.stage {
             Stage::Ready(view) => Some(view.read(cx).active_project_path().to_path_buf()),

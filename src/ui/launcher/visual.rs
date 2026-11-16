@@ -2,70 +2,38 @@
 //! Visual-file actions affect one window, never its agent or live backend.
 
 use crate::ui::prefs::{self, WindowVisualPreferences};
-use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::*;
 use std::path::PathBuf;
 
-pub(in crate::ui) fn menu(
-    mut menu: PopupMenu,
-    _: &mut Window,
-    cx: &mut Context<PopupMenu>,
-) -> PopupMenu {
-    let current = cx.global::<WindowVisualPreferences>();
-    let source = current.selection.path.as_ref().map_or_else(
-        || "Встроенный default".into(),
-        |path| path.display().to_string(),
-    );
-    let has_file = current.selection.path.is_some();
-    let has_agent = current.agent_path.is_some();
-    let bound = current.agent_path.as_ref().is_some_and(|path| {
-        prefs::current(cx)
-            .visual_configs
-            .bindings
-            .contains_key(path)
-    });
-    menu = menu
-        .label(source)
-        .item(
-            PopupMenuItem::new("Открыть визуальный конфиг…")
-                .on_click(|_, window, cx| open(window, cx)),
-        )
-        .item(
-            PopupMenuItem::new("Сохранить визуальный конфиг как…")
-                .on_click(|_, window, cx| save_as(window, cx)),
-        )
-        .item(
-            PopupMenuItem::new("Использовать default")
-                .on_click(|_, window, cx| prefs::reset_visual_default(window, cx)),
-        )
-        .item(
-            PopupMenuItem::new("Следовать привязке агента / default")
-                .on_click(|_, window, cx| prefs::reset_visual_auto(window, cx)),
-        )
-        .separator()
-        .item(
-            PopupMenuItem::new("Сделать default для новых окон")
-                .disabled(!has_file)
-                .on_click(|_, window, cx| remember(false, window, cx)),
-        )
-        .item(
-            PopupMenuItem::new("Привязать к этому конфигу агента")
-                .disabled(!has_file || !has_agent)
-                .on_click(|_, window, cx| remember(true, window, cx)),
-        )
-        .item(
-            PopupMenuItem::new("Убрать привязку к агенту")
-                .disabled(!bound)
-                .on_click(|_, _, cx| {
-                    let agent = cx.global::<WindowVisualPreferences>().agent_path.clone();
-                    if let Some(agent) = agent {
-                        prefs::update(cx, |prefs| {
-                            prefs.visual_configs.bindings.remove(&agent);
-                        });
-                    }
-                }),
-        );
-    menu
+#[derive(Clone, Copy)]
+pub(in crate::ui) enum Action {
+    Open,
+    SaveAs,
+    UseDefault,
+    FollowAgent,
+    SetDefault,
+    BindAgent,
+    UnbindAgent,
+}
+
+/// Shared by the full settings page and the startup settings dialog.
+pub(in crate::ui) fn run(action: Action, window: &mut Window, cx: &mut App) {
+    match action {
+        Action::Open => open(window, cx),
+        Action::SaveAs => save_as(window, cx),
+        Action::UseDefault => prefs::reset_visual_default(window, cx),
+        Action::FollowAgent => prefs::reset_visual_auto(window, cx),
+        Action::SetDefault => remember(false, window, cx),
+        Action::BindAgent => remember(true, window, cx),
+        Action::UnbindAgent => {
+            let agent = cx.global::<WindowVisualPreferences>().agent_path.clone();
+            if let Some(agent) = agent {
+                prefs::update(cx, |prefs| {
+                    prefs.visual_configs.bindings.remove(&agent);
+                });
+            }
+        }
+    }
 }
 
 fn open(window: &mut Window, cx: &mut App) {

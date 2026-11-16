@@ -100,6 +100,9 @@ impl Finder {
 /// Russian names of the pages titled in English.
 fn page_words(page: &PageId) -> &'static str {
     match page {
+        PageId::Configurations => {
+            "config desktop визуальный агент профиль файл default умолчанию привязка переключение"
+        }
         PageId::Model => "модель провайдер",
         PageId::Tools => "инструменты",
         PageId::Hooks => "обработчики хуки",
