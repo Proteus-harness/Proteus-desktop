@@ -7,7 +7,7 @@
 set -eu
 
 here=$(dirname "$(readlink -f "$0")")
-config_home=${PROTEUS_CONFIG_HOME:-"${HOME}/.config/Proteus-agent"}
+config_home=${PROTEUS_CONFIG_HOME:-"${HOME}/.config/Proteus-harness"}
 if [ -f "${config_home}/environment" ]; then
   # Common environment for the GUI, owned server and process extensions.
   . "${config_home}/environment"

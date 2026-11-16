@@ -1,15 +1,16 @@
 // Адаптировано из Zed: crates/settings_ui/src/settings_ui.rs (render_settings_item_layout).
-//! File selection is a settings concern. The same controls also work before
-//! a project/backend exists; every visual action keeps its exact native owner.
+//! Agent files, the current window and rules for future windows are distinct.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::*;
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::SettingsView;
-use super::widgets::{card, note, row, section};
+use super::widgets::{card, note, section};
 use crate::ui::chrome::WorkspaceRequest;
 use crate::ui::fade::faded;
 use crate::ui::kit;
@@ -36,8 +37,7 @@ impl SettingsView {
     }
 }
 
-/// Source labels and actions are shared with the startup settings dialog,
-/// rather than retaining a second set of header/menu controls.
+/// Also used before a project/backend exists, in the startup settings dialog.
 pub(in crate::ui) fn controls(
     agent: Option<PathBuf>,
     open_agent: OpenAgent,
@@ -45,44 +45,51 @@ pub(in crate::ui) fn controls(
 ) -> Vec<AnyElement> {
     let state = cx.global::<WindowVisualPreferences>();
     let agent = state.agent_path.as_ref().or(agent.as_ref());
-    let source = path_label(agent, "Файл агента не выбран");
-    let visual = path_label(state.selection.path.as_ref(), "Встроенный default");
-    let default = prefs::current(cx)
-        .visual_configs
-        .default_config
-        .as_ref()
-        .or_else(|| {
-            (state.selection.origin == SelectionOrigin::Default)
-                .then_some(state.selection.path.as_ref())
-                .flatten()
-        });
-    let binding = agent.and_then(|agent| prefs::current(cx).visual_configs.bindings.get(agent));
-    let mode = match state.selection.origin {
-        SelectionOrigin::Default => "Default",
-        SelectionOrigin::Binding => "Привязка к агенту",
-        SelectionOrigin::Manual => "Ручной выбор",
-    };
-    let has_file = state.selection.path.is_some();
+    let selected = state.selection.path.as_ref();
+    let registry = &prefs::current(cx).visual_configs;
+    let default = registry.default_config.as_ref().or_else(|| {
+        (state.selection.origin == SelectionOrigin::Default)
+            .then_some(selected)
+            .flatten()
+    });
+    let binding = agent.and_then(|agent| registry.bindings.get(agent));
     let has_agent = state.agent_path.is_some();
-    let agent_controls = v_flex()
-        .gap_2()
-        .child(source_line("config-agent-source", source, cx))
+    let has_file = selected.is_some();
+    let already_default = has_file && selected == default;
+    let already_bound = has_file && selected == binding;
+    let agent_name = file_name(agent.map(PathBuf::as_path), "этого конфига агента");
+
+    let agent_file = h_flex()
+        .gap_3()
+        .items_center()
+        .child(file_details(
+            "config-agent-source",
+            agent,
+            "Конфиг по умолчанию",
+            cx,
+        ))
         .child(
             kit::button("config-open-agent")
                 .small()
-                .faded_label("Открыть с другим конфигом…")
+                .icon(Lucide::ChevronDown)
+                .faded_label("Выбрать конфиг…")
                 .on_click(move |_, window, cx| open_agent(window, cx)),
         );
-    let visual_controls = v_flex()
-        .gap_2()
-        .child(source_line("config-visual-source", visual, cx))
+    let visual_file = v_flex()
+        .gap_3()
+        .child(file_details(
+            "config-visual-source",
+            selected,
+            "Оформление приложения",
+            cx,
+        ))
         .child(
             h_flex()
                 .gap_2()
                 .flex_wrap()
                 .child(action(
                     "config-open-visual",
-                    "Открыть…",
+                    "Выбрать файл…",
                     false,
                     Action::Open,
                 ))
@@ -93,84 +100,123 @@ pub(in crate::ui) fn controls(
                     Action::SaveAs,
                 )),
         );
-    let rows = [
-        row("Файл оформления", None, visual_controls, true, cx).into_any_element(),
-        row(
-            format!("Выбор для этого окна · {mode}"),
-            None,
+    let mode = match state.selection.origin {
+        SelectionOrigin::Default => "Сейчас используется общее оформление.",
+        SelectionOrigin::Binding => "Сейчас используется оформление для этого конфига агента.",
+        SelectionOrigin::Manual => "Файл выбран вручную только для этого окна.",
+    };
+    let current = v_flex().gap_3().p_4().child(visual_file).child(
+        h_flex()
+            .gap_3()
+            .items_center()
+            .flex_wrap()
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(mode),
+            )
+            .when(state.selection.origin == SelectionOrigin::Manual, |row| {
+                row.child(action(
+                    "config-follow-agent",
+                    "Вернуть автовыбор",
+                    false,
+                    Action::FollowAgent,
+                ))
+            }),
+    );
+
+    let common = v_flex()
+        .gap_2()
+        .p_4()
+        .child(div().text_sm().font_medium().child("Общее оформление"))
+        .child(
+            div()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child("Для новых окон, у которых нет отдельного правила ниже."),
+        )
+        .child(file_details(
+            "config-default-source",
+            default,
+            "Оформление приложения",
+            cx,
+        ))
+        .child(
             h_flex()
                 .gap_2()
                 .flex_wrap()
                 .child(action(
+                    "config-set-default",
+                    "Использовать текущее",
+                    !has_file || already_default,
+                    Action::SetDefault,
+                ))
+                .child(action(
                     "config-use-default",
-                    "Использовать default",
+                    "Применить в этом окне",
                     false,
                     Action::UseDefault,
-                ))
-                .child(action(
-                    "config-follow-agent",
-                    "Следовать привязке",
-                    false,
-                    Action::FollowAgent,
                 )),
-            true,
-            cx,
-        )
-        .into_any_element(),
-    ];
-    let remembered = [
-        row(
-            "Default для новых окон",
-            None,
-            v_flex()
-                .gap_2()
-                .child(source_line(
-                    "config-default-source",
-                    path_label(default, "Default приложения"),
-                    cx,
-                ))
-                .child(action(
-                    "config-set-default",
-                    "Сделать текущий default",
-                    !has_file,
-                    Action::SetDefault,
-                )),
-            true,
-            cx,
-        )
-        .into_any_element(),
-        row(
-            "Привязка к этому файлу агента",
-            None,
-            v_flex()
-                .gap_2()
-                .child(source_line(
-                    "config-binding-source",
-                    path_label(binding, "Не задана"),
-                    cx,
-                ))
+        );
+
+    let separate = kit::switch("config-agent-visual-rule")
+        .checked(binding.is_some())
+        .disabled(!has_agent || (!has_file && binding.is_none()))
+        .on_click(|checked: &bool, window, cx| {
+            visual::run(
+                if *checked {
+                    Action::BindAgent
+                } else {
+                    Action::UnbindAgent
+                },
+                window,
+                cx,
+            );
+        });
+    let binding_title = format!("Отдельное оформление для {agent_name}");
+    let binding_help = if !has_agent {
+        "Сначала выберите файл конфигурации агента."
+    } else if !has_file && binding.is_none() {
+        "Сохраните оформление в файл, затем включите это правило."
+    } else {
+        "Новые окна с этим конфигом агента будут открываться с указанным оформлением."
+    };
+    let specific = v_flex()
+        .gap_2()
+        .p_4()
+        .child(
+            h_flex()
+                .gap_3()
+                .items_center()
                 .child(
-                    h_flex()
-                        .gap_2()
-                        .flex_wrap()
-                        .child(action(
-                            "config-bind-agent",
-                            "Привязать текущий",
-                            !has_file || !has_agent,
-                            Action::BindAgent,
-                        ))
-                        .child(action(
-                            "config-unbind-agent",
-                            "Убрать привязку",
-                            binding.is_none(),
-                            Action::UnbindAgent,
-                        )),
-                ),
-            true,
-            cx,
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_sm()
+                        .font_medium()
+                        .child(faded(binding_title)),
+                )
+                .child(separate),
         )
-        .into_any_element(),
-    ];
+        .child(
+            div()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child(binding_help),
+        )
+        .when_some(binding, |row, path| {
+            row.child(file_details("config-binding-source", Some(path), "", cx))
+                .when(!already_bound, |row| {
+                    row.child(action(
+                        "config-bind-agent",
+                        "Заменить текущим оформлением",
+                        !has_file,
+                        Action::BindAgent,
+                    ))
+                })
+        });
+
     let mut parts = [
         cx.global::<prefs::ClientPreferences>().problem.clone(),
         state.problem.clone(),
@@ -188,52 +234,65 @@ pub(in crate::ui) fn controls(
     parts.push(
         section(
             "Агент",
-            Some(
-                "Другой файл открывается в новом окне с новым чатом; это окно продолжает работу."
-                    .into(),
-            ),
+            Some("Выбор конфига открывает новое окно с новым чатом.".into()),
             None,
-            card(
-                [row("Файл конфигурации", None, agent_controls, true, cx).into_any_element()],
-                cx,
-            ),
+            card([div().p_4().child(agent_file).into_any_element()], cx),
             cx,
         )
         .into_any_element(),
     );
     parts.push(
         section(
-            "Desktop этого окна",
-            Some(
-                "Оформление и виджеты применяются сразу, независимо от агента и соседних окон."
-                    .into(),
-            ),
+            "Оформление этого окна",
+            Some("Тема, шрифты и виджеты. Поведение агента не меняется.".into()),
             None,
-            card(rows, cx),
+            card([current.into_any_element()], cx),
             cx,
         )
         .into_any_element(),
     );
     parts.push(
-        section("Default и привязка", None, None, card(remembered, cx), cx).into_any_element(),
+        section(
+            "При открытии новых окон",
+            None,
+            None,
+            card([common.into_any_element(), specific.into_any_element()], cx),
+            cx,
+        )
+        .into_any_element(),
     );
-    parts.push(note("Ручной выбор действует в этом окне. Default применяется новым окнам; привязка использует путь файла агента.", cx).into_any_element());
+    parts.push(note("Правила для новых окон не меняют уже открытые. «Вернуть автовыбор» применяет правило агента, а если его нет — общее оформление.", cx).into_any_element());
     parts
 }
 
-fn path_label(path: Option<&PathBuf>, missing: &str) -> String {
-    path.map_or_else(|| missing.into(), |path| path.display().to_string())
+fn file_name(path: Option<&Path>, missing: &str) -> String {
+    path.and_then(Path::file_name).map_or_else(
+        || missing.into(),
+        |name| name.to_string_lossy().into_owned(),
+    )
 }
 
-fn source_line(id: &'static str, source: String, cx: &App) -> impl IntoElement + use<> {
-    div()
+/// The filename stays visible even when the directory is long; the tooltip
+/// retains the complete path. No filesystem work happens while rendering.
+fn file_details(id: &'static str, path: Option<&PathBuf>, missing: &str, cx: &App) -> impl IntoElement + use<> {
+    let name = file_name(path.map(PathBuf::as_path), missing);
+    let directory = path
+        .and_then(|path| path.parent())
+        .map(|path| path.display().to_string());
+    let tooltip = path.map_or_else(|| missing.into(), |path| path.display().to_string());
+    v_flex()
         .id(id)
+        .flex_1()
         .min_w_0()
-        .w_full()
-        .text_sm()
-        .text_color(cx.theme().muted_foreground)
-        .tip_text(source.clone())
-        .child(faded(source))
+        .gap_0p5()
+        .tip_text(tooltip)
+        .child(div().text_sm().font_medium().child(faded(name)))
+        .children(directory.map(|directory| {
+            div()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child(faded(directory))
+        }))
 }
 
 fn action(id: &'static str, label: &'static str, disabled: bool, action: Action) -> AnyElement {

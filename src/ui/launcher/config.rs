@@ -6,6 +6,9 @@
 use super::*;
 use crate::conversations::AgentKind;
 
+mod catalog;
+mod picker;
+
 impl Launcher {
     pub(super) fn open_configuration_settings(
         &mut self,
@@ -45,10 +48,50 @@ impl Launcher {
     }
 
     pub(super) fn choose_config(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let workspace = match &self.stage {
-            Stage::Ready(view) => Some(view.read(cx).active_project_path().to_path_buf()),
-            Stage::Picking { .. } => None,
-        };
+        let current = cx
+            .global::<prefs::WindowVisualPreferences>()
+            .agent_path
+            .clone()
+            .or_else(|| match &self.target {
+                Target::Spawn {
+                    profile: Some(profile),
+                } => Some(PathBuf::from(profile)),
+                _ => None,
+            });
+        let selected_owner = cx.weak_entity();
+        let other_owner = cx.weak_entity();
+        let picker = cx.new(|cx| {
+            picker::ConfigPicker::new(
+                catalog::config_home(),
+                current,
+                window,
+                cx,
+                move |path, window, cx| {
+                    selected_owner
+                        .update(cx, |this, cx| this.open_config_path(path, window, cx))
+                        .ok();
+                },
+                move |window, cx| {
+                    other_owner
+                        .update(cx, |this, cx| this.choose_config_file(window, cx))
+                        .ok();
+                },
+            )
+        });
+        let content = picker.clone();
+        window.open_dialog(cx, move |dialog, _, _| {
+            dialog
+                .title("Выбрать конфиг агента")
+                .w(px(680.))
+                .child(content.clone())
+        });
+        window.defer(cx, move |window, cx| {
+            let focus = picker.read(cx).focus_handle(cx);
+            focus.focus(window, cx);
+        });
+    }
+
+    fn choose_config_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let paths = cx.prompt_for_paths(PathPromptOptions {
             files: true,
             directories: false,
@@ -67,13 +110,26 @@ impl Launcher {
                     return;
                 }
             };
-            let Some(path) = paths.into_iter().next() else {
-                return;
-            };
-            let selected = cx
-                .background_executor()
-                .spawn(async move { selected_config(path) })
-                .await;
+            if let Some(path) = paths.into_iter().next() {
+                this.update_in(cx, |this, window, cx| {
+                    this.open_config_path(path, window, cx)
+                })
+                .ok();
+            }
+        })
+        .detach();
+    }
+
+    fn open_config_path(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        let workspace = match &self.stage {
+            Stage::Ready(view) => Some(view.read(cx).active_project_path().to_path_buf()),
+            Stage::Picking { .. } => None,
+        };
+        let selected = cx
+            .background_executor()
+            .spawn(async move { selected_config(path) });
+        cx.spawn_in(window, async move |this, cx| {
+            let selected = selected.await;
             this.update(cx, |this, cx| {
                 let profile = match selected {
                     Ok(path) => path.display().to_string(),
