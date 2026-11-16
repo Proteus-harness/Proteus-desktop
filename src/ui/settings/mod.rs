@@ -339,6 +339,10 @@ impl SettingsView {
 
     fn update_draft(&mut self, cx: &mut Context<Self>, change: impl FnOnce(&mut Draft)) {
         change(&mut self.draft);
+        self.draft_changed(cx);
+    }
+
+    fn draft_changed(&mut self, cx: &mut Context<Self>) {
         self.edit_revision = self.edit_revision.wrapping_add(1);
         self.clear_feedback();
         cx.notify();

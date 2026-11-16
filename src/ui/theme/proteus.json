@@ -9,7 +9,7 @@
       "colors": {
         "accent.background": "#ffffff0d",
         "accent.foreground": "#dfdfdf",
-        "accordion.background": "#414141",
+        "accordion.background": "#323232",
         "background": "#1d1d1d",
         "border": "#414141",
         "group_box.background": "#282828",
@@ -230,7 +230,7 @@
       "colors": {
         "accent.background": "#303b49",
         "accent.foreground": "#e9eef6",
-        "accordion.background": "#354256",
+        "accordion.background": "#2b3545",
         "background": "#1c222b",
         "border": "#455166",
         "group_box.background": "#252e3b",
@@ -448,7 +448,7 @@
       "colors": {
         "accent.background": "neutral-100",
         "accent.foreground": "neutral-900",
-        "accordion.background": "neutral-300",
+        "accordion.background": "#dbdbdb",
         "background": "#ffffff",
         "button.background": "#e6e8ed",
         "border": "neutral-400",

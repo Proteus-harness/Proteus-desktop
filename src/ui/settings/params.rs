@@ -31,12 +31,22 @@ impl SettingsView {
         module: &str,
         cx: &Context<Self>,
     ) -> Option<AnyElement> {
+        self.params_section_named(slot, module, "Параметры", cx)
+    }
+
+    pub(super) fn params_section_named(
+        &self,
+        slot: &str,
+        module: &str,
+        title: &str,
+        cx: &Context<Self>,
+    ) -> Option<AnyElement> {
         if !self.has_params(slot, module) {
             return None;
         }
         Some(
             section(
-                "Параметры",
+                title.to_owned(),
                 None,
                 self.mode_switch(slot, module, cx),
                 self.params_body(slot, module, cx),

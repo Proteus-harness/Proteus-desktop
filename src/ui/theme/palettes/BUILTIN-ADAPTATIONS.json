@@ -578,5 +578,40 @@
       }
     ],
     "note": "Explicit native neutral caption colors; imported palette tokens and exceptions are in ROLE-MAPPING.json. No runtime brightness or percentage generation."
+  },
+  "nested_surface_policy": {
+    "baseline_commit": "4cfda36",
+    "role": "accordion.background",
+    "rule": "For builtin themes only, move the previous accordion towards group_box along the same sRGB channel vector when its maximum channel gap exceeds 10; scale to a gap of 10, rounding each channel half up. Resolve named source colors to canonical source hex first. Store concrete colors in JSON; no runtime mixing. Already subtle variants remain unchanged. This changes the second level of all shared nested surfaces, including settings and extension disclosures.",
+    "native_variants": [
+      {
+        "name": "Proteus Graphite",
+        "previous": "#414141",
+        "color": "#323232"
+      },
+      {
+        "name": "Proteus Slate",
+        "previous": "#354256",
+        "color": "#2b3545"
+      },
+      {
+        "name": "Proteus Light",
+        "previous": "neutral-300",
+        "color": "#dbdbdb"
+      },
+      {
+        "name": "Default Light",
+        "previous": "neutral-300",
+        "color": "#dbdbdb"
+      },
+      {
+        "name": "Default Dark",
+        "previous": "neutral-700",
+        "color": "#303030"
+      }
+    ],
+    "exceptions": {
+      "Tokyo Storm": "#222638 would coincide with content. Use #232739, one further step towards card, to keep the disclosure role distinct."
+    }
   }
 }

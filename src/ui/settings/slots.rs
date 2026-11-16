@@ -20,16 +20,55 @@ impl SettingsView {
             .providers
             .iter()
             .map(|provider| {
-                // This page chooses a provider connection. The configured
-                // model belongs to the chat selector, not this card's title.
+                // IDs identify configured model aliases, not independent
+                // connections: aliases can share the same model module.
                 let title = provider.id.clone();
-                let chips = vec![chip(provider.provider.clone(), Tone::Muted, cx)];
+                let label = if provider.label.is_empty() {
+                    provider.model.clone()
+                } else {
+                    provider.label.clone()
+                };
+                let chips = vec![chip(
+                    format!("Модуль · {}", provider.provider),
+                    Tone::Muted,
+                    cx,
+                )];
+                if snapshot.providers.len() == 1
+                    && self.draft.provider.as_deref() == Some(provider.id.as_str())
+                {
+                    return self.spotted(
+                        &spot::provider(&provider.id),
+                        card(
+                            [h_flex()
+                                .px_4()
+                                .py_3()
+                                .gap_3()
+                                .child(
+                                    v_flex()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .gap_1()
+                                        .child(mono(title, cx).text_sm())
+                                        .child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child(label),
+                                        ),
+                                )
+                                .children(chips)
+                                .into_any_element()],
+                            cx,
+                        ),
+                        cx,
+                    );
+                }
                 let (view, id) = (view.clone(), provider.id.clone());
                 let card = radio_card(
                     hashed_id("provider", &provider.id),
                     self.draft.provider.as_deref() == Some(provider.id.as_str()),
                     title,
-                    None,
+                    Some(label.into()),
                     chips,
                     move |cx| {
                         let id = id.clone();
@@ -50,9 +89,23 @@ impl SettingsView {
         } else {
             v_flex().gap_2().children(cards).into_any_element()
         };
-        let mut parts = vec![section("Подключения", None, None, providers, cx).into_any_element()];
+        let mut parts = vec![
+            section(
+                "Модель в конфиге",
+                Some("Модель и effort текущего чата также можно выбрать в чате.".into()),
+                None,
+                providers,
+                cx,
+            )
+            .into_any_element(),
+        ];
         if let Some(module) = model_module(snapshot, &self.draft) {
-            parts.extend(self.params_section(MODEL_SLOT, &module, cx));
+            parts.extend(self.params_section_named(
+                MODEL_SLOT,
+                &module,
+                "Параметры провайдера",
+                cx,
+            ));
         }
         parts
     }

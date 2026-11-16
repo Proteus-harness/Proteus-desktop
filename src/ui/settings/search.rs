@@ -165,15 +165,10 @@ impl SettingsView {
 
     fn search_profile(&self, snapshot: &ConfigBuilderSnapshot, finder: &mut Finder) {
         for provider in &snapshot.providers {
-            let title = if provider.label.is_empty() {
-                &provider.model
-            } else {
-                &provider.label
-            };
             finder.add(
-                Hit::new(title, "Model · провайдер", PageId::Model)
+                Hit::new(&provider.id, "Model · модель в конфиге", PageId::Model)
                     .spot(spot::provider(&provider.id)),
-                &[&provider.model, &provider.id, &provider.provider],
+                &[&provider.model, &provider.label, &provider.provider],
             );
         }
         if let Some(module) = model_module(snapshot, &self.draft) {

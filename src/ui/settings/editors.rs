@@ -309,9 +309,8 @@ impl SettingsView {
         );
     }
 
-    /// Text equal to the default drops the key, like picking the default in
-    /// any other control.
-    fn text_changed(
+    /// Parsed text follows the same baseline-aware rules as schema controls.
+    pub(super) fn text_changed(
         &mut self,
         path: &FieldPath,
         format: TextFormat,
@@ -324,10 +323,7 @@ impl SettingsView {
             field.error = parsed.as_ref().err().map(|error| error.clone().into());
         }
         match parsed {
-            Ok(value) => {
-                let value = value.filter(|value| Some(value) != default);
-                self.update_draft(cx, |draft| draft.set_value(path, value))
-            }
+            Ok(value) => self.edit_field(path, value, default, cx),
             Err(_) => {
                 self.edit_revision = self.edit_revision.wrapping_add(1);
                 cx.notify();

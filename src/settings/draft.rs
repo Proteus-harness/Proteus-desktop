@@ -120,9 +120,40 @@ impl Draft {
                     .get_mut(&path.slot)
                     .and_then(|modules| modules.get_mut(&path.module))
                 {
-                    remove_nested(module, &path.keys);
+                    remove_nested(module, &path.keys, None);
                 }
             }
+        }
+    }
+
+    /// Schema controls compare effective values, but returning to the saved
+    /// value must also restore its original explicit/omitted representation.
+    /// Only the edited leaf and empty ancestors on its path are restored.
+    pub fn edit_value(
+        &mut self,
+        path: &FieldPath,
+        value: Option<Value>,
+        default: Option<&Value>,
+        baseline: &Draft,
+    ) {
+        let saved = baseline.value(path);
+        let value = if value.as_ref().or(default) == saved.or(default) {
+            saved.cloned()
+        } else {
+            value.filter(|value| Some(value) != default)
+        };
+        if value.is_some() {
+            self.set_value(path, value);
+        } else if let Some(module) = self
+            .config
+            .get_mut(&path.slot)
+            .and_then(|modules| modules.get_mut(&path.module))
+        {
+            remove_nested(
+                module,
+                &path.keys,
+                baseline.module_config(&path.slot, &path.module),
+            );
         }
     }
 
@@ -289,9 +320,10 @@ fn ensure_object(value: &mut Value) -> &mut Map<String, Value> {
         .expect("value was just made an object")
 }
 
-/// Removes `keys` under `value`; returns whether `value` is left an empty
-/// object, so the caller drops it in turn.
-fn remove_nested(value: &mut Value, keys: &[String]) -> bool {
+/// Removes `keys` under `value`; returns whether the caller should prune the
+/// empty object. Schema edits retain empty ancestors present in the baseline;
+/// ordinary resets pass no baseline and keep their existing pruning behavior.
+fn remove_nested(value: &mut Value, keys: &[String], baseline: Option<&Value>) -> bool {
     let Some(object) = value.as_object_mut() else {
         return false;
     };
@@ -299,16 +331,15 @@ fn remove_nested(value: &mut Value, keys: &[String]) -> bool {
         [] => false,
         [leaf] => {
             object.remove(leaf);
-            object.is_empty()
+            object.is_empty() && !baseline.is_some_and(is_empty_object)
         }
         [key, rest @ ..] => {
-            if object
-                .get_mut(key)
-                .is_some_and(|child| remove_nested(child, rest))
-            {
+            if object.get_mut(key).is_some_and(|child| {
+                remove_nested(child, rest, baseline.and_then(|value| value.get(key)))
+            }) {
                 object.remove(key);
             }
-            object.is_empty()
+            object.is_empty() && !baseline.is_some_and(is_empty_object)
         }
     }
 }

@@ -18,6 +18,10 @@ use crate::settings::{FieldKind, FieldPath, TextFormat, choice_title, field_kind
 use crate::ui::kit;
 use crate::ui::prefs;
 
+#[cfg(test)]
+#[path = "audit_tests/field_edits.rs"]
+mod audit_tests;
+
 /// Everything one field control needs inside its event handlers.
 struct FieldSpec {
     path: FieldPath,
@@ -27,13 +31,11 @@ struct FieldSpec {
 }
 
 impl FieldSpec {
-    /// Stores `value`; picking the default again drops the key, so the
-    /// profile and the draft stay as if it was never touched.
+    /// Stores an effective value while preserving the saved representation
+    /// when the control returns to its original value.
     fn set(&self, value: Option<Value>, cx: &mut App) {
-        let value = value.filter(|value| Some(value) != self.field.default.as_ref());
-        let path = self.path.clone();
         let _ = self.view.update(cx, |this, cx| {
-            this.update_draft(cx, |draft| draft.set_value(&path, value))
+            this.edit_field(&self.path, value, self.field.default.as_ref(), cx)
         });
     }
 
@@ -59,6 +61,17 @@ impl FieldSpec {
 }
 
 impl SettingsView {
+    pub(super) fn edit_field(
+        &mut self,
+        path: &FieldPath,
+        value: Option<Value>,
+        default: Option<&Value>,
+        cx: &mut Context<Self>,
+    ) {
+        self.draft.edit_value(path, value, default, &self.baseline);
+        self.draft_changed(cx);
+    }
+
     pub(super) fn render_field(
         &self,
         path: &FieldPath,

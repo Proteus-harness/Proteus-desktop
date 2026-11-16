@@ -32,19 +32,23 @@ impl SettingsView {
                 && section.fields.iter().any(|field| !field.advanced)
             {
                 rows.push(
-                    div()
+                    v_flex()
                         .px_4()
                         .pt_4()
                         .pb_2()
-                        .text_sm()
-                        .font_semibold()
-                        .child(described(
-                            hashed_id("params-section", &section_scope),
-                            metadata.title.clone().into(),
-                            Some(metadata.description.clone().into()),
-                            None,
-                            cx,
-                        ))
+                        .gap_1()
+                        .child(
+                            div()
+                                .text_sm()
+                                .font_semibold()
+                                .child(metadata.title.clone()),
+                        )
+                        .children((!metadata.description.is_empty()).then(|| {
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(metadata.description.clone())
+                        }))
                         .into_any_element(),
                 );
             }
@@ -102,11 +106,20 @@ impl SettingsView {
             // nothing is left over once they close.
             let content = self.reveal(&key, cx, || {
                 nested(
-                    v_flex().children(
-                        advanced
-                            .into_iter()
-                            .map(|field| div().row_rule(cx).child(field_row(field))),
-                    ),
+                    v_flex()
+                        .children(
+                            metadata
+                                .filter(|metadata| {
+                                    advanced_count == fields.len()
+                                        && !metadata.description.is_empty()
+                                })
+                                .map(|metadata| note(metadata.description.clone(), cx)),
+                        )
+                        .children(
+                            advanced
+                                .into_iter()
+                                .map(|field| div().row_rule(cx).child(field_row(field))),
+                        ),
                 )
                 .into_any_element()
             });

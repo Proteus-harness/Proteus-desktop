@@ -12,7 +12,7 @@
       "colors": {
         "accent.background": "neutral-100",
         "accent.foreground": "neutral-900",
-        "accordion.background": "neutral-300",
+        "accordion.background": "#dbdbdb",
         "background": "white",
         "border": "neutral-400",
         "group_box.background": "neutral-200",
@@ -222,7 +222,7 @@
       "colors": {
         "accent.background": "neutral-800",
         "accent.foreground": "neutral-50",
-        "accordion.background": "neutral-700",
+        "accordion.background": "#303030",
         "background": "#111111",
         "border": "neutral-600",
         "group_box.background": "neutral-800",
