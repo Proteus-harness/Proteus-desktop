@@ -127,7 +127,7 @@ impl Element for PageTransition {
             let state = state.unwrap_or_else(|| PageState::new(self.key.clone(), Size::default()));
             (state.clone(), state)
         });
-        state.prepare(&self.key, now, super::plays() && !cx.reduce_motion());
+        state.prepare(&self.key, now, super::plays(cx) && !cx.reduce_motion());
         let change = state.change.as_ref();
         let opacity = change.map_or(1., |change| change.progress(now));
         let mut child = div()
@@ -145,7 +145,7 @@ impl Element for PageTransition {
                 cx,
             );
             state.measure(natural);
-            let resize = super::moves();
+            let resize = super::moves(cx);
             let height = if resize {
                 state.change.as_ref().unwrap().height(now)
             } else {

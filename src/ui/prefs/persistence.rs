@@ -104,11 +104,16 @@ impl<T: Send + Sync + 'static> Writer<T> {
         self.shared.state.lock().unwrap().completion.take()
     }
 
-    pub fn shutdown(&self) -> Shutdown<T> {
-        let mut state = self.shared.state.lock().unwrap();
-        state.closing = true;
-        self.shared.changed.notify_one();
+    /// Retained by the application independently of a window's owner lifetime.
+    /// Capturing this handle does not prevent further edits or retain the UI.
+    pub fn shutdown_handle(&self) -> Shutdown<T> {
         Shutdown(self.shared.clone())
+    }
+
+    pub fn shutdown(&self) -> Shutdown<T> {
+        let handle = self.shutdown_handle();
+        handle.begin();
+        handle
     }
 }
 
@@ -121,6 +126,16 @@ impl<T> Drop for Writer<T> {
 }
 
 impl<T> Shutdown<T> {
+    pub fn begin(&self) {
+        let mut state = self.0.state.lock().unwrap();
+        state.closing = true;
+        self.0.changed.notify_one();
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.0.state.lock().unwrap().finished
+    }
+
     /// Blocking quit boundary, never called for an ordinary preference edit.
     /// A hung filesystem cannot hold app shutdown indefinitely.
     pub fn wait(self, timeout: Duration) -> bool {

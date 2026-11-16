@@ -199,7 +199,7 @@ pub(super) const CHAT_ROWS: [&RowText; 7] = [
 
 impl SettingsView {
     fn reset_preference(&mut self, field: Preference, window: &mut Window, cx: &mut Context<Self>) {
-        prefs::update(cx, |prefs| field.reset(prefs));
+        prefs::update_settings(cx, |prefs| field.reset(prefs));
         match field {
             Preference::InterfaceFont => self.fonts.reset_interface(window, cx),
             Preference::ChatFont => self.fonts.reset_chat(window, cx),
@@ -215,7 +215,7 @@ impl SettingsView {
         cx: &Context<Self>,
     ) -> AnyElement {
         let field = text.field;
-        let reset = (!field.is_default(prefs::current(cx))).then(|| {
+        let reset = (!field.is_default(&prefs::settings(cx))).then(|| {
             let view = cx.entity().downgrade();
             let hint = match field {
                 Preference::InterfaceFont => "Вернуть шрифт темы",
@@ -250,7 +250,7 @@ impl SettingsView {
         )
     }
     pub(super) fn appearance_page(&self, cx: &Context<Self>) -> Vec<AnyElement> {
-        let current = prefs::current(cx);
+        let current = &prefs::settings(cx);
         let themes = [
             self.text_row(
                 &THEME,
@@ -342,7 +342,7 @@ impl SettingsView {
                     .checked(current.hints.description)
                     .on_click(|checked, _, cx| {
                         let checked = *checked;
-                        prefs::update(cx, move |prefs| prefs.hints.description = checked)
+                        prefs::update_settings(cx, move |prefs| prefs.hints.description = checked)
                     }),
                 cx,
             )
@@ -353,7 +353,7 @@ impl SettingsView {
                     .checked(current.hints.shortcut)
                     .on_click(|checked, _, cx| {
                         let checked = *checked;
-                        prefs::update(cx, move |prefs| prefs.hints.shortcut = checked)
+                        prefs::update_settings(cx, move |prefs| prefs.hints.shortcut = checked)
                     }),
                 cx,
             )
@@ -377,7 +377,7 @@ impl SettingsView {
     }
 
     pub(super) fn chat_page(&self, cx: &Context<Self>) -> Vec<AnyElement> {
-        let current = prefs::current(cx);
+        let current = &prefs::settings(cx);
         let rows = [self
             .text_row(
                 &SEND,
@@ -400,7 +400,7 @@ impl SettingsView {
                     .checked(current.view.compact_tools)
                     .on_click(|checked, _, cx| {
                         let checked = *checked;
-                        prefs::update(cx, move |prefs| prefs.view.compact_tools = checked)
+                        prefs::update_settings(cx, move |prefs| prefs.view.compact_tools = checked)
                     })
                     .into_any_element(),
                 cx,
@@ -412,7 +412,7 @@ impl SettingsView {
                     .checked(current.view.autoscroll)
                     .on_click(|checked, _, cx| {
                         let checked = *checked;
-                        prefs::update(cx, move |prefs| prefs.view.autoscroll = checked)
+                        prefs::update_settings(cx, move |prefs| prefs.view.autoscroll = checked)
                     })
                     .into_any_element(),
                 cx,
@@ -437,18 +437,22 @@ impl SettingsView {
     }
 
     pub(super) fn preferences_problem(&self, cx: &Context<Self>) -> Vec<AnyElement> {
-        cx.global::<ClientPreferences>()
-            .problem
-            .clone()
-            .map(|problem| {
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().danger)
-                    .child(problem)
-                    .into_any_element()
-            })
-            .into_iter()
-            .collect()
+        [
+            cx.global::<ClientPreferences>().problem.clone(),
+            cx.global::<prefs::WindowVisualPreferences>()
+                .problem
+                .clone(),
+        ]
+        .into_iter()
+        .flatten()
+        .map(|problem| {
+            div()
+                .text_sm()
+                .text_color(cx.theme().danger)
+                .child(problem)
+                .into_any_element()
+        })
+        .collect()
     }
 }
 
@@ -468,7 +472,7 @@ fn theme_choice(
         })
         .collect();
     select_menu(id.into(), theme::label(current), items, move |name, cx| {
-        prefs::update(cx, |prefs| apply(prefs, name.to_string()))
+        prefs::update_settings(cx, |prefs| apply(prefs, name.to_string()))
     })
 }
 
@@ -492,6 +496,6 @@ fn choice<T: Copy + PartialEq + 'static>(
         })
         .collect();
     select_menu(id.into(), label, items, move |value, cx| {
-        prefs::update(cx, |prefs| apply(prefs, value))
+        prefs::update_settings(cx, |prefs| apply(prefs, value))
     })
 }

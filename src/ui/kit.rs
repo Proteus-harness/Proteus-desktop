@@ -358,7 +358,7 @@ pub(crate) fn caption_hint_content(
 }
 
 fn hint_content(text: &str, keys: Option<&str>, cx: &App) -> Option<TooltipContent> {
-    tooltip_content(prefs::current(cx).hints, None, Some(text), keys)
+    tooltip_content(prefs::visual(cx).hints, None, Some(text), keys)
 }
 
 fn button_title<'a>(
@@ -386,7 +386,7 @@ pub(super) fn button_hints(
             Some(context.focus_handle.clone()),
             move |cx| {
                 tooltip_content(
-                    prefs::current(cx).hints,
+                    prefs::visual(cx).hints,
                     button_title(
                         context.label.as_deref(),
                         context.label_clipped.get(),

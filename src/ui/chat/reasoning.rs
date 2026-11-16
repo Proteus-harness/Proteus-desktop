@@ -40,6 +40,7 @@ pub(super) fn render(
             ElementId::NamedInteger("reasoning-chevron".into(), key),
             expanded,
             muted,
+            cx,
         ))
         .on_click(cx.listener(move |this, _, _, cx| this.toggle_expanded(key, cx)));
     // The shared reveal does not construct the full text while collapsed.

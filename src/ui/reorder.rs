@@ -530,6 +530,7 @@ impl Element for Arrange {
             .zip(layouts.iter().map(|id| window.layout_bounds(*id)))
             .collect();
         let now = Instant::now();
+        let animate = motion::moves(cx);
         let positions = self.state.update(cx, |state, _| {
             state.bounds = bounds;
             state.rows = raw.clone();
@@ -569,11 +570,7 @@ impl Element for Arrange {
                     position.target = top;
                     position.tween = motion::Tween::start(motion::BASE);
                 }
-                let y = if motion::moves() {
-                    position.sample(now)
-                } else {
-                    top
-                };
+                let y = if animate { position.sample(now) } else { top };
                 if y != top {
                     window.request_animation_frame();
                 }

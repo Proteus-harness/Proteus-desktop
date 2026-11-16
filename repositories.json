@@ -1,7 +1,7 @@
 {
   "harness": {
     "url": "https://github.com/Proteus-harness/Proteus-core.git",
-    "rev": "b4fcecaa9ee3a6e74f746b813030be2f43d6ad79",
+    "rev": "304337d1af4cbfcbc47df99535de9171ee16303b",
     "env": "PROTEUS_HARNESS_SOURCE",
     "local": "../Proteus-core",
     "marker": "crates/proteus-core/Cargo.toml"
@@ -15,7 +15,7 @@
   },
   "extensions": {
     "url": "https://github.com/Proteus-harness/Proteus-desktop-extensions.git",
-    "rev": "ae6479c5accc404d5a635fdeff1397a8b3016416",
+    "rev": "0107fb235986e2fd1284b631040d056d57a410bc",
     "env": "PROTEUS_EXTENSIONS_SOURCE",
     "local": "../Proteus-desktop-extensions",
     "marker": "package.py"

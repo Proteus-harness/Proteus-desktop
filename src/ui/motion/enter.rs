@@ -17,10 +17,11 @@ const LATE: Duration = Duration::from_millis(200);
 pub(in crate::ui) fn rise_in<E: IntoElement + Styled + 'static>(
     element: E,
     id: impl Into<ElementId>,
+    cx: &App,
 ) -> AnimationElement<E> {
     EffectTransition::new(BASE)
         .ease(ease_enter)
-        .slide_y(shift(6.), px(0.))
+        .slide_y(shift(6., cx), px(0.))
         .fade(0., 1.)
         .apply(element, id)
 }
@@ -43,8 +44,9 @@ pub(in crate::ui) fn rise_in_if<E: IntoElement + Styled + 'static>(
     element: E,
     id: impl Into<ElementId>,
     play: bool,
+    cx: &App,
 ) -> AnimationElement<E> {
-    let rise = shift(6.);
+    let rise = shift(6., cx);
     element.with_animation(
         id,
         Animation::new(BASE).with_easing(ease_enter),
@@ -102,13 +104,14 @@ pub(in crate::ui) fn stagger_in<E: IntoElement + Styled + 'static>(
     id: impl Into<ElementId>,
     index: usize,
     play: bool,
+    cx: &App,
 ) -> AnimationElement<E> {
     let play = play && index < STAGGER_ROWS;
     let delay = STAGGER_STEP * index.min(STAGGER_ROWS) as u32;
     let duration = FAST + delay;
     let total = duration.as_secs_f32();
     let (delay, fast) = (delay.as_secs_f32(), FAST.as_secs_f32());
-    let rise = shift(4.);
+    let rise = shift(4., cx);
     element.with_animation(
         id,
         Animation::new(duration)

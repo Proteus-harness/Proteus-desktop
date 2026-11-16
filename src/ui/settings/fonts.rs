@@ -172,7 +172,7 @@ impl FontControl {
         }
         let options = choices(
             theme::installed(cx),
-            self.target.value(prefs::current(cx)),
+            self.target.value(&prefs::settings(cx)),
             self.target.inherited(),
         );
         let owner = cx.weak_entity();
@@ -186,7 +186,7 @@ impl FontControl {
                 move |value: Option<SharedString>, window, cx| {
                     let _ = owner.update(cx, |this, cx| {
                         let value = value.map(|value| value.to_string());
-                        prefs::update(cx, |prefs| this.target.apply(prefs, value));
+                        prefs::update_settings(cx, |prefs| this.target.apply(prefs, value));
                         this.close(window, cx);
                         // The settings page owns the reset marker and save-error
                         // notice; refresh it after this child commits a choice.
@@ -217,11 +217,11 @@ impl Render for FontControl {
         motion::drive(window, cx);
         let value: SharedString = self
             .target
-            .value(prefs::current(cx))
+            .value(&prefs::settings(cx))
             .unwrap_or(self.target.inherited())
             .to_owned()
             .into();
-        let family = theme::resolve(self.target.value(prefs::current(cx)), cx);
+        let family = theme::resolve(self.target.value(&prefs::settings(cx)), cx);
         let mut style = window.text_style();
         if let Some(family) = &family {
             style.font_family = family.clone();
@@ -266,6 +266,7 @@ impl Render for FontControl {
                         "font-caret",
                         open,
                         cx.theme().muted_foreground,
+                        motion::moves(cx),
                     ))
                     .on_click(cx.listener(|this, _, window, cx| {
                         cx.stop_propagation();

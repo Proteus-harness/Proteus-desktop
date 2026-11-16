@@ -60,7 +60,7 @@ pub(in crate::ui) fn glide(
     window: &mut Window,
     cx: &mut App,
 ) -> f32 {
-    progress(id, open, duration, super::moves(), window, cx)
+    progress(id, open, duration, super::moves(cx), window, cx)
 }
 
 /// Reversible opacity progress. Reduced motion keeps this fade, while disabled
@@ -73,7 +73,7 @@ pub(in crate::ui) fn blend(
     window: &mut Window,
     cx: &mut App,
 ) -> f32 {
-    progress(id, open, duration, super::plays(), window, cx)
+    progress(id, open, duration, super::plays(cx), window, cx)
 }
 
 fn progress(

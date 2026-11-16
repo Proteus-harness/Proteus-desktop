@@ -16,7 +16,7 @@ pub(super) struct SizeSliders {
 
 impl SizeSliders {
     pub fn new(window: &mut Window, cx: &mut Context<SettingsView>) -> (Self, Vec<Subscription>) {
-        let view = prefs::current(cx).view;
+        let view = prefs::visual(cx).view;
         let chat_text = cx.new(|_| {
             SliderState::new()
                 .max(f32::from(*CHAT_TEXT.end()))
@@ -58,6 +58,20 @@ impl SizeSliders {
             subscriptions,
         )
     }
+    pub fn synchronize(&self, window: &mut Window, cx: &mut Context<SettingsView>) {
+        let view = prefs::visual(cx).view;
+        for (state, value) in [
+            (&self.chat_text, view.chat_text),
+            (&self.chat_width, view.chat_width),
+            (&self.surface_radius, view.surface_radius),
+        ] {
+            let value = f32::from(value);
+            if state.read(cx).value().end() != value {
+                state.update(cx, |state, cx| state.set_value(value, window, cx));
+            }
+        }
+    }
+
     pub fn reset(&self, field: Preference, window: &mut Window, cx: &mut Context<SettingsView>) {
         let defaults = crate::preferences::ViewPreferences::default();
         let (state, value) = match field {
@@ -81,7 +95,7 @@ fn follow(
     cx.subscribe_in(slider, window, move |_, _, event: &SliderEvent, _, cx| {
         let (SliderEvent::Change(value) | SliderEvent::Release(value)) = event;
         let value = value.end().round() as u16;
-        prefs::update(cx, |prefs| apply(prefs, value));
+        prefs::update_settings(cx, |prefs| apply(prefs, value));
         cx.notify();
     })
 }

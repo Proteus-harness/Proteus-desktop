@@ -116,8 +116,8 @@ impl Stepper {
         let release = this.clone();
         let paint = canvas(
             move |bounds, _, _| track.set(bounds),
-            move |bounds, _, window, _| {
-                let at = glide(&thumb, shown as f32, window);
+            move |bounds, _, window, cx| {
+                let at = glide(&thumb, shown as f32, window, cx);
                 paint_pill(bounds, count, at, colors, corner, window);
                 // The drag follows the pointer even when it leaves the pill.
                 window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
@@ -169,9 +169,9 @@ struct Colors {
 
 /// Where the thumb is drawn: it slides toward the chosen step over a few
 /// frames, or jumps there when motion is reduced.
-fn glide(thumb: &Rc<Cell<Option<f32>>>, target: f32, window: &mut Window) -> f32 {
+fn glide(thumb: &Rc<Cell<Option<f32>>>, target: f32, window: &mut Window, cx: &App) -> f32 {
     let at = match thumb.get() {
-        Some(at) if motion::moves() && (target - at).abs() > 0.01 => {
+        Some(at) if motion::moves(cx) && (target - at).abs() > 0.01 => {
             window.request_animation_frame();
             at + (target - at) * EASE
         }

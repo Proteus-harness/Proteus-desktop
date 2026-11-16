@@ -38,6 +38,32 @@ fn delayed_write_keeps_only_latest_snapshot_and_quit_flushes_it() {
 }
 
 #[test]
+fn shutdown_handle_drains_a_blocked_save_after_its_window_owner_is_dropped() {
+    let (started, writes) = mpsc::channel();
+    let (release, blocked) = mpsc::channel();
+    let (writer, _) = Writer::new(move |value: &usize| {
+        started.send(*value).unwrap();
+        if *value == 1 {
+            blocked.recv_timeout(TIMEOUT).unwrap();
+        }
+        Ok(())
+    })
+    .unwrap();
+    // The app retains only this handle; the native window owns the writer.
+    let shutdown = writer.shutdown_handle();
+    writer.submit(Arc::new(1)).unwrap();
+    assert_eq!(writes.recv_timeout(TIMEOUT).unwrap(), 1);
+    writer.submit(Arc::new(2)).unwrap();
+    drop(writer);
+    assert!(!shutdown.is_finished());
+    shutdown.begin();
+    release.send(()).unwrap();
+    assert!(shutdown.wait(TIMEOUT));
+    assert_eq!(writes.recv_timeout(TIMEOUT).unwrap(), 2);
+    assert!(writes.try_recv().is_err());
+}
+
+#[test]
 fn slow_filesystem_cannot_hold_quit_indefinitely() {
     let (started, wait) = mpsc::channel();
     let (release, blocked) = mpsc::channel();

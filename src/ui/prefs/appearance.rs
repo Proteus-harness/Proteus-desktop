@@ -5,8 +5,9 @@
 use gpui_kit::component::{Theme, ThemeMode};
 use gpui_kit::*;
 
-use super::{ClientPreferences, Effects, ThemePreference};
+use super::{Effects, ThemePreference};
 
+#[derive(Clone)]
 struct SystemAppearance(WindowAppearance);
 impl Global for SystemAppearance {}
 
@@ -17,6 +18,11 @@ pub(super) fn current(cx: &App) -> WindowAppearance {
 
 /// Keep one subscription for each native window, including detached tabs.
 /// No preference write is produced by a platform notification.
+pub(in crate::ui) fn register(cx: &mut App) {
+    cx.set_global(SystemAppearance(cx.window_appearance()));
+    cx.register_window_global::<SystemAppearance>();
+}
+
 pub(in crate::ui) fn observe(window: &mut Window, cx: &mut App) -> Subscription {
     synchronize(window.appearance(), cx);
     window.observe_window_appearance(|window, cx| synchronize(window.appearance(), cx))
@@ -24,13 +30,13 @@ pub(in crate::ui) fn observe(window: &mut Window, cx: &mut App) -> Subscription 
 
 fn synchronize(appearance: WindowAppearance, cx: &mut App) {
     cx.set_global(SystemAppearance(appearance));
-    let preferences = &cx.global::<ClientPreferences>().value;
+    let preferences = super::settings(cx);
     if preferences.theme != ThemePreference::System
         || Theme::global(cx).mode == ThemeMode::from(appearance)
     {
         return;
     }
-    let preferences = preferences.clone();
+
     // Theme::change reloads the selected palette, so reapply the same scale,
     // font and radius policy as an explicit theme selection. Other effects
     // (renderer epochs, bindings and persistence) remain untouched.

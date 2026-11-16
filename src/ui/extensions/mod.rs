@@ -30,9 +30,30 @@ use crate::preferences::BadgePlace;
 struct RenderGeneration(u64);
 impl Global for RenderGeneration {}
 
+#[derive(Default, Clone)]
+struct VisualRenderGeneration(u64);
+impl Global for VisualRenderGeneration {}
+
+pub(in crate::ui) fn register_visual_globals(cx: &mut App) {
+    cx.set_global(VisualRenderGeneration::default());
+    cx.register_window_global::<VisualRenderGeneration>();
+}
+
+pub(in crate::ui) fn bump_visual_render_generation(cx: &mut App) {
+    // A transferred chat must invalidate measurements even if both owners
+    // performed the same number of edits. Only identity allocation is shared.
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let next = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    cx.set_global(VisualRenderGeneration(next));
+}
+
 pub(in crate::ui) fn render_generation(cx: &App) -> u64 {
     cx.try_global::<RenderGeneration>()
         .map_or(0, |epoch| epoch.0)
+        .wrapping_add(
+            cx.try_global::<VisualRenderGeneration>()
+                .map_or(0, |epoch| epoch.0.rotate_left(32)),
+        )
 }
 
 /// Reuses the registry's source revision. No filesystem scan or process launch.
@@ -47,7 +68,9 @@ pub(in crate::ui) fn scalar_layout_fingerprint(cx: &App) -> Vec<(&'static str, u
 }
 
 pub(in crate::ui) fn bump_render_generation(cx: &mut App) {
-    let next = render_generation(cx).wrapping_add(1);
+    let next = cx
+        .try_global::<RenderGeneration>()
+        .map_or(1, |generation| generation.0.wrapping_add(1));
     cx.set_global(RenderGeneration(next));
 }
 
@@ -200,14 +223,8 @@ pub(super) fn finish_removal(
         return Ok(None);
     };
     let current = !removed.user_path.try_exists()? && installed_identity(id) == removed.restored;
-    if current {
-        prefs::update(cx, |preferences| {
-            preferences.extensions.forget(id);
-            if find(id).is_some() {
-                preferences.extensions.set_enabled(id, false);
-            }
-        });
-    }
+    // Visual sources belong to their windows. Physical package removal must
+    // preserve enable/order/pin choices, including for a future reinstall.
     drop(guard);
     packages_changed(cx);
     Ok(Some(current))
@@ -243,14 +260,14 @@ pub(super) fn find(id: &str) -> Option<&'static Manifest> {
 }
 
 pub(super) fn is_enabled(id: &str, cx: &App) -> bool {
-    prefs::current(cx).extensions.is_enabled(id)
+    prefs::visual(cx).extensions.is_enabled(id)
 }
 
 /// Every extension in the user's order.
 pub(super) fn ordered(cx: &App) -> Vec<&'static Manifest> {
     let all = catalog();
     let ids: Vec<&'static str> = all.iter().map(|manifest| manifest.id).collect();
-    prefs::current(cx)
+    prefs::visual(cx)
         .extensions
         .ordered(&ids)
         .into_iter()
@@ -277,7 +294,7 @@ pub(super) fn badge_place(manifest: &Manifest, cx: &App) -> BadgePlace {
         .badge
         .as_ref()
         .map_or(BadgePlace::Hidden, |badge| badge.place);
-    prefs::current(cx)
+    prefs::visual(cx)
         .extensions
         .badge_place(manifest.id, default)
 }
@@ -289,7 +306,7 @@ pub(super) fn fits(place: BadgePlace, manifest: &Manifest) -> bool {
 
 /// Enabled icons shown in `place`, in the user's order.
 pub(super) fn visible_badges(place: BadgePlace, cx: &App) -> Vec<&'static Manifest> {
-    let extensions = &prefs::current(cx).extensions;
+    let extensions = &prefs::visual(cx).extensions;
     extensions
         .badges_ordered(&badge_ids())
         .into_iter()

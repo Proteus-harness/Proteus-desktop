@@ -359,7 +359,7 @@ impl Chat {
     /// Partial groups larger than the context budget remain unmeasured, but
     /// still permit bounded navigation to the requested raw row's start.
     pub(super) fn resume_history_context(&mut self, cx: &mut Context<Self>) {
-        let compact = crate::ui::prefs::current(cx).view.compact_tools;
+        let compact = self.view.compact_tools;
         match self.history.context_step(&self.session.transcript, compact) {
             Some(ContextStep::Load(direction)) => self.load_history(direction, cx),
             Some(ContextStep::RowStart(target)) => {

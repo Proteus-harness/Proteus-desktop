@@ -114,7 +114,7 @@ impl SettingsView {
         let width = self
             .workspace
             .read_with(cx, |workspace, cx| workspace.sidebar_width(cx))
-            .unwrap_or_else(|_| prefs::scaled(prefs::current(cx).sidebar.width));
+            .unwrap_or_else(|_| prefs::scaled(prefs::visual(cx).sidebar.width));
         let name = SharedString::from("settings-sidebar-edge");
         let seam = divider::ResizeSeam::vertical(cx.theme().radius_lg, px(0.));
         let grip = seam

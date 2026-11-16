@@ -114,15 +114,21 @@ fn logo_menu(
     settings: Option<WeakEntity<Workspace>>,
     open_config: Rc<dyn Fn(&mut Window, &mut App)>,
 ) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
-    move |mut menu, _, cx| {
+    move |mut menu, window, cx| {
         if let Some(projects) = &projects {
             menu = projects.items(menu, cx).separator();
         }
         let open_config = open_config.clone();
         menu = menu.item(
-            PopupMenuItem::new("Открыть с конфигом…")
+            PopupMenuItem::new("Открыть с конфигом агента…")
                 .icon(Icon::new(Lucide::File))
                 .on_click(move |_, window, cx| open_config(window, cx)),
+        );
+        menu = menu.submenu(
+            "Визуальный конфиг окна",
+            window,
+            cx,
+            crate::ui::launcher::visual::menu,
         );
         if let Some(workspace) = settings.clone() {
             menu = menu

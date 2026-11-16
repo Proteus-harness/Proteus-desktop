@@ -150,6 +150,7 @@ impl Render for DeclarativeBadge {
                     let chevron_key =
                         SharedString::from(format!("badge-chevron-{}", cx.entity_id()));
                     let chevron_color = cx.theme().muted_foreground;
+                    let animate_chevron = crate::ui::motion::moves(cx);
                     Rc::new(move || {
                         h_flex()
                             .gap_1()
@@ -161,6 +162,7 @@ impl Render for DeclarativeBadge {
                                     ElementId::Name(chevron_key.clone()),
                                     open,
                                     chevron_color,
+                                    animate_chevron,
                                 )
                             }))
                             .into_any_element()

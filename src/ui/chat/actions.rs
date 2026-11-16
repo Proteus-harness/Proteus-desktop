@@ -306,6 +306,16 @@ impl Chat {
         if let Some(error) = &config.model_catalog_error {
             self.show_notice(format!("Не удалось загрузить каталог моделей: {error}"), cx);
         }
+        if let Some(path) = config.config_path.as_ref().map(std::path::PathBuf::from) {
+            let handle = self.window_handle;
+            cx.defer(move |cx| {
+                handle
+                    .update(cx, |_, window, cx| {
+                        crate::ui::prefs::set_visual_agent(&path, window, cx)
+                    })
+                    .ok();
+            });
+        }
         self.session.config = Some(config);
         cx.emit(ChatEvent::state_changed());
     }

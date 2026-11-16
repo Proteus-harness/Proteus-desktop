@@ -205,6 +205,7 @@ pub(super) struct Chat {
     enter_sends: bool,
     _pump: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
+    _visual_subscriptions: Vec<Subscription>,
 }
 
 impl EventEmitter<ChatEvent> for Chat {}
@@ -216,10 +217,10 @@ pub(in crate::ui) fn invalidate_height_cache() {
 /// The chat owns renderer/font policy; its scroller only adds physical width.
 fn height_layout_fingerprint(cx: &App) -> [u8; 32] {
     let fonts = RowFonts::current(cx);
-    let view = prefs::current(cx).view;
+    let view = prefs::visual(cx).view;
     // Source stamps were collected by extension discovery already.
     scroller::height_hash(format!(
-        "scalar-v1:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{:?}",
+        "scalar-v2:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{:?}:{:?}",
         env!("PROTEUS_BUILD_COMMIT"),
         fonts.chat,
         fonts.interface,
@@ -231,7 +232,8 @@ fn height_layout_fingerprint(cx: &App) -> [u8; 32] {
         view.chat_width,
         view.compact_tools,
         crate::version::LABEL,
-        crate::ui::extensions::scalar_layout_fingerprint(cx)
+        crate::ui::extensions::scalar_layout_fingerprint(cx),
+        prefs::visual(cx).package_visual_settings,
     ))
 }
 
@@ -270,7 +272,7 @@ impl Chat {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let autoscroll = prefs::current(cx).view.autoscroll;
+        let autoscroll = prefs::visual(cx).view.autoscroll;
         let scroller = cx.new(|_| ChatScroller::new(autoscroll));
         let enter_sends = prefs::current(cx).send == SendMode::Enter;
         let composer = cx.new(|cx| {
@@ -293,27 +295,8 @@ impl Chat {
                 &scroller,
                 |this, _, _: &scroller::HistorySeekCanceled, cx| this.cancel_history_seek(cx),
             ),
-            cx.observe_global::<ClientPreferences>(|this, cx| {
-                let before = this.extension_activities.len();
-                this.extension_activities.retain(|id, _| {
-                    crate::ui::extensions::is_enabled(id, cx)
-                        && crate::ui::extensions::find(id).is_some_and(|manifest| manifest.activity)
-                });
-                if before != this.extension_activities.len() {
-                    cx.notify();
-                }
-                let enter_sends = prefs::current(cx).send == SendMode::Enter;
-                if this.enter_sends != enter_sends {
-                    this.enter_sends = enter_sends;
-                    this.composer
-                        .update(cx, |state, cx| state.set_submit_on_enter(enter_sends, cx));
-                }
-                this.refresh_row_metrics(cx);
-            }),
-            // System appearance and resolved theme fonts can change without
-            // a ClientPreferences write (including a different mono family).
-            cx.observe_global::<Theme>(|this, cx| this.refresh_row_metrics(cx)),
         ];
+        let visual_subscriptions = Self::observe_visual_preferences(window, cx);
         let composer_events = Self::subscribe_composer(&composer, window, cx);
         Self {
             api,
@@ -349,16 +332,47 @@ impl Chat {
             extras,
             window_handle: window.window_handle(),
             _composer_events: composer_events,
-            view: prefs::current(cx).view,
+            view: prefs::visual(cx).view,
             row_fonts: RowFonts::current(cx),
             enter_sends,
             _pump: None,
             _subscriptions: subscriptions,
+            _visual_subscriptions: visual_subscriptions,
         }
     }
 
+    fn observe_visual_preferences(window: &Window, cx: &mut Context<Self>) -> Vec<Subscription> {
+        vec![
+            cx.observe_global_in::<ClientPreferences>(window, |this, _, cx| {
+                this.preferences_changed(cx)
+            }),
+            cx.observe_global_in::<prefs::WindowVisualPreferences>(window, |this, _, cx| {
+                this.preferences_changed(cx)
+            }),
+            cx.observe_global_in::<Theme>(window, |this, _, cx| this.refresh_row_metrics(cx)),
+        ]
+    }
+
+    fn preferences_changed(&mut self, cx: &mut Context<Self>) {
+        let before = self.extension_activities.len();
+        self.extension_activities.retain(|id, _| {
+            crate::ui::extensions::is_enabled(id, cx)
+                && crate::ui::extensions::find(id).is_some_and(|manifest| manifest.activity)
+        });
+        if before != self.extension_activities.len() {
+            cx.notify();
+        }
+        let enter_sends = prefs::current(cx).send == SendMode::Enter;
+        if self.enter_sends != enter_sends {
+            self.enter_sends = enter_sends;
+            self.composer
+                .update(cx, |state, cx| state.set_submit_on_enter(enter_sends, cx));
+        }
+        self.refresh_row_metrics(cx);
+    }
+
     fn refresh_row_metrics(&mut self, cx: &mut Context<Self>) {
-        let view = prefs::current(cx).view;
+        let view = prefs::visual(cx).view;
         let fonts = RowFonts::current(cx);
         let remeasure = row_sizes_changed(self.view, view) || self.row_fonts != fonts;
         let autoscroll_changed = self.view.autoscroll != view.autoscroll;
@@ -390,6 +404,8 @@ impl Chat {
         cx: &mut Context<Self>,
     ) {
         self.window_handle = window.window_handle();
+        self._visual_subscriptions = Self::observe_visual_preferences(window, cx);
+        self.preferences_changed(cx);
         self.extension_activities.clear();
         self.workspace = workspace.clone();
         self.extras = extras;
@@ -494,14 +510,21 @@ impl Chat {
                 .background_executor()
                 .spawn(async move { job(&api) })
                 .await;
-            this.update(cx, |this, cx| {
-                match result {
-                    Ok(value) => done(this, value, cx),
-                    Err(error) => this.show_notice(format!("{error:#}"), cx),
-                }
-                cx.notify();
-            })
-            .ok();
+            let Ok(handle) = this.read_with(cx, |this, _| this.window_handle) else {
+                return;
+            };
+            handle
+                .update(cx, |_, _, cx| {
+                    this.update(cx, |this, cx| {
+                        match result {
+                            Ok(value) => done(this, value, cx),
+                            Err(error) => this.show_notice(format!("{error:#}"), cx),
+                        }
+                        cx.notify();
+                    })
+                    .ok();
+                })
+                .ok();
         })
         .detach();
     }

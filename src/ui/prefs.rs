@@ -3,6 +3,18 @@
 
 mod appearance;
 mod persistence;
+mod visual;
+#[cfg(test)]
+mod visual_tests;
+pub(in crate::ui) use visual::{
+    WindowVisualPreferences, current as visual, inherit as inherit_visual_window,
+    initialize as initialize_visual_window, intent as visual_intent,
+    package_update as update_package_visual, report as visual_error,
+    reset_auto as reset_visual_auto, reset_default as reset_visual_default,
+    revision as visual_revision, select as select_visual,
+    select_if_current as select_visual_if_current, set_agent as set_visual_agent,
+    snapshot as visual_snapshot, update as update_visual,
+};
 
 pub(super) use appearance::observe as observe_appearance;
 
@@ -18,7 +30,7 @@ const BASE_FONT: f32 = 16.;
 const BASE_MONO_FONT: f32 = 13.;
 /// Interface scale: 1.0 at 100%.
 pub fn scale(cx: &App) -> f32 {
-    current(cx).view.scale_factor()
+    visual(cx).view.scale_factor()
 }
 
 /// A length given in px at 100% scale; follows the interface scale.
@@ -33,20 +45,17 @@ pub fn unscaled(length: Pixels, window: &Window) -> f32 {
 
 /// Text size of chat messages and the composer.
 pub fn chat_text(cx: &App) -> Rems {
-    scaled(f32::from(current(cx).view.chat_text))
+    scaled(f32::from(visual(cx).view.chat_text))
 }
 
 /// Conversation prose and composer family; code retains the theme's mono.
 pub fn chat_font(cx: &App) -> SharedString {
-    cx.global::<ClientPreferences>()
-        .chat_font
-        .clone()
-        .unwrap_or_else(|| Theme::global(cx).font_family.clone())
+    visual::chat_font(cx).unwrap_or_else(|| Theme::global(cx).font_family.clone())
 }
 
 /// Widest conversation column.
 pub fn chat_width(cx: &App) -> Rems {
-    scaled(f32::from(current(cx).view.chat_width))
+    scaled(f32::from(visual(cx).view.chat_width))
 }
 
 pub struct ClientPreferences {
@@ -55,7 +64,7 @@ pub struct ClientPreferences {
     revision: u64,
     /// Why the stored file was not used; shown on the client settings pages.
     pub problem: Option<String>,
-    chat_font: Option<SharedString>,
+    persistent: bool,
 }
 
 impl Global for ClientPreferences {}
@@ -69,8 +78,9 @@ pub(in crate::ui) fn init_in_memory(cx: &mut App) {
         writer: None,
         revision: 0,
         problem: None,
-        chat_font: None,
+        persistent: false,
     });
+    visual::init(cx);
 }
 
 pub fn init(cx: &mut App, loaded: anyhow::Result<Preferences>) {
@@ -87,16 +97,16 @@ pub fn init(cx: &mut App, loaded: anyhow::Result<Preferences>) {
             (None, None)
         }
     };
-    let chat_font = super::theme::resolve(value.fonts.chat.as_deref(), cx);
     cx.set_global(ClientPreferences {
         value: Arc::new(value),
         problem,
-        chat_font,
+        persistent: true,
         writer,
         revision: 0,
     });
     let value = cx.global::<ClientPreferences>().value.clone();
     apply(&value, Effects::initial(), cx);
+    visual::init(cx);
     if let Some(receiver) = receiver {
         cx.spawn(async move |cx| {
             while receiver.recv().await.is_ok() {
@@ -141,6 +151,31 @@ pub fn current(cx: &App) -> &Preferences {
     &cx.global::<ClientPreferences>().value
 }
 
+/// A small settings projection: visual fields are window-owned; input policy
+/// remains device-wide. Session histories/catalog metadata are never cloned.
+pub(in crate::ui) fn settings(cx: &App) -> Preferences {
+    let mut value = Preferences::default();
+    visual(cx).apply_to_preferences(&mut value);
+    let device = current(cx);
+    value.send = device.send;
+    value.notifications = device.notifications;
+    value.shortcuts = device.shortcuts.clone();
+    value
+}
+
+pub(in crate::ui) fn update_settings(cx: &mut App, change: impl FnOnce(&mut Preferences)) {
+    let mut value = settings(cx);
+    change(&mut value);
+    let mut visual_value = crate::visual_config::VisualConfig::from_preferences(&value);
+    visual_value.package_visual_settings = visual(cx).package_visual_settings.clone();
+    update_visual(cx, |current| *current = visual_value);
+    update(cx, |device| {
+        device.send = value.send;
+        device.notifications = value.notifications;
+        device.shortcuts = value.shortcuts;
+    });
+}
+
 /// Applies the change right away and stores it on this device.
 pub fn update(cx: &mut App, change: impl FnOnce(&mut Preferences)) {
     let previous = &cx.global::<ClientPreferences>().value;
@@ -150,11 +185,19 @@ pub fn update(cx: &mut App, change: impl FnOnce(&mut Preferences)) {
         return;
     }
     let effects = Effects::between(previous, &value);
-    let chat_font = if effects.chat_font {
-        super::theme::resolve(value.fonts.chat.as_deref(), cx)
-    } else {
-        cx.global::<ClientPreferences>().chat_font.clone()
-    };
+    let visual_defaults_changed = previous.theme != value.theme
+        || previous.themes != value.themes
+        || previous.fonts != value.fonts
+        || previous.motion != value.motion
+        || previous.hints != value.hints
+        || previous.label_truncation != value.label_truncation
+        || previous.view != value.view
+        || previous.extensions != value.extensions
+        || previous.sidebar != value.sidebar;
+    if visual_defaults_changed && cx.current_execution_window_id().is_none() {
+        visual::update_application_default(&value, cx);
+    }
+
     let value = Arc::new(value);
     let submitted = cx
         .global::<ClientPreferences>()
@@ -163,7 +206,6 @@ pub fn update(cx: &mut App, change: impl FnOnce(&mut Preferences)) {
         .map(|writer| writer.submit(value.clone()));
     let global = cx.global_mut::<ClientPreferences>();
     global.value = value.clone();
-    global.chat_font = chat_font;
     match submitted {
         Some(Ok(revision)) => global.revision = revision,
         Some(Err(error)) => {
@@ -267,7 +309,6 @@ fn apply(value: &Preferences, effects: Effects, cx: &mut App) {
         super::keys::bind(&value.shortcuts, cx);
     }
     if effects.motion {
-        super::motion::set_level(value.motion);
         cx.set_reduce_motion(value.motion == MotionPreference::Off);
     }
     if effects.refresh {

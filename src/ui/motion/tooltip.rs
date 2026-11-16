@@ -3,7 +3,7 @@
 
 use gpui_kit::base::TooltipTransition;
 use gpui_kit::base::animation::{EffectTransition, ease_in_out_cubic};
-use gpui_kit::{AnyElement, Div, ElementId, IntoElement, Pixels, px};
+use gpui_kit::{AnyElement, App, Div, ElementId, IntoElement, Pixels, px};
 
 use super::{BASE, FAST, ease_enter};
 
@@ -32,8 +32,8 @@ fn effect(transition: &TooltipTransition, plays: bool, moves: bool) -> Option<Ef
     }
 }
 
-pub(in crate::ui) fn present(element: Div, transition: TooltipTransition) -> AnyElement {
-    let Some(effect) = effect(&transition, super::plays(), super::moves()) else {
+pub(in crate::ui) fn present(element: Div, transition: TooltipTransition, cx: &App) -> AnyElement {
+    let Some(effect) = effect(&transition, super::plays(cx), super::moves(cx)) else {
         return element.into_any_element();
     };
     let epoch = match transition {

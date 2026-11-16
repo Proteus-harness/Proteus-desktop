@@ -49,7 +49,8 @@ impl Workspace {
         layout.retain(|id| tab_available(id, cx));
         let old = layout.clone();
         change(&mut layout);
-        self.tab_motion.record(&old, &layout);
+        self.tab_motion
+            .record(&old, &layout, crate::ui::motion::plays(cx));
         self.documents.retain(|id, _| layout.contains(id));
         self.document_titles.retain(|id, _| layout.contains(id));
         self.spaces.save_active(layout.clone());

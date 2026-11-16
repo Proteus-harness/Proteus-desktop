@@ -153,6 +153,7 @@ pub(super) fn render_chain_header(
             ElementId::NamedInteger("tool-chain-chevron".into(), head),
             open,
             muted,
+            cx,
         ))
         .on_click(cx.listener(move |this, _, _, cx| this.toggle_chain(head, cx)))
         .into_any_element()

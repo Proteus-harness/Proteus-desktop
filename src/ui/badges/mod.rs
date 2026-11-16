@@ -246,7 +246,7 @@ fn drop_catcher(place: BadgePlace, others: Vec<&'static str>) -> impl IntoElemen
                 .filter(|id| *id != dragged.id)
                 .nth(index);
             let known = extensions::badge_ids();
-            prefs::update(cx, |preferences| {
+            prefs::update_visual(cx, |preferences| {
                 preferences
                     .extensions
                     .move_badge(&known, dragged.id, place, before)

@@ -163,7 +163,7 @@ pub(super) fn render_tool(
                 )
             },
         )
-        .child(chevron(row_id("tool-chevron", key), expanded, muted))
+        .child(chevron(row_id("tool-chevron", key), expanded, muted, cx))
         .on_click(cx.listener(move |this, _, _, cx| this.toggle_expanded(key, cx)));
     v_flex().child(header).children(details).into_any_element()
 }
@@ -226,6 +226,7 @@ impl Fold {
                                     ),
                                     full,
                                     theme.chat_secondary_foreground,
+                                    cx,
                                 ))
                                 .child(faded(label))
                                 .on_click(move |_, _, cx| {

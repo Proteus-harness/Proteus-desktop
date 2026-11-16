@@ -239,6 +239,7 @@ impl Workspace {
             ElementId::Name(format!("session-enter-{}", dir).into()),
             index,
             entering,
+            cx,
         )
         .into_any_element();
         if row.children.is_empty() || (!open && !moving) {
@@ -333,6 +334,7 @@ impl Workspace {
                         ("session-project-chevron", gi),
                         !collapsed,
                         theme.muted_foreground,
+                        cx,
                     )),
             )
             .child(
@@ -443,6 +445,7 @@ impl Workspace {
                 "sessions-archive-chevron",
                 self.show_archived,
                 theme.muted_foreground,
+                cx,
             ))
             .child(format!("Архив · {count}"))
             .on_click(cx.listener(|this, _, _, cx| {

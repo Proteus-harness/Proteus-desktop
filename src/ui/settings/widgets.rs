@@ -400,6 +400,7 @@ pub(super) fn disclosure(
             chevron_id,
             open,
             theme.muted_foreground,
+            cx,
         ))
         .child(label)
         .when(changed && !open, |row| row.child(changed_dot(cx)))

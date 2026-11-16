@@ -57,7 +57,10 @@ fn tick(cx: &mut VisualTestContext) {
 #[::core::prelude::v1::test]
 fn caption_hover_is_compact_uses_foreground_and_stops_its_ticker() {
     let mut app = TestAppContext::single();
-    app.update(gpui_kit::component::theme::init);
+    app.update(|cx| {
+        gpui_kit::component::theme::init(cx);
+        crate::ui::prefs::init_in_memory(cx);
+    });
     let caption = app.new(|_| Shimmer::new("Думаю"));
     let renders = Rc::new(Cell::new(0));
     let notifications = Rc::new(Cell::new(0));

@@ -95,7 +95,7 @@ impl RenderOnce for Caption {
         };
         let resolve = move |cx: &App| {
             let hints = cx
-                .try_global::<crate::ui::prefs::ClientPreferences>()
+                .try_global::<crate::ui::prefs::WindowVisualPreferences>()
                 .map(|prefs| prefs.value.hints)
                 .unwrap_or_default();
             crate::ui::kit::caption_hint_content(
@@ -276,7 +276,7 @@ impl Element for Faded {
             return Some((line, line_height, px(0.)));
         }
         let ellipsis = cx
-            .try_global::<crate::ui::prefs::ClientPreferences>()
+            .try_global::<crate::ui::prefs::WindowVisualPreferences>()
             .is_some_and(|prefs| {
                 prefs.value.label_truncation == crate::preferences::LabelTruncation::Ellipsis
             });

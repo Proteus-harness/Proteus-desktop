@@ -23,7 +23,7 @@ fn old_removal_cannot_disable_a_replacement_before_its_registry_rescan() {
             prefs.extensions.pinned.push(id.into());
         });
         assert_eq!(finish_removal(id, &receipt, cx).unwrap(), Some(false));
-        assert!(!prefs::current(cx).extensions.is_enabled(id));
+        assert!(!prefs::visual(cx).extensions.is_enabled(id));
         assert!(
             prefs::current(cx)
                 .extensions
@@ -43,7 +43,7 @@ fn old_removal_cannot_disable_a_replacement_before_its_registry_rescan() {
 }
 
 #[::core::prelude::v1::test]
-fn native_removal_publication_waits_without_blocking_and_rechecks_afterward() {
+fn native_removal_publication_preserves_visual_choices_after_rechecking() {
     let cx = ::gpui::TestAppContext::single();
     let id = "deferred-removal-race-fixture";
     let receipt = RemovedExtension {
@@ -68,7 +68,7 @@ fn native_removal_publication_waits_without_blocking_and_rechecks_afterward() {
         drop(guard);
         assert_eq!(finish_removal(id, &receipt, cx).unwrap(), Some(true));
         assert!(
-            !prefs::current(cx)
+            prefs::visual(cx)
                 .extensions
                 .order
                 .iter()

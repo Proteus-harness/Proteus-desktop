@@ -490,7 +490,7 @@ impl ChatScroller {
     }
 
     /// Advance following by one frame; returns whether another frame is needed.
-    fn step(&mut self, now: Instant) -> bool {
+    fn step(&mut self, now: Instant, animate: bool) -> bool {
         let positioning = self.scrollbar.settle();
         let wheeling = self.wheel.step(&self.list, OVERDRAW);
         let offset = -self.list.scroll_px_offset_for_scrollbar().y;
@@ -527,7 +527,7 @@ impl ChatScroller {
         let mut running = dirty || tail_changed || positioning || wheeling;
         if self.following && gap > SETTLED {
             let viewport = self.list.viewport_bounds().size.height;
-            if !motion::plays() || gap > viewport * JUMP_VIEWPORTS {
+            if !animate || gap > viewport * JUMP_VIEWPORTS {
                 self.list.scroll_to_end();
                 // The end anchor reads past the content until laid out.
                 self.last_frame = Some(now);
@@ -698,7 +698,7 @@ impl RenderOnce for ChatList {
             }
             let now = Instant::now();
             let middle_active = state.step_middle(now, window.is_window_active(), cx);
-            let running = state.step(now);
+            let running = state.step(now, motion::plays(cx));
             let visible = state.visible_rows();
             let edges = (
                 !state.following && visible.start < 8,
@@ -877,7 +877,11 @@ impl RenderOnce for ChatList {
                         .right_0()
                         .bottom_3()
                         .justify_center()
-                        .child(motion::rise_in(div().child(jump), (self.id, "jump-enter"))),
+                        .child(motion::rise_in(
+                            div().child(jump),
+                            (self.id, "jump-enter"),
+                            cx,
+                        )),
                 )
             })
     }

@@ -42,7 +42,7 @@ impl Shimmer {
 /// use_keyed_state observes child changes and would invalidate the parent too.
 impl Render for Shimmer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let moving = self.animated && !self.hovered && super::moves() && !cx.reduce_motion();
+        let moving = self.animated && !self.hovered && super::moves(cx) && !cx.reduce_motion();
         let phase = if moving {
             super::ticker::next_tick(window, cx);
             super::ticker::phase(SWEEP)

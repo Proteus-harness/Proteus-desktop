@@ -42,7 +42,7 @@ impl SettingsView {
                 .checked(extensions::is_enabled(id, cx))
                 .on_click(move |checked: &bool, _, cx| {
                     let checked = *checked;
-                    prefs::update(cx, |prefs| prefs.extensions.set_enabled(id, checked));
+                    prefs::update_visual(cx, |prefs| prefs.extensions.set_enabled(id, checked));
                 })
                 .into_any_element(),
         )
@@ -249,13 +249,13 @@ impl SettingsView {
             }
         }
         if let Some(widget) = &manifest.badge {
-            let saved = &prefs::current(cx).extensions;
+            let saved = &prefs::visual(cx).extensions;
             let place_reset = (saved.badge_place(id, widget.place) != widget.place).then(|| {
                 kit::setting_reset(
                     "extension-widget-place-reset".into(),
                     "Вернуть расположение из расширения",
                     move |_, cx| {
-                        prefs::update(cx, |prefs| {
+                        prefs::update_visual(cx, |prefs| {
                             prefs.extensions.badges.remove(id);
                         });
                     },
@@ -266,7 +266,9 @@ impl SettingsView {
                 kit::setting_reset(
                     "extension-widget-pin-reset".into(),
                     "Разрешить перенос виджета",
-                    move |_, cx| prefs::update(cx, |prefs| prefs.extensions.set_pinned(id, false)),
+                    move |_, cx| {
+                        prefs::update_visual(cx, |prefs| prefs.extensions.set_pinned(id, false))
+                    },
                     cx,
                 )
             });
@@ -298,11 +300,13 @@ impl SettingsView {
                     "Закрепить виджет",
                     Some("Запрещает перенос мышью. Не меняет условия появления виджета.".into()),
                     kit::switch("extension-page-pinned")
-                        .checked(prefs::current(cx).extensions.is_pinned(id))
+                        .checked(prefs::visual(cx).extensions.is_pinned(id))
                         .disabled(!enabled)
                         .on_click(move |checked: &bool, _, cx| {
                             let checked = *checked;
-                            prefs::update(cx, |prefs| prefs.extensions.set_pinned(id, checked));
+                            prefs::update_visual(cx, |prefs| {
+                                prefs.extensions.set_pinned(id, checked)
+                            });
                         }),
                     false,
                     pin_reset,
@@ -415,6 +419,8 @@ fn badge_select(manifest: &'static Manifest, cx: &App) -> AnyElement {
         "extension-page-badge".into(),
         label,
         options,
-        move |place, cx| prefs::update(cx, |prefs| prefs.extensions.set_badge_place(id, place)),
+        move |place, cx| {
+            prefs::update_visual(cx, |prefs| prefs.extensions.set_badge_place(id, place))
+        },
     )
 }

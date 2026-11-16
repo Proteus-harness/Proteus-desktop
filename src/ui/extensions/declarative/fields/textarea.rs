@@ -80,6 +80,7 @@ pub(in crate::ui::extensions::declarative) fn render(
             ElementId::Name(key.clone()),
             open,
             cx.theme().muted_foreground,
+            cx,
         ))
         .child(faded(if open {
             "Свернуть"

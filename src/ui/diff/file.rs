@@ -52,7 +52,7 @@ impl DiffView {
             .track_focus(&self.file_focus[index])
             .pressable(cx)
             .hover(move |style| style.bg(hover))
-            .child(motion::chevron(("chevron", index), open, muted))
+            .child(motion::chevron(("chevron", index), open, muted, cx))
             .child(Icon::new(icon).small().flex_none().text_color(color))
             .child(
                 div()

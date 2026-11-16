@@ -48,7 +48,7 @@ impl Render for Chat {
         let scrollbar = self.scroller.read(cx).scrollbar();
         let incomplete_rows = super::row_layout::row_context(
             self.display_transcript().entries(),
-            prefs::current(cx).view.compact_tools,
+            prefs::visual(cx).view.compact_tools,
             self.history.range(&self.session.transcript),
         )
         .incomplete_rows();

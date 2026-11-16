@@ -185,6 +185,7 @@ impl SettingsView {
             ElementId::Name(format!("{key}-chevron").into()),
             open,
             theme.muted_foreground,
+            cx,
         ))
         .child(described(
             hashed_id("group-title", path),

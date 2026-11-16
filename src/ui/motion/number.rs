@@ -32,7 +32,7 @@ impl Number {
 
 impl RenderOnce for Number {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let shown = if moves() {
+        let shown = if moves(cx) {
             gpui_kit::base::transition(
                 self.id,
                 self.value,

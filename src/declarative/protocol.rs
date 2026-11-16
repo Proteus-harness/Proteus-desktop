@@ -51,7 +51,16 @@ pub const FEATURES: &[&str] = &[
     "widgets.rich_text.inlines.v1",
     "widgets.content.v1",
     "widgets.code_embedded.v1",
+    "preferences.visual.v1",
 ];
+
+/// Visual values of this package in the addressed native window. They never
+/// contain model, tool or other agent configuration.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct WindowVisual {
+    pub revision: u64,
+    pub preferences: serde_json::Map<String, Value>,
+}
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -107,6 +116,14 @@ pub enum Outgoing {
         context: String,
         workspace: PathBuf,
         session_dir: Option<PathBuf>,
+        window_visual: WindowVisual,
+    },
+    VisualPreferencesResult {
+        context: String,
+        id: String,
+        revision: u64,
+        values: serde_json::Map<String, Value>,
+        error: Option<String>,
     },
     CloseContext {
         context: String,
@@ -200,6 +217,13 @@ pub enum Incoming {
         id: String,
         session_dir: PathBuf,
         setting: SessionSetting,
+    },
+    SetVisualPreferences {
+        context: String,
+        view: String,
+        id: String,
+        expected_revision: u64,
+        values: serde_json::Map<String, Value>,
     },
     /// Icon/ring/text and full hover details, bound to the current session.
     Badge {
@@ -297,6 +321,27 @@ pub fn view_id(surface: SurfaceKind, argument: Option<&str>) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn visual_preferences_are_bound_to_a_view_without_an_agent_write_target() {
+        assert!(FEATURES.contains(&"preferences.visual.v1"));
+        let request = json!({"type":"set_visual_preferences", "context":"window-one",
+            "view":"page", "id":"visual-1", "expected_revision":7,
+            "values":{"visibility":"always"}});
+        assert!(
+            matches!(parse(&request.to_string()), Ok(Incoming::SetVisualPreferences {
+            context, view, expected_revision:7, ..
+        }) if context == "window-one" && view == "page")
+        );
+        for forbidden in ["session_dir", "config_path", "setting", "package"] {
+            let mut forged = request.clone();
+            forged[forbidden] = json!("foreign");
+            assert!(parse(&forged.to_string()).is_err(), "{forbidden}");
+        }
+        let mut missing_view = request;
+        missing_view.as_object_mut().unwrap().remove("view");
+        assert!(parse(&missing_view.to_string()).is_err());
+    }
 
     #[test]
     fn document_retarget_uses_only_the_addressed_context_and_exact_arguments() {

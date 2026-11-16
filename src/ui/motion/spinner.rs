@@ -34,7 +34,7 @@ impl Sizable for Spinner {
 
 impl RenderOnce for Spinner {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let turn = if super::plays() {
+        let turn = if super::plays(cx) {
             ticker::next_tick(window, cx);
             ticker::phase(TURN)
         } else {

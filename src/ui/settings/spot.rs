@@ -105,14 +105,14 @@ pub(super) fn package(path: &std::path::Path) -> String {
 
 /// Strength of the mark `elapsed` after the jump; without animations it
 /// stays full and then disappears.
-fn strength(elapsed: Duration) -> f32 {
+fn strength(elapsed: Duration, animate: bool) -> f32 {
     if elapsed < HOLD {
         return PEAK;
     }
     if elapsed >= HOLD + FADE {
         return 0.;
     }
-    if !motion::plays() {
+    if !animate {
         return PEAK;
     }
     let t = (elapsed - HOLD).as_secs_f32() / FADE.as_secs_f32();
@@ -157,7 +157,7 @@ impl SettingsView {
             return element.into_any_element();
         };
         let elapsed = spot.since.elapsed();
-        let strength = strength(elapsed);
+        let strength = strength(elapsed, motion::plays(cx));
         let running = elapsed < HOLD + FADE;
         let (scroll, settle) = (self.page_scroll(), spot.settle.clone());
         let follow = canvas(

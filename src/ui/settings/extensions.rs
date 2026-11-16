@@ -66,7 +66,7 @@ impl SettingsView {
                 ),
                 reorder::List::new("settings-extension-order", rows, |id, before, _, cx| {
                     let known = extensions::ids();
-                    prefs::update(cx, |prefs| {
+                    prefs::update_visual(cx, |prefs| {
                         prefs
                             .extensions
                             .move_extension(&known, &id, before.as_deref())
@@ -276,7 +276,7 @@ impl SettingsView {
                             .checked(enabled)
                             .on_click(move |checked: &bool, _, cx| {
                                 let checked = *checked;
-                                prefs::update(cx, |prefs| {
+                                prefs::update_visual(cx, |prefs| {
                                     prefs.extensions.set_enabled(id, checked)
                                 });
                             }),

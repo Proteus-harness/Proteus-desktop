@@ -82,13 +82,13 @@ pub(super) fn layer() -> impl IntoElement {
                 };
                 let speed = if fast { FAST } else { 1. };
                 match event.delta {
-                    ScrollDelta::Pixels(pixels) if coasts() => {
+                    ScrollDelta::Pixels(pixels) if coasts(cx) => {
                         fling::track(event.position, pixels * speed, modifiers, window);
                     }
                     _ => fling::stop(),
                 }
                 let lines = matches!(event.delta, ScrollDelta::Lines(_));
-                let glide = lines && motion::plays();
+                let glide = lines && motion::plays(cx);
                 if !glide && !fast {
                     return;
                 }
@@ -132,8 +132,8 @@ pub(super) fn layer() -> impl IntoElement {
 }
 
 /// Touchpad inertia is added where the platform has none of its own.
-fn coasts() -> bool {
-    cfg!(target_os = "linux") && motion::plays()
+fn coasts(cx: &App) -> bool {
+    cfg!(target_os = "linux") && motion::plays(cx)
 }
 
 /// Dispatches a scroll step of this layer past its own handler.

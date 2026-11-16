@@ -138,7 +138,7 @@ impl Workspace {
 
     /// The panel in the side panel, when it is open and can be shown.
     pub(super) fn shown_panel(&self, cx: &App) -> Option<PanelInfo> {
-        info(prefs::current(cx).sidebar.panel.as_deref()?, cx)
+        info(prefs::visual(cx).sidebar.panel.as_deref()?, cx)
     }
 
     /// Shows a panel in the side panel; the keyboard goes there.
@@ -149,7 +149,7 @@ impl Workspace {
         if !self.begin_navigation(cx) {
             return;
         }
-        prefs::update(cx, |prefs| {
+        prefs::update_visual(cx, |prefs| {
             prefs.sidebar.panel = Some(panel.name.to_owned())
         });
         self.focus_panel(panel.name, window, cx);
@@ -164,7 +164,7 @@ impl Workspace {
             return;
         }
         let focused = self.panel_focused(name, window, cx);
-        prefs::update(cx, |prefs| prefs.sidebar.panel = None);
+        prefs::update_visual(cx, |prefs| prefs.sidebar.panel = None);
         if focused {
             self.focus_active(window, cx);
         }

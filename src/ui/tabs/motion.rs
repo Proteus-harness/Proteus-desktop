@@ -30,8 +30,8 @@ impl TabMotion {
     /// Notes the tabs that `new` opened or closed compared with `old`. A
     /// tab that took the place of a closed one, as the next preview does,
     /// is swapped in place without either moving.
-    pub(super) fn record(&mut self, old: &TabLayout, new: &TabLayout) {
-        if !motion::plays() {
+    pub(super) fn record(&mut self, old: &TabLayout, new: &TabLayout, animate: bool) {
+        if !animate {
             return;
         }
         let swapped = |pane: PaneId, index: usize| {
@@ -147,13 +147,14 @@ impl PaneMotion {
         target: Vec<(PaneId, Rect)>,
         follow: bool,
         now: Instant,
+        animate: bool,
     ) {
         let same_size = self.size == Some(size);
         let changed = !same_places(&self.target, &target);
         if same_size && !changed {
             return;
         }
-        if follow || !same_size || self.target.is_empty() || !motion::moves() {
+        if follow || !same_size || self.target.is_empty() || !animate {
             self.tween = None;
         } else {
             let shown = self.frames(now);
@@ -282,7 +283,7 @@ mod tests {
         let mut new = old.clone();
         new.open_preview("files:b.rs", |_| false);
         let mut motion = TabMotion::default();
-        motion.record(&old, &new);
+        motion.record(&old, &new, true);
         let now = Instant::now();
         assert_eq!(motion.entering("files:b.rs", now), None);
         assert!(motion.leaving(PaneId(0), now).is_empty());
@@ -291,7 +292,7 @@ mod tests {
         let mut next = new.clone();
         next.keep("files:b.rs");
         next.open_preview("files:c.rs", |_| false);
-        motion.record(&new, &next);
+        motion.record(&new, &next, true);
         assert!(motion.entering("files:c.rs", Instant::now()).is_some());
     }
 
@@ -313,19 +314,19 @@ mod tests {
         let now = Instant::now();
         let mut panes = PaneMotion::default();
         let one = vec![(PaneId(1), rect(0., 0., 1000., 600.))];
-        panes.retarget((1000., 600.), one.clone(), false, now);
+        panes.retarget((1000., 600.), one.clone(), false, now, true);
         assert!(panes.sample(now).is_none());
         let two = vec![
             (PaneId(1), rect(0., 0., 497.5, 600.)),
             (PaneId(2), rect(502.5, 0., 497.5, 600.)),
         ];
-        panes.retarget((1000., 600.), two.clone(), false, now);
+        panes.retarget((1000., 600.), two.clone(), false, now, true);
         let frames = panes.sample(now).expect("a split glides");
         assert_eq!(frames[0].rect, rect(0., 0., 1000., 600.));
         assert_eq!(frames[1].opacity, 0.);
-        panes.retarget((1200., 600.), two, false, now);
+        panes.retarget((1200., 600.), two, false, now, true);
         assert!(panes.sample(now).is_none());
-        panes.retarget((1200., 600.), one, true, now);
+        panes.retarget((1200., 600.), one, true, now, true);
         assert!(panes.sample(now).is_none());
     }
 }

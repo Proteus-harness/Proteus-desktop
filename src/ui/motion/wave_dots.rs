@@ -14,7 +14,7 @@ const WAVE: Duration = Duration::from_millis(1_200);
 /// small owner. A lazy RenderOnce child runs after that scope and can ask
 /// the ticker to invalidate an ancestor while its owner stays cached.
 pub(in crate::ui) fn wave_dots(window: &mut Window, cx: &mut App) -> Div {
-    let moving = super::moves() && !cx.reduce_motion();
+    let moving = super::moves(cx) && !cx.reduce_motion();
     let phase = if moving {
         super::ticker::next_tick(window, cx);
         super::ticker::phase(WAVE)

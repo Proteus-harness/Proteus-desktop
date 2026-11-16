@@ -153,6 +153,7 @@ impl Workspace {
                             ("session-branch-chevron", ix),
                             branch_open,
                             theme.muted_foreground,
+                            cx,
                         ))
                         .tip_text("Дочерние сессии")
                         .on_click(cx.listener(move |this, _, _, cx| {

@@ -156,6 +156,15 @@ impl SettingsView {
         subscriptions.extend(font_changes);
         let (catalogs, catalog_changes) = catalog::State::new(window, cx);
         subscriptions.push(catalog_changes);
+        subscriptions.push(
+            cx.observe_global_in::<crate::ui::prefs::WindowVisualPreferences>(
+                window,
+                |this, window, cx| {
+                    this.sizes.synchronize(window, cx);
+                    cx.notify();
+                },
+            ),
+        );
         subscriptions.extend([
             cx.subscribe_in(
                 &search,

@@ -15,6 +15,7 @@ fn workspace_update(
     workspace: &std::path::Path,
     session_dir: Option<PathBuf>,
     document: Option<String>,
+    window_visual: crate::declarative::protocol::WindowVisual,
 ) -> Option<[Outgoing; 2]> {
     (current != workspace).then(|| {
         [
@@ -22,6 +23,7 @@ fn workspace_update(
                 context: context.into(),
                 workspace: workspace.into(),
                 session_dir: session_dir.clone(),
+                window_visual,
             },
             Outgoing::Event {
                 context: context.into(),
@@ -51,9 +53,10 @@ pub(super) struct Scope {
     pub(super) host: Host,
     pub(super) window: AnyWindowHandle,
     pub(super) popup_closed: u64,
+    pub(super) visual_revision: Option<u64>,
     source: Option<(WeakEntity<Chat>, crate::tabs::ChatKey)>,
-    session: Option<PathBuf>,
-    workspace: PathBuf,
+    pub(super) session: Option<PathBuf>,
+    pub(super) workspace: PathBuf,
     announced: bool,
     _events: Option<Subscription>,
     _session_events: Option<Subscription>,
@@ -89,6 +92,7 @@ mod tests {
             Path::new("/project-b"),
             session,
             Some("README.md".into()),
+            Default::default(),
         )
         .unwrap();
         let messages: Vec<_> = messages
@@ -98,7 +102,7 @@ mod tests {
         assert_eq!(
             messages,
             vec![
-                serde_json::json!({"type":"context", "context":"window", "workspace":"/project-b", "session_dir":"/sessions/chat-b"}),
+                serde_json::json!({"type":"context", "context":"window", "workspace":"/project-b", "session_dir":"/sessions/chat-b", "window_visual":{"revision":0,"preferences":{}}}),
                 serde_json::json!({"type":"event", "context":"window", "event":"navigation_changed", "session_dir":"/sessions/chat-b", "document":"README.md"}),
             ]
         );
@@ -109,7 +113,8 @@ mod tests {
                 Path::new("/project-b"),
                 Path::new("/project-b"),
                 Some("/sessions/chat-b".into()),
-                None
+                None,
+                Default::default(),
             )
             .is_none()
         );
@@ -142,7 +147,18 @@ impl Runtime {
         cx: &mut Context<Self>,
     ) {
         let context = host.scope();
-        if self.scopes.contains_key(&context) {
+        if let Some(scope) = self.scopes.get_mut(&context) {
+            // Isolated settings/preview owners have a stable context even
+            // when their retained surface moves to another native window.
+            let moved = scope.window.window_id() != window.window_id();
+            if moved {
+                scope.window = window;
+                scope.host = host;
+                scope.visual_revision = None;
+            }
+            if moved && self.process.is_some() {
+                self.announce_scope(&context, cx);
+            }
             return;
         }
         let events_context = context.clone();
@@ -189,6 +205,7 @@ impl Runtime {
                 host,
                 window,
                 popup_closed: 0,
+                visual_revision: None,
                 source,
                 session: None,
                 workspace: PathBuf::new(),
@@ -222,10 +239,13 @@ impl Runtime {
         } else {
             host.workspace_path(cx).unwrap_or_default()
         };
+        let window_visual = self.visual_snapshot(scope.window, cx);
+        let visual_revision = window_visual.revision;
         self.send(&Outgoing::Context {
             context: context.into(),
             workspace: workspace.clone(),
             session_dir: session.clone(),
+            window_visual,
         });
         if self.lifetime.session() && self.extension.manifest.session_events && !snapshot_known {
             self.send(&host.session_snapshot(self.extension.manifest.session_entries, cx));
@@ -242,6 +262,7 @@ impl Runtime {
         if let Some(scope) = self.scopes.get_mut(context) {
             scope.session = session;
             scope.workspace = workspace;
+            scope.visual_revision = Some(visual_revision);
             // A deferred launch must not inherit an announcement sent to no process.
             scope.announced = self.process.is_some();
         }
@@ -258,12 +279,16 @@ impl Runtime {
                 return;
             }
             let workspace = scope.host.workspace_path(cx).unwrap_or_default();
+            let window = scope.window;
+            let window_visual = self.visual_snapshot(window, cx);
+            let scope = self.scopes.get_mut(context).expect("live scope");
             let messages = workspace_update(
                 context,
                 &scope.workspace,
                 &workspace,
                 scope.host.session_dir(cx),
                 scope.host.active_document(cx),
+                window_visual,
             );
             scope.workspace = workspace;
             if let Some(messages) = messages {
@@ -386,8 +411,14 @@ impl Runtime {
         }
     }
 
-    pub(super) fn content_context(&self, cx: &App) -> serde_json::Value {
-        let theme = cx.theme();
+    pub(super) fn content_context_for(
+        &self,
+        window: AnyWindowHandle,
+        cx: &App,
+    ) -> serde_json::Value {
+        let theme = cx
+            .window_global::<gpui_kit::component::Theme>(window.window_id())
+            .unwrap_or_else(|| cx.theme());
         serde_json::json!({"theme": {
             "foreground": theme.foreground.to_hex(), "background": theme.background.to_hex(),
             "muted": theme.muted_foreground.to_hex(), "border": theme.border.to_hex(),

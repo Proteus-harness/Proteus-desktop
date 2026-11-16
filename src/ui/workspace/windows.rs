@@ -367,7 +367,9 @@ impl Workspace {
         let root_target = target.clone();
         let mut detached_spaces = ChatSpaces::default();
         detached_spaces.set_active(self.spaces.active_root(), TabLayout::default());
+        let visual_snapshot = prefs::visual_snapshot(cx);
         let opened = gpui_kit::open_window(crate::window_options(cx), cx, move |window, cx| {
+            prefs::inherit_visual_window(visual_snapshot, cx);
             let view = cx.new(|cx| {
                 let mut workspace = Self::empty(path, target, detached_spaces, group, window, cx);
                 workspace.api = api;

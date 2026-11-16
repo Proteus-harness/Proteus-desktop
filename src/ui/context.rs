@@ -137,6 +137,7 @@ impl RenderOnce for ContextMenu {
                         ElementId::Name(format!("{:?}:chevron", self.id).into()),
                         menu_open,
                         cx.theme().muted_foreground,
+                        motion::moves(cx),
                     ))
                 })
                 .on_click(move |_, window, cx| {
@@ -149,6 +150,7 @@ impl RenderOnce for ContextMenu {
                     ElementId::Name(format!("{:?}:chevron", self.id).into()),
                     menu_open,
                     cx.theme().muted_foreground,
+                    motion::moves(cx),
                 );
                 h_flex()
                     .min_w_0()
@@ -238,7 +240,7 @@ impl RenderOnce for ContextMenu {
         };
         // Native items already have 4 px of padding. Keep their rectangular
         // paint inside the shared corner even at the largest surface radius.
-        let inset = (f32::from(prefs::current(cx).view.surface_radius) * 0.3)
+        let inset = (f32::from(prefs::visual(cx).view.surface_radius) * 0.3)
             .ceil()
             .max(4.)
             - 4.;

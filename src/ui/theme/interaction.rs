@@ -7,7 +7,6 @@ use gpui_kit::component::Theme;
 use gpui_kit::component::scroll::ScrollbarMode;
 
 pub(super) fn install(cx: &mut App) {
-    cx.observe_global::<Theme>(enforce).detach();
     cx.defer(enforce);
 }
 

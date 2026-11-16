@@ -24,6 +24,9 @@ mod tool_display;
 mod transcript;
 mod ui;
 mod version;
+mod visual_config;
+#[cfg(test)]
+mod window_global_tests;
 
 use gpui_kit::*;
 use proteus_diff as diff;

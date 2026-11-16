@@ -210,6 +210,7 @@ impl Chat {
                     SharedString::from(format!("{key}-chevron")),
                     open,
                     theme.muted_foreground,
+                    cx,
                 ))
                 .on_click(cx.listener(move |this, _, window, cx| {
                     let old = this.activity_dock.selected.clone();
@@ -223,6 +224,7 @@ impl Chat {
                     div().child(trigger),
                     SharedString::from(format!("{key}-arrive")),
                     request_fresh(&activity.id, self),
+                    cx,
                 )
                 .into_any_element(),
             );

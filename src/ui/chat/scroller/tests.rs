@@ -188,7 +188,7 @@ fn a_middle_disclosure_reserves_native_room_without_a_temporary_scrollbar_extent
     cx.update(|_, cx| {
         scroller.update(cx, |state, _| {
             let after = state.hold.as_ref().unwrap().until + Duration::from_millis(1);
-            state.step(after);
+            state.step(after, true);
         })
     });
     draw(cx);
@@ -231,7 +231,7 @@ fn wheel_up_releases_a_short_resident_tail_without_any_pixel_movement() {
     assert!(state.last_offset.is_none());
     state.user_scroll(point(px(0.), px(3.)));
     for _ in 0..3 {
-        state.step(Instant::now());
+        state.step(Instant::now(), true);
     }
     assert!(!state.following);
     assert!(state.visible_rows().start < 8);
@@ -241,10 +241,10 @@ fn wheel_up_releases_a_short_resident_tail_without_any_pixel_movement() {
 fn downward_wheel_at_the_end_resumes_following_after_manual_browsing() {
     let mut state = folded_tail(true);
     state.user_scroll(point(px(0.), px(3.)));
-    state.step(Instant::now());
+    state.step(Instant::now(), true);
     assert!(!state.following);
     state.user_scroll(point(px(0.), px(-3.)));
-    state.step(Instant::now());
+    state.step(Instant::now(), true);
     assert!(state.following);
 }
 
@@ -257,7 +257,7 @@ fn wheel_after_a_seek_cancels_positioning_but_horizontal_child_input_does_not() 
     assert_eq!(state.user_scroll(point(px(20.), px(1.))), None);
     assert_eq!(state.user_scroll(point(px(0.), px(3.))), Some(true));
     assert_eq!(state.user_scroll(point(px(0.), px(3.))), Some(false));
-    state.step(Instant::now());
+    state.step(Instant::now(), true);
     assert!(!state.following);
 }
 
@@ -305,7 +305,7 @@ fn wheel_down_respects_disabled_automatic_following() {
     let mut state = folded_tail(false);
     state.user_scroll(point(px(0.), px(3.)));
     state.user_scroll(point(px(0.), px(-3.)));
-    state.step(Instant::now());
+    state.step(Instant::now(), true);
     assert!(!state.following);
 }
 
@@ -391,7 +391,7 @@ fn natural_footer_consumes_disclosure_floor() {
     assert!(state.measure_footer(px(32.)));
     assert_eq!(state.tail.height(), px(0.));
     assert!(!state.following);
-    state.step(Instant::now());
+    state.step(Instant::now(), true);
     assert!(state.following);
     assert_eq!(state.row_count(), rows);
     assert_eq!(state.footer_height, px(32.));
@@ -485,7 +485,7 @@ fn reading_space_shares_the_tail_floor_and_does_not_count_as_status() {
     // create a second 24px empty tail or keep following paused.
     assert!(state.measure_footer(px(0.)));
     assert_eq!(state.tail.height(), px(0.));
-    state.step(Instant::now());
+    state.step(Instant::now(), true);
     assert!(state.following);
     assert_eq!(state.list.item_count(), count);
 }

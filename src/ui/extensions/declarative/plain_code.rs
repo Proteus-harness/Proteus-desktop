@@ -79,6 +79,7 @@ impl Plain {
                     ElementId::Name(key.clone()),
                     self.open,
                     cx.theme().muted_foreground,
+                    cx,
                 ))
                 .child(fade::faded(if self.open {
                     "Свернуть"

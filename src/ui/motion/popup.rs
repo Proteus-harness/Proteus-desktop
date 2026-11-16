@@ -219,7 +219,7 @@ impl<T> Popup<T> {
         self.update_anchor(bounds);
         let frame = self.frame_at(
             Instant::now(),
-            effect(super::moves(), super::plays(), cx.reduce_motion()),
+            effect(super::moves(cx), super::plays(cx), cx.reduce_motion()),
         )?;
         // A first position pass resolves possible flipping. Schedule one more
         // frame so attached styling and the reveal mask use that actual side,

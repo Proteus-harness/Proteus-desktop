@@ -34,7 +34,13 @@ impl Workspace {
             let size = (area.width.as_f32() / scale, area.height.as_f32() / scale);
             let target = layout.rects_spaced(size.0, size.1, split::DIVIDER);
             let panes = self.tab_motion.panes();
-            panes.retarget(size, target, self.split_drag.is_some(), now);
+            panes.retarget(
+                size,
+                target,
+                self.split_drag.is_some(),
+                now,
+                crate::ui::motion::moves(cx),
+            );
             panes.sample(now)
         });
         if running || frames.is_some() {
@@ -249,7 +255,7 @@ impl Workspace {
                     div().size_full().child(document.view),
                     ElementId::Name(format!("tab-document-{tab}").into()),
                     self.tab_motion.opened(tab, Instant::now()),
-                )
+                 cx)
                 .into_any_element(),
                 None => div()
                     .p_4()

@@ -86,7 +86,7 @@ impl SettingsView {
         // Until the first layout the page is taken for wide.
         let measured = if width.get() > 0. { width.get() } else { 1200. };
         let full = measured < 960.;
-        let extent = if motion::moves() {
+        let extent = if motion::moves(cx) {
             phase
         } else if phase > 0. {
             1.

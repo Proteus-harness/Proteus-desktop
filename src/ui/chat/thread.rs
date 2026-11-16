@@ -32,7 +32,7 @@ impl Chat {
     /// Codex state). Invalidate just the former/new tail and its folded run.
     pub(super) fn prepare_turn_stamp(&mut self, cx: &mut Context<Self>) {
         let entries = self.display_transcript().entries();
-        let compact = prefs::current(cx).view.compact_tools;
+        let compact = prefs::visual(cx).view.compact_tools;
         let row = entries
             .iter()
             .rposition(|entry| !stamp::hidden(entries, entry))
@@ -119,7 +119,7 @@ impl Chat {
         if stamp::hidden(entries, entry) {
             return div().into_any_element();
         }
-        let compact = prefs::current(cx).view.compact_tools;
+        let compact = prefs::visual(cx).view.compact_tools;
         let chain = self.chain_at(ix, compact);
         let chain_head = chain.as_ref().map(|chain| entries[chain.start].key);
         let chain_open = chain_head.is_some_and(|head| self.chain_open(head));
@@ -367,7 +367,7 @@ impl Chat {
         if self.expanded.is_empty() {
             return;
         }
-        let compact = prefs::current(cx).view.compact_tools;
+        let compact = prefs::visual(cx).view.compact_tools;
         let entries = self
             .codex
             .as_ref()

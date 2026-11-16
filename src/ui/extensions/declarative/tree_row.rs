@@ -166,7 +166,7 @@ impl Tree {
             .gap_1()
             .text_xs()
             .text_color(muted)
-            .child(chevron(&row.id, row.expanded.unwrap_or(true), muted))
+            .child(chevron(&row.id, row.expanded.unwrap_or(true), muted, cx))
             .child(
                 div().flex_1().min_w_0().child(
                     caption("tree-header-caption", row.label.clone()).anchor(anchor.clone()),
@@ -200,7 +200,7 @@ impl Tree {
             .gap_1()
             .when(self.layout.chevrons, |item| {
                 item.child(match row.expanded {
-                    Some(open) => chevron(&row.id, open, muted).into_any_element(),
+                    Some(open) => chevron(&row.id, open, muted, cx).into_any_element(),
                     None => div().flex_none().w(prefs::scaled(SLOT)).into_any_element(),
                 })
             })
@@ -243,7 +243,7 @@ impl Tree {
     }
 }
 
-fn chevron(id: &str, open: bool, color: Hsla) -> Div {
+fn chevron(id: &str, open: bool, color: Hsla, cx: &App) -> Div {
     h_flex()
         .flex_none()
         .w(prefs::scaled(SLOT))
@@ -252,5 +252,6 @@ fn chevron(id: &str, open: bool, color: Hsla) -> Div {
             ElementId::Name(format!("tree-chevron-{id}").into()),
             open,
             color,
+            cx,
         ))
 }

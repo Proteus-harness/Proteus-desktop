@@ -13,9 +13,14 @@ use super::{SLOW, Tween, ease_enter, moves};
 const SPRING: SpringConfig = SpringConfig::new(420., 34., 1.);
 
 /// Disclosure chevron that turns towards the open state.
-pub(in crate::ui) fn chevron(id: impl Into<ElementId>, open: bool, color: Hsla) -> AnyElement {
+pub(in crate::ui) fn chevron(
+    id: impl Into<ElementId>,
+    open: bool,
+    color: Hsla,
+    cx: &App,
+) -> AnyElement {
     let icon = Icon::new(IconName::ChevronRight).xsmall().text_color(color);
-    if !moves() {
+    if !moves(cx) {
         let angle = if open { FRAC_PI_2 } else { 0. };
         return icon.rotate(radians(angle)).into_any_element();
     }
@@ -26,10 +31,15 @@ pub(in crate::ui) fn chevron(id: impl Into<ElementId>, open: bool, color: Hsla) 
 }
 
 /// Dropdown chevron, using the same spring and reduced-motion policy.
-pub(in crate::ui) fn menu_chevron(id: impl Into<ElementId>, open: bool, color: Hsla) -> AnyElement {
+pub(in crate::ui) fn menu_chevron(
+    id: impl Into<ElementId>,
+    open: bool,
+    color: Hsla,
+    animate: bool,
+) -> AnyElement {
     let icon = Icon::new(IconName::ChevronDown).xsmall().text_color(color);
     let target = std::f32::consts::PI;
-    if !moves() {
+    if !animate {
         return icon
             .rotate(radians(if open { target } else { 0. }))
             .into_any_element();
@@ -43,10 +53,15 @@ pub(in crate::ui) fn menu_chevron(id: impl Into<ElementId>, open: bool, color: H
 }
 
 /// Disclosures toggled a moment ago, keyed by caller-chosen names.
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct Toggles(HashMap<SharedString, Toggle>);
 
 impl Global for Toggles {}
+
+pub(super) fn register_window_globals(cx: &mut App) {
+    cx.set_global(Toggles::default());
+    cx.register_window_global::<Toggles>();
+}
 
 #[derive(Clone, Copy)]
 struct Toggle {
@@ -71,7 +86,7 @@ impl Toggle {
 /// animation continues from the current height.
 pub(in crate::ui) fn toggled(key: impl Into<SharedString>, open: bool, cx: &mut App) {
     let key = key.into();
-    let animate = moves() && !cx.reduce_motion();
+    let animate = moves(cx) && !cx.reduce_motion();
     let now = Instant::now();
     let toggles = cx.default_global::<Toggles>();
     toggles.0.retain(|_, toggle| toggle.tween.running(now));

@@ -138,6 +138,7 @@ pub struct Preferences {
     pub sessions: SessionMarks,
     pub recent: RecentWorkspaces,
     pub shortcuts: Shortcuts,
+    pub visual_configs: crate::visual_config::Registry,
 }
 
 /// The server namespace a saved layout belongs to. Attached connections are
@@ -268,7 +269,7 @@ pub struct FontPreferences {
 }
 
 impl FontPreferences {
-    fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&self) -> Result<()> {
         for (field, family) in [("interface", &self.interface), ("chat", &self.chat)] {
             if let Some(family) = family
                 && (family.is_empty()
@@ -340,7 +341,7 @@ impl ViewPreferences {
         self.scale = SCALES[to as usize];
     }
 
-    fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&self) -> Result<()> {
         if !SCALES.contains(&self.scale) {
             return Err(anyhow!("scale {} is not one of {SCALES:?}", self.scale));
         }
@@ -391,7 +392,7 @@ impl Default for SidebarPreferences {
 }
 
 impl SidebarPreferences {
-    fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&self) -> Result<()> {
         if !SIDEBAR_WIDTH.contains(&self.width) {
             return Err(anyhow!("width {} is outside {SIDEBAR_WIDTH:?}", self.width));
         }
@@ -612,6 +613,7 @@ fn parse(text: &str, path: &Path) -> Result<Preferences> {
         .shortcuts
         .validate()
         .with_context(|| format!("invalid shortcuts in {}", path.display()))?;
+    preferences.visual_configs.validate()?;
     Ok(preferences)
 }
 

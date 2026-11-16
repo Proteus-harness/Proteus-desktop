@@ -2,9 +2,10 @@
 resolver = "2"
 members = ["crates/client-common", "crates/diff", "crates/tabs", "crates/codex-client", "crates/terminal"]
 default-members = [".", "crates/diff", "crates/tabs"]
-exclude = ["vendor/gpui-fast-wgpu", "vendor/gpui-component", "vendor/gpui-base"]
+exclude = ["vendor/gpui-fast", "vendor/gpui-fast-wgpu", "vendor/gpui-component", "vendor/gpui-base"]
 
 [patch.crates-io]
+gpui-fast = { path = "vendor/gpui-fast" }
 ghostty-vt = { path = "vendor/ghostty-vt" }
 ghostty-vt-sys = { path = "vendor/ghostty-vt-sys" }
 gpui-fast-wgpu = { path = "vendor/gpui-fast-wgpu" }
@@ -56,6 +57,7 @@ libc = "0.2"
 image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+toml = "0.8.23"
 sha2 = "0.10"
 sum_tree = { package = "gpui-pre-sum-tree", version = "=0.3.10" }
 roxmltree = "0.21"

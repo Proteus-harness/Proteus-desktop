@@ -117,6 +117,7 @@ impl DeclarativeView {
                         ElementId::Name(key.clone()),
                         opened,
                         cx.theme().muted_foreground,
+                        cx,
                     ))
                     .child(faded(label.clone()))
                     .on_click(cx.listener(move |this, _, _, cx| {

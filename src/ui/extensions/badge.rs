@@ -89,7 +89,7 @@ pub(super) fn pressable_badge(
     let theme = cx.theme();
     let (hover, foreground) = (theme.list_hover, theme.foreground);
     let opens = super::find(id).is_some_and(|manifest| manifest.panel.is_some());
-    let pinned = prefs::current(cx).extensions.is_pinned(id);
+    let pinned = prefs::visual(cx).extensions.is_pinned(id);
     let lifted = drag::is_source(&drag_key(id), cx);
     let (click_host, menu_host) = (host.clone(), host.clone());
     let details = Rc::new(details);
@@ -172,14 +172,14 @@ fn badge_menu(menu: PopupMenu, id: &'static str, host: &Host, cx: &App) -> Popup
             )
             .separator();
     }
-    let extensions = &prefs::current(cx).extensions;
+    let extensions = &prefs::visual(cx).extensions;
     let pinned = extensions.is_pinned(id);
     // Places change by dragging; pinning only prevents movement. It does not
     // override the producer-owned visibility of a contextual widget.
     if !pinned {
         menu = menu.item(
             PopupMenuItem::new("Скрыть виджет").on_click(move |_, _, cx| {
-                prefs::update(cx, |prefs| {
+                prefs::update_visual(cx, |prefs| {
                     prefs.extensions.set_badge_place(id, BadgePlace::Hidden)
                 })
             }),
@@ -189,7 +189,7 @@ fn badge_menu(menu: PopupMenu, id: &'static str, host: &Host, cx: &App) -> Popup
         PopupMenuItem::new("Закрепить виджет на месте")
             .checked(pinned)
             .on_click(move |_, _, cx| {
-                prefs::update(cx, |prefs| prefs.extensions.set_pinned(id, !pinned))
+                prefs::update_visual(cx, |prefs| prefs.extensions.set_pinned(id, !pinned))
             }),
     )
 }

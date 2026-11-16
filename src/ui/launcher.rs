@@ -20,6 +20,7 @@ use crate::ui::kit;
 use crate::ui::kit::Pressable as _;
 
 mod config;
+pub(in crate::ui) mod visual;
 
 pub struct Launcher {
     tooltips: Entity<gpui_kit::base::TooltipOverlay>,
@@ -45,6 +46,7 @@ impl Launcher {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        prefs::initialize_visual_window(window, cx);
         let subscription = cx.subscribe_in(
             &view,
             window,
@@ -109,6 +111,7 @@ impl Launcher {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        prefs::initialize_visual_window(window, cx);
         prefs::update(cx, |prefs| prefs.preferred_agent = agent);
         let focus = cx.focus_handle();
         focus.focus(window, cx);

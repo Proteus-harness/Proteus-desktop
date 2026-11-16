@@ -255,7 +255,7 @@ fn present(
         .p(prefs::scaled(4.))
         .max_w(prefs::scaled(MAX_WIDTH + 8.))
         .child(view);
-    motion::tooltip(element, transition)
+    motion::tooltip(element, transition, cx)
 }
 
 fn update(

@@ -107,98 +107,99 @@ impl Render for Workspace {
         motion::drive(window, cx);
         self.record_navigation(cx);
         let theme = cx.theme();
-        let root =
-            v_flex()
-                .on_children_prepainted(kit::record_first_child(self.header_bounds.clone()))
-                .size_full()
-                .track_focus(&self.focus_handle)
-                .capture_any_mouse_down(|event: &MouseDownEvent, window, cx| {
-                    if event.button == MouseButton::Left {
-                        drag::begin_press(window, cx);
-                    }
-                })
-                .on_mouse_down(
-                    MouseButton::Navigate(NavigationDirection::Back),
-                    cx.listener(|this, _, window, cx| {
-                        window.prevent_default();
-                        cx.stop_propagation();
-                        this.navigate(NavigationDirection::Back, window, cx);
-                    }),
-                )
-                .on_mouse_down(
-                    MouseButton::Navigate(NavigationDirection::Forward),
-                    cx.listener(|this, _, window, cx| {
-                        window.prevent_default();
-                        cx.stop_propagation();
-                        this.navigate(NavigationDirection::Forward, window, cx);
-                    }),
-                )
-                // The window root already paints the background.
-                .text_color(theme.foreground)
-                .on_action(cx.listener(|this, _: &ToggleSettings, window, cx| {
+        let root = v_flex()
+            .on_children_prepainted(kit::record_first_child(self.header_bounds.clone()))
+            .size_full()
+            .track_focus(&self.focus_handle)
+            .capture_any_mouse_down(|event: &MouseDownEvent, window, cx| {
+                if event.button == MouseButton::Left {
+                    drag::begin_press(window, cx);
+                }
+            })
+            .on_mouse_down(
+                MouseButton::Navigate(NavigationDirection::Back),
+                cx.listener(|this, _, window, cx| {
+                    window.prevent_default();
+                    cx.stop_propagation();
+                    this.navigate(NavigationDirection::Back, window, cx);
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Navigate(NavigationDirection::Forward),
+                cx.listener(|this, _, window, cx| {
+                    window.prevent_default();
+                    cx.stop_propagation();
+                    this.navigate(NavigationDirection::Forward, window, cx);
+                }),
+            )
+            // The window root already paints the background.
+            .text_color(theme.foreground)
+            .on_action(
+                cx.listener(|this, _: &ToggleSettings, window, cx| {
                     this.toggle_settings(window, cx)
-                }))
-                .on_action(cx.listener(|this, _: &ToggleFiles, window, cx| {
-                    if this.settings.is_none()
-                        && let Some(name) = panels::first_extension_panel(cx)
-                    {
-                        this.toggle_panel(name, window, cx);
-                    }
-                }))
-                .on_action(cx.listener(|this, _: &ToggleSessions, window, cx| {
-                    if this.settings.is_none() {
-                        this.toggle_panel(SESSIONS_PANEL, window, cx);
-                    }
-                }))
-                .on_action(cx.listener(|this, _: &NewSession, window, cx| {
-                    this.new_session(None, window, cx)
-                }))
-                .on_action(cx.listener(|this, _: &NewTerminal, window, cx| {
+                }),
+            )
+            .on_action(cx.listener(|this, _: &ToggleFiles, window, cx| {
+                if this.settings.is_none()
+                    && let Some(name) = panels::first_extension_panel(cx)
+                {
+                    this.toggle_panel(name, window, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &ToggleSessions, window, cx| {
+                if this.settings.is_none() {
+                    this.toggle_panel(SESSIONS_PANEL, window, cx);
+                }
+            }))
+            .on_action(
+                cx.listener(|this, _: &NewSession, window, cx| this.new_session(None, window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &NewTerminal, window, cx| {
                     this.open_terminal(None, window, cx)
-                }))
-                .on_action(
-                    cx.listener(|this, _: &NextTab, window, cx| this.step_tab(1, window, cx)),
-                )
-                .on_action(
-                    cx.listener(|this, _: &PreviousTab, window, cx| this.step_tab(-1, window, cx)),
-                )
-                .on_action(cx.listener(|this, _: &NavigateBack, window, cx| {
-                    this.navigate(NavigationDirection::Back, window, cx)
-                }))
-                .on_action(cx.listener(|this, _: &NavigateForward, window, cx| {
-                    this.navigate(NavigationDirection::Forward, window, cx)
-                }))
-                .on_action(
-                    cx.listener(|this, _: &CloseTab, window, cx| this.close_active_tab(window, cx)),
-                )
-                .on_action(cx.listener(|this, _: &ReopenClosedTab, window, cx| {
-                    this.reopen_closed_tab(window, cx)
-                }))
-                .on_action(cx.listener(|this, _: &SplitRight, window, cx| {
-                    this.split_active(Edge::Right, window, cx)
-                }))
-                .on_action(cx.listener(|this, _: &SplitDown, window, cx| {
-                    this.split_active(Edge::Bottom, window, cx)
-                }))
-                .on_action(cx.listener(|this, _: &FocusPaneLeft, window, cx| {
-                    this.focus_neighbor(Edge::Left, window, cx)
-                }))
-                .on_action(cx.listener(|this, _: &FocusPaneRight, window, cx| {
-                    this.focus_neighbor(Edge::Right, window, cx)
-                }))
-                .on_action(cx.listener(|this, _: &FocusPaneUp, window, cx| {
-                    this.focus_neighbor(Edge::Top, window, cx)
-                }))
-                .on_action(cx.listener(|this, _: &FocusPaneDown, window, cx| {
-                    this.focus_neighbor(Edge::Bottom, window, cx)
-                }))
-                .on_action(|_: &ZoomIn, _, cx| prefs::update(cx, |prefs| prefs.view.zoom(1)))
-                .on_action(|_: &ZoomOut, _, cx| prefs::update(cx, |prefs| prefs.view.zoom(-1)))
-                .on_action(|_: &ZoomReset, _, cx| prefs::update(cx, |prefs| prefs.view.zoom(0)))
-                .on_drop(cx.listener(|this, _: &tabs::SplitDrag, _, cx| this.finish_resize(cx)))
-                .on_drop(cx.listener(|this, _: &panels::SidebarDrag, _, cx| {
-                    this.finish_sidebar_resize(cx)
-                }));
+                }),
+            )
+            .on_action(cx.listener(|this, _: &NextTab, window, cx| this.step_tab(1, window, cx)))
+            .on_action(
+                cx.listener(|this, _: &PreviousTab, window, cx| this.step_tab(-1, window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &NavigateBack, window, cx| {
+                this.navigate(NavigationDirection::Back, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &NavigateForward, window, cx| {
+                this.navigate(NavigationDirection::Forward, window, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &CloseTab, window, cx| this.close_active_tab(window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &ReopenClosedTab, window, cx| {
+                this.reopen_closed_tab(window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &SplitRight, window, cx| {
+                this.split_active(Edge::Right, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &SplitDown, window, cx| {
+                this.split_active(Edge::Bottom, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &FocusPaneLeft, window, cx| {
+                this.focus_neighbor(Edge::Left, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &FocusPaneRight, window, cx| {
+                this.focus_neighbor(Edge::Right, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &FocusPaneUp, window, cx| {
+                this.focus_neighbor(Edge::Top, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &FocusPaneDown, window, cx| {
+                this.focus_neighbor(Edge::Bottom, window, cx)
+            }))
+            .on_action(|_: &ZoomIn, _, cx| prefs::update_visual(cx, |prefs| prefs.view.zoom(1)))
+            .on_action(|_: &ZoomOut, _, cx| prefs::update_visual(cx, |prefs| prefs.view.zoom(-1)))
+            .on_action(|_: &ZoomReset, _, cx| prefs::update_visual(cx, |prefs| prefs.view.zoom(0)))
+            .on_drop(cx.listener(|this, _: &tabs::SplitDrag, _, cx| this.finish_resize(cx)))
+            .on_drop(
+                cx.listener(|this, _: &panels::SidebarDrag, _, cx| this.finish_sidebar_resize(cx)),
+            );
         let root = root
             .child(self.render_top_bar(window, cx))
             .child(drag::release_boundary());

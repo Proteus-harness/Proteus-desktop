@@ -6,6 +6,7 @@ use content_queue::ContentQueue;
 mod documents;
 mod invalidation;
 mod scopes;
+mod visual_preferences;
 pub(super) use crate::ui::extensions::host::Lifetime;
 use scopes::Scope;
 
@@ -35,7 +36,6 @@ pub(super) struct Runtime {
     lifetime: Lifetime,
     scopes: HashMap<String, Scope>,
     process: Option<Process>,
-    theme_context: Option<serde_json::Value>,
     views: HashMap<String, Attached>,
     /// Why the process is not running, or its last protocol mistake.
     pub(super) error: Option<String>,
@@ -77,30 +77,13 @@ impl Runtime {
             lifetime,
             scopes: HashMap::new(),
             process: None,
-            theme_context: None,
             views: HashMap::new(),
             error: None,
             popup_closed: 0,
             _pump: None,
-            _preferences: cx.observe_global::<crate::ui::prefs::ClientPreferences>(|this, cx| {
-                if this
-                    .lifetime
-                    .allowed(super::super::is_enabled(this.extension_id(), cx))
-                {
-                    if this.process.is_none() && this.error.is_none() {
-                        this.start(cx);
-                    } else if this.process.is_some() {
-                        let theme = this.content_context(cx);
-                        if this.theme_context.as_ref() != Some(&theme) {
-                            this.theme_context = Some(theme);
-                            this.invalidate_content(cx);
-                            this.invalidate_preview(cx);
-                        }
-                    }
-                } else {
-                    this.stop(Reset::Stop, cx);
-                }
-            }),
+            _preferences: cx.observe_global::<crate::ui::prefs::WindowVisualPreferences>(
+                |this, cx| this.visual_preferences_changed(cx),
+            ),
         }
     }
 
@@ -172,10 +155,7 @@ impl Runtime {
     }
 
     fn start(&mut self, cx: &mut Context<Self>) {
-        if !self
-            .lifetime
-            .allowed(super::super::is_enabled(self.extension_id(), cx))
-        {
+        if !self.allowed_in_any_window(cx) {
             return;
         }
         // Read the host outside this update: it lives in the workspace.
@@ -246,9 +226,7 @@ impl Runtime {
         cx: &mut Context<Self>,
     ) {
         if self.process.is_some()
-            || !self
-                .lifetime
-                .allowed(super::super::is_enabled(self.extension_id(), cx))
+            || !self.allowed_in_any_window(cx)
             || !self.lifetime.session() && self.views.is_empty()
         {
             return;
@@ -300,11 +278,11 @@ impl Runtime {
     }
 
     fn render(&mut self, view: &str, cx: &App) {
-        let theme = self.content_context(cx);
-        self.theme_context = Some(theme.clone());
-        let Some(attached) = self.views.get_mut(view) else {
+        let Some(window) = self.views.get(view).map(|attached| attached.window) else {
             return;
         };
+        let theme = self.content_context_for(window, cx);
+        let attached = self.views.get_mut(view).expect("attached view");
         let latest = attached.content.as_deref();
         let materialize = || {
             latest.cloned().map(|mut content| {
@@ -463,6 +441,13 @@ impl Runtime {
             Signal::Message(Incoming::Clipboard { text }) => {
                 cx.write_to_clipboard(ClipboardItem::new_string(text))
             }
+            Signal::Message(Incoming::SetVisualPreferences {
+                context,
+                view,
+                id,
+                expected_revision,
+                values,
+            }) => self.set_visual_preferences(context, view, id, expected_revision, values, cx),
             Signal::Message(Incoming::SetSession {
                 context,
                 view,

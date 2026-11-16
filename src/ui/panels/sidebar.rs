@@ -25,7 +25,7 @@ impl Workspace {
     /// share both its transient drag and its persisted logical width.
     pub(in crate::ui) fn sidebar_width(&self, cx: &App) -> Rems {
         let dragged = cx.has_active_drag().then_some(self.sidebar_drag).flatten();
-        prefs::scaled(dragged.unwrap_or(prefs::current(cx).sidebar.width))
+        prefs::scaled(dragged.unwrap_or(prefs::visual(cx).sidebar.width))
     }
 
     pub(in crate::ui) fn move_sidebar_resize(&mut self, offset: Pixels, cx: &mut Context<Self>) {
@@ -36,7 +36,7 @@ impl Workspace {
 
     pub(in crate::ui) fn reset_sidebar_resize(&mut self, cx: &mut Context<Self>) {
         self.sidebar_drag = None;
-        prefs::update(cx, |prefs| {
+        prefs::update_visual(cx, |prefs| {
             prefs.sidebar.width = SidebarPreferences::default().width
         });
     }
@@ -120,7 +120,7 @@ impl Workspace {
     /// Stores the width the side panel's edge was released at.
     pub(in crate::ui) fn finish_sidebar_resize(&mut self, cx: &mut Context<Self>) {
         if let Some(width) = self.sidebar_drag.take() {
-            prefs::update(cx, |prefs| prefs.sidebar.width = width);
+            prefs::update_visual(cx, |prefs| prefs.sidebar.width = width);
         }
     }
 }

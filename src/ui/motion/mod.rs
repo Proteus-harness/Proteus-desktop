@@ -47,7 +47,6 @@ pub(super) use transition::PageTransition;
 pub(super) use wave_dots::wave_dots;
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::{Duration, Instant};
 
 use gpui_kit::component::animation::{ease_in_cubic, ease_out_cubic};
@@ -78,29 +77,21 @@ pub(super) fn ease_exit(t: f32) -> f32 {
     ease_in_cubic(t)
 }
 
-static LEVEL: AtomicU8 = AtomicU8::new(0);
-
-pub(super) fn set_level(level: MotionPreference) {
-    let value = match level {
-        MotionPreference::Full => 0,
-        MotionPreference::Reduced => 1,
-        MotionPreference::Off => 2,
-    };
-    LEVEL.store(value, Ordering::Relaxed);
+pub(in crate::ui) fn register_window_globals(cx: &mut App) {
+    disclosure::register_window_globals(cx);
 }
 
-/// Whether elements may move (slide, rotate, resize) while animating.
-pub(super) fn moves() -> bool {
-    LEVEL.load(Ordering::Relaxed) == 0
+/// Motion policy comes from the current execution window, never global focus.
+pub(super) fn moves(cx: &App) -> bool {
+    crate::ui::prefs::visual(cx).motion == MotionPreference::Full
 }
 
-/// Whether anything animates at all.
-pub(super) fn plays() -> bool {
-    LEVEL.load(Ordering::Relaxed) < 2
+pub(super) fn plays(cx: &App) -> bool {
+    crate::ui::prefs::visual(cx).motion != MotionPreference::Off
 }
 
-fn shift(distance: f32) -> Pixels {
-    px(if moves() { distance } else { 0. })
+fn shift(distance: f32, cx: &App) -> Pixels {
+    px(if moves(cx) { distance } else { 0. })
 }
 
 /// A transition started at a moment; samples its progress over time.
