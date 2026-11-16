@@ -274,7 +274,12 @@ fn file_name(path: Option<&Path>, missing: &str) -> String {
 
 /// The filename stays visible even when the directory is long; the tooltip
 /// retains the complete path. No filesystem work happens while rendering.
-fn file_details(id: &'static str, path: Option<&PathBuf>, missing: &str, cx: &App) -> impl IntoElement + use<> {
+fn file_details(
+    id: &'static str,
+    path: Option<&PathBuf>,
+    missing: &str,
+    cx: &App,
+) -> impl IntoElement + use<> {
     let name = file_name(path.map(PathBuf::as_path), missing);
     let directory = path
         .and_then(|path| path.parent())
