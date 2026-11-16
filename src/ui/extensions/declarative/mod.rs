@@ -287,15 +287,7 @@ pub(super) fn surface(
 ) -> SurfaceView {
     let runtime = runtime(&host, window, cx).expect("catalog lists installed extensions only");
     let view = cx.new(|cx| DeclarativeView::new(runtime, host, kind, argument, window, cx));
-    let focus = view.read(cx).focus();
-    let moved = view.downgrade();
-    SurfaceView {
-        view: view.into(),
-        focus,
-        rehost: std::rc::Rc::new(move |workspace, window, cx| {
-            let _ = moved.update(cx, |view, cx| view.rehost(workspace, window, cx));
-        }),
-    }
+    surface_view(view, cx)
 }
 
 /// Production surface composed into a host scroller (for example Activity).
@@ -313,6 +305,12 @@ pub(super) fn embedded_surface(
         view.embedded = true;
         view
     });
+    surface_view(view, cx)
+}
+
+/// Shared native focus and rehost adapter. Host isolation and runtime choice
+/// stay with the caller that constructs the declarative view.
+fn surface_view(view: Entity<DeclarativeView>, cx: &App) -> SurfaceView {
     let focus = view.read(cx).focus();
     let moved = view.downgrade();
     SurfaceView {
@@ -363,15 +361,7 @@ fn settings_surface(
         view.embedded = embedded;
         view
     });
-    let focus = view.read(cx).focus();
-    let moved = view.downgrade();
-    SurfaceView {
-        view: view.into(),
-        focus,
-        rehost: std::rc::Rc::new(move |workspace, window, cx| {
-            let _ = moved.update(cx, |view, cx| view.rehost(workspace, window, cx));
-        }),
-    }
+    surface_view(view, cx)
 }
 
 /// Reload packages in live surfaces after an explicit install/update/rescan.

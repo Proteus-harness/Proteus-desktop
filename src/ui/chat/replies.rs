@@ -31,7 +31,7 @@ struct Reply {
 }
 
 impl Replies {
-    pub(super) fn parts(
+    pub(super) fn part(
         &mut self,
         key: u64,
         text: &Arc<str>,
@@ -40,7 +40,7 @@ impl Replies {
         readonly: bool,
         window: &mut Window,
         cx: &mut Context<Chat>,
-    ) -> Vec<Part> {
+    ) -> Part {
         let renderer = content::format("text/markdown", cx);
         let languages = content::languages(cx);
         if let Some(reply) = self.0.get_mut(&key)
@@ -56,7 +56,7 @@ impl Replies {
                 reply.text = text.clone();
                 reply.languages = languages;
             }
-            return vec![reply.part.clone()];
+            return reply.part.clone();
         }
         let (part, changes, resize) = if let Some(extension) = renderer {
             let payload = Content {
@@ -91,7 +91,7 @@ impl Replies {
                 _resize: resize,
             },
         );
-        vec![part]
+        part
     }
 
     pub(super) fn rehost(

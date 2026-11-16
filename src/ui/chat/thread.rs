@@ -195,7 +195,7 @@ impl Chat {
                 cx,
             ),
             (Role::Assistant, _, _) => {
-                let reply = self.replies.parts(
+                let reply = self.replies.part(
                     entry.key,
                     &entry.text,
                     self.workspace.clone(),
@@ -493,21 +493,19 @@ fn render_user(entry: &Entry, images: &SentImages, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-fn render_assistant(entry: &Entry, reply: Vec<super::replies::Part>, cx: &App) -> AnyElement {
+fn render_assistant(entry: &Entry, reply: super::replies::Part, cx: &App) -> AnyElement {
     v_flex()
         .w_full()
         .font_family(prefs::chat_font(cx))
         .text_size(prefs::chat_text(cx))
-        .children(reply.into_iter().map(|part| {
-            match part {
-                super::replies::Part::Content(view) => view.into_any_element(),
-                super::replies::Part::Plain(text) => gpui_kit::base::SelectableText::new(
-                    row_id("plain-reply", entry.key),
-                    SharedString::from(text),
-                )
-                .into_any_element(),
-            }
-        }))
+        .child(match reply {
+            super::replies::Part::Content(view) => view.into_any_element(),
+            super::replies::Part::Plain(text) => gpui_kit::base::SelectableText::new(
+                row_id("plain-reply", entry.key),
+                SharedString::from(text),
+            )
+            .into_any_element(),
+        })
         .into_any_element()
 }
 
