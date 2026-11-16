@@ -15,7 +15,7 @@ use super::panels::{Renaming, SessionList};
 use super::settings::SettingsView;
 use super::tabs::{SplitResize, TabDrop, TabMotion};
 use crate::api::Api;
-use crate::launch::{LaunchOptions, Target};
+use crate::launch::{LaunchOptions, StartupIntent, Target};
 use crate::tabs::{ChatSpaces, PaneId, TabLayout};
 
 mod documents;
@@ -156,7 +156,11 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> Self {
         let workspace_path = options.workspace.clone();
-        let spaces = super::prefs::current(cx).spaces_for(&workspace_path, &options.target);
+        let spaces = if options.startup == StartupIntent::Fresh {
+            ChatSpaces::default()
+        } else {
+            super::prefs::current(cx).spaces_for(&workspace_path, &options.target)
+        };
         let saved = spaces.clone();
         let windows = WindowGroup::new(&workspace_path, &options.target);
         let mut workspace = Self::empty(

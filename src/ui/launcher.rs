@@ -14,10 +14,12 @@ use gpui_kit::*;
 use super::chrome::{self, Projects, WorkspaceRequest};
 use super::prefs;
 use super::workspace::{Status, Workspace};
-use crate::launch::{LaunchOptions, Target};
+use crate::launch::{LaunchOptions, StartupIntent, Target};
 use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::kit::Pressable as _;
+
+mod config;
 
 pub struct Launcher {
     tooltips: Entity<gpui_kit::base::TooltipOverlay>,
@@ -25,6 +27,7 @@ pub struct Launcher {
     target: Target,
     focus: FocusHandle,
     preparation: Option<super::Preparation>,
+    startup: StartupIntent,
     _workspace_requests: Option<Subscription>,
     _appearance: Subscription,
 }
@@ -48,6 +51,7 @@ impl Launcher {
             |this, _, request: &WorkspaceRequest, window, cx| match request {
                 WorkspaceRequest::Open(path) => this.open(path.clone(), window, cx),
                 WorkspaceRequest::ChooseFolder => this.choose_folder(window, cx),
+                WorkspaceRequest::OpenConfig => this.choose_config(window, cx),
             },
         );
         Self {
@@ -57,6 +61,7 @@ impl Launcher {
             target,
             focus: cx.focus_handle(),
             preparation: None,
+            startup: StartupIntent::Restore,
             _workspace_requests: Some(subscription),
         }
     }
@@ -84,6 +89,26 @@ impl Launcher {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        Self::with_startup(
+            workspace,
+            target,
+            agent,
+            preparation,
+            StartupIntent::Restore,
+            window,
+            cx,
+        )
+    }
+
+    fn with_startup(
+        workspace: Option<PathBuf>,
+        target: Target,
+        agent: crate::conversations::AgentKind,
+        preparation: Option<super::Preparation>,
+        startup: StartupIntent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         prefs::update(cx, |prefs| prefs.preferred_agent = agent);
         let focus = cx.focus_handle();
         focus.focus(window, cx);
@@ -93,6 +118,7 @@ impl Launcher {
             stage: Stage::Picking { error: None },
             target,
             preparation,
+            startup,
             focus,
             _workspace_requests: None,
         };
@@ -165,10 +191,18 @@ impl Launcher {
 
     fn replace(&mut self, workspace: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         prefs::update(cx, |prefs| prefs.recent.touch(&workspace));
+        let startup = std::mem::take(&mut self.startup);
         let options = LaunchOptions {
             workspace,
             target: self.target.clone(),
-            agent: prefs::current(cx).preferred_agent,
+            // Another window may change the shared preferred driver while
+            // this config's folder picker is open. Its explicit intent wins.
+            agent: if startup == StartupIntent::Fresh {
+                crate::conversations::AgentKind::Proteus
+            } else {
+                prefs::current(cx).preferred_agent
+            },
+            startup,
         };
         let preparation = self.preparation.take();
         let view = cx.new(|cx| Workspace::new(options, preparation, window, cx));
@@ -178,6 +212,7 @@ impl Launcher {
             |this, _, request: &WorkspaceRequest, window, cx| match request {
                 WorkspaceRequest::Open(path) => this.open(path.clone(), window, cx),
                 WorkspaceRequest::ChooseFolder => this.choose_folder(window, cx),
+                WorkspaceRequest::OpenConfig => this.choose_config(window, cx),
             },
         ));
         self.stage = Stage::Ready(view);
@@ -333,6 +368,7 @@ impl Render for Launcher {
             Stage::Picking { error } => {
                 let launcher = cx.weak_entity();
                 let chooser = launcher.clone();
+                let config_picker = launcher.clone();
                 let projects = Projects::new(
                     None,
                     move |path, window, cx| {
@@ -351,7 +387,16 @@ impl Render for Launcher {
                     .size_full()
                     .track_focus(&self.focus)
                     .child(super::wheel::layer())
-                    .child(chrome::picker_top_bar(projects, window, cx))
+                    .child(chrome::picker_top_bar(
+                        projects,
+                        move |window, cx| {
+                            config_picker
+                                .update(cx, |this, cx| this.choose_config(window, cx))
+                                .ok();
+                        },
+                        window,
+                        cx,
+                    ))
                     .child(
                         div()
                             .flex_1()

@@ -64,6 +64,7 @@ impl Workspace {
             workspace: self.workspace_path.clone(),
             target: self.target.clone(),
             agent: AgentKind::Proteus,
+            startup: crate::launch::StartupIntent::Restore,
         }
     }
 

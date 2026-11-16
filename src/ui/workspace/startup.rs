@@ -10,7 +10,7 @@ use crate::agents::codex::{CodexService, Model, Opened};
 use crate::api::Api;
 use crate::connection::{self, BackendGuard};
 use crate::conversations::{AgentKind, ConversationSummary, from_proteus};
-use crate::launch::LaunchOptions;
+use crate::launch::{LaunchOptions, StartupIntent};
 use crate::tabs::{self, ChatKey, ChatSpaces, TabLayout};
 
 #[cfg(test)]
@@ -31,6 +31,7 @@ impl Preparation {
             workspace: workspace.clone(),
             target: launch.target.clone(),
             agent: launch.agent,
+            startup: StartupIntent::Restore,
         };
         let (send, result) = async_channel::bounded(1);
         std::thread::Builder::new()
@@ -143,6 +144,11 @@ fn boot_with_owner(
     spawn_codex: impl FnOnce(PathBuf, PathBuf) -> Result<CodexService>,
 ) -> Result<Boot> {
     let _trace = crate::startup_trace::span("workspace.boot");
+    // A config picked by the user must never acquire an old chat merely
+    // because its history is the newest one in the shared session store.
+    let fresh = options.startup == StartupIntent::Fresh;
+    let saved = if fresh { TabLayout::default() } else { saved };
+    let owner = if fresh { None } else { owner };
     let required = required_chats_with_owner(&saved, owner);
     let codex_ids: Vec<_> = required
         .iter()
@@ -154,7 +160,11 @@ fn boot_with_owner(
     let mut boot = if needs_core(options.agent, &required) {
         let (api, backend) = connect(options)?;
         crate::startup_trace::mark("backend.ready");
-        restore_core(api, backend, saved, codex_ids.is_empty(), &required)?
+        if fresh {
+            fresh_core(api, backend, &options.workspace)?
+        } else {
+            restore_core(api, backend, saved, codex_ids.is_empty(), &required)?
+        }
     } else {
         Boot {
             api: None,
@@ -220,6 +230,26 @@ fn restore_codex(boot: &mut Boot, service: CodexService, ids: &[&str], cwd: &Pat
     boot.codex_models = service.models().context("Reading Codex model catalog")?;
     boot.codex = Some(service);
     Ok(())
+}
+
+fn fresh_core(api: Api, backend: Option<BackendGuard>, workspace: &Path) -> Result<Boot> {
+    let opened = api.new_session(None, Some(workspace))?;
+    let mut projects = HashMap::new();
+    projects.insert(opened.session_dir.clone(), opened.workspace_path);
+    Ok(Boot {
+        api: Some(api),
+        backend,
+        sessions: Vec::new(),
+        projects,
+        restored: Vec::new(),
+        resumed: Vec::new(),
+        startup: Some(opened.session_dir),
+        streams: HashMap::new(),
+        codex: None,
+        codex_opened: Vec::new(),
+        codex_models: Vec::new(),
+        codex_failed: Vec::new(),
+    })
 }
 
 #[cfg(test)]

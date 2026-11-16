@@ -103,6 +103,46 @@ fn initial_launch_uses_suggested_session_without_reading_the_catalog() {
 }
 
 #[test]
+fn opening_another_config_creates_fresh_history_without_restoring_saved_tabs_or_catalog() {
+    let server = Server::start(&["/sessions/old-runtime"]);
+    let mut saved = ChatSpaces::default();
+    saved.select("chat:/sessions/old-runtime");
+    let mut layout = saved.active_layout().clone();
+    layout.open("codex:old-other-agent", |_| false);
+    saved.save_active(layout);
+    let options = LaunchOptions {
+        workspace: PathBuf::from("/chosen-project"),
+        target: crate::launch::Target::Spawn {
+            profile: Some("/configs/other.toml".into()),
+        },
+        agent: AgentKind::Proteus,
+        startup: StartupIntent::Fresh,
+    };
+    let boot = boot_spaces_with(
+        &options,
+        saved,
+        |_| Ok((server.api(), None)),
+        |_, _| panic!("fresh config must not restore the other agent"),
+    )
+    .unwrap();
+    assert_eq!(boot.startup, Some(PathBuf::from("/sessions/fresh-config")));
+    assert!(boot.restored.is_empty());
+    assert!(boot.resumed.is_empty());
+    assert!(boot.sessions.is_empty());
+    assert_eq!(
+        boot.projects.get(Path::new("/sessions/fresh-config")),
+        Some(&PathBuf::from("/chosen-project"))
+    );
+    assert_eq!(
+        server.calls(),
+        [(
+            "/new-session".into(),
+            json!({"source_session_dir":null,"workspace":"/chosen-project"})
+        )]
+    );
+}
+
+#[test]
 fn restored_document_knows_command_targets_workspace_before_catalog_discovery() {
     let server = Server::start_in(&[("/sessions/a", "/project-a"), ("/sessions/b", "/project-b")]);
     let mut saved = TabLayout::default();
@@ -321,6 +361,7 @@ fn codex_options() -> LaunchOptions {
         workspace: PathBuf::from(env!("CARGO_MANIFEST_DIR")),
         target: crate::launch::Target::Spawn { profile: None },
         agent: AgentKind::Codex,
+        startup: StartupIntent::Restore,
     }
 }
 
@@ -486,7 +527,16 @@ fn respond(stream: TcpStream, catalog: &[AppSessionSummary], calls: &Mutex<Vec<(
         serde_json::from_slice(&body).unwrap()
     };
     let dir = body.get("session_dir").cloned().unwrap_or(Value::Null);
-    calls.lock().unwrap().push((path.clone(), dir.clone()));
+    let recorded = if path == "/new-session" {
+        json!({"source_session_dir":body["source_session_dir"],"workspace":body["workspace"]})
+    } else {
+        dir.clone()
+    };
+    // The event pump starts after fresh history is admitted; it is unrelated
+    // to restore/catalog decisions asserted by these startup tests.
+    if !path.starts_with("/events") {
+        calls.lock().unwrap().push((path.clone(), recorded));
+    }
     let response = match path.as_str() {
         "/bootstrap" => {
             json!({"session_dir":catalog.first().map(|session| &session.session_dir),"cwd":"/workspace"})
@@ -499,6 +549,14 @@ fn respond(stream: TcpStream, catalog: &[AppSessionSummary], calls: &Mutex<Vec<(
                 "pending_approvals": 0, "pending_user_inputs": 0
             }}
         }),
+        "/new-session" => json!({
+            "type":"response", "id":body["id"], "ok":true, "error":null,
+            "output":{"session_dir":"/sessions/fresh-config", "workspace_path":body["workspace"], "activity":{
+                "status":"idle", "running_runs":0, "running_run_ids":[],
+                "pending_approvals":0, "pending_user_inputs":0
+            }}
+        }),
+        path if path.starts_with("/events") => json!({}),
         other => panic!("unexpected startup endpoint: {other}"),
     };
     let bytes = serde_json::to_vec(&response).unwrap();

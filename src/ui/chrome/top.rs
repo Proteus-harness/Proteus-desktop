@@ -7,9 +7,11 @@ use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use std::rc::Rc;
 
 use super::logo::logo;
 use super::projects::Projects;
+use super::projects::WorkspaceRequest;
 use super::title::title_bar;
 use crate::preferences::BadgePlace;
 use crate::ui::chat::ChatState;
@@ -39,7 +41,15 @@ impl Workspace {
             .items_center()
             .child(logo_button(
                 busy,
-                logo_menu(None, ready.then_some(workspace)),
+                logo_menu(
+                    None,
+                    ready.then_some(workspace.clone()),
+                    Rc::new(move |_, cx| {
+                        workspace
+                            .update(cx, |_, cx| cx.emit(WorkspaceRequest::OpenConfig))
+                            .ok();
+                    }),
+                ),
                 cx,
             ))
             .when(ready, |left| left.child(self.render_navigation_context(cx)))
@@ -54,13 +64,21 @@ impl Workspace {
 }
 
 /// The bar of the folder picker: only the logo menu.
-pub(in crate::ui) fn picker_top_bar(
+pub(in crate::ui) fn picker_top_bar<F>(
     projects: Projects,
+    open_config: F,
     window: &mut Window,
     cx: &mut App,
-) -> impl IntoElement + use<> {
+) -> impl IntoElement + use<F>
+where
+    F: Fn(&mut Window, &mut App) + 'static,
+{
     title_bar(
-        logo_button(false, logo_menu(Some(projects), None), cx),
+        logo_button(
+            false,
+            logo_menu(Some(projects), None, Rc::new(open_config)),
+            cx,
+        ),
         div(),
         window,
         cx,
@@ -94,11 +112,18 @@ where
 fn logo_menu(
     projects: Option<Projects>,
     settings: Option<WeakEntity<Workspace>>,
+    open_config: Rc<dyn Fn(&mut Window, &mut App)>,
 ) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
     move |mut menu, _, cx| {
         if let Some(projects) = &projects {
             menu = projects.items(menu, cx).separator();
         }
+        let open_config = open_config.clone();
+        menu = menu.item(
+            PopupMenuItem::new("Открыть с конфигом…")
+                .icon(Icon::new(Lucide::File))
+                .on_click(move |_, window, cx| open_config(window, cx)),
+        );
         if let Some(workspace) = settings.clone() {
             menu = menu
                 .item(

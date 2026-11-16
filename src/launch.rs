@@ -20,6 +20,16 @@ pub struct LaunchOptions {
     pub workspace: PathBuf,
     pub target: Target,
     pub agent: AgentKind,
+    pub startup: StartupIntent,
+}
+
+/// Opening another configuration is a new conversation, not a request to
+/// resume the latest history with a different agent runtime.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub enum StartupIntent {
+    #[default]
+    Restore,
+    Fresh,
 }
 
 /// Command line: an unset workspace is resolved from recent folders unless
@@ -82,6 +92,7 @@ impl Launch {
             })
             .transpose()?;
 
+        let config_selected = profile.is_some();
         let target = match (origin, token) {
             (Some(origin), Some(token)) => {
                 if profile.is_some() {
@@ -98,7 +109,11 @@ impl Launch {
         if matches!(target, Target::Attach { .. }) && agent == Some(AgentKind::Codex) {
             bail!("--agent codex cannot be combined with --origin");
         }
-        let explicit_agent = agent.is_some() || matches!(target, Target::Attach { .. });
+        if config_selected && agent == Some(AgentKind::Codex) {
+            bail!("--config is available for --agent proteus");
+        }
+        let explicit_agent =
+            agent.is_some() || config_selected || matches!(target, Target::Attach { .. });
         Ok(Self {
             workspace,
             target,
@@ -300,6 +315,25 @@ mod tests {
                 .map(str::to_owned)
             )
             .is_err()
+        );
+    }
+
+    #[test]
+    fn config_selects_proteus_even_when_the_last_driver_was_native_codex() {
+        let mut prefs = Preferences::default();
+        prefs.preferred_agent = AgentKind::Codex;
+        let mut launch = parse(&["--config", "pi"]);
+        launch.restore_workspace(&prefs);
+        assert_eq!(launch.agent, AgentKind::Proteus);
+        assert!(
+            matches!(launch.target, Target::Spawn { profile: Some(ref profile) } if profile == "pi")
+        );
+        let error = Launch::parse(["--agent", "codex", "--config", "pi"].map(str::to_owned))
+            .err()
+            .expect("native Codex cannot consume Proteus configuration");
+        assert_eq!(
+            error.to_string(),
+            "--config is available for --agent proteus"
         );
     }
 }
