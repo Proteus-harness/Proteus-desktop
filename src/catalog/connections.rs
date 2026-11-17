@@ -186,8 +186,11 @@ pub struct Discovery {
 /// Bundled and already installed packages share one metadata format. No
 /// provider calls, key reads or package downloads are part of discovery.
 pub fn discover(installed: &[Installed]) -> Discovery {
+    discover_with_inventory(installed, Inventory::local())
+}
+
+fn discover_with_inventory(installed: &[Installed], inventory: Inventory) -> Discovery {
     let mut paths = BTreeMap::new();
-    let inventory = Inventory::local();
     for (id, package) in inventory.module_packages() {
         if let Some(root) = package
             .path
@@ -235,7 +238,11 @@ pub fn discover(installed: &[Installed]) -> Discovery {
 }
 
 fn read_choices(manifest_path: &Path, root: &Path) -> Result<Vec<Choice>> {
-    let metadata = std::fs::metadata(manifest_path)?;
+    let metadata = match std::fs::metadata(manifest_path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.into()),
+    };
     ensure!(
         metadata.len() <= 128 * 1024,
         "module.json превышает 128 КиБ"

@@ -356,6 +356,7 @@ fn origin_title(origin: ToolOrigin<'_>) -> String {
             server,
         } => format!("MCP · {server}"),
         ToolOrigin::Package(package) => format!("Пакет · {package}"),
+        ToolOrigin::Source("builtin:builtin") => "Встроенные инструменты".to_string(),
         ToolOrigin::Source("") => "Источник не указан".to_string(),
         ToolOrigin::Source(source) => format!("Источник · {source}"),
     }

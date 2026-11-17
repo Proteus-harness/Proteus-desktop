@@ -24,6 +24,7 @@ use super::{
 use crate::settings::modes::{self, ModeList};
 use crate::ui::fade::faded;
 use crate::ui::kit::{self, ButtonLabel as _, Hint as _};
+use crate::ui::prefs;
 
 pub(super) fn mode_key(id: &str) -> String {
     format!("behavior-mode:{id}")
@@ -61,7 +62,15 @@ impl SettingsView {
                 h_flex()
                     .gap_2()
                     .min_w_0()
-                    .child(kit::input(input).small())
+                    .max_w_full()
+                    .flex_wrap()
+                    .child(
+                        div()
+                            .w(prefs::scaled(220.))
+                            .min_w_0()
+                            .max_w_full()
+                            .child(kit::input(input).small().w_full()),
+                    )
                     .child(
                         kit::button("behavior-add")
                             .faded_label("Добавить")
@@ -226,7 +235,15 @@ impl SettingsView {
                 h_flex()
                     .gap_2()
                     .min_w_0()
-                    .child(kit::input(&fields.id).small())
+                    .max_w_full()
+                    .flex_wrap()
+                    .child(
+                        div()
+                            .w(prefs::scaled(220.))
+                            .min_w_0()
+                            .max_w_full()
+                            .child(kit::input(&fields.id).small().w_full()),
+                    )
                     .child(
                         kit::button(hashed_id("behavior-rename", &id))
                             .faded_label("Переименовать")
@@ -240,12 +257,10 @@ impl SettingsView {
                 cx,
             )
             .into_any_element(),
-            row(
+            field_row(
                 "Название",
-                None,
-                kit::input(&fields.title).small(),
-                false,
-                cx,
+                kit::input(&fields.title).small().w_full(),
+                Fit::Shrink,
             )
             .into_any_element(),
             field_row(

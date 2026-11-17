@@ -93,3 +93,70 @@ fn module_metadata_and_executable_are_validated_before_offering_creation() {
     assert!(read_choices(&path, &root).is_err());
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn discovery_skips_sdk_directories_and_nonproviders_but_reports_broken_provider_packages() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("build/verification")
+        .join(format!("connection-discovery-{}", uuid::Uuid::new_v4()));
+    let modules = root.join("share/modules");
+    for id in ["claude-command-hooks", "hook-process", "nonprovider"] {
+        std::fs::create_dir_all(modules.join(id)).unwrap();
+    }
+    std::fs::write(
+        modules.join("nonprovider/module.json"),
+        json!({
+            "id": "nonprovider", "version": "1", "command": ["bin/not-installed"],
+            "exports": {"hook": ["synthetic"]}, "sha256": "not-validated-for-nonproviders"
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let discover = || {
+        discover_with_inventory(
+            &[],
+            Inventory::read(
+                Some(&root.join("bin/proteus")),
+                &root.join("extensions"),
+                None,
+            ),
+        )
+    };
+    let discovery = discover();
+    assert!(discovery.choices.is_empty());
+    assert!(discovery.problems.is_empty(), "{:?}", discovery.problems);
+    std::fs::write(root.join("not-directory"), b"synthetic file").unwrap();
+    assert!(read_choices(&root.join("not-directory/module.json"), &root).is_err());
+
+    for id in ["malformed-provider", "missing-executable"] {
+        std::fs::create_dir_all(modules.join(id)).unwrap();
+    }
+    std::fs::write(modules.join("malformed-provider/module.json"), b"{").unwrap();
+    std::fs::write(
+        modules.join("missing-executable/module.json"),
+        json!({
+            "id": "missing-executable", "version": "1", "command": ["bin/not-installed"],
+            "exports": {"model": ["*"]}, "sha256": "unavailable",
+            "model_connections": [{
+                "id": "synthetic", "title": "Synthetic", "description": "test",
+                "module_id": "work", "module_config": {}, "env_allowlist": []
+            }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let discovery = discover();
+    assert!(discovery.choices.is_empty());
+    assert_eq!(discovery.problems.len(), 2, "{:?}", discovery.problems);
+    for id in ["malformed-provider", "missing-executable"] {
+        assert!(
+            discovery
+                .problems
+                .iter()
+                .any(|problem| problem.starts_with(&format!("{id}:"))),
+            "{id}: {:?}",
+            discovery.problems
+        );
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
