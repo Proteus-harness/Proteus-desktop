@@ -28,6 +28,7 @@ mod modules;
 mod nav;
 mod packages;
 mod params;
+mod provider_auth;
 mod provider_creation;
 mod providers;
 mod reveal;
@@ -101,6 +102,7 @@ pub struct SettingsView {
     draft: Draft,
     editors: Editors,
     provider_creation: Option<provider_creation::Creation>,
+    provider_auth: provider_auth::State,
     /// Modules whose parameters are edited as raw JSON.
     json: HashSet<(String, String)>,
     /// Open disclosures by key.
@@ -215,6 +217,7 @@ impl SettingsView {
             draft: Draft::default(),
             editors: Editors::default(),
             provider_creation: None,
+            provider_auth: provider_auth::State::default(),
             json: HashSet::new(),
             open: HashSet::new(),
             saving: false,

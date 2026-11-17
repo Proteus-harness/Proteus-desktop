@@ -253,6 +253,7 @@ impl SettingsView {
     }
 
     pub(super) fn prepare_editors(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.prepare_provider_auth(cx);
         if self.page == PageId::Modes {
             self.prepare_mode_editors(window, cx);
         }
@@ -489,13 +490,18 @@ impl SettingsView {
             .is_some_and(|field| field.error.is_some())
     }
 
-    /// Removes the value at `path`, nested values included; their editors
-    /// are rebuilt from the draft.
+    /// Restores the saved value and rebuilds the editors for this field.
     pub(super) fn reset_field(&mut self, path: &FieldPath, cx: &mut Context<Self>) {
         self.editors
             .fields
             .retain(|editor, _| !editor.starts_with(path));
-        self.update_draft(cx, |draft| draft.set_value(path, None));
+        self.draft.edit_value(
+            path,
+            self.baseline.value(path).cloned(),
+            None,
+            &self.baseline,
+        );
+        self.draft_changed(cx);
     }
 }
 

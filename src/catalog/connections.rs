@@ -27,6 +27,32 @@ pub struct Template {
     pub module_id: String,
     pub module_config: Value,
     pub env_allowlist: Vec<String>,
+    #[serde(default)]
+    pub auth: Option<Authentication>,
+}
+
+/// Management argv owned by the installed module, outside the model protocol.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Authentication {
+    pub command: Vec<String>,
+    pub credential_file_key: String,
+}
+
+impl Authentication {
+    fn validate(&self) -> Result<()> {
+        ensure!(
+            !self.command.is_empty()
+                && self.command.len() <= 16
+                && self.command.iter().all(|arg| {
+                    !arg.is_empty() && arg.len() <= 1024 && !arg.chars().any(char::is_control)
+                })
+                && !self.credential_file_key.is_empty()
+                && !self.credential_file_key.chars().any(char::is_control),
+            "Неверная команда авторизации модуля"
+        );
+        Ok(())
+    }
 }
 
 #[derive(Deserialize)]
@@ -54,6 +80,9 @@ impl ModuleManifest {
                 "Повтор варианта подключения: {}",
                 template.id
             );
+            if let Some(auth) = &template.auth {
+                auth.validate()?;
+            }
             ensure!(
                 !template.title.trim().is_empty(),
                 "У варианта подключения нет названия"

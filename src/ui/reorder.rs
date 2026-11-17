@@ -11,6 +11,8 @@ use std::time::Instant;
 
 mod geometry;
 mod hold;
+#[cfg(test)]
+mod tests;
 pub(crate) use geometry::move_before;
 use geometry::{Arrangement, Pending, keyboard_target, preview_order};
 use hold::Hold;
@@ -114,6 +116,14 @@ struct State {
 }
 
 impl State {
+    fn insertion_before(&self, position: Point<Pixels>) -> Option<SharedString> {
+        self.rows
+            .iter()
+            .filter(|(id, _)| Some(id) != self.active.as_ref())
+            .find(|(_, bounds)| position.y < bounds.center().y)
+            .map(|(id, _)| id.clone())
+    }
+
     fn release(&mut self) {
         self.pressed = None;
         self.hold = None;
@@ -409,12 +419,9 @@ impl RenderOnce for List {
                                 state.release();
                                 state.active = Some(data.id.clone());
                                 state.over = true;
-                                state.before = state
-                                    .rows
-                                    .iter()
-                                    .position(|(id, _)| *id == data.id)
-                                    .and_then(|at| state.rows.get(at + 1))
-                                    .map(|(id, _)| id.clone());
+                                // The first move starts native dragging before
+                                // on_drag_move can run for this payload.
+                                state.before = state.insertion_before(window.mouse_position());
                             });
                             drag::start(format!("{}:{}", data.list, data.id), cx);
                             window.refresh();
@@ -437,12 +444,7 @@ impl RenderOnce for List {
                 }
                 hover.update(cx, |state, _| {
                     let over = event.bounds.contains(&event.event.position);
-                    let before = state
-                        .rows
-                        .iter()
-                        .filter(|(id, _)| Some(id) != state.active.as_ref())
-                        .find(|(_, bounds)| event.event.position.y < bounds.center().y)
-                        .map(|(id, _)| id.clone());
+                    let before = state.insertion_before(event.event.position);
                     if state.over != over || state.before != before {
                         state.over = over;
                         state.before = before;
@@ -594,7 +596,9 @@ impl Element for Arrange {
                 drag::current(cx).is_some_and(|source| source.starts_with(&format!("{key}:")));
             let dropped = ours && release.read(cx).bounds.contains(&event.position);
             let active = release.read(cx).active.clone();
-            let before = release.read(cx).before.clone();
+            // A platform may coalesce movement straight into mouse-up. The
+            // release position remains authoritative even without another move.
+            let before = release.read(cx).insertion_before(event.position);
             let armed = release.read(cx).armed;
             release.update(cx, |state, _| {
                 state.release();

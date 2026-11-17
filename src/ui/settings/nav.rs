@@ -15,7 +15,8 @@ use proteus_contracts::app_protocol::config_builder::ConfigBuilderSnapshot;
 use super::widgets::changed_dot;
 use super::{SettingsEvent, SettingsView};
 use crate::settings::catalog::{
-    CLIENT_PAGES, CONNECTION_PAGES, PageId, agent_pages, area_page, page_description, page_title,
+    CLIENT_PAGES, CONNECTION_PAGES, PageId, SESSION_STORAGE_SLOT, agent_pages, area_page,
+    page_description, page_title,
 };
 use crate::shortcuts::Command;
 use crate::ui::extensions;
@@ -33,10 +34,12 @@ pub(super) fn page_icon(page: &PageId) -> Icon {
         PageId::Providers => Icon::new(Lucide::Server),
         PageId::Models => Icon::new(Lucide::Brain),
         PageId::Modes => Icon::new(Lucide::SlidersHorizontal),
+        PageId::Slots => Icon::new(Lucide::ListTree),
         PageId::Slot(slot) => match slot.as_str() {
             "workflow" => Icon::new(Lucide::Workflow),
             "context" => Icon::new(Lucide::Layers),
             "policy" => Icon::new(Lucide::Shield),
+            SESSION_STORAGE_SLOT => Icon::new(Lucide::Database),
             _ => Icon::new(Lucide::Puzzle),
         },
         PageId::Tools => Icon::new(Lucide::Wrench),
@@ -70,9 +73,7 @@ pub(super) fn nav_title(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId)
 
 impl SettingsView {
     fn agent_page_list(&self) -> Vec<PageId> {
-        self.snapshot()
-            .map(agent_pages)
-            .unwrap_or_else(|| vec![PageId::Providers])
+        agent_pages(self.snapshot())
     }
 
     /// Enabled extensions in the user's order, plus the open page of a
@@ -271,7 +272,7 @@ impl SettingsView {
                     .pb_3()
                     .gap_0p5()
                     .child(div().pt_2().child(item(PageId::Catalog, cx)))
-                    .child(heading("Proteus"))
+                    .child(heading("Агент"))
                     .children(agent.into_iter().map(|page| item(page, cx)))
                     .child(heading("Подключения"))
                     .children(CONNECTION_PAGES.iter().cloned().map(|page| item(page, cx)))

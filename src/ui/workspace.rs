@@ -26,6 +26,18 @@ mod windows;
 use startup::{Boot, boot};
 use windows::WindowGroup;
 
+impl Workspace {
+    /// Local management may only address this window's owned server.
+    pub(in crate::ui) fn provider_auth_workspace(&self, connection: u64) -> Option<PathBuf> {
+        (matches!(self.target, Target::Spawn { .. })
+            && self
+                .api
+                .as_ref()
+                .is_some_and(|api| api.connection_id() == connection))
+        .then(|| self.workspace_path.clone())
+    }
+}
+
 pub(super) enum Status {
     Starting,
     Ready,

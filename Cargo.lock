@@ -5650,7 +5650,7 @@ dependencies = [
 [[package]]
 name = "proteus-contracts"
 version = "0.1.0-alpha.2"
-source = "git+https://github.com/Proteus-harness/Proteus-core.git?rev=b6f48cdaaec0e97a083ac81c6292c711a10fe65d#b6f48cdaaec0e97a083ac81c6292c711a10fe65d"
+source = "git+https://github.com/Proteus-harness/Proteus-core.git?rev=105f8253f43a62b0f5025d99e2d4ccdcb322e34c#105f8253f43a62b0f5025d99e2d4ccdcb322e34c"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5659,6 +5659,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "jsonschema",
+ "ring",
  "rustix",
  "serde",
  "serde_json",

@@ -162,10 +162,15 @@ fn pages_cover_known_slots_and_append_unknown_ones() {
             ),
             slot("later", 9, Vec::new()),
             slot("earlier", 7, Vec::new()),
+            slot(
+                "session_storage",
+                10,
+                vec![module("jsonl", "session_storage", vec![])],
+            ),
         ],
         ..ConfigBuilderSnapshot::default()
     };
-    let pages = agent_pages(&snapshot);
+    let pages = agent_pages(Some(&snapshot));
     let slot_pages: Vec<&str> = pages
         .iter()
         .filter_map(|page| match page {
@@ -175,12 +180,20 @@ fn pages_cover_known_slots_and_append_unknown_ones() {
         .collect();
     assert_eq!(
         slot_pages,
-        ["workflow", "context", "policy", "earlier", "later"]
+        [
+            "workflow",
+            "context",
+            "policy",
+            "session_storage",
+            "earlier",
+            "later"
+        ]
     );
     for page in [
         PageId::Providers,
         PageId::Models,
         PageId::Modes,
+        PageId::Slots,
         PageId::Tools,
         PageId::Hooks,
     ] {
@@ -198,6 +211,13 @@ fn pages_cover_known_slots_and_append_unknown_ones() {
         page_title(Some(&snapshot), &PageId::Slot("later".into())),
         "LATER"
     );
+    assert_eq!(
+        page_title(Some(&snapshot), &slot_page("session_storage")),
+        "Хранилище чатов"
+    );
+    let during_load = agent_pages(None);
+    assert!(during_load.contains(&slot_page("session_storage")));
+    assert!(pages.starts_with(&during_load));
     assert!(
         module_info(&snapshot, "workflow", "codex")
             .and_then(|info| info.schema)
@@ -270,7 +290,7 @@ fn revision_restores_old_state_and_describes_it() {
         [
             "permission_mode: normal → auto",
             "Tools: + shell",
-            "Context: simple → repo; параметры: limit",
+            "Контекст: simple → repo; параметры: limit",
         ]
     );
 }

@@ -17,15 +17,17 @@ pub const TOOL_SLOT: &str = "tool";
 pub const CONTEXT_SLOT: &str = "context";
 pub const CONTEXT_PROVIDER_SLOT: &str = "context_provider";
 pub const POLICY_SLOT: &str = "policy";
+pub const SESSION_STORAGE_SLOT: &str = "session_storage";
 
 /// Select-one slots with their own page, in navigation order.
-const SLOT_PAGES: [&str; 3] = ["workflow", "context", "policy"];
+const SLOT_PAGES: [&str; 4] = ["workflow", CONTEXT_SLOT, POLICY_SLOT, SESSION_STORAGE_SLOT];
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum PageId {
     Providers,
     Models,
     Modes,
+    Slots,
     Slot(String),
     Tools,
     Hooks,
@@ -67,25 +69,29 @@ pub fn slot_text(slot: &str) -> Option<(&'static str, &'static str)> {
     Some(match slot {
         MODEL_SLOT => ("Model", "Модель профиля и параметры её модуля."),
         "workflow" => (
-            "Workflow",
+            "Рабочий цикл",
             "Управляет шагами агента от запроса до результата.",
         ),
         "context" => (
-            "Context",
+            "Контекст",
             "Собирает сведения, которые получает модель, в том числе от поставщиков контекста: skills, поиска и памяти.",
         ),
         CONTEXT_PROVIDER_SLOT => (
             "Context Providers",
-            "Поставляют skills, поиск и память. Какие из них читать автоматически, задают параметры модуля Context.",
+            "Поставляют skills, поиск и память. Автоматическое чтение задаётся в настройках контекста.",
         ),
         POLICY_SLOT => (
-            "Policy",
+            "Разрешения",
             "Режим прав профиля и политика, которая решает, какие действия требуют подтверждения. Режим текущего чата меняется в поле ввода.",
         ),
         TOOL_SLOT => ("Tools", "Инструменты, которые профиль разрешает агенту."),
         HOOK_SLOT => (
             "Hooks",
             "Hooks дополняют шаги агента: готовят историю и сжимают её, отбирают видимые модели инструменты, проверяют вызовы и завершение. Вызываются по порядку списка.",
+        ),
+        SESSION_STORAGE_SLOT => (
+            "Хранилище чатов",
+            "Где сохраняются история и вложения чатов.",
         ),
         _ => return None,
     })
@@ -100,8 +106,13 @@ pub fn slot_title(snapshot: &ConfigBuilderSnapshot, slot: &str) -> String {
 
 /// Agent pages by what the part does: the known slots, then unknown
 /// select-one slots.
-pub fn agent_pages(snapshot: &ConfigBuilderSnapshot) -> Vec<PageId> {
-    let mut pages = vec![PageId::Providers, PageId::Models, PageId::Modes];
+pub fn agent_pages(snapshot: Option<&ConfigBuilderSnapshot>) -> Vec<PageId> {
+    let mut pages = vec![
+        PageId::Slots,
+        PageId::Providers,
+        PageId::Models,
+        PageId::Modes,
+    ];
     pages.extend(
         ["workflow", "context"]
             .into_iter()
@@ -110,9 +121,10 @@ pub fn agent_pages(snapshot: &ConfigBuilderSnapshot) -> Vec<PageId> {
     pages.push(PageId::Tools);
     pages.push(PageId::Slot(POLICY_SLOT.to_string()));
     pages.push(PageId::Hooks);
+    pages.push(slot_page(SESSION_STORAGE_SLOT));
     let mut unknown: Vec<&ConfigBuilderSlot> = snapshot
-        .slots
-        .iter()
+        .into_iter()
+        .flat_map(|snapshot| &snapshot.slots)
         .filter(|slot| !SLOT_PAGES.contains(&slot.id.as_str()))
         .collect();
     unknown.sort_by_key(|slot| slot.order);
@@ -146,6 +158,7 @@ pub fn page_title(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId) -> St
         PageId::Providers => "Провайдеры".into(),
         PageId::Models => "Модели".into(),
         PageId::Modes => "Режимы".into(),
+        PageId::Slots => "Слоты".into(),
         PageId::Slot(slot) => match snapshot {
             Some(snapshot) => slot_title(snapshot, slot),
             None => slot_text(slot)
@@ -175,6 +188,7 @@ pub fn page_description(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId)
         PageId::Modes => {
             "Варианты инструкций, инструментов, hooks и разрешений для отдельного чата."
         }
+        PageId::Slots => "",
         PageId::Providers => {
             "Подключения и авторизация. Одно подключение может использоваться несколькими именованными моделями."
         }

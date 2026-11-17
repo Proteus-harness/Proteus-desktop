@@ -59,6 +59,28 @@ fn assert_clean(view: &SettingsView) {
 }
 
 #[::core::prelude::v1::test]
+fn reset_restores_the_saved_list_order_and_keeps_other_edits() {
+    let saved = json!(["read", "shell", "read"]);
+    with_view(
+        json!({"input":{"tools":saved,"other":false}}),
+        |view, cx| {
+            let group = FieldPath::new("tool", "codex_patch", "input");
+            let tools = group.child("tools");
+            let other = group.child("other");
+            view.update(cx, |view, cx| {
+                view.edit_field(&tools, Some(json!([])), None, cx);
+                view.edit_field(&other, Some(json!(true)), None, cx);
+                view.reset_field(&tools, cx);
+                assert_eq!(view.draft.value(&tools), Some(&saved));
+                assert_eq!(view.draft.value(&other), Some(&json!(true)));
+                view.reset_field(&group, cx);
+                assert_clean(view);
+            });
+        },
+    );
+}
+
+#[::core::prelude::v1::test]
 fn switch_revert_restores_explicit_and_omitted_defaults_without_reverting_siblings() {
     for explicit in [false, true] {
         let mut config = json!({"reject_self_move":false});

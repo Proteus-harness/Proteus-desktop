@@ -11,6 +11,7 @@ use crate::{
     settings::{catalog::PageId, reconcile::CatalogChange},
     ui::{kit, prefs},
 };
+use gpui_kit::component::button::ButtonVariant;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::*;
 use gpui_kit::*;
@@ -126,33 +127,49 @@ impl SettingsView {
             )
             .into_any_element();
         };
-        let mut rows = Vec::new();
+        let choices: Vec<_> = discovery
+            .choices
+            .iter()
+            .enumerate()
+            .map(|(index, choice)| (index, choice.template.title.clone()))
+            .collect();
+        let selected = state.selected;
+        let label = selected
+            .and_then(|index| discovery.choices.get(index))
+            .map(|choice| choice.template.title.clone())
+            .unwrap_or_else(|| "Выбрать провайдера".into());
+        let view = cx.weak_entity();
+        let selector = crate::ui::context::menu_button(
+            "provider-template-menu",
+            kit::button("provider-template")
+                .faded_label(label)
+                .small()
+                .disabled(self.catalogs.busy || choices.is_empty()),
+            true,
+            move |menu, _, _| {
+                choices.iter().fold(menu, |menu, (index, title)| {
+                    let (view, index) = (view.clone(), *index);
+                    menu.item(
+                        crate::ui::selection::menu_option(title.clone(), selected == Some(index))
+                            .on_click(move |_, window, cx| {
+                                let _ = view.update(cx, |this, cx| {
+                                    this.choose_provider_template(index, window, cx);
+                                });
+                            }),
+                    )
+                })
+            },
+        )
+        .settings_selector()
+        .into_any_element();
+        let description = selected
+            .and_then(|index| discovery.choices.get(index))
+            .map(|choice| choice.template.description.clone().into());
+        let mut rows = vec![row("Провайдер", description, selector, false, cx).into_any_element()];
         if let Some((index, choice)) = state
             .selected
             .and_then(|index| discovery.choices.get(index).map(|choice| (index, choice)))
         {
-            let change = kit::button("provider-create-back")
-                .faded_label("Другой провайдер")
-                .quiet(cx)
-                .small()
-                .disabled(self.catalogs.busy)
-                .on_click(cx.listener(|this, _, _, cx| {
-                    if let Some(state) = this.provider_creation.as_mut() {
-                        state.selected = None;
-                        state.error = None;
-                    }
-                    cx.notify();
-                }));
-            rows.push(
-                row(
-                    choice.template.title.clone(),
-                    Some(choice.template.description.clone().into()),
-                    change,
-                    false,
-                    cx,
-                )
-                .into_any_element(),
-            );
             rows.push(
                 row(
                     "Имя подключения",
@@ -198,24 +215,6 @@ impl SettingsView {
                     .into_any_element(),
             );
         } else {
-            for (index, choice) in discovery.choices.iter().enumerate() {
-                rows.push(
-                    row(
-                        choice.template.title.clone(),
-                        Some(choice.template.description.clone().into()),
-                        kit::button(hashed_id("provider-create-choice", &choice.key()))
-                            .faded_label("Выбрать")
-                            .quiet(cx)
-                            .small()
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.choose_provider_template(index, window, cx)
-                            })),
-                        false,
-                        cx,
-                    )
-                    .into_any_element(),
-                );
-            }
             if discovery.choices.is_empty() {
                 rows.push(note("В установленных модулях нет вариантов подключения. Добавьте модуль из каталога.",cx).into_any_element());
             }
@@ -319,6 +318,33 @@ impl SettingsView {
         cx: &mut Context<Self>,
     ) {
         let accepted = result.is_ok();
+        if let Err(error) = &result
+            && let Some(state) = self.provider_creation.as_mut()
+        {
+            state.error = Some(format!("Не удалось добавить подключение. {error:#}"));
+        }
+        self.finish_provider_write(
+            result,
+            submitted_revision,
+            previous,
+            "Подключение добавлено",
+            cx,
+        );
+        if accepted {
+            self.provider_creation = None;
+        }
+    }
+
+    fn finish_provider_write(
+        &mut self,
+        result: anyhow::Result<
+            proteus_contracts::app_protocol::config_builder::ConfigBuilderSnapshot,
+        >,
+        submitted_revision: u64,
+        previous: &crate::settings::Draft,
+        message: &'static str,
+        cx: &mut Context<Self>,
+    ) {
         if let Ok(snapshot) = &result
             && self.edit_revision != submitted_revision
         {
@@ -327,27 +353,116 @@ impl SettingsView {
             self.editors
                 .registered(previous, &self.draft, submitted_revision);
         }
-        if let Err(error) = &result
-            && let Some(state) = self.provider_creation.as_mut()
-        {
-            state.error = Some(format!("Не удалось добавить подключение: {error:#}"));
-        }
         let change = CatalogChange {
             before: previous.addons.clone(),
             replacement: None,
         };
-        self.finish_catalog_profile_write(
+        self.finish_catalog_profile_write(result, submitted_revision, &change, |_| {}, message, cx);
+        cx.notify();
+    }
+
+    pub(super) fn provider_models(&self, id: &str) -> Vec<String> {
+        self.draft
+            .models
+            .iter()
+            .filter(|(_, model)| model.provider == id)
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
+
+    pub(super) fn confirm_provider_removal(
+        &mut self,
+        id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.catalog_idle() || self.profile_blocked().is_some() {
+            return;
+        }
+        let users = self.provider_models(id);
+        if !users.is_empty() {
+            self.show_feedback(
+                format!("Подключение используется в моделях {}", users.join(", ")),
+                true,
+                cx,
+            );
+            return;
+        }
+        let (view, id) = (cx.weak_entity(), id.to_owned());
+        window.open_alert_dialog(cx, move |alert, _, _| {
+            let (view, id) = (view.clone(), id.clone());
+            alert
+                .title("Удалить подключение?")
+                .description(format!("«{id}» будет удалено из профиля."))
+                .ok_text("Удалить")
+                .ok_variant(ButtonVariant::Danger)
+                .show_cancel(true)
+                .cancel_text("Отмена")
+                .on_ok(move |_, _, cx| {
+                    let _ = view.update(cx, |this, cx| this.remove_provider(&id, cx));
+                    true
+                })
+        });
+    }
+
+    fn remove_provider(&mut self, id: &str, cx: &mut Context<Self>) {
+        if !self.catalog_idle()
+            || self.profile_blocked().is_some()
+            || !self.provider_models(id).is_empty()
+        {
+            return;
+        }
+        let Some(super::context::Profile { api, dir }) = self.context.profile.clone() else {
+            return;
+        };
+        let request = proteus_contracts::app_protocol::http::SetConfigBuilderRequest {
+            remove_model_connections: vec![id.to_owned()],
+            ..Default::default()
+        };
+        let previous = self.baseline.clone();
+        let submitted_revision = self.edit_revision;
+        let id = id.to_owned();
+        self.catalogs.busy = true;
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { api.save_config_builder(&dir, &request) })
+                .await;
+            this.update(cx, |this, cx| {
+                this.finish_provider_removal(&id, result, submitted_revision, &previous, cx);
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn finish_provider_removal(
+        &mut self,
+        id: &str,
+        result: anyhow::Result<
+            proteus_contracts::app_protocol::config_builder::ConfigBuilderSnapshot,
+        >,
+        submitted_revision: u64,
+        previous: &crate::settings::Draft,
+        cx: &mut Context<Self>,
+    ) {
+        if result.is_ok() && self.edit_revision != submitted_revision {
+            if let Some(config) = self.draft.config.get_mut("model") {
+                config.remove(id);
+            }
+            self.editors
+                .fields
+                .retain(|path, _| path.slot != "model" || path.module != id);
+            self.editors.json.remove(&("model".into(), id.to_owned()));
+        }
+        self.finish_provider_write(
             result,
             submitted_revision,
-            &change,
-            |_| {},
-            "Подключение добавлено",
+            previous,
+            "Подключение удалено",
             cx,
         );
-        if accepted {
-            self.provider_creation = None;
-        }
-        cx.notify();
     }
 }
 

@@ -39,13 +39,6 @@ impl FieldSpec {
         });
     }
 
-    /// A value of its own that differs from the default.
-    fn own(&self) -> bool {
-        self.value
-            .as_ref()
-            .is_some_and(|value| Some(value) != self.field.default.as_ref())
-    }
-
     fn reset(&self, cx: &mut App) {
         let path = self.path.clone();
         let _ = self.view.update(cx, |this, cx| this.reset_field(&path, cx));
@@ -171,21 +164,23 @@ impl SettingsView {
             .children(error);
 
         let changed = self.draft.value(path) != self.baseline.value(path);
-        let reset = spec.own().then(|| {
+        let reset = (changed || text.is_some_and(|editor| editor.error.is_some())).then(|| {
             let handler = spec.clone();
             reset_mark(
                 spec.id("reset"),
-                if field.default.is_some() {
-                    "Вернуть значение по умолчанию"
-                } else {
-                    "Убрать своё значение"
-                },
+                "Вернуть сохранённое значение",
                 move |_, cx| handler.reset(cx),
                 cx,
             )
         });
         let missing = (spec.value.is_none() && field.required && field.default.is_none())
-            .then(|| chip("Нужно задать", Tone::Warning, cx));
+            .then(|| {
+                let mut group = path.clone();
+                group.keys.pop();
+                (group.keys.is_empty() || self.draft.value(&group).is_some())
+                    .then(|| chip("Нужно задать", Tone::Warning, cx))
+            })
+            .flatten();
         let title = h_flex()
             .min_w_0()
             .gap_1()

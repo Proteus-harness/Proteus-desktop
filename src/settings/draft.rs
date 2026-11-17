@@ -378,8 +378,7 @@ fn ensure_object(value: &mut Value) -> &mut Map<String, Value> {
 }
 
 /// Removes `keys` under `value`; returns whether the caller should prune the
-/// empty object. Schema edits retain empty ancestors present in the baseline;
-/// ordinary resets pass no baseline and keep their existing pruning behavior.
+/// empty object. Schema edits and their undo retain empty saved ancestors.
 fn remove_nested(value: &mut Value, keys: &[String], baseline: Option<&Value>) -> bool {
     let Some(object) = value.as_object_mut() else {
         return false;

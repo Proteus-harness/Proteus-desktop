@@ -9,7 +9,7 @@ use gpui_kit::*;
 
 use super::SettingsView;
 use super::editors::module_key;
-use super::widgets::{card, hashed_id, section};
+use super::widgets::{card, card_cell, hashed_id, section};
 use crate::settings::FieldPath;
 use crate::settings::catalog::{editable_fields, editable_params, module_info};
 use crate::ui::kit;
@@ -49,7 +49,7 @@ impl SettingsView {
                 title.to_owned(),
                 None,
                 self.mode_switch(slot, module, cx),
-                self.params_body(slot, module, cx),
+                self.params_body(slot, module, false, cx),
                 cx,
             )
             .into_any_element(),
@@ -60,15 +60,15 @@ impl SettingsView {
     /// switch on top and the editor below.
     pub(super) fn params_nested(&self, slot: &str, module: &str, cx: &Context<Self>) -> AnyElement {
         v_flex()
-            .px_4()
             .pb_3()
             .gap_2()
             .child(
                 h_flex()
+                    .px_4()
                     .justify_end()
                     .children(self.mode_switch(slot, module, cx)),
             )
-            .child(self.params_body(slot, module, cx))
+            .child(self.params_body(slot, module, true, cx))
             .into_any_element()
     }
 
@@ -118,7 +118,13 @@ impl SettingsView {
         })
     }
 
-    fn params_body(&self, slot: &str, module: &str, cx: &Context<Self>) -> AnyElement {
+    fn params_body(
+        &self,
+        slot: &str,
+        module: &str,
+        embedded: bool,
+        cx: &Context<Self>,
+    ) -> AnyElement {
         let theme = cx.theme();
         let Some(snapshot) = self.snapshot() else {
             return div().into_any_element();
@@ -131,6 +137,7 @@ impl SettingsView {
                 .then_some("Описание параметров недоступно. Настройки можно изменить в JSON.");
             return v_flex()
                 .gap_1p5()
+                .px(if embedded { rems(1.) } else { rems(0.) })
                 .children(field.map(|field| self.text_area(&field.input, cx)))
                 .children(
                     field
@@ -153,6 +160,12 @@ impl SettingsView {
             &format!("{slot}:{module}"),
             cx,
         );
-        card(rows, cx).into_any_element()
+        if embedded {
+            v_flex()
+                .children(rows.into_iter().map(|row| card_cell(row, false, cx)))
+                .into_any_element()
+        } else {
+            card(rows, cx)
+        }
     }
 }

@@ -477,3 +477,79 @@ fn registration_keeps_a_late_schema_tag_query_without_a_parsed_draft_change() {
         })
     });
 }
+
+#[::core::prelude::v1::test]
+fn removal_ack_keeps_unrelated_edits_and_cannot_restore_removed_connection_settings() {
+    let mut cx = test_context();
+    let (window, view) = new_view(&mut cx);
+    window.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            view.accept(ConfigBuilderSnapshot {
+                writable: true,
+                permission_mode: "normal".into(),
+                models: BTreeMap::from([(
+                    "main".into(),
+                    ConfigBuilderModelPreset {
+                        provider: "retained".into(),
+                        model: "model".into(),
+                        ..Default::default()
+                    },
+                )]),
+                model_modules: ["removed", "retained"]
+                    .map(|id| ConfigBuilderModule {
+                        id: id.into(),
+                        slot: "model".into(),
+                        ..Default::default()
+                    })
+                    .into(),
+                module_config: BTreeMap::from([(
+                    "model".into(),
+                    BTreeMap::from([
+                        ("removed".into(), json!({"url": "old"})),
+                        ("retained".into(), json!({"url": "keep"})),
+                    ]),
+                )]),
+                ..Default::default()
+            });
+            assert_eq!(view.provider_models("retained"), ["main"]);
+            assert!(view.provider_models("removed").is_empty());
+            let previous = view.baseline.clone();
+            let submitted = view.edit_revision;
+            view.catalogs.busy = true;
+            view.ensure_json("model", "removed", window, cx);
+            view.update_draft(cx, |draft| {
+                draft.set_module_config(
+                    "model",
+                    "removed",
+                    serde_json::from_value(json!({"url": "late"})).unwrap(),
+                );
+                draft.set_tool("late-tool", true);
+            });
+            let mut accepted = view.snapshot().unwrap().clone();
+            accepted
+                .model_modules
+                .retain(|module| module.id != "removed");
+            accepted
+                .module_config
+                .get_mut("model")
+                .unwrap()
+                .remove("removed");
+            view.finish_provider_removal("removed", Ok(accepted), submitted, &previous, cx);
+            assert!(!view.catalogs.busy);
+            assert!(view.draft.module_config("model", "removed").is_none());
+            assert!(
+                !view
+                    .editors
+                    .json
+                    .contains_key(&("model".into(), "removed".into()))
+            );
+            assert_eq!(
+                view.draft.module_config("model", "retained"),
+                Some(&json!({"url":"keep"}))
+            );
+            let request = view.draft.changes(&view.baseline);
+            assert!(request.module_config.is_empty());
+            assert_eq!(request.tools_enabled, Some(vec!["late-tool".into()]));
+        })
+    });
+}

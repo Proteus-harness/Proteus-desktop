@@ -180,11 +180,11 @@ impl SettingsView {
         let open = self.is_open(&key);
         let value = self.draft.value(path);
         let changed = value != self.baseline.value(path);
-        let reset = value.is_some().then(|| {
+        let reset = changed.then(|| {
             let (view, path) = (cx.weak_entity(), path.clone());
             reset_mark(
                 hashed_id("group-reset", &path),
-                "Сбросить параметры группы",
+                "Вернуть сохранённые параметры",
                 move |_, cx| {
                     let _ = view.update(cx, |this, cx| this.reset_field(&path, cx));
                 },
@@ -218,20 +218,11 @@ impl SettingsView {
         });
         let content = self.reveal(&key, cx, || {
             let rows = self.field_rows(fields, |key| path.child(key), value, &scope, cx);
-            nested(
-                v_flex().children(
-                    rows.into_iter()
-                        .enumerate()
-                        .map(|(ix, row)| div().when(ix > 0, |cell| cell.row_rule(cx)).child(row)),
-                ),
-            )
-            .into_any_element()
+            v_flex().pl_3().children(rows).into_any_element()
         });
-        nested_group(
-            self.spotted(&super::spot::field(path), header, cx),
-            content,
-            cx,
-        )
-        .into_any_element()
+        v_flex()
+            .child(self.spotted(&super::spot::field(path), header, cx))
+            .children(content)
+            .into_any_element()
     }
 }

@@ -15,6 +15,7 @@ fn choice() -> Choice {
             module_id: "work".into(),
             module_config: json!({"implementation":"synthetic"}),
             env_allowlist: vec!["PATH".into(), "SYNTHETIC_KEY".into()],
+            auth: None,
         },
     }
 }

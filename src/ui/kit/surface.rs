@@ -1,14 +1,14 @@
 //! Filled panels alternate the two theme surfaces by actual paint nesting.
-//! Header highlights keep the panel's upper curve and round their own lower
-//! edge, so an expanded disclosure has no abruptly cut hover stripe.
+//! Header highlights have the same rounded contour whether their disclosure
+//! is open or closed.
 
-use std::cell::RefCell;
+use std::cell::Cell;
 
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::*;
 
 thread_local! {
-    static FRAMES: RefCell<Vec<(Bounds<Pixels>, Pixels)>> = const { RefCell::new(Vec::new()) };
+    static DEPTH: Cell<usize> = const { Cell::new(0) };
 }
 
 pub(crate) fn surface(content: impl IntoElement, cx: &App) -> AnyElement {
@@ -32,7 +32,7 @@ pub(crate) fn surface_highlight(group: &'static str, cx: &App) -> Div {
     )
 }
 
-/// The header has the panel's upper curve and a rounded lower edge.
+/// The header keeps a symmetric contour in every disclosure state.
 pub(crate) fn surface_header(group: &'static str, cx: &App) -> Div {
     surface_paint(
         group,
@@ -45,7 +45,6 @@ pub(crate) fn surface_header(group: &'static str, cx: &App) -> Div {
 
 fn surface_paint(group: &'static str, base: Hsla, hover: Hsla, edge: Pixels, cx: &App) -> Div {
     let radius = cx.theme().radius_lg;
-    let inner_radius = cx.theme().radius;
     div()
         .absolute()
         .inset_0()
@@ -59,25 +58,10 @@ fn surface_paint(group: &'static str, base: Hsla, hover: Hsla, edge: Pixels, cx:
                     if color.a == 0. {
                         return;
                     }
-                    let frame = FRAMES.with_borrow(|frames| frames.last().copied());
                     window.with_content_mask(Some(ContentMask { bounds }), |window| {
-                        let (top, bottom) = frame.map_or((radius, radius), |(frame, radius)| {
-                            let bottom = if bounds.bottom() < frame.bottom() - px(1.) {
-                                inner_radius.min(radius)
-                            } else {
-                                radius
-                            };
-                            (radius, bottom)
-                        });
                         let quad = fill(bounds, color)
                             .corner_radii(
-                                Corners {
-                                    top_left: top,
-                                    top_right: top,
-                                    bottom_left: bottom,
-                                    bottom_right: bottom,
-                                }
-                                .clamp_radii_for_quad_size(bounds.size),
+                                Corners::all(radius).clamp_radii_for_quad_size(bounds.size),
                             )
                             .border_widths(edge);
                         window.paint_quad(quad);
@@ -96,16 +80,11 @@ struct Surface {
 
 /// Count only painted panels. Layout wrappers do not enter this scope, and
 /// leaving a child restores the parent's depth before painting its siblings.
-fn with_frame<R>(frame: (Bounds<Pixels>, Pixels), paint: impl FnOnce(usize) -> R) -> R {
-    let depth = FRAMES.with_borrow_mut(|frames| {
-        let depth = frames.len();
-        frames.push(frame);
-        depth
-    });
+fn with_frame<R>(paint: impl FnOnce(usize) -> R) -> R {
+    let depth = DEPTH.get();
+    DEPTH.set(depth + 1);
     let result = paint(depth);
-    FRAMES.with_borrow_mut(|frames| {
-        frames.pop();
-    });
+    DEPTH.set(depth);
     result
 }
 
@@ -161,7 +140,7 @@ impl Element for Surface {
         window: &mut Window,
         cx: &mut App,
     ) {
-        with_frame((bounds, self.radius), |depth| {
+        with_frame(|depth| {
             window
                 .paint_quad(fill(bounds, self.fills[depth % 2]).corner_radii(
                     Corners::all(self.radius).clamp_radii_for_quad_size(bounds.size),
@@ -177,19 +156,18 @@ mod tests {
 
     #[::core::prelude::v1::test]
     fn nested_panels_alternate_and_siblings_restore_their_parent_scope() {
-        let frame = (Bounds::default(), px(16.));
-        assert!(FRAMES.with_borrow(|frames| frames.is_empty()));
+        assert_eq!(DEPTH.get(), 0);
         let mut fills = Vec::new();
-        with_frame(frame, |depth| {
+        with_frame(|depth| {
             fills.push(depth % 2);
-            with_frame(frame, |depth| {
+            with_frame(|depth| {
                 fills.push(depth % 2);
-                with_frame(frame, |depth| fills.push(depth % 2));
+                with_frame(|depth| fills.push(depth % 2));
             });
-            with_frame(frame, |depth| fills.push(depth % 2));
+            with_frame(|depth| fills.push(depth % 2));
         });
-        with_frame(frame, |depth| fills.push(depth % 2));
+        with_frame(|depth| fills.push(depth % 2));
         assert_eq!(fills, [0, 1, 0, 1, 0]);
-        assert!(FRAMES.with_borrow(|frames| frames.is_empty()));
+        assert_eq!(DEPTH.get(), 0);
     }
 }

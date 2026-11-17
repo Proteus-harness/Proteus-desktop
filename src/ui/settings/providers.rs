@@ -5,7 +5,7 @@ use super::{
     SettingsView, spot,
     widgets::{card, mono, note, section},
 };
-use crate::ui::kit::ButtonLabel as _;
+use crate::ui::kit::{ButtonLabel as _, Hint as _};
 use crate::{
     settings::catalog::{MODEL_SLOT, PageId},
     ui::kit,
@@ -52,12 +52,35 @@ impl SettingsView {
                 .on_click(cx.listener(|this, _, window, cx| {
                     this.go_to(&spot::Destination::new(PageId::Models), window, cx)
                 }));
+            let users = self.provider_models(&module.id);
+            let removal_hint = if users.is_empty() {
+                "Удалить подключение из профиля".to_owned()
+            } else {
+                format!(
+                    "Используется в моделях {}. Выберите для них другое подключение.",
+                    users.join(", ")
+                )
+            };
+            let id = module.id.clone();
+            let remove = kit::button(super::widgets::hashed_id("provider-remove", &module.id))
+                .faded_label("Удалить")
+                .quiet(cx)
+                .xsmall()
+                .disabled(
+                    !users.is_empty() || !self.catalog_idle() || self.profile_blocked().is_some(),
+                )
+                .hint(&removal_hint, cx)
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.confirm_provider_removal(&id, window, cx);
+                }));
             let header = h_flex()
                 .px_4()
                 .py_3()
                 .gap_3()
                 .child(div().flex_1().min_w_0().child(title))
-                .child(to_models);
+                .children(self.provider_auth_action(&module.id, cx))
+                .child(to_models)
+                .child(remove);
             let body = card(
                 [
                     header.into_any_element(),

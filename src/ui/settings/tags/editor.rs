@@ -4,8 +4,8 @@
 
 use std::rc::Rc;
 
-use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::input::InputState;
+use gpui_kit::component::menu::PopupMenuItem;
 use gpui_kit::component::*;
 use gpui_kit::*;
 use proteus_contracts::app_protocol::config_builder::ConfigBuilderSnapshot;
@@ -13,7 +13,8 @@ use proteus_contracts::domain::ConfigField;
 use serde_json::Value;
 
 use super::{Edit, added_value, item_ids, suggestions, tag_label};
-use crate::ui::kit::{ButtonLabel as _, Hint as _};
+use crate::ui::context::RightClickMenu as _;
+use crate::ui::kit::ButtonLabel as _;
 use crate::ui::settings::widgets::hashed_id;
 use crate::ui::{fade::faded, kit, reorder};
 
@@ -50,13 +51,9 @@ pub(in crate::ui::settings) fn render(
         .iter()
         .enumerate()
         .map(|(index, value)| {
-            let preview = spec.clone();
-            reorder::Row::new(
-                ids[index].clone(),
-                tag_label(value),
-                tag_row(&spec, index, cx),
-            )
-            .preview(move |cx| Some(tag_row(&preview, index, cx).into_any_element()))
+            let label = tag_label(value);
+            reorder::Row::new(ids[index].clone(), label.clone(), tag_row(&spec, index, cx))
+                .preview(move |cx| Some(tag_pill(label.clone(), cx).into_any_element()))
         })
         .collect();
     let move_spec = spec.clone();
@@ -150,32 +147,31 @@ pub(in crate::ui::settings) fn render(
     body.into_any_element()
 }
 
-fn tag_row(spec: &Rc<TagEditor>, index: usize, cx: &App) -> Div {
-    let label = tag_label(&spec.values[index]);
+fn tag_row(spec: &Rc<TagEditor>, index: usize, cx: &App) -> AnyElement {
     let remove = spec.clone();
+    tag_pill(tag_label(&spec.values[index]), cx)
+        .id(hashed_id("tag", &(&spec.key, index)))
+        .right_click_menu(move |menu, _, _| {
+            let remove = remove.clone();
+            menu.item(
+                PopupMenuItem::new("Удалить").on_click(move |_, window, cx| {
+                    remove.edit(Edit::Remove(index), window, cx);
+                }),
+            )
+        })
+        .into_any_element()
+}
+
+fn tag_pill(label: String, cx: &App) -> Div {
     h_flex().py_0p5().child(
         h_flex()
             .min_w_0()
             .max_w_full()
-            .gap_1()
-            .pl_2()
+            .px_2()
             .rounded(cx.theme().radius)
             .bg(cx.theme().input_background())
             .text_sm()
             .text_color(cx.theme().foreground)
-            .child(
-                Icon::new(Lucide::GripVertical)
-                    .xsmall()
-                    .text_color(cx.theme().muted_foreground),
-            )
-            .child(div().min_w_0().child(faded(label.clone())))
-            .child(reorder::controls(
-                kit::icon_button(hashed_id("tag-remove", &(&spec.key, index)))
-                    .icon(Icon::new(Lucide::X))
-                    .quiet(cx)
-                    .accessibility_label(format!("Убрать {label}"))
-                    .hint("Убрать значение", cx)
-                    .on_click(move |_, window, cx| remove.edit(Edit::Remove(index), window, cx)),
-            )),
+            .child(div().min_w_0().child(faded(label))),
     )
 }

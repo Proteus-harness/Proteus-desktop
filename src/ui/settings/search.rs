@@ -106,6 +106,13 @@ fn page_words(page: &PageId) -> &'static str {
         PageId::Providers => "подключение провайдер авторизация ключ API",
         PageId::Models => "модель effort reasoning набор имя preset субагент наследование",
         PageId::Modes => "режим поведения инструкции разрешения tools hooks наследование",
+        PageId::Slots => "слот реализация workflow context policy model hooks storage",
+        PageId::Slot(slot) if slot == crate::settings::catalog::SESSION_STORAGE_SLOT => {
+            "session_storage session storage история чатов хранилище jsonl sqlite"
+        }
+        PageId::Slot(slot) if slot == "workflow" => "workflow",
+        PageId::Slot(slot) if slot == "context" => "context",
+        PageId::Slot(slot) if slot == "policy" => "policy",
         PageId::Tools => "инструменты",
         PageId::Hooks => "обработчики хуки",
         PageId::Modules => "модули компоненты плагины",
@@ -235,7 +242,7 @@ impl SettingsView {
                 &[],
             );
         }
-        for page in agent_pages(snapshot) {
+        for page in agent_pages(Some(snapshot)) {
             let PageId::Slot(slot) = &page else {
                 continue;
             };
