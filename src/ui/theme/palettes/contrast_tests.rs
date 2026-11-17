@@ -138,15 +138,19 @@ fn light_settings_cards_remain_distinct_from_content() {
 }
 
 #[::core::prelude::v1::test]
-fn native_light_selector_frames_remain_visible_on_stronger_cards() {
+fn selector_frames_remain_visible_on_cards_and_editable_fills() {
     let mut count = 0;
     for source in sources() {
         let set: ThemeSet = serde_json::from_str(source).unwrap();
         for config in set.themes {
-            if !matches!(config.name.as_ref(), "Proteus Light" | "Default Light") {
+            if !matches!(
+                config.name.as_ref(),
+                "Proteus Light" | "Default Light" | "Tokyo Night" | "Tokyo Storm" | "Tokyo Moon"
+            ) {
                 continue;
             }
             let name = config.name.to_string();
+            let dark = config.mode.is_dark();
             let mut theme = Theme::default();
             theme.apply_config(&Rc::new(config));
             let ratio = contrast(theme.border, theme.group_box.into());
@@ -154,10 +158,21 @@ fn native_light_selector_frames_remain_visible_on_stronger_cards() {
                 ratio >= 1.5,
                 "{name}: selector frame/card contrast {ratio:.4}:1 < 1.5:1"
             );
+            let ratio = contrast(theme.border, theme.input_background().into());
+            assert!(
+                ratio >= 1.5,
+                "{name}: selector frame/input contrast {ratio:.4}:1 < 1.5:1"
+            );
+            if dark {
+                assert!(
+                    luminance(theme.border.into()) > luminance(theme.group_box.into()),
+                    "{name}: dark selector frame must be lighter than its card"
+                );
+            }
             count += 1;
         }
     }
-    assert_eq!(count, 2);
+    assert_eq!(count, 5);
 }
 
 #[::core::prelude::v1::test]
@@ -208,6 +223,21 @@ fn normal_and_muted_labels_meet_minimum_on_their_resolved_surfaces() {
             let name = config.name.to_string();
             let mut theme = Theme::default();
             theme.apply_config(&Rc::new(config));
+            let input_fill: Rgba = theme.input_background().into();
+            assert_eq!(
+                input_fill.a, 1.,
+                "{name}: builtin editable fields must be opaque"
+            );
+            // Like settings cards, editable fields need a visible local edge
+            // from their fill on either shared panel level. This is separate
+            // from the text/placeholder readability checks below.
+            for (level, parent) in [("card", theme.group_box), ("nested", theme.accordion)] {
+                let ratio = contrast(theme.input_background(), parent.into());
+                assert!(
+                    ratio >= 1.10,
+                    "{name}: editable field/{level} contrast {ratio:.4}:1 < 1.10:1"
+                );
+            }
             for (surface, fill) in surfaces(&theme) {
                 assert_readable(&name, &format!("normal/{surface}"), theme.foreground, fill);
                 assert_readable(
@@ -221,7 +251,12 @@ fn normal_and_muted_labels_meet_minimum_on_their_resolved_surfaces() {
             for (role, foreground, fill) in [
                 ("sidebar label", theme.sidebar_foreground, theme.sidebar),
                 ("card label", theme.group_box_foreground, theme.group_box),
-                ("input label", theme.secondary_foreground, theme.secondary),
+                ("input label", theme.foreground, theme.input_background()),
+                (
+                    "input placeholder",
+                    theme.muted_foreground,
+                    theme.input_background(),
+                ),
                 ("popup label", theme.popover_foreground, theme.popover),
                 (
                     "active tab label",

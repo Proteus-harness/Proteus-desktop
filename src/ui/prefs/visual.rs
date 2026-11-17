@@ -20,6 +20,7 @@ pub(in crate::ui) struct WindowVisualPreferences {
     source_generation: u64,
     write_revision: u64,
     chat_font: Option<SharedString>,
+    user_chat_font: Option<SharedString>,
     writer: Option<Rc<persistence::Writer<VisualWrite>>>,
 }
 impl Global for WindowVisualPreferences {}
@@ -46,6 +47,7 @@ impl Global for VisualWriters {}
 pub(super) fn init(cx: &mut App) {
     let value = VisualConfig::from_preferences(super::current(cx));
     let chat_font = super::super::theme::resolve(value.fonts.chat.as_deref(), cx);
+    let user_chat_font = super::super::theme::resolve(value.fonts.user_chat.as_deref(), cx);
     cx.set_global(WindowVisualPreferences {
         value: Arc::new(value),
         selection: WindowSelection::default(),
@@ -56,6 +58,7 @@ pub(super) fn init(cx: &mut App) {
         source_generation: 0,
         write_revision: 0,
         chat_font,
+        user_chat_font,
         writer: None,
     });
     cx.set_global(VisualWriters::default());
@@ -89,9 +92,11 @@ pub(super) fn init(cx: &mut App) {
 pub(super) fn update_application_default(value: &crate::preferences::Preferences, cx: &mut App) {
     let value = Arc::new(VisualConfig::from_preferences(value));
     let chat_font = super::super::theme::resolve(value.fonts.chat.as_deref(), cx);
+    let user_chat_font = super::super::theme::resolve(value.fonts.user_chat.as_deref(), cx);
     let state = cx.global_mut::<WindowVisualPreferences>();
     state.value = value;
     state.chat_font = chat_font;
+    state.user_chat_font = user_chat_font;
     state.revision = fresh_revision();
 }
 
@@ -132,6 +137,12 @@ pub(in crate::ui) fn revision(cx: &App) -> u64 {
 
 pub(in crate::ui) fn chat_font(cx: &App) -> Option<SharedString> {
     cx.global::<WindowVisualPreferences>().chat_font.clone()
+}
+
+pub(in crate::ui) fn user_chat_font(cx: &App) -> Option<SharedString> {
+    cx.global::<WindowVisualPreferences>()
+        .user_chat_font
+        .clone()
 }
 
 pub(in crate::ui) fn snapshot(cx: &App) -> WindowVisualPreferences {
@@ -302,7 +313,10 @@ fn apply(cx: &mut App) {
     let mut projection = crate::preferences::Preferences::default();
     value.apply_to_preferences(&mut projection);
     let chat_font = super::super::theme::resolve(value.fonts.chat.as_deref(), cx);
-    cx.global_mut::<WindowVisualPreferences>().chat_font = chat_font;
+    let user_chat_font = super::super::theme::resolve(value.fonts.user_chat.as_deref(), cx);
+    let state = cx.global_mut::<WindowVisualPreferences>();
+    state.chat_font = chat_font;
+    state.user_chat_font = user_chat_font;
     super::super::extensions::bump_visual_render_generation(cx);
     super::apply(
         &projection,

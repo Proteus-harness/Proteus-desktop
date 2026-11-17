@@ -151,6 +151,7 @@ impl Chat {
                                 .gap_0p5()
                                 .child(
                                     v_flex()
+                                        .font_family(prefs::user_chat_font(cx))
                                         .max_w(relative(0.85))
                                         .px_3()
                                         .py_2()

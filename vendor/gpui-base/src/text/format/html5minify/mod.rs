@@ -120,7 +120,7 @@ impl<'a> Context<'a> {
     /// Whether the parent keeps its whitespace, or an element above it does:
     /// text in `<pre><code>` keeps its whitespace as well.
     fn preserves_whitespace(&self) -> bool {
-        matches!(&self.parent.data, NodeData::Element { name, .. } if preserve_whitespace(name.local.as_ref()))
+        matches!(&self.parent.data, NodeData::Element { name, attrs, .. } if preserve_whitespace(name.local.as_ref()) || attrs.borrow().iter().any(|attr| attr.name.local.as_ref() == "style" && preserves_css_whitespace(attr.value.as_ref())))
             || self
                 .parent_context
                 .is_some_and(Context::preserves_whitespace)
@@ -728,6 +728,19 @@ fn is_block_element(node: &Node) -> bool {
 #[allow(clippy::missing_const_for_fn)]
 fn is_ascii_whitespace(c: char) -> bool {
     c.is_ascii_whitespace()
+}
+
+/// A literal text contributor may preserve whitespace without choosing a
+/// code font or disabling native link/selection handling.
+fn preserves_css_whitespace(style: &str) -> bool {
+    style.split(';').any(|declaration| {
+        declaration.split_once(':').is_some_and(|(name, value)| {
+            name.trim().eq_ignore_ascii_case("white-space")
+                && ["pre", "pre-wrap", "break-spaces"]
+                    .iter()
+                    .any(|preserve| value.trim().eq_ignore_ascii_case(preserve))
+        })
+    })
 }
 
 fn preserve_whitespace(name: &str) -> bool {

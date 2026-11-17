@@ -37,15 +37,42 @@ pub(super) enum TextInput {
     Area(Entity<TextareaState>),
 }
 
+/// Registration updates mounted backing. Refresh only untouched buffers in
+/// prepare; an intervening edit cancels the pending refresh.
+#[derive(Default)]
+pub(super) struct EditorRevision {
+    last_edit: u64,
+    refresh: bool,
+}
+
+impl EditorRevision {
+    pub(super) fn edited(&mut self, revision: u64) {
+        self.last_edit = revision;
+        self.refresh = false;
+    }
+
+    pub(super) fn registered(&mut self, submitted: u64, changed: bool) {
+        self.refresh |= changed && self.last_edit <= submitted;
+    }
+
+    pub(super) fn needs_refresh(&self) -> bool {
+        self.refresh
+    }
+}
+
 pub(super) struct TextField {
     pub input: TextInput,
     pub error: Option<SharedString>,
+    pub revision: EditorRevision,
+    /// Tag search is raw pending input, not the array's rendered value.
+    pending_only: bool,
     _subscription: Subscription,
 }
 
 pub(super) struct JsonField {
     pub input: Entity<TextareaState>,
     pub error: Option<SharedString>,
+    pub revision: EditorRevision,
     _subscription: Subscription,
 }
 
@@ -53,6 +80,8 @@ pub(super) type ModuleKey = (String, String);
 
 #[derive(Default)]
 pub(super) struct Editors {
+    pub modes: super::mode_editors::ModeEditors,
+    pub models: super::model_editors::ModelEditors,
     pub fields: HashMap<FieldPath, TextField>,
     pub json: HashMap<ModuleKey, JsonField>,
     /// Forms of profile MCP servers by position in `tools.mcp_servers`.
@@ -60,8 +89,32 @@ pub(super) struct Editors {
 }
 
 impl Editors {
+    pub(super) fn registered(
+        &mut self,
+        previous: &crate::settings::Draft,
+        current: &crate::settings::Draft,
+        submitted: u64,
+    ) {
+        for (path, field) in &mut self.fields {
+            if !field.pending_only {
+                field
+                    .revision
+                    .registered(submitted, previous.value(path) != current.value(path));
+            }
+        }
+        for ((slot, module), field) in &mut self.json {
+            field.revision.registered(
+                submitted,
+                previous.module_config(slot, module) != current.module_config(slot, module),
+            );
+        }
+        self.models.registered(previous, current, submitted);
+        self.modes.registered(previous, current, submitted);
+    }
+
     pub fn has_errors(&self) -> bool {
-        self.fields.values().any(|field| field.error.is_some())
+        self.models.has_errors()
+            || self.fields.values().any(|field| field.error.is_some())
             || self.json.values().any(|field| field.error.is_some())
             || self.mcp.values().any(McpForm::has_errors)
     }
@@ -77,30 +130,6 @@ pub(super) fn module_key(slot: &str, module: &str) -> ModuleKey {
 }
 
 impl SettingsView {
-    /// Rule and other string lists stay open at their natural height. Reuse
-    /// the chat code surface, with the native editor retaining input/selection.
-    pub(super) fn string_list(input: &Entity<TextareaState>, cx: &Context<Self>) -> AnyElement {
-        let theme = cx.theme();
-        Self::text_keys(
-            kit::code_surface(cx)
-                // Small textarea contributes 8px/2px itself, completing the
-                // shared code surface's 12px/8px content insets.
-                .px_1()
-                .py_1p5()
-                .child(
-                    kit::textarea(input, cx)
-                        .small()
-                        .w_full()
-                        .appearance(false)
-                        .border_0()
-                        .rounded(theme.radius_lg)
-                        .bg(theme.muted)
-                        .font_family(theme.mono_font_family.clone())
-                        .text_xs(),
-                ),
-        )
-    }
-
     /// Short values remain directly editable. Long values have a bounded
     /// preview and the common animated disclosure; the same editor entity
     /// retains selection, invalid edits and focus across toggles.
@@ -178,9 +207,11 @@ impl SettingsView {
             return Vec::new();
         };
         match &self.page {
-            PageId::Model => catalog::model_module(snapshot, &self.draft)
-                .map(|module| vec![module_key(MODEL_SLOT, &module)])
-                .unwrap_or_default(),
+            PageId::Providers => snapshot
+                .model_modules
+                .iter()
+                .map(|module| module_key(MODEL_SLOT, &module.id))
+                .collect(),
             PageId::Slot(slot) => catalog::selected_module(snapshot, &self.draft, slot)
                 .map(|module| module_key(slot, module))
                 .into_iter()
@@ -222,6 +253,12 @@ impl SettingsView {
     }
 
     pub(super) fn prepare_editors(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.page == PageId::Modes {
+            self.prepare_mode_editors(window, cx);
+        }
+        if self.page == PageId::Models {
+            self.prepare_model_editors(window, cx);
+        }
         if self.page == PageId::Mcp {
             self.prepare_mcp_forms(window, cx);
         }
@@ -248,7 +285,12 @@ impl SettingsView {
                 );
             }
             for leaf in leaves {
-                if !self.editors.fields.contains_key(&leaf.path) {
+                if self
+                    .editors
+                    .fields
+                    .get(&leaf.path)
+                    .is_none_or(|field| field.revision.needs_refresh())
+                {
                     self.create_field(leaf, window, cx);
                 }
             }
@@ -261,6 +303,7 @@ impl SettingsView {
             format,
             default,
             placeholder,
+            tags,
         } = leaf;
         let text = self
             .draft
@@ -269,7 +312,29 @@ impl SettingsView {
             .map(|value| format_value(format, value))
             .unwrap_or_default();
         let key = path.clone();
-        let (input, subscription) = if format.is_multiline() {
+        let pending_only = tags.is_some();
+        let (input, subscription) = if let Some(field) = tags {
+            let state = cx
+                .new(|cx| InputState::new(window, cx).placeholder("Добавить или найти значение…"));
+            let subscription = cx.subscribe_in(
+                &state,
+                window,
+                move |this, _state, event, window, cx| match event {
+                    InputEvent::Change => {
+                        if let Some(field) = this.editors.fields.get_mut(&key) {
+                            field.error = None;
+                            field.revision.edited(this.edit_revision.wrapping_add(1));
+                        }
+                        this.draft_changed(cx);
+                    }
+                    InputEvent::PressEnter { .. } => {
+                        this.add_string_tag(&key, &field, window, cx);
+                    }
+                    _ => {}
+                },
+            );
+            (TextInput::Line(state), subscription)
+        } else if format.is_multiline() {
             let state = cx.new(|cx| {
                 TextareaState::new(window, cx)
                     .auto_grow(2, editor_max_rows(&text))
@@ -304,6 +369,8 @@ impl SettingsView {
             TextField {
                 input,
                 error: None,
+                revision: EditorRevision::default(),
+                pending_only,
                 _subscription: subscription,
             },
         );
@@ -321,6 +388,7 @@ impl SettingsView {
         let parsed = parse_text(format, text);
         if let Some(field) = self.editors.fields.get_mut(path) {
             field.error = parsed.as_ref().err().map(|error| error.clone().into());
+            field.revision.edited(self.edit_revision.wrapping_add(1));
         }
         match parsed {
             Ok(value) => self.edit_field(path, value, default, cx),
@@ -339,7 +407,12 @@ impl SettingsView {
         cx: &mut Context<Self>,
     ) {
         let key = module_key(slot, module);
-        if self.editors.json.contains_key(&key) {
+        if self
+            .editors
+            .json
+            .get(&key)
+            .is_some_and(|field| !field.revision.needs_refresh())
+        {
             return;
         }
         let value = self
@@ -367,6 +440,7 @@ impl SettingsView {
             JsonField {
                 input,
                 error: None,
+                revision: EditorRevision::default(),
                 _subscription: subscription,
             },
         );
@@ -381,6 +455,7 @@ impl SettingsView {
             };
         if let Some(field) = self.editors.json.get_mut(key) {
             field.error = parsed.as_ref().err().map(|error| error.clone().into());
+            field.revision.edited(self.edit_revision.wrapping_add(1));
         }
         match parsed {
             Ok(object) => {
@@ -431,6 +506,16 @@ fn text_leaves(path: FieldPath, field: &ConfigField, out: &mut Vec<TextLeaf>) {
     if !editable_field(field) {
         return;
     }
+    if super::tags::is_tag_field(field) {
+        out.push(TextLeaf {
+            path,
+            format: TextFormat::Lines,
+            default: field.default.clone(),
+            placeholder: String::new(),
+            tags: Some(field.clone()),
+        });
+        return;
+    }
     match field_kind(field) {
         FieldKind::Text(format) => {
             let default = field.default.clone().filter(|default| !default.is_null());
@@ -444,6 +529,7 @@ fn text_leaves(path: FieldPath, field: &ConfigField, out: &mut Vec<TextLeaf>) {
                 format,
                 default,
                 placeholder,
+                tags: None,
             });
         }
         FieldKind::Group(fields) => {
@@ -460,6 +546,7 @@ struct TextLeaf {
     format: TextFormat,
     default: Option<Value>,
     placeholder: String,
+    tags: Option<ConfigField>,
 }
 
 #[cfg(test)]

@@ -1,14 +1,18 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use proteus_contracts::app_protocol::addons::AppAddonsUpdate;
-use proteus_contracts::app_protocol::config_builder::{ConfigBuilderSnapshot, ConfigBuilderState};
+use proteus_contracts::app_protocol::config_builder::{
+    ConfigBuilderModelPreset, ConfigBuilderSnapshot, ConfigBuilderState,
+};
 use proteus_contracts::app_protocol::http::SetConfigBuilderRequest;
+use proteus_contracts::domain::BehaviorModeDefinition;
 use serde_json::{Map, Value};
 
 /// Profile area touched by an edit.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Area {
-    Provider,
+    Models,
+    Modes,
     Mode,
     Tools,
     Hooks,
@@ -63,7 +67,10 @@ pub struct Draft {
     pub config: BTreeMap<String, BTreeMap<String, Value>>,
     pub hooks: Vec<String>,
     pub tools: BTreeSet<String>,
-    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub models: BTreeMap<String, ConfigBuilderModelPreset>,
+    pub role_models: BTreeMap<String, Option<String>>,
+    pub modes: BTreeMap<String, BehaviorModeDefinition>,
     pub mode: String,
     /// Skills, MCP servers and agent plugin packages.
     pub addons: AppAddonsUpdate,
@@ -80,7 +87,15 @@ impl Draft {
             config: snapshot.module_config.clone(),
             hooks: snapshot.hooks.clone(),
             tools: snapshot.tools_enabled.iter().cloned().collect(),
-            provider: snapshot.active_provider.clone(),
+            model: snapshot.model.clone(),
+            models: snapshot.models.clone(),
+            modes: snapshot.modes.clone(),
+            role_models: snapshot
+                .model_roles
+                .iter()
+                .filter(|role| role.editable)
+                .map(|role| (role.name.clone(), role.model.clone()))
+                .collect(),
             mode: snapshot.permission_mode.clone(),
             addons: super::addons::normalized(snapshot.addon_settings.clone()),
         }
@@ -205,16 +220,35 @@ impl Draft {
         let mut config = state.module_config.clone();
         for (slot, modules) in &snapshot.module_config {
             let target = config.entry(slot.clone()).or_default();
-            for module in modules.keys() {
-                target
-                    .entry(module.clone())
-                    .or_insert_with(|| Value::Object(Map::new()));
+            for (module, value) in modules {
+                target.entry(module.clone()).or_insert_with(|| {
+                    if slot == "model" && !state.model_connections.contains(module) {
+                        // Installing a component is not undone by settings
+                        // history. Its required seed must stay usable.
+                        value.clone()
+                    } else {
+                        Value::Object(Map::new())
+                    }
+                });
             }
         }
         draft.config = config;
         draft.hooks = state.hooks.clone();
         draft.tools = state.tools_enabled.iter().cloned().collect();
-        draft.provider = state.active_provider.clone();
+        if snapshot.model_writable {
+            draft.model = state.model.clone();
+        }
+        if snapshot.models_writable {
+            draft.models = state.models.clone();
+        }
+        if snapshot.modes_writable {
+            draft.modes = state.modes.clone();
+        }
+        for (name, choice) in &mut draft.role_models {
+            if let Some(saved) = state.role_models.get(name) {
+                *choice = saved.clone();
+            }
+        }
         draft.mode = state.permission_mode.clone();
         draft.addons = super::addons::normalized(state.addon_settings.clone());
         draft
@@ -224,11 +258,14 @@ impl Draft {
     pub fn areas(&self, baseline: &Draft) -> Vec<Area> {
         let request = self.changes(baseline);
         let mut areas = BTreeSet::new();
-        if request.active_provider.is_some() {
-            areas.insert(Area::Provider);
+        if request.model.is_some() || request.models.is_some() || request.role_models.is_some() {
+            areas.insert(Area::Models);
         }
         if request.permission_mode.is_some() {
             areas.insert(Area::Mode);
+        }
+        if request.modes.is_some() {
+            areas.insert(Area::Modes);
         }
         if request.tools_enabled.is_some() {
             areas.insert(Area::Tools);
@@ -282,8 +319,25 @@ impl Draft {
         if self.tools != baseline.tools {
             request.tools_enabled = Some(self.tools.iter().cloned().collect());
         }
-        if self.provider != baseline.provider {
-            request.active_provider = self.provider.clone();
+        if self.model != baseline.model {
+            request.model = Some(self.model.clone());
+        }
+        if self.models != baseline.models {
+            request.models = Some(self.models.clone());
+            request.expected_models = Some(baseline.models.clone());
+        }
+        if self.modes != baseline.modes {
+            request.modes = Some(self.modes.clone());
+            request.expected_modes = Some(baseline.modes.clone());
+        }
+        let roles = self
+            .role_models
+            .iter()
+            .filter(|(role, model)| baseline.role_models.get(*role) != Some(*model))
+            .map(|(role, model)| (role.clone(), model.clone()))
+            .collect::<BTreeMap<_, _>>();
+        if !roles.is_empty() {
+            request.role_models = Some(roles);
         }
         if self.mode != baseline.mode {
             request.permission_mode = serde_json::from_value(Value::String(self.mode.clone())).ok();
@@ -300,7 +354,10 @@ impl Draft {
             || !request.module_config.is_empty()
             || request.hooks.is_some()
             || request.tools_enabled.is_some()
-            || request.active_provider.is_some()
+            || request.model.is_some()
+            || request.models.is_some()
+            || request.modes.is_some()
+            || request.role_models.is_some()
             || request.permission_mode.is_some()
             || request.addon_settings.is_some()
     }

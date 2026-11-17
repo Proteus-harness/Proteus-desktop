@@ -21,6 +21,8 @@ use super::{Draft, FieldKind, FieldPath, TextFormat, field_kind, format_value, p
 
 mod connections;
 mod mcp_json;
+mod models;
+mod modes;
 mod params;
 
 fn integer(minimum: Option<i64>, maximum: Option<i64>) -> TextFormat {
@@ -175,7 +177,13 @@ fn pages_cover_known_slots_and_append_unknown_ones() {
         slot_pages,
         ["workflow", "context", "policy", "earlier", "later"]
     );
-    for page in [PageId::Model, PageId::Tools, PageId::Hooks] {
+    for page in [
+        PageId::Providers,
+        PageId::Models,
+        PageId::Modes,
+        PageId::Tools,
+        PageId::Hooks,
+    ] {
         assert!(pages.contains(&page));
     }
     assert!(CONNECTION_PAGES.iter().all(|page| !pages.contains(page)));
@@ -481,6 +489,7 @@ fn canonical_pack_uses_the_owner_and_keeps_unplaced_and_missing_tools() {
         id: id.into(),
         command: "module-host".into(),
         description: None,
+        icon: None,
         exports: Vec::new(),
         tool_packs: vec![ConfigBuilderToolPack {
             id: "tools".into(),

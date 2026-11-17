@@ -86,6 +86,23 @@ fn messages(hidden_suffix: bool) -> Vec<AppTranscriptMessage> {
 
 fn chat(cx: &mut VisualTestContext) -> Entity<Chat> {
     cx.update(|window, cx| {
+        // This geometry fixture deliberately has no workspace/backend. Keep
+        // its user anchors synchronous: body contributors would wait forever
+        // for that missing host, leaving their source heights provisional.
+        let contributors: Vec<_> = crate::ui::extensions::catalog()
+            .into_iter()
+            .filter(|manifest| {
+                manifest.content.is_some_and(|content| {
+                    content.formats.iter().any(|format| format == "text/plain")
+                })
+            })
+            .map(|manifest| manifest.id)
+            .collect();
+        crate::ui::prefs::update_visual(cx, |visual| {
+            for id in contributors {
+                visual.extensions.set_enabled(id, false);
+            }
+        });
         cx.new(|cx| {
             let mut session = Session::new("/synthetic/group-context".into());
             // A partial archive tail cannot add a footer until its successor

@@ -54,13 +54,30 @@ pub(in crate::ui) fn menu_chevron(
 
 /// Disclosures toggled a moment ago, keyed by caller-chosen names.
 #[derive(Default, Clone)]
-struct Toggles(HashMap<SharedString, Toggle>);
+struct Toggles {
+    entries: HashMap<SharedString, Toggle>,
+    animate: Option<bool>,
+}
 
 impl Global for Toggles {}
 
 pub(super) fn register_window_globals(cx: &mut App) {
     cx.set_global(Toggles::default());
     cx.register_window_global::<Toggles>();
+}
+
+/// Motion preferences belong to a window. Drop its old disclosure clocks
+/// when that preference changes, so returning to Full cannot resume a tween
+/// that the reduced/disabled frame already settled.
+pub(in crate::ui) fn settle_disclosures(cx: &mut App) {
+    if cx.has_global::<Toggles>() {
+        let animate = moves(cx) && !cx.reduce_motion();
+        let toggles = cx.global_mut::<Toggles>();
+        if toggles.animate != Some(animate) {
+            toggles.entries.clear();
+            toggles.animate = Some(animate);
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -89,17 +106,23 @@ pub(in crate::ui) fn toggled(key: impl Into<SharedString>, open: bool, cx: &mut 
     let animate = moves(cx) && !cx.reduce_motion();
     let now = Instant::now();
     let toggles = cx.default_global::<Toggles>();
-    toggles.0.retain(|_, toggle| toggle.tween.running(now));
+    if toggles.animate != Some(animate) {
+        toggles.entries.clear();
+    }
+    toggles.animate = Some(animate);
+    toggles
+        .entries
+        .retain(|_, toggle| toggle.tween.running(now));
     if !animate {
-        toggles.0.remove(&key);
+        toggles.entries.remove(&key);
         return;
     }
     let from = toggles
-        .0
+        .entries
         .get(&key)
         .map(|toggle| toggle.progress(now))
         .unwrap_or(if open { 0. } else { 1. });
-    toggles.0.insert(
+    toggles.entries.insert(
         key,
         Toggle {
             tween: Tween::start(SLOW),
@@ -216,17 +239,26 @@ fn progress(key: &str, open: bool, cx: &App) -> Option<f32> {
 }
 
 fn progress_at(key: &str, open: bool, at: Instant, cx: &App) -> Option<f32> {
+    if !moves(cx) || cx.reduce_motion() {
+        return None;
+    }
     cx.try_global::<Toggles>()
-        .and_then(|toggles| toggles.0.get(key).copied())
+        .and_then(|toggles| toggles.entries.get(key).copied())
         .and_then(|toggle| toggle.sample(open, at))
 }
 
 /// Keeps a view redrawing while any disclosure animates; call from `render`.
 pub(in crate::ui) fn drive(window: &mut Window, cx: &App) {
+    if !moves(cx) || cx.reduce_motion() {
+        return;
+    }
     let now = Instant::now();
-    let running = cx
-        .try_global::<Toggles>()
-        .is_some_and(|toggles| toggles.0.values().any(|toggle| toggle.tween.running(now)));
+    let running = cx.try_global::<Toggles>().is_some_and(|toggles| {
+        toggles
+            .entries
+            .values()
+            .any(|toggle| toggle.tween.running(now))
+    });
     if running {
         window.request_animation_frame();
     }
@@ -235,7 +267,7 @@ pub(in crate::ui) fn drive(window: &mut Window, cx: &App) {
 #[cfg(test)]
 mod tests {
     use super::{SLOW, Toggle, Tween, preview_with_progress};
-    use gpui_kit::{ParentElement as _, div};
+    use gpui_kit::{ParentElement as _, VisualContext as _, div};
     use std::cell::{Cell, RefCell};
     use std::rc::Rc;
     use std::time::{Duration, Instant};
@@ -366,6 +398,63 @@ mod tests {
                 assert_eq!(toggle.sample(open, frame_at), head);
             }
             assert!(toggle.sample(!open, frame_at).is_none());
+        }
+    }
+
+    #[test]
+    fn changing_motion_settles_only_its_window_and_does_not_resurrect_old_tweens() {
+        use super::{Toggles, progress_at, toggled};
+        use crate::{
+            preferences::MotionPreference::{Full, Off, Reduced},
+            ui::prefs,
+        };
+        let mut app = ::gpui::TestAppContext::single();
+        app.update(|cx| {
+            gpui_kit::init(cx);
+            crate::ui::theme::init(cx);
+            prefs::init_in_memory(cx);
+        });
+        let first = app.add_empty_window().window_handle();
+        let second = app.add_empty_window().window_handle();
+        let mut first = ::gpui::VisualTestContext::from_window(first, &app);
+        let mut second = ::gpui::VisualTestContext::from_window(second, &app);
+        // Inject only the clock, so theme/font initialization cannot make a
+        // wall-clock-driven regression sporadically expire during this test.
+        let at = Instant::now() + Duration::from_secs(60);
+        for window in [&mut first, &mut second] {
+            window.update(|window, cx| {
+                prefs::initialize_visual_window(window, cx);
+                prefs::update_visual(cx, |config| config.motion = Full);
+                toggled("same-key", true, cx);
+                cx.global_mut::<Toggles>()
+                    .entries
+                    .get_mut("same-key")
+                    .unwrap()
+                    .tween = Tween::start_at(SLOW, at);
+                assert_eq!(progress_at("same-key", true, at, cx), Some(0.));
+            });
+        }
+        for mode in [Reduced, Off] {
+            first.update(|_, cx| {
+                prefs::update_visual(cx, |config| config.motion = mode);
+                assert!(progress_at("same-key", true, at, cx).is_none());
+                prefs::update_visual(cx, |config| config.motion = Full);
+                assert!(progress_at("same-key", true, at, cx).is_none());
+                toggled("same-key", true, cx);
+                cx.global_mut::<Toggles>()
+                    .entries
+                    .get_mut("same-key")
+                    .unwrap()
+                    .tween = Tween::start_at(SLOW, at);
+                // Re-projecting another visual field must not clear a Full
+                // window's valid disclosure just because Effects is initial.
+                prefs::update_visual(cx, |config| config.view.scale += 1);
+                assert_eq!(progress_at("same-key", true, at, cx), Some(0.));
+            });
+            second.update(|_, cx| {
+                assert_eq!(prefs::visual(cx).motion, Full);
+                assert_eq!(progress_at("same-key", true, at, cx), Some(0.));
+            });
         }
     }
 }

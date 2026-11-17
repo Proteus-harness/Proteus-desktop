@@ -62,6 +62,12 @@
     ],
     "chat_secondary_foreground": [
       "chat.secondary.foreground"
+    ],
+    "input_background": [
+      "input.background"
+    ],
+    "panel_header_hover": [
+      "panel.header.hover.background"
     ]
   },
   "sources": {
@@ -341,25 +347,29 @@
         "muted": "#ccd0da",
         "border": "#acb0be",
         "active_tab": "#eff1f5",
-        "accordion": "#d6dae3",
+        "accordion": "#d1d5df",
         "secondary": "#ccd0da",
         "foreground": "#4c4f69",
         "muted_foreground": "#4c4f69",
         "hover_overlay": "#00000008",
         "secondary_hover": "#c6cad3",
         "secondary_pressed": "#c0c4cd",
-        "chat_secondary_foreground": "#5c5f77"
+        "chat_secondary_foreground": "#5c5f77",
+        "input_background": "#eff1f5",
+        "panel_header_hover": "#00000004"
       },
       "preserved_payload_sha256": "572a433e910ee71fb647b6fd7316655ed9d279aa791bea7f62f087294100bd7b",
       "tokens": {
-        "accordion": "Proteus softened crust towards card; previously #dce0e8; see nested_surface_policy",
+        "accordion": "Proteus subtle nested surface towards card; see nested_surface_policy",
         "secondary": "surface0 (input surface)",
         "foreground": "text",
         "muted_foreground": "text",
         "hover_overlay": "Proteus neutral overlay (8/255 alpha)",
         "secondary_hover": "Proteus black3% over surface0",
         "secondary_pressed": "Proteus black6% over surface0 (surface1 fails4.5:1)",
-        "chat_secondary_foreground": "subtext1"
+        "chat_secondary_foreground": "subtext1",
+        "input_background": "Catppuccin Latte base",
+        "panel_header_hover": "Proteus subtle neutral heading overlay, separate from list hover"
       },
       "muted_candidates": [
         {
@@ -392,18 +402,20 @@
         "muted": "#414559",
         "border": "#626880",
         "active_tab": "#414559",
-        "accordion": "#494e63",
+        "accordion": "#454a5e",
         "secondary": "#414559",
         "foreground": "#c6d0f5",
         "muted_foreground": "#c6d0f5",
         "hover_overlay": "#ffffff03",
         "secondary_hover": "#494c60",
         "secondary_pressed": "#51576d",
-        "chat_secondary_foreground": "#949cbb"
+        "chat_secondary_foreground": "#949cbb",
+        "input_background": "#51576d",
+        "panel_header_hover": "#ffffff04"
       },
       "preserved_payload_sha256": "2978737947207453169990c9bfa3024a9329f29d50639875445817a09773e7c3",
       "tokens": {
-        "accordion": "Proteus softened surface1 towards card; previously #51576d; see nested_surface_policy",
+        "accordion": "Proteus subtle nested surface towards card; see nested_surface_policy",
         "secondary": "GPUI Kit secondary.background",
         "foreground": "text",
         "muted_foreground": "text",
@@ -411,7 +423,9 @@
         "content": "Proteus 50:50 sRGB interpolation of authored sidebar and base",
         "secondary_hover": "Proteus white4% over GPUI Kit secondary",
         "secondary_pressed": "Catppuccin surface1",
-        "chat_secondary_foreground": "overlay2"
+        "chat_secondary_foreground": "overlay2",
+        "input_background": "Catppuccin Frappe surface1",
+        "panel_header_hover": "Proteus subtle neutral heading overlay, separate from list hover"
       },
       "muted_candidates": [
         {
@@ -444,18 +458,20 @@
         "muted": "#363a4f",
         "border": "#5b6078",
         "active_tab": "#363a4f",
-        "accordion": "#3f4359",
+        "accordion": "#3b3f54",
         "secondary": "#363a4f",
         "foreground": "#cad3f5",
         "muted_foreground": "#b8c0e0",
         "hover_overlay": "#ffffff08",
         "secondary_hover": "#3a3f55",
         "secondary_pressed": "#494d64",
-        "chat_secondary_foreground": "#939ab7"
+        "chat_secondary_foreground": "#939ab7",
+        "input_background": "#494d64",
+        "panel_header_hover": "#ffffff04"
       },
       "preserved_payload_sha256": "6e80035d3ffdbe91ccfb996ab36496a38bb4c48cd6cde0181033d799ef65319e",
       "tokens": {
-        "accordion": "Proteus softened surface1 towards card; previously #494d64; see nested_surface_policy",
+        "accordion": "Proteus subtle nested surface towards card; see nested_surface_policy",
         "secondary": "GPUI Kit secondary.background",
         "foreground": "text",
         "muted_foreground": "subtext1",
@@ -463,7 +479,9 @@
         "content": "Proteus 50:50 sRGB interpolation of authored sidebar and base",
         "secondary_hover": "GPUI Kit original secondary.active.background",
         "secondary_pressed": "Catppuccin surface1",
-        "chat_secondary_foreground": "overlay2"
+        "chat_secondary_foreground": "overlay2",
+        "input_background": "Catppuccin Macchiato surface1",
+        "panel_header_hover": "Proteus subtle neutral heading overlay, separate from list hover"
       },
       "muted_candidates": [
         {
@@ -496,18 +514,20 @@
         "muted": "#313244",
         "border": "#585b70",
         "active_tab": "#313244",
-        "accordion": "#3a3c4e",
+        "accordion": "#363749",
         "secondary": "#302d41",
         "foreground": "#cdd6f4",
         "muted_foreground": "#bac2de",
         "hover_overlay": "#ffffff08",
         "secondary_hover": "#45475a",
         "secondary_pressed": "#575268",
-        "chat_secondary_foreground": "#7f849c"
+        "chat_secondary_foreground": "#7f849c",
+        "input_background": "#45475a",
+        "panel_header_hover": "#ffffff04"
       },
       "preserved_payload_sha256": "198f3c1912436f114f836d2cecca2445c2ec6ca4f7996c2a370fe3c01dedb776",
       "tokens": {
-        "accordion": "Proteus softened surface1 towards card; previously #45475a; see nested_surface_policy",
+        "accordion": "Proteus subtle nested surface towards card; see nested_surface_policy",
         "secondary": "GPUI Kit secondary.background",
         "foreground": "text",
         "muted_foreground": "subtext1",
@@ -515,7 +535,9 @@
         "content": "Proteus 50:50 sRGB interpolation of authored sidebar and base",
         "secondary_hover": "GPUI Kit original secondary.active.background",
         "secondary_pressed": "GPUI Kit original secondary.hover.background",
-        "chat_secondary_foreground": "overlay1"
+        "chat_secondary_foreground": "overlay1",
+        "input_background": "Catppuccin Mocha surface1",
+        "panel_header_hover": "Proteus subtle neutral heading overlay, separate from list hover"
       },
       "muted_candidates": [
         {
@@ -546,20 +568,22 @@
         "card": "#292e42",
         "popover": "#292e42",
         "muted": "#292e42",
-        "border": "#15161e",
+        "border": "#737aa2",
         "active_tab": "#292e42",
-        "accordion": "#232738",
+        "accordion": "#262b3d",
         "secondary": "#292e42",
         "foreground": "#c0caf5",
         "muted_foreground": "#a9b1d6",
         "hover_overlay": "#ffffff08",
         "secondary_hover": "#2d3349",
         "secondary_pressed": "#3a3f51",
-        "chat_secondary_foreground": "#828bb8"
+        "chat_secondary_foreground": "#828bb8",
+        "input_background": "#3a3f51",
+        "panel_header_hover": "#ffffff04"
       },
       "preserved_payload_sha256": "1a897395bde248df454872851e285a66a8568b1b9697187cd4cd6bd1fe8de315",
       "tokens": {
-        "accordion": "Proteus softened bg_dark1 towards card; previously #0c0e14; see nested_surface_policy",
+        "accordion": "Proteus subtle nested surface towards card; see nested_surface_policy",
         "secondary": "GPUI Kit secondary.background",
         "foreground": "GPUI Kit foreground",
         "muted_foreground": "fg_dark",
@@ -567,7 +591,10 @@
         "content": "Proteus 50:50 sRGB interpolation of authored sidebar and bg",
         "secondary_hover": "GPUI Kit original secondary.hover.background",
         "secondary_pressed": "Proteus white8% over GPUI Kit secondary",
-        "chat_secondary_foreground": "Moon fg_dark (family secondary-text adaptation)"
+        "chat_secondary_foreground": "Moon fg_dark (family secondary-text adaptation)",
+        "input_background": "existing Proteus secondary pressed fill",
+        "panel_header_hover": "Proteus subtle neutral heading overlay, separate from list hover",
+        "border": "Existing imported family muted-candidate #737aa2, adapted as visible functional selector frame"
       },
       "muted_candidates": [
         {
@@ -598,20 +625,22 @@
         "card": "#292e42",
         "popover": "#292e42",
         "muted": "#292e42",
-        "border": "#1d202f",
+        "border": "#737aa2",
         "active_tab": "#292e42",
-        "accordion": "#232739",
+        "accordion": "#262a3d",
         "secondary": "#292e42",
         "foreground": "#c0caf5",
         "muted_foreground": "#a9b1d6",
         "hover_overlay": "#ffffff08",
         "secondary_hover": "#2e334a",
         "secondary_pressed": "#323750",
-        "chat_secondary_foreground": "#828bb8"
+        "chat_secondary_foreground": "#828bb8",
+        "input_background": "#3b4261",
+        "panel_header_hover": "#ffffff04"
       },
       "preserved_payload_sha256": "4c24395ad01aa64ac76d8fe0878b4aa590bca332bd9aaec6e94cab406aaa3b71",
       "tokens": {
-        "accordion": "Proteus softened bg_dark1 towards card; previously #1b1e2d; see nested_surface_policy; one further step towards card keeps it distinct from content",
+        "accordion": "Proteus subtle nested surface towards card; see nested_surface_policy",
         "secondary": "GPUI Kit secondary.background",
         "foreground": "GPUI Kit foreground",
         "muted_foreground": "fg_dark",
@@ -619,7 +648,10 @@
         "content": "Proteus 50:50 sRGB interpolation of authored sidebar and bg",
         "secondary_hover": "GPUI Kit original alpha secondary.hover.background, flattened over secondary",
         "secondary_pressed": "GPUI Kit original secondary.active.background",
-        "chat_secondary_foreground": "Moon fg_dark (family secondary-text adaptation)"
+        "chat_secondary_foreground": "Moon fg_dark (family secondary-text adaptation)",
+        "input_background": "Tokyo Storm fg_gutter adapted as opaque field surface",
+        "panel_header_hover": "Proteus subtle neutral heading overlay, separate from list hover",
+        "border": "Existing imported family muted-candidate #737aa2, adapted as visible functional selector frame"
       },
       "muted_candidates": [
         {
@@ -650,20 +682,22 @@
         "card": "#2f334d",
         "popover": "#2f334d",
         "muted": "#2f334d",
-        "border": "#1b1d2b",
+        "border": "#737aa2",
         "active_tab": "#2f334d",
-        "accordion": "#292c43",
+        "accordion": "#2c3048",
         "secondary": "#2d3149",
         "foreground": "#c0caf5",
         "muted_foreground": "#c8d3f5",
         "hover_overlay": "#ffffff08",
         "secondary_hover": "#2f334c",
         "secondary_pressed": "#31354f",
-        "chat_secondary_foreground": "#828bb8"
+        "chat_secondary_foreground": "#828bb8",
+        "input_background": "#444b6a",
+        "panel_header_hover": "#ffffff04"
       },
       "preserved_payload_sha256": "6886b25b1d845c2c90202d280f06c1c288322e1cea4191f10247d35a79f1895a",
       "tokens": {
-        "accordion": "Proteus softened bg_dark1 towards card; previously #191b29; see nested_surface_policy",
+        "accordion": "Proteus subtle nested surface towards card; see nested_surface_policy",
         "secondary": "GPUI Kit secondary.background",
         "foreground": "GPUI Kit foreground",
         "muted_foreground": "fg",
@@ -671,7 +705,10 @@
         "content": "Proteus 50:50 sRGB interpolation of authored sidebar and bg",
         "secondary_hover": "GPUI Kit original secondary.active.background",
         "secondary_pressed": "GPUI Kit original secondary.hover.background",
-        "chat_secondary_foreground": "fg_dark"
+        "chat_secondary_foreground": "fg_dark",
+        "input_background": "existing GPUI Kit input.border, used as an opaque fill",
+        "panel_header_hover": "Proteus subtle neutral heading overlay, separate from list hover",
+        "border": "Existing imported family muted-candidate #737aa2, adapted as visible functional selector frame"
       },
       "muted_candidates": [
         {
@@ -704,25 +741,29 @@
         "muted": "#ebdbb2",
         "border": "#bdae93",
         "active_tab": "#fbf1c7",
-        "accordion": "#e1d1ab",
+        "accordion": "#e6d6af",
         "secondary": "#EBDBB2",
         "foreground": "#3c3836",
         "muted_foreground": "#504945",
         "hover_overlay": "#00000008",
         "secondary_hover": "#e8d5a6",
         "secondary_pressed": "#d5c4a1",
-        "chat_secondary_foreground": "#665c54"
+        "chat_secondary_foreground": "#665c54",
+        "input_background": "#fbf1c7",
+        "panel_header_hover": "#00000004"
       },
       "preserved_payload_sha256": "acb83295a4d761c1adb7cf3942746ef899af08fa5dc846472396a65213c27f76",
       "tokens": {
-        "accordion": "Proteus softened light2 towards card; previously #d5c4a1; see nested_surface_policy",
+        "accordion": "Proteus subtle nested surface towards card; see nested_surface_policy",
         "secondary": "GPUI Kit secondary.background",
         "foreground": "GPUI Kit foreground",
         "muted_foreground": "dark2",
         "hover_overlay": "Proteus neutral overlay (8/255 alpha)",
         "secondary_hover": "GPUI Kit original secondary.hover.background",
         "secondary_pressed": "Gruvbox light2 / GPUI Kit original secondary.active.background",
-        "chat_secondary_foreground": "dark3"
+        "chat_secondary_foreground": "dark3",
+        "input_background": "Gruvbox light0",
+        "panel_header_hover": "Proteus subtle neutral heading overlay, separate from list hover"
       },
       "muted_candidates": [
         {
@@ -755,18 +796,20 @@
         "muted": "#3c3836",
         "border": "#665c54",
         "active_tab": "#3c3836",
-        "accordion": "#46413e",
+        "accordion": "#413d3a",
         "secondary": "#3c3836",
         "foreground": "#ebdbb2",
         "muted_foreground": "#d5c4a1",
         "hover_overlay": "#ffffff08",
         "secondary_hover": "#504945",
         "secondary_pressed": "#665c54",
-        "chat_secondary_foreground": "#a89984"
+        "chat_secondary_foreground": "#a89984",
+        "input_background": "#504945",
+        "panel_header_hover": "#ffffff04"
       },
       "preserved_payload_sha256": "354c4f9ba053bb7fcfa16e558caf390953d6f89e26468c9b0c9abe964c38191f",
       "tokens": {
-        "accordion": "Proteus softened dark2 towards card; previously #504945; see nested_surface_policy",
+        "accordion": "Proteus subtle nested surface towards card; see nested_surface_policy",
         "secondary": "dark1",
         "foreground": "GPUI Kit foreground",
         "muted_foreground": "light3",
@@ -774,7 +817,9 @@
         "content": "Proteus 50:50 sRGB interpolation of authored sidebar and dark0_soft",
         "secondary_hover": "Gruvbox dark2",
         "secondary_pressed": "Gruvbox dark3",
-        "chat_secondary_foreground": "light4"
+        "chat_secondary_foreground": "light4",
+        "input_background": "Gruvbox dark2",
+        "panel_header_hover": "Proteus subtle neutral heading overlay, separate from list hover"
       },
       "muted_candidates": [
         {
@@ -807,18 +852,20 @@
         "muted": "#f4f0d9",
         "border": "#e0dcc7",
         "active_tab": "#fdf6e3",
-        "accordion": "#e6e2cc",
+        "accordion": "#eae6d0",
         "secondary": "#EEEADA",
         "foreground": "#434f55",
         "muted_foreground": "#434f55",
         "hover_overlay": "#00000008",
         "secondary_hover": "#e6e2cc",
         "secondary_pressed": "#e0dcc7",
-        "chat_secondary_foreground": "#5c6a72"
+        "chat_secondary_foreground": "#5c6a72",
+        "input_background": "#fdf6e3",
+        "panel_header_hover": "#00000004"
       },
       "preserved_payload_sha256": "b51ddcaabc5a722907c90b0020325f1fce66bfeeb4fcbae17d55fc9bcc7d5641",
       "tokens": {
-        "accordion": "bg4 (light medium)",
+        "accordion": "Proteus subtle nested surface towards card; see nested_surface_policy",
         "secondary": "GPUI Kit secondary.background",
         "foreground": "bg4 (dark medium; Proteus stronger-label adaptation)",
         "muted_foreground": "bg4 (dark medium; stronger label adaptation)",
@@ -826,7 +873,9 @@
         "hover_overlay": "Proteus neutral overlay (8/255 alpha)",
         "secondary_hover": "Everforest light medium bg4",
         "secondary_pressed": "Everforest light medium bg5",
-        "chat_secondary_foreground": "fg"
+        "chat_secondary_foreground": "fg",
+        "input_background": "Everforest light medium bg0",
+        "panel_header_hover": "Proteus subtle neutral heading overlay, separate from list hover"
       },
       "muted_candidates": [
         {
@@ -851,18 +900,20 @@
         "muted": "#343f44",
         "border": "#4f585e",
         "active_tab": "#343f44",
-        "accordion": "#3d484d",
+        "accordion": "#394449",
         "secondary": "#343f44",
         "foreground": "#d3c6aa",
         "muted_foreground": "#d3c6aa",
         "hover_overlay": "#ffffff08",
         "secondary_hover": "#3a4448",
         "secondary_pressed": "#3d484d",
-        "chat_secondary_foreground": "#9aa79d"
+        "chat_secondary_foreground": "#9aa79d",
+        "input_background": "#475258",
+        "panel_header_hover": "#ffffff04"
       },
       "preserved_payload_sha256": "e88ebec2c7c6bf8a58391ade8733fe01a3769430a984eea55fd3546d1dd36cf7",
       "tokens": {
-        "accordion": "bg3 (dark medium)",
+        "accordion": "Proteus subtle nested surface towards card; see nested_surface_policy",
         "secondary": "bg2",
         "foreground": "GPUI Kit foreground",
         "muted_foreground": "fg",
@@ -870,7 +921,9 @@
         "content": "Proteus 50:50 sRGB interpolation of authored sidebar and bg",
         "secondary_hover": "GPUI Kit original alpha secondary.hover.background, flattened over secondary",
         "secondary_pressed": "Everforest dark medium bg3",
-        "chat_secondary_foreground": "grey2"
+        "chat_secondary_foreground": "grey2",
+        "input_background": "Everforest dark medium bg4",
+        "panel_header_hover": "Proteus subtle neutral heading overlay, separate from list hover"
       },
       "muted_candidates": [
         {
@@ -903,25 +956,29 @@
         "muted": "#eee8d5",
         "border": "#d3af86",
         "active_tab": "#fdf6e3",
-        "accordion": "#e6dfcb",
+        "accordion": "#eae4d0",
         "secondary": "#EEE8D5",
         "foreground": "#073642",
         "muted_foreground": "#073642",
         "hover_overlay": "#00000008",
         "secondary_hover": "#e4ddc8",
         "secondary_pressed": "#dcd4bc",
-        "chat_secondary_foreground": "#586e75"
+        "chat_secondary_foreground": "#586e75",
+        "input_background": "#fdf6e3",
+        "panel_header_hover": "#00000004"
       },
       "preserved_payload_sha256": "b224a8ac936a98f448cd3363e837ba8ac8caa52d6f46c05941605e356b8177a6",
       "tokens": {
-        "accordion": "Proteus softened activityBar.background (Microsoft port) towards card; previously #ddd6c1; see nested_surface_policy",
+        "accordion": "Proteus subtle nested surface towards card; see nested_surface_policy",
         "secondary": "GPUI Kit secondary.background",
         "foreground": "base02 (Proteus stronger-label adaptation)",
         "muted_foreground": "base02 (stronger label adaptation)",
         "hover_overlay": "Proteus neutral overlay (8/255 alpha)",
         "secondary_hover": "GPUI Kit original alpha secondary.hover.background, flattened over secondary",
         "secondary_pressed": "GPUI Kit original secondary.active.background",
-        "chat_secondary_foreground": "base01"
+        "chat_secondary_foreground": "base01",
+        "input_background": "Solarized base3",
+        "panel_header_hover": "Proteus subtle neutral heading overlay, separate from list hover"
       },
       "muted_candidates": [
         {
@@ -946,18 +1003,20 @@
         "muted": "#073642",
         "border": "#2aa19899",
         "active_tab": "#073642",
-        "accordion": "#042d38",
+        "accordion": "#06323d",
         "secondary": "#073642",
         "foreground": "#fdf6e3",
         "muted_foreground": "#93a1a1",
         "hover_overlay": "#ffffff08",
         "secondary_hover": "#073945",
         "secondary_pressed": "#083e4b",
-        "chat_secondary_foreground": "#839496"
+        "chat_secondary_foreground": "#839496",
+        "input_background": "#00212b",
+        "panel_header_hover": "#ffffff04"
       },
       "preserved_payload_sha256": "7c2682b886f1a51e392b2092de9b0525e777534016f3e667cf9eca2b7ecc8af2",
       "tokens": {
-        "accordion": "Proteus softened sideBar.background (Microsoft port) towards card; previously #00212b; see nested_surface_policy",
+        "accordion": "Proteus subtle nested surface towards card; see nested_surface_policy",
         "secondary": "GPUI Kit secondary.background",
         "foreground": "GPUI Kit foreground",
         "muted_foreground": "base1",
@@ -965,7 +1024,9 @@
         "content": "Proteus 50:50 sRGB interpolation of authored sidebar and editor.background",
         "secondary_hover": "GPUI Kit original secondary.hover.background",
         "secondary_pressed": "GPUI Kit original secondary.active.background",
-        "chat_secondary_foreground": "base0"
+        "chat_secondary_foreground": "base0",
+        "input_background": "Microsoft port sideBar.background adapted as a darker field surface for readable base1 text",
+        "panel_header_hover": "Proteus subtle neutral heading overlay, separate from list hover"
       },
       "muted_candidates": [
         {
@@ -998,18 +1059,20 @@
         "muted": "#fafafa",
         "border": "#6b7d8f1f",
         "active_tab": "#fcfcfc",
-        "accordion": "#dcdcdc",
+        "accordion": "#e1e1e1",
         "secondary": "#ECECED",
         "foreground": "#020a12a3",
         "muted_foreground": "#020a12a3",
         "hover_overlay": "#00000008",
         "secondary_hover": "#e0e0e0",
         "secondary_pressed": "#cecece",
-        "chat_secondary_foreground": "#6a717a"
+        "chat_secondary_foreground": "#6a717a",
+        "input_background": "#fcfcfc",
+        "panel_header_hover": "#00000004"
       },
       "preserved_payload_sha256": "d7739aba1823f7b1903c5ebda594781a14b2751de8bc7ffececf2da64b9db08d",
       "tokens": {
-        "accordion": "Proteus softened GPUI Kit secondary.active.background towards card; previously #CECECE; see nested_surface_policy",
+        "accordion": "Proteus subtle nested surface towards card; see nested_surface_policy",
         "secondary": "GPUI Kit secondary.background",
         "foreground": "ui.fg / editor.foreground (64% alpha)",
         "muted_foreground": "ui.fg / editor.foreground (64% alpha)",
@@ -1017,7 +1080,9 @@
         "hover_overlay": "Proteus neutral overlay (8/255 alpha)",
         "secondary_hover": "GPUI Kit original secondary.hover.background",
         "secondary_pressed": "GPUI Kit original secondary.active.background",
-        "chat_secondary_foreground": "Proteus offline 2:1 sRGB mix: editor.fg + ui.fg, each composited over content"
+        "chat_secondary_foreground": "Proteus offline 2:1 sRGB mix: editor.fg + ui.fg, each composited over content",
+        "input_background": "Ayu light content background",
+        "panel_header_hover": "Proteus subtle neutral heading overlay, separate from list hover"
       },
       "muted_candidates": [
         {
@@ -1042,18 +1107,20 @@
         "muted": "#141821",
         "border": "#1b1f29",
         "active_tab": "#141821",
-        "accordion": "#1e2129",
+        "accordion": "#191d25",
         "secondary": "#1F2127",
         "foreground": "#B3B1AD",
         "muted_foreground": "#b3b1ad",
         "hover_overlay": "#ffffff08",
         "secondary_hover": "#23252c",
         "secondary_pressed": "#26282f",
-        "chat_secondary_foreground": "#878c90"
+        "chat_secondary_foreground": "#878c90",
+        "input_background": "#2d2f34",
+        "panel_header_hover": "#ffffff04"
       },
       "preserved_payload_sha256": "60ccf7ad62b63dc56118e1c1ddda8a0c5380298a2177cae786106deecc151fe6",
       "tokens": {
-        "accordion": "Proteus softened GPUI Kit secondary.active.background towards card; previously #26282f; see nested_surface_policy",
+        "accordion": "Proteus subtle nested surface towards card; see nested_surface_policy",
         "secondary": "GPUI Kit secondary.background",
         "foreground": "GPUI Kit foreground",
         "muted_foreground": "GPUI Kit foreground (opaque)",
@@ -1061,7 +1128,9 @@
         "content": "Proteus 50:50 sRGB interpolation of authored sidebar and surface.lift / editor.background",
         "secondary_hover": "GPUI Kit original alpha secondary.hover.background, flattened over secondary",
         "secondary_pressed": "GPUI Kit original secondary.active.background",
-        "chat_secondary_foreground": "Proteus offline 1:1 sRGB mix: GPUI Kit foreground + authored syntax.comment"
+        "chat_secondary_foreground": "Proteus offline 1:1 sRGB mix: GPUI Kit foreground + authored syntax.comment",
+        "input_background": "existing GPUI Kit input.border, used as an opaque fill",
+        "panel_header_hover": "Proteus subtle neutral heading overlay, separate from list hover"
       },
       "muted_candidates": [
         {
@@ -1162,5 +1231,6 @@
       }
     ]
   },
-  "nested_surface_policy": "Accordion is a subtle inset of card; builtin JSON adaptations are recorded in BUILTIN-ADAPTATIONS.json. Imported source palettes and custom themes are not rewritten at runtime."
+  "nested_surface_policy": "Accordion is a subtle inset of card; builtin JSON adaptations are recorded in BUILTIN-ADAPTATIONS.json. Imported source palettes and custom themes are not rewritten at runtime.",
+  "selector_frame_policy": "Tokyo Night/Storm/Moon use the shared imported #737aa2 muted-candidate token for functional frames. Dark source WinSeparator shades are no longer used for these frames. Settings selector fill uses opaque input.background."
 }

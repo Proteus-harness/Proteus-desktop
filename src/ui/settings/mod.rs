@@ -20,10 +20,16 @@ mod keys;
 mod mcp;
 mod mcp_editors;
 mod mcp_form;
+mod mode_editors;
+mod model_editors;
+mod models;
+mod modes;
 mod modules;
 mod nav;
 mod packages;
 mod params;
+mod provider_creation;
+mod providers;
 mod reveal;
 mod revisions;
 mod save;
@@ -33,6 +39,7 @@ mod sizes;
 mod skills;
 mod slots;
 mod spot;
+mod tags;
 mod tools;
 mod widgets;
 
@@ -93,6 +100,7 @@ pub struct SettingsView {
     baseline: Draft,
     draft: Draft,
     editors: Editors,
+    provider_creation: Option<provider_creation::Creation>,
     /// Modules whose parameters are edited as raw JSON.
     json: HashSet<(String, String)>,
     /// Open disclosures by key.
@@ -206,6 +214,7 @@ impl SettingsView {
             baseline: Draft::default(),
             draft: Draft::default(),
             editors: Editors::default(),
+            provider_creation: None,
             json: HashSet::new(),
             open: HashSet::new(),
             saving: false,
@@ -334,7 +343,12 @@ impl SettingsView {
 
     /// Text that does not parse, or profile MCP servers that cannot be saved.
     fn has_errors(&self) -> bool {
-        self.editors.has_errors() || !mcp_problems(&self.draft, self.addons()).is_empty()
+        self.editors.has_errors()
+            || !crate::settings::modes::problems(&self.draft).is_empty()
+            || !mcp_problems(&self.draft, self.addons()).is_empty()
+            || self.snapshot().is_some_and(|snapshot| {
+                !crate::settings::models::model_problems(&self.draft, snapshot).is_empty()
+            })
     }
 
     fn update_draft(&mut self, cx: &mut Context<Self>, change: impl FnOnce(&mut Draft)) {

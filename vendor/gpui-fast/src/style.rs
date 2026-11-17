@@ -155,24 +155,42 @@ pub enum GridTemplateMinSize {
 
 /// A simplified representation of the grid-template-* value
 #[derive(
-    Copy,
-    Clone,
-    Refineable,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Debug,
-    Default,
-    JsonSchema,
-    Serialize,
-    Deserialize,
+    Copy, Clone, Refineable, PartialEq, PartialOrd, Debug, JsonSchema, Serialize, Deserialize,
 )]
 pub struct GridTemplate {
     /// How this template directive should be repeated
     pub repeat: u16,
-    /// The minimum size in the repeat(<>, minmax(_, 1fr)) equation
+    /// The minimum size in the repeat(<>, minmax(_, fraction * 1fr)) equation
     pub min_size: GridTemplateMinSize,
+    /// Flexible track factor. Values below one can reveal an auto-height
+    /// row without measuring its contents in a separate layout generation.
+    #[serde(default = "grid_fraction_one")]
+    pub fraction: f32,
+}
+
+fn grid_fraction_one() -> f32 {
+    1.
+}
+
+impl Default for GridTemplate {
+    fn default() -> Self {
+        Self {
+            repeat: 0,
+            min_size: GridTemplateMinSize::Zero,
+            fraction: 1.,
+        }
+    }
+}
+
+impl GridTemplate {
+    /// `repeat(count, minmax(0, factor * 1fr))`; ordinary grid helpers use 1fr.
+    pub fn fractional(count: u16, factor: f32) -> Self {
+        Self {
+            repeat: count,
+            fraction: factor.max(0.),
+            ..Self::default()
+        }
+    }
 }
 
 /// The CSS styling that can be applied to an element via the `Styled` trait

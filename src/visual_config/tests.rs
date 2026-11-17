@@ -39,6 +39,8 @@ fn pure_visual_json_and_toml_roundtrip_with_package_settings() {
     let fixture = Fixture::new();
     let mut value = VisualConfig::default();
     value.theme = ThemePreference::Light;
+    value.fonts.chat = Some("Portable agent font".into());
+    value.fonts.user_chat = Some("Portable user font".into());
     value.extensions.set_enabled("quota", false);
     value.package_visual_settings.insert(
         "plan".into(),
@@ -85,11 +87,13 @@ fn applying_visual_defaults_does_not_change_device_or_agent_metadata() {
     let mut visual = VisualConfig::from_preferences(&preferences);
     visual.theme = ThemePreference::Light;
     visual.view.chat_width = 900;
+    visual.view.settings_width = 1000;
     visual.extensions.set_enabled("quota", false);
     visual.apply_to_preferences(&mut preferences);
     // Only these independently selected presentation values changed.
     expected["theme"] = json!("light");
     expected["view"]["chat_width"] = json!(900);
+    expected["view"]["settings_width"] = json!(1000);
     expected["extensions"]["disabled"] = json!(["analysis", "quota"]);
     assert_eq!(serde_json::to_value(preferences).unwrap(), expected);
 }

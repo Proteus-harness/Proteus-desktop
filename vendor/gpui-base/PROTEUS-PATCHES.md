@@ -1,5 +1,12 @@
 # Local gpui-base patch
 
+Literal HTML text can preserve whitespace through `white-space: pre-wrap`.
+This lets the plain-message contributor add URL links without interpreting
+the remaining user text as Markdown. Rich text inherits its surrounding body
+font for prose marks; explicit code keeps the configured monospace family.
+Focused regressions cover literal source fidelity, body-font changes and
+recorded link-open actions without launching a browser.
+
 Source: crates.io `gpui-base` 0.8.1, upstream https://github.com/longbridge/gpui-kit.
 The upstream source and manifest are retained under Apache-2.0.
 

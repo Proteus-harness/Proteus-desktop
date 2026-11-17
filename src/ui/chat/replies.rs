@@ -25,6 +25,7 @@ struct Reply {
     text: Arc<str>,
     languages: Vec<(String, &'static str)>,
     renderer: Option<&'static str>,
+    media_type: String,
     part: Part,
     _changes: Option<Subscription>,
     _resize: Option<Subscription>,
@@ -34,6 +35,7 @@ impl Replies {
     pub(super) fn part(
         &mut self,
         key: u64,
+        media_type: &str,
         text: &Arc<str>,
         workspace: WeakEntity<Workspace>,
         session: ChatKey,
@@ -41,15 +43,16 @@ impl Replies {
         window: &mut Window,
         cx: &mut Context<Chat>,
     ) -> Part {
-        let renderer = content::format("text/markdown", cx);
+        let renderer = content::format(media_type, cx);
         let languages = content::languages(cx);
         if let Some(reply) = self.0.get_mut(&key)
             && reply.renderer == renderer
+            && reply.media_type == media_type
         {
             if !Arc::ptr_eq(&reply.text, text) || reply.languages != languages {
                 match &mut reply.part {
                     Part::Content(view) => view.update(cx, |view, cx| {
-                        view.set_source("text/markdown", text, window, cx);
+                        view.set_source(media_type, text, window, cx);
                     }),
                     Part::Plain(plain) => *plain = text.clone(),
                 }
@@ -60,7 +63,7 @@ impl Replies {
         }
         let (part, changes, resize) = if let Some(extension) = renderer {
             let payload = Content {
-                language: "text/markdown".into(),
+                language: media_type.into(),
                 source: text.to_string(),
                 context: serde_json::Value::Null,
                 source_revision: Some(0),
@@ -86,6 +89,7 @@ impl Replies {
                 text: text.clone(),
                 languages,
                 renderer,
+                media_type: media_type.into(),
                 part: part.clone(),
                 _changes: changes,
                 _resize: resize,

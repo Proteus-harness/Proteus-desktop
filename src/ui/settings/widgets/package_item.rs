@@ -14,13 +14,23 @@ pub(in crate::ui::settings) fn package_heading(
     title: impl IntoElement,
     tags: impl IntoIterator<Item = AnyElement>,
 ) -> Div {
+    package_heading_with_icon(package_icon(icon), title, tags)
+}
+
+/// The same package layout with an author-provided image column. Callers own
+/// image loading and fallback; native-icon callers keep `package_heading`.
+pub(in crate::ui::settings) fn package_heading_with_icon(
+    icon: impl IntoElement,
+    title: impl IntoElement,
+    tags: impl IntoIterator<Item = AnyElement>,
+) -> Div {
     let tags = tags.into_iter().collect::<Vec<_>>();
     h_flex()
         .flex_1()
         .min_w_0()
         .gap_3()
         .items_center()
-        .child(package_icon(icon))
+        .child(icon)
         .child(
             v_flex()
                 .flex_1()

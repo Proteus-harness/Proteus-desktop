@@ -4777,6 +4777,47 @@ mod tests {
     }
 
     #[test]
+    fn prose_marks_inherit_the_changed_body_family_while_code_keeps_mono() {
+        use crate::text::inline::test_draw::in_prepaint;
+        use crate::text::inline::test_fonts::WideMonoTextSystem;
+        use gpui::{TestApp, TextStyle};
+        let mut app = TestApp::with_text_system(Arc::new(WideMonoTextSystem));
+        in_prepaint(&mut app, move |_, cx| {
+            cx.set_global(crate::Theme::default());
+            let mut node_cx = NodeContext::default();
+            let parsed = crate::text::format::html::parse("<p>plain <strong>bold</strong> <em>italic</em> <code>code</code> <a href=\"https://example.com\">link</a></p>", &mut node_cx).unwrap();
+            let BlockNode::Paragraph(paragraph) = &parsed.blocks[0] else {
+                panic!("expected prose")
+            };
+            let (text, highlights, links) = paragraph.plain_render(&node_cx, cx);
+            assert_eq!(links.len(), 1);
+            let code_start = text.find("code").unwrap();
+            let mono = cx.theme().tokens.typography.mono.clone();
+            for family in ["Agent font one", "Agent font two"] {
+                let body = TextStyle {
+                    font_family: family.into(),
+                    ..Default::default()
+                };
+                let runs = text_runs(text.len(), &body, &highlights);
+                let mut offset = 0;
+                let mut bold = false;
+                let mut italic = false;
+                for run in runs {
+                    let is_code = (code_start..code_start + 4).contains(&offset);
+                    assert_eq!(
+                        run.font.family.as_ref(),
+                        if is_code { mono.as_ref() } else { family }
+                    );
+                    bold |= run.font.weight == FontWeight::BOLD;
+                    italic |= run.font.style == FontStyle::Italic;
+                    offset += run.len;
+                }
+                assert!(bold && italic);
+            }
+        });
+    }
+
+    #[test]
     fn blockquote_typography_reaches_nested_table_measurement() {
         use crate::text::inline::test_draw::in_prepaint;
         use crate::text::inline::test_fonts::{BODY, MONO, WideMonoTextSystem};

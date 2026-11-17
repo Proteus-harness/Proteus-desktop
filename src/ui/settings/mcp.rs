@@ -63,7 +63,7 @@ impl SettingsView {
             .on_click(cx.listener(|this, _, _, cx| this.add_mcp_server(cx)));
         parts.push(
             section(
-                format!("Серверы · {enabled} из {}", servers.len()),
+                if servers.len() > 1 {format!("Серверы · {enabled} из {}", servers.len())} else {"Серверы".into()},
                 Some(
                     "Включённый сервер запускается при сборке агента и отдаёт ему свои инструменты."
                         .into(),
@@ -184,9 +184,7 @@ impl SettingsView {
                 .map(|(ix, configured)| self.mcp_form(ix, configured, cx)),
         );
         let Some(state) = server.state else {
-            return content
-                .child(note("Сервер появится в сборке после сохранения.", cx))
-                .into_any_element();
+            return content.into_any_element();
         };
         if let Some(error) = &state.error {
             content = content.child(

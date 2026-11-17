@@ -15,7 +15,7 @@ use super::SettingsView;
 use super::mcp::mcp_key;
 use super::spot::Destination;
 use super::widgets::{Tone, card, changed_dot, chip, hashed_id, item_row, named, note, section};
-use crate::settings::addons::{ToolOrigin, package_state, tool_origin, tool_server};
+use crate::settings::addons::{ToolOrigin, package_state, tool_origin};
 use crate::settings::catalog::{PageId, find_tool, missing_tools, tool_matches, tool_pack};
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
@@ -61,10 +61,11 @@ impl SettingsView {
             .w(prefs::scaled(260.));
         vec![
             section(
-                format!(
-                    "Разрешённые инструменты · {enabled} из {}",
-                    snapshot.tools.len()
-                ),
+                if snapshot.tools.len() > 1 {
+                    format!("Инструменты · {enabled} из {}", snapshot.tools.len())
+                } else {
+                    "Инструменты".into()
+                },
                 None,
                 Some(search.into_any_element()),
                 v_flex().gap_4().children(bodies),
@@ -250,7 +251,15 @@ impl SettingsView {
         let changed = !tool.runtime_managed
             && self.draft.tools.contains(&tool.name) != self.baseline.tools.contains(&tool.name);
         let mut chips = vec![chip(
-            tool.safety.clone(),
+            match tool.safety.as_str() {
+                "ReadOnly" => "Чтение",
+                "WritesFiles" => "Изменение файлов",
+                "RunsCommands" => "Команды",
+                "Network" => "Сеть",
+                "Dangerous" => "Опасные действия",
+                other => other,
+            }
+            .to_owned(),
             if tool.safety == "Dangerous" {
                 Tone::Danger
             } else {
@@ -258,19 +267,21 @@ impl SettingsView {
             },
             cx,
         )];
-        let server = self
-            .addons()
-            .and_then(|addons| tool_server(addons, &tool.name));
-        if tool.runtime_managed && server.is_none() {
-            chips.push(chip("управляется runtime", Tone::Accent, cx));
-        }
-        if !tool.registered {
-            chips.push(chip("не зарегистрирован", Tone::Warning, cx));
+        if on && !changed && !tool.registered {
+            chips.push(chip("Недоступен", Tone::Warning, cx));
         }
         let name = tool.name.clone();
         let switch = kit::switch(hashed_id("tool-switch", &tool.name))
             .checked(on)
             .disabled(tool.runtime_managed)
+            .hint(
+                if tool.runtime_managed {
+                    "Включается автоматически"
+                } else {
+                    "Доступность инструмента для агента; разрешения задаёт политика"
+                },
+                cx,
+            )
             .on_click(cx.listener(move |this, checked: &bool, _, cx| {
                 let checked = *checked;
                 this.update_draft(cx, |draft| draft.set_tool(&name, checked));
@@ -293,7 +304,7 @@ impl SettingsView {
             .chain([switch.into_any_element()]);
         self.spotted(
             &super::spot::tool(&tool.name),
-            item_row(title, trailing).when(!tool.registered, |row| row.opacity(0.65)),
+            item_row(title, trailing),
             cx,
         )
     }

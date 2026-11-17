@@ -1141,6 +1141,40 @@ mod tests {
         );
     }
 
+    #[test]
+    fn literal_text_html_preserves_whitespace_markup_and_link_spans() {
+        let source = "  **жирный** `код` <b>&amp;</b>\n\n[текст](https://example.com/a?q=1&b=2)\n ";
+        let html = "<div style=\"white-space: pre-wrap\">  **жирный** `код` &lt;b&gt;&amp;amp;&lt;/b&gt;\n\n[текст](<a href=\"https://example.com/a?q=1&amp;b=2\">https://example.com/a?q=1&amp;b=2</a>)\n </div>";
+        let document = super::parse(html, &mut NodeContext::default()).unwrap();
+        let BlockNode::Paragraph(paragraph) = &document.blocks[0] else {
+            panic!("expected plain paragraph")
+        };
+        assert_eq!(paragraph.text(), source);
+        let links = paragraph
+            .children
+            .iter()
+            .flat_map(|node| {
+                node.marks.iter().filter_map(move |(range, mark)| {
+                    mark.link
+                        .as_ref()
+                        .map(|link| (&node.text[range.clone()], link.url.as_ref()))
+                })
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            links,
+            [(
+                "https://example.com/a?q=1&b=2",
+                "https://example.com/a?q=1&b=2"
+            )]
+        );
+        assert!(paragraph.children.iter().all(|node| {
+            node.marks
+                .iter()
+                .all(|(_, mark)| !mark.bold && !mark.code && !mark.italic)
+        }));
+    }
+
     /// The text of the one paragraph `html` parses to.
     fn paragraph_text(html: &str) -> String {
         let mut cx = NodeContext::default();

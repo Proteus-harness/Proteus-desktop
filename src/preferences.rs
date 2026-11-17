@@ -197,8 +197,10 @@ pub enum Preference {
     LabelTruncation,
     Send,
     ChatFont,
+    UserChatFont,
     ChatText,
     ChatWidth,
+    SettingsWidth,
     CompactTools,
     Autoscroll,
     Notifications,
@@ -222,8 +224,12 @@ impl Preference {
             Self::LabelTruncation => prefs.label_truncation == LabelTruncation::default(),
             Self::Send => prefs.send == SendMode::default(),
             Self::ChatFont => prefs.fonts.chat.is_none(),
+            Self::UserChatFont => prefs.fonts.user_chat.is_none(),
             Self::ChatText => prefs.view.chat_text == ViewPreferences::default().chat_text,
             Self::ChatWidth => prefs.view.chat_width == ViewPreferences::default().chat_width,
+            Self::SettingsWidth => {
+                prefs.view.settings_width == ViewPreferences::default().settings_width
+            }
             Self::CompactTools => {
                 prefs.view.compact_tools == ViewPreferences::default().compact_tools
             }
@@ -249,8 +255,12 @@ impl Preference {
             Self::LabelTruncation => prefs.label_truncation = LabelTruncation::default(),
             Self::Send => prefs.send = SendMode::default(),
             Self::ChatFont => prefs.fonts.chat = None,
+            Self::UserChatFont => prefs.fonts.user_chat = None,
             Self::ChatText => prefs.view.chat_text = ViewPreferences::default().chat_text,
             Self::ChatWidth => prefs.view.chat_width = ViewPreferences::default().chat_width,
+            Self::SettingsWidth => {
+                prefs.view.settings_width = ViewPreferences::default().settings_width
+            }
             Self::CompactTools => {
                 prefs.view.compact_tools = ViewPreferences::default().compact_tools
             }
@@ -266,11 +276,17 @@ impl Preference {
 pub struct FontPreferences {
     pub interface: Option<String>,
     pub chat: Option<String>,
+    /// Sent messages and composer; absent inherits the agent chat family.
+    pub user_chat: Option<String>,
 }
 
 impl FontPreferences {
     pub(crate) fn validate(&self) -> Result<()> {
-        for (field, family) in [("interface", &self.interface), ("chat", &self.chat)] {
+        for (field, family) in [
+            ("interface", &self.interface),
+            ("chat", &self.chat),
+            ("user_chat", &self.user_chat),
+        ] {
             if let Some(family) = family
                 && (family.is_empty()
                     || family.len() > 256
@@ -290,6 +306,8 @@ pub const SCALES: [u16; 9] = [75, 80, 90, 100, 110, 125, 150, 175, 200];
 pub const CHAT_TEXT: RangeInclusive<u16> = 12..=22;
 /// Widest conversation column, px at 100%.
 pub const CHAT_WIDTH: RangeInclusive<u16> = 420..=1600;
+/// Maximum settings content width, px at 100%.
+pub const SETTINGS_WIDTH: RangeInclusive<u16> = 420..=1600;
 /// Radius of large surfaces, px at 100%.
 pub const SURFACE_RADIUS: RangeInclusive<u16> = 0..=32;
 
@@ -301,6 +319,7 @@ pub struct ViewPreferences {
     pub scale: u16,
     pub chat_text: u16,
     pub chat_width: u16,
+    pub settings_width: u16,
     /// Radius of large surfaces, px at 100%.
     pub surface_radius: u16,
     /// Fold runs of tool calls into one row.
@@ -315,6 +334,7 @@ impl Default for ViewPreferences {
             scale: 100,
             chat_text: 16,
             chat_width: 820,
+            settings_width: 720,
             surface_radius: 16,
             compact_tools: true,
             autoscroll: true,
@@ -355,6 +375,12 @@ impl ViewPreferences {
             return Err(anyhow!(
                 "chat_width {} is outside {CHAT_WIDTH:?}",
                 self.chat_width
+            ));
+        }
+        if !SETTINGS_WIDTH.contains(&self.settings_width) {
+            return Err(anyhow!(
+                "settings_width {} is outside {SETTINGS_WIDTH:?}",
+                self.settings_width
             ));
         }
         if !SURFACE_RADIUS.contains(&self.surface_radius) {
@@ -686,7 +712,10 @@ mod chat_spaces_tests;
 
 #[cfg(test)]
 mod tests {
-    use super::{BadgePlace, ExtensionPreferences, Preferences, SURFACE_RADIUS, ViewPreferences};
+    use super::{
+        BadgePlace, ExtensionPreferences, Preferences, SETTINGS_WIDTH, SURFACE_RADIUS,
+        ViewPreferences,
+    };
 
     #[test]
     fn shortcut_reset_roundtrip_preserves_other_preferences() {
@@ -915,8 +944,10 @@ mod tests {
             (LabelTruncation, "/label_truncation", json!("ellipsis")),
             (Send, "/send", json!("ctrl_enter")),
             (ChatFont, "/fonts/chat", json!("Chat")),
+            (UserChatFont, "/fonts/user_chat", json!("User")),
             (ChatText, "/view/chat_text", json!(20)),
             (ChatWidth, "/view/chat_width", json!(1200)),
+            (SettingsWidth, "/view/settings_width", json!(1000)),
             (CompactTools, "/view/compact_tools", json!(false)),
             (Autoscroll, "/view/autoscroll", json!(false)),
             (Notifications, "/notifications", json!("off")),
@@ -963,6 +994,7 @@ mod tests {
         let mut value = Preferences::default();
         value.fonts.interface = Some("Noto Sans".into());
         value.fonts.chat = Some("Шрифт беседы".into());
+        value.fonts.user_chat = Some("Шрифт пользователя".into());
         let serialized = serde_json::to_string(&value).unwrap();
         let reopened = super::parse(&serialized, std::path::Path::new("fixture.json")).unwrap();
         assert_eq!(reopened.fonts, value.fonts);
@@ -975,6 +1007,7 @@ mod tests {
         assert_eq!(reopened.fonts.interface, None);
         assert_eq!(reopened.fonts.chat.as_deref(), Some("Шрифт беседы"));
         value.fonts.chat = None;
+        value.fonts.user_chat = None;
         let reopened = super::parse(
             &serde_json::to_string(&value).unwrap(),
             std::path::Path::new("fixture.json"),
@@ -993,7 +1026,7 @@ mod tests {
             "Noto\0Sans",
             &"x".repeat(257),
         ] {
-            for key in ["interface", "chat"] {
+            for key in ["interface", "chat", "user_chat"] {
                 let source = serde_json::json!({"fonts":{key:name}}).to_string();
                 assert!(
                     super::parse(&source, std::path::Path::new("fixture.json")).is_err(),
@@ -1092,6 +1125,25 @@ mod tests {
     }
 
     #[test]
+    fn settings_width_validates_and_roundtrips_as_a_visual_setting() {
+        for width in [*SETTINGS_WIDTH.start(), 720, *SETTINGS_WIDTH.end()] {
+            let mut view = ViewPreferences::default();
+            view.settings_width = width;
+            assert!(view.validate().is_ok());
+            let encoded = serde_json::to_string(&view).unwrap();
+            assert_eq!(
+                serde_json::from_str::<ViewPreferences>(&encoded).unwrap(),
+                view
+            );
+        }
+        for width in [*SETTINGS_WIDTH.start() - 1, *SETTINGS_WIDTH.end() + 1] {
+            let mut view = ViewPreferences::default();
+            view.settings_width = width;
+            assert!(view.validate().is_err());
+        }
+    }
+
+    #[test]
     fn surface_radius_defaults_validates_and_roundtrips() {
         let defaults = ViewPreferences::default();
         assert_eq!(defaults.surface_radius, 16);
@@ -1103,6 +1155,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(legacy.view.surface_radius, 16);
+        assert_eq!(legacy.view.settings_width, 720);
 
         for radius in [*SURFACE_RADIUS.start(), 16, *SURFACE_RADIUS.end()] {
             let mut preferences = Preferences::default();

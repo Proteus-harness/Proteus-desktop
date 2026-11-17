@@ -126,6 +126,7 @@ fn details(tool: &AppTranscriptTool, budget: usize, cx: &App) -> Div {
         None => vec![("Аргументы".into(), preview(args, budget))],
     };
     v_flex()
+        .font_family(crate::ui::prefs::chat_font(cx))
         .gap_1()
         .text_xs()
         .child(

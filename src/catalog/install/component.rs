@@ -1,9 +1,8 @@
 //! Immutable module packages. Core owns their registration and activation.
 
-use std::{collections::BTreeMap, io::Read, path::Path};
+use std::{io::Read, path::Path};
 
 use anyhow::{Context, Result, ensure};
-use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use super::super::{
@@ -12,20 +11,13 @@ use super::super::{
 };
 use crate::packages::Contents;
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Manifest {
-    id: String,
-    version: String,
-    command: Vec<String>,
-    exports: BTreeMap<String, Vec<String>>,
-    sha256: String,
-}
+use crate::catalog::connections::ModuleManifest as Manifest;
 
 pub(super) fn prepare(locations: &Locations, entry: &Entry, files: &Contents) -> Result<Target> {
     let manifest: Manifest =
         serde_json::from_str(files.text(&format!("share/modules/{}/module.json", entry.id))?)
             .context("Неверный module.json")?;
+    manifest.validate_connections()?;
     ensure!(
         manifest.id == entry.id && manifest.version == entry.version,
         "id и версия module.json должны совпадать с каталогом"
@@ -76,6 +68,10 @@ pub(super) fn prepare(locations: &Locations, entry: &Entry, files: &Contents) ->
         .context("Путь модуля не в UTF-8")?
         .to_owned();
     Ok(Target::Component {
+        icon: crate::catalog::connections::module_icon(
+            manifest.icon.as_deref(),
+            &path.join("share/modules").join(&manifest.id),
+        ),
         path,
         command,
         exports: manifest.exports,

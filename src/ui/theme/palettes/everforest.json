@@ -14,6 +14,7 @@
         "danger.background": "#e67e80",
         "danger.foreground": "#ffffff",
         "foreground": "#434f55",
+        "input.background": "#fdf6e3",
         "input.border": "#E7E5D4",
         "link.active": "#7fbbb3",
         "link": "#7fbbb3",
@@ -51,7 +52,7 @@
         "sidebar.background": "#f4f0d9",
         "tab_bar.segmented.background": "#f4f0d9",
         "group_box.background": "#efebd4",
-        "accordion.background": "#e6e2cc",
+        "accordion.background": "#eae6d0",
         "sidebar.foreground": "#434f55",
         "group_box.foreground": "#434f55",
         "button.secondary.foreground": "#434f55",
@@ -60,7 +61,8 @@
         "secondary.active.background": "#e0dcc7",
         "button.secondary.background": "#EEEADA",
         "button.secondary.hover.background": "#e6e2cc",
-        "button.secondary.active.background": "#e0dcc7"
+        "button.secondary.active.background": "#e0dcc7",
+        "panel.header.hover.background": "#00000004"
       },
       "highlight": {
         "editor.foreground": "#5F6D75",
@@ -170,6 +172,7 @@
         "background": "#2a3237",
         "border": "#4f585e",
         "foreground": "#d3c6aa",
+        "input.background": "#475258",
         "input.border": "#485156",
         "link.active": "#7fbbb3",
         "link": "#7fbbb3",
@@ -209,14 +212,15 @@
         "status_bar.background": "#21272b",
         "tab_bar.segmented.background": "#272e33",
         "group_box.background": "#343f44",
-        "accordion.background": "#3d484d",
+        "accordion.background": "#394449",
         "sidebar.foreground": "#d3c6aa",
         "group_box.foreground": "#d3c6aa",
         "button.secondary.foreground": "#d3c6aa",
         "list.hover.background": "#ffffff08",
         "button.secondary.background": "#343f44",
         "button.secondary.hover.background": "#3a4448",
-        "button.secondary.active.background": "#3d484d"
+        "button.secondary.active.background": "#3d484d",
+        "panel.header.hover.background": "#ffffff04"
       },
       "highlight": {
         "editor.foreground": "#d3c6aa",

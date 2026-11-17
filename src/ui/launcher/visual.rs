@@ -12,6 +12,7 @@ pub(in crate::ui) enum Action {
     UseDefault,
     FollowAgent,
     SetDefault,
+    ClearDefault,
     BindAgent,
     UnbindAgent,
 }
@@ -24,6 +25,9 @@ pub(in crate::ui) fn run(action: Action, window: &mut Window, cx: &mut App) {
         Action::UseDefault => prefs::reset_visual_default(window, cx),
         Action::FollowAgent => prefs::reset_visual_auto(window, cx),
         Action::SetDefault => remember(false, window, cx),
+        Action::ClearDefault => prefs::update(cx, |prefs| {
+            prefs.visual_configs.default_config = None;
+        }),
         Action::BindAgent => remember(true, window, cx),
         Action::UnbindAgent => {
             let agent = cx.global::<WindowVisualPreferences>().agent_path.clone();

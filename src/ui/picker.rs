@@ -36,6 +36,7 @@ pub(super) struct Picker<T: Clone + PartialEq + 'static> {
     cursor: usize,
     empty: SharedString,
     placeholder: SharedString,
+    search_label: Option<SharedString>,
     scroll: UniformListScrollHandle,
     pick: Pick<T>,
     render_label: Option<RenderLabel<T>>,
@@ -68,6 +69,7 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
             cursor: 0,
             empty,
             placeholder,
+            search_label: None,
             scroll: UniformListScrollHandle::new(),
             pick: Rc::new(pick),
             render_label: None,
@@ -101,6 +103,12 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
 
     pub fn set_pick(&mut self, pick: impl Fn(T, &mut Window, &mut App) + 'static) {
         self.pick = Rc::new(pick);
+    }
+
+    /// Name search for assistive technology without adding visible copy.
+    pub fn search_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.search_label = Some(label.into());
+        self
     }
 
     /// Customize only the caption; row geometry, selection, focus and keys
@@ -334,7 +342,9 @@ impl<T: Clone + PartialEq + 'static> Render for Picker<T> {
                             "picker-search",
                             self.search.clone(),
                             self.list_focus.clone(),
-                            self.placeholder.clone(),
+                            self.search_label
+                                .clone()
+                                .unwrap_or_else(|| self.placeholder.clone()),
                         )
                         .title(
                             self.title

@@ -94,6 +94,10 @@ impl SettingsView {
             .map(field_row)
             .collect();
         let advanced: Vec<_> = fields.iter().filter(|field| field.advanced).collect();
+        if advanced.len() == 1 {
+            rows.push(field_row(advanced[0]));
+            return rows;
+        }
         if !advanced.is_empty() {
             let key = format!("advanced:{scope}");
             let open = self.is_open(&key);

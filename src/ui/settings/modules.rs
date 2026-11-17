@@ -1,10 +1,12 @@
 //! Modules overview: process components, overall switches and exact links to
 //! the pages that own tool, hook and slot settings.
 
+mod logo;
 #[cfg(test)]
 mod tests;
 
-use gpui_kit::assets::IconName as Lucide;
+use std::collections::BTreeSet;
+
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -16,11 +18,12 @@ use super::SettingsView;
 use super::spot::{self, Destination};
 use super::tools::pack_key;
 use super::widgets::{
-    Tone, card, card_cell, chip, described, hashed_id, item_row, named, note, package_heading,
+    Tone, card, card_cell, chip, described, hashed_id, item_row, named, note,
+    package_heading_with_icon,
 };
 use crate::settings::catalog::{
-    CONTEXT_PROVIDER_SLOT, HOOK_SLOT, MODEL_SLOT, PackState, PageId, TOOL_SLOT, export_selected,
-    pack_summary, page_title, plural, slot_page, slot_title,
+    CONTEXT_PROVIDER_SLOT, HOOK_SLOT, PackState, PageId, TOOL_SLOT, export_selected, pack_summary,
+    page_title, slot_page, slot_title,
 };
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
@@ -68,7 +71,7 @@ impl SettingsView {
     }
 
     fn component_card(&self, plugin: &ConfigBuilderPlugin, cx: &Context<Self>) -> AnyElement {
-        let theme = cx.theme();
+        let snapshot = self.snapshot().expect("modules page needs a snapshot");
         let key = module_key(&plugin.id);
         let hooks: Vec<_> = plugin
             .exports
@@ -80,29 +83,9 @@ impl SettingsView {
             .iter()
             .filter(|export| export.slot != HOOK_SLOT && export.slot != TOOL_SLOT)
             .collect();
-        let mut counts = Vec::new();
-        if !plugin.tool_packs.is_empty() {
-            counts.push(plural(
-                plugin.tool_packs.len(),
-                "пакет инструментов",
-                "пакета инструментов",
-                "пакетов инструментов",
-            ));
-        }
-        if !hooks.is_empty() {
-            counts.push(plural(hooks.len(), "hook", "hooks", "hooks"));
-        }
-        if !modules.is_empty() {
-            counts.push(plural(
-                modules.len(),
-                "реализация слота",
-                "реализации слотов",
-                "реализаций слотов",
-            ));
-        }
         let header = item_row(
-            package_heading(
-                Icon::new(Lucide::Boxes).text_color(theme.muted_foreground),
+            package_heading_with_icon(
+                logo::render(plugin, snapshot, cx),
                 described(
                     hashed_id("component", &plugin.id),
                     plugin.id.clone().into(),
@@ -110,9 +93,9 @@ impl SettingsView {
                     Some(plugin.command.clone().into()),
                     cx,
                 ),
-                counts
-                    .into_iter()
-                    .map(|text| chip(text, Tone::Muted, cx).into_any_element()),
+                component_slots(plugin).into_iter().map(|slot| {
+                    chip(slot_title(snapshot, slot), Tone::Muted, cx).into_any_element()
+                }),
             ),
             [],
         );
@@ -196,14 +179,7 @@ impl SettingsView {
                     }
                 });
             }));
-        let mut trailing = vec![
-            chip(
-                format!("{} из {}", summary.enabled, summary.total),
-                Tone::Muted,
-                cx,
-            )
-            .into_any_element(),
-        ];
+        let mut trailing = Vec::new();
         if summary.state == PackState::Mixed {
             trailing.push(chip("частично", Tone::Warning, cx).into_any_element());
         }
@@ -290,26 +266,12 @@ impl SettingsView {
             trailing.push(chip("выбран", Tone::Success, cx).into_any_element());
         }
         let page = slot_page(&export.slot);
-        let destination = if export.slot == MODEL_SLOT {
-            let target = Destination::new(page.clone());
-            // Model settings belong to provider connections, not a second
-            // module form. Point at an actual matching connection when present.
-            match snapshot
-                .providers
-                .iter()
-                .find(|provider| provider.provider == export.id)
-            {
-                Some(provider) => target.spot(spot::provider(&provider.id)),
-                None => target,
-            }
+        let key = if export.slot == CONTEXT_PROVIDER_SLOT {
+            spot::export(&export.slot, &export.id)
         } else {
-            let key = if export.slot == CONTEXT_PROVIDER_SLOT {
-                spot::export(&export.slot, &export.id)
-            } else {
-                spot::module(&export.slot, &export.id)
-            };
-            Destination::new(page.clone()).spot(key)
+            spot::module(&export.slot, &export.id)
         };
+        let destination = Destination::new(page.clone()).spot(key);
         trailing.push(self.settings_link(
             hashed_id("open-slot", &(&export.slot, &export.id)),
             format!("Открыть {}", page_title(Some(snapshot), &page)),
@@ -326,9 +288,9 @@ impl SettingsView {
 
 fn type_icon(slot: &str, id: &str, cx: &App) -> Stateful<Div> {
     let title = match slot {
-        TOOL_SLOT => "Пакет инструментов".to_string(),
-        HOOK_SLOT => "Hook".to_string(),
-        _ => format!("Реализация слота · {slot}"),
+        TOOL_SLOT => "Tools".to_string(),
+        HOOK_SLOT => "Hooks".to_string(),
+        _ => slot.to_owned(),
     };
     div()
         .id(hashed_id("module-kind", &(slot, id)))
@@ -336,6 +298,19 @@ fn type_icon(slot: &str, id: &str, cx: &App) -> Stateful<Div> {
         .text_color(cx.theme().muted_foreground)
         .tip_text(title)
         .child(super::nav::page_icon(&slot_page(slot)).small())
+}
+
+/// One chip per actual capability, irrespective of the number of exports.
+fn component_slots(plugin: &ConfigBuilderPlugin) -> BTreeSet<&str> {
+    let mut slots: BTreeSet<_> = plugin
+        .exports
+        .iter()
+        .map(|export| export.slot.as_str())
+        .collect();
+    if !plugin.tool_packs.is_empty() {
+        slots.insert(TOOL_SLOT);
+    }
+    slots
 }
 
 fn export_row(

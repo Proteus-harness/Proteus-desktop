@@ -27,6 +27,7 @@ fn native_windows_keep_independent_visual_values_and_theme_projections() {
         update_visual(cx, |config| {
             config.theme = crate::preferences::ThemePreference::Dark;
             config.view.scale = 125;
+            config.view.settings_width = 1000;
             config.extensions.set_enabled("plan", false);
             config.package_visual_settings.insert(
                 "plan".into(),
@@ -39,12 +40,15 @@ fn native_windows_keep_independent_visual_values_and_theme_projections() {
         update_visual(cx, |config| {
             config.theme = crate::preferences::ThemePreference::Light;
             config.view.scale = 90;
+            config.view.settings_width = 600;
             config.motion = crate::preferences::MotionPreference::Off;
         });
     });
     app.run_until_parked();
     first.update(|_, cx| {
         assert_eq!(visual(cx).view.scale, 125);
+        assert_eq!(visual(cx).view.settings_width, 1000);
+        assert_eq!(settings(cx).view.settings_width, 1000);
         assert_eq!(Theme::global(cx).mode, ThemeMode::Dark);
         assert_eq!(Theme::global(cx).font_size, px(20.));
         assert!(!visual(cx).extensions.is_enabled("plan"));
@@ -65,6 +69,8 @@ fn native_windows_keep_independent_visual_values_and_theme_projections() {
         let old_window_values = serde_json::Map::new();
         assert!(update_package_visual("plan", first_revision, old_window_values, cx).is_err());
         assert_eq!(visual(cx).view.scale, 90);
+        assert_eq!(visual(cx).view.settings_width, 600);
+        assert_eq!(settings(cx).view.settings_width, 600);
         assert_eq!(Theme::global(cx).mode, ThemeMode::Light);
         assert!(visual(cx).extensions.is_enabled("plan"));
         assert!(visual(cx).package_visual_settings.is_empty());
@@ -158,4 +164,65 @@ fn detached_visual_snapshot_inherits_once_then_changes_independently() {
     app.run_until_parked();
     source.update(|_, cx| assert_eq!(visual(cx).view.scale, 125));
     detached.update(|_, cx| assert_eq!(visual(cx).view.scale, 90));
+}
+
+#[::core::prelude::v1::test]
+fn chat_font_roles_remain_window_local_and_user_override_resets_to_agent() {
+    let mut app = ::gpui::TestAppContext::single();
+    app.update(initialize);
+    let before = app.update(|cx| cx.global::<ClientPreferences>().value.clone());
+    let mut first = add_window(&mut app);
+    let mut second = add_window(&mut app);
+    first.update(|window, cx| {
+        initialize_visual_window(window, cx);
+        update_visual(cx, |config| {
+            config.fonts.chat = Some("Portable first agent".into());
+            config.fonts.user_chat = Some("Portable first user".into());
+        });
+        assert_eq!(
+            settings(cx).fonts.user_chat.as_deref(),
+            Some("Portable first user")
+        );
+    });
+    second.update(|window, cx| {
+        initialize_visual_window(window, cx);
+        update_visual(cx, |config| {
+            config.fonts.chat = Some("Portable second agent".into());
+            config.fonts.user_chat = None;
+        });
+        assert_eq!(user_chat_font(cx), chat_font(cx));
+        assert!(settings(cx).fonts.user_chat.is_none());
+    });
+    first.update(|_, cx| {
+        assert_eq!(
+            visual(cx).fonts.chat.as_deref(),
+            Some("Portable first agent")
+        );
+        assert_eq!(
+            visual(cx).fonts.user_chat.as_deref(),
+            Some("Portable first user")
+        );
+        update_settings(cx, |preferences| {
+            crate::preferences::Preference::UserChatFont.reset(preferences)
+        });
+        assert!(visual(cx).fonts.user_chat.is_none());
+        assert_eq!(
+            visual(cx).fonts.chat.as_deref(),
+            Some("Portable first agent")
+        );
+        assert_eq!(user_chat_font(cx), chat_font(cx));
+    });
+    second.update(|_, cx| {
+        assert_eq!(
+            visual(cx).fonts.chat.as_deref(),
+            Some("Portable second agent")
+        );
+        assert!(visual(cx).fonts.user_chat.is_none());
+    });
+    app.update(|cx| {
+        assert!(Arc::ptr_eq(
+            &before,
+            &cx.global::<ClientPreferences>().value
+        ))
+    });
 }

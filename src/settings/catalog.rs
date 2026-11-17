@@ -23,7 +23,9 @@ const SLOT_PAGES: [&str; 3] = ["workflow", "context", "policy"];
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum PageId {
-    Model,
+    Providers,
+    Models,
+    Modes,
     Slot(String),
     Tools,
     Hooks,
@@ -99,7 +101,7 @@ pub fn slot_title(snapshot: &ConfigBuilderSnapshot, slot: &str) -> String {
 /// Agent pages by what the part does: the known slots, then unknown
 /// select-one slots.
 pub fn agent_pages(snapshot: &ConfigBuilderSnapshot) -> Vec<PageId> {
-    let mut pages = vec![PageId::Model];
+    let mut pages = vec![PageId::Providers, PageId::Models, PageId::Modes];
     pages.extend(
         ["workflow", "context"]
             .into_iter()
@@ -141,7 +143,9 @@ pub const CLIENT_PAGES: [PageId; 5] = [
 
 pub fn page_title(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId) -> String {
     match page {
-        PageId::Model => "Провайдеры".into(),
+        PageId::Providers => "Провайдеры".into(),
+        PageId::Models => "Модели".into(),
+        PageId::Modes => "Режимы".into(),
         PageId::Slot(slot) => match snapshot {
             Some(snapshot) => slot_title(snapshot, slot),
             None => slot_text(slot)
@@ -168,8 +172,14 @@ pub fn page_title(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId) -> St
 
 pub fn page_description(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId) -> String {
     let text = match page {
-        PageId::Model => {
-            "Подключения к провайдерам и параметры адаптера. Модель и уровень рассуждения выбираются отдельно в чате; последний выбор сохраняется."
+        PageId::Modes => {
+            "Варианты инструкций, инструментов, hooks и разрешений для отдельного чата."
+        }
+        PageId::Providers => {
+            "Подключения и авторизация. Одно подключение может использоваться несколькими именованными моделями."
+        }
+        PageId::Models => {
+            "Именованные наборы модели и effort, выбор основного агента и наследование моделей субагентами."
         }
         PageId::Slot(slot) => {
             return slot_text(slot)
@@ -188,7 +198,7 @@ pub fn page_description(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId)
         }
         PageId::Catalog => "Пакеты из подключённых репозиториев.",
         PageId::Mcp => {
-            "MCP-серверы профиля и пакетов. Серверы профиля добавляются и правятся здесь, серверы пакетов только включаются. Инструменты сервера доступны агенту, пока сервер включён; изменения применяются после сохранения."
+            "MCP-серверы профиля и пакетов. Серверы профиля добавляются и правятся здесь, серверы пакетов только включаются. Инструменты сервера доступны агенту, пока сервер включён."
         }
         PageId::Skills => {
             "Skills, которые нашли поставщики контекста. Выключенный skill не виден модели и не загружается."
@@ -214,7 +224,7 @@ pub fn page_description(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId)
 /// Page that shows a slot's implementation.
 pub fn slot_page(slot: &str) -> PageId {
     match slot {
-        MODEL_SLOT => PageId::Model,
+        MODEL_SLOT => PageId::Providers,
         HOOK_SLOT => PageId::Hooks,
         TOOL_SLOT => PageId::Tools,
         // Providers are listed with the context module that reads them.
@@ -226,7 +236,8 @@ pub fn slot_page(slot: &str) -> PageId {
 /// Which page an edited area belongs to.
 pub fn area_page(area: &Area) -> PageId {
     match area {
-        Area::Provider => PageId::Model,
+        Area::Models => PageId::Models,
+        Area::Modes => PageId::Modes,
         Area::Mode => PageId::Slot(POLICY_SLOT.to_string()),
         Area::Tools => PageId::Tools,
         Area::Hooks => PageId::Hooks,
@@ -244,7 +255,8 @@ pub fn area_labels(snapshot: &ConfigBuilderSnapshot, areas: &[Area]) -> Vec<Stri
     let mut labels: Vec<String> = Vec::new();
     for area in areas {
         let label = match area {
-            Area::Provider => "Model".to_string(),
+            Area::Models => "Модели".to_string(),
+            Area::Modes => "Режимы".to_string(),
             Area::Mode => "permission_mode".to_string(),
             Area::Tools => "Tools".to_string(),
             Area::Hooks => "Hooks".to_string(),
@@ -267,8 +279,17 @@ pub fn permission_description(mode: &str) -> &'static str {
         "normal" => {
             "Решения принимает политика подтверждений; спорные действия ждут вашего ответа."
         }
-        "auto" => "Чтение и изменение файлов без подтверждения; команды и сеть запрещены.",
+        "auto" => "Автоматическое выполнение в пределах выбранной политики.",
         _ => "",
+    }
+}
+
+pub fn permission_title(mode: &str) -> &str {
+    match mode {
+        "plan" => "Только чтение",
+        "normal" => "С подтверждением",
+        "auto" => "Автоматически",
+        other => other,
     }
 }
 
@@ -357,18 +378,13 @@ pub fn module_info<'a>(
         })
 }
 
-/// Model module configured by the draft's provider.
+/// Connection used by the selected named preset; aliases are not providers.
 pub fn model_module(snapshot: &ConfigBuilderSnapshot, draft: &Draft) -> Option<String> {
     draft
-        .provider
+        .model
         .as_ref()
-        .and_then(|id| {
-            snapshot
-                .providers
-                .iter()
-                .find(|provider| &provider.id == id)
-        })
-        .map(|provider| provider.provider.clone())
+        .and_then(|name| draft.models.get(name))
+        .map(|model| model.provider.clone())
         .or_else(|| {
             snapshot
                 .model_modules
@@ -378,7 +394,6 @@ pub fn model_module(snapshot: &ConfigBuilderSnapshot, draft: &Draft) -> Option<S
         })
 }
 
-/// Module of a select-one slot that the draft uses.
 pub fn selected_module<'a>(
     snapshot: &'a ConfigBuilderSnapshot,
     draft: &'a Draft,

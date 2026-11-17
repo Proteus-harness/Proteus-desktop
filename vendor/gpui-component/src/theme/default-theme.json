@@ -12,7 +12,7 @@
       "colors": {
         "accent.background": "neutral-100",
         "accent.foreground": "neutral-900",
-        "accordion.background": "#dbdbdb",
+        "accordion.background": "#e0e0e0",
         "background": "white",
         "border": "neutral-400",
         "group_box.background": "neutral-200",
@@ -32,6 +32,7 @@
         "foreground": "neutral-950",
         "info.background": "cyan-500",
         "info.foreground": "neutral-50",
+        "input.background": "#ffffff",
         "input.border": "neutral-200",
         "list.background": "white",
         "list.active.background": "#bfdbfe33",
@@ -112,7 +113,8 @@
         "slider.background": "#171717",
         "button.secondary.background": "neutral-200",
         "button.secondary.hover.background": "#dcdcdc",
-        "button.secondary.active.background": "neutral-300"
+        "button.secondary.active.background": "neutral-300",
+        "panel.header.hover.background": "#00000004"
       },
       "highlight": {
         "editor.foreground": "#000000",
@@ -222,7 +224,7 @@
       "colors": {
         "accent.background": "neutral-800",
         "accent.foreground": "neutral-50",
-        "accordion.background": "#303030",
+        "accordion.background": "#2b2b2b",
         "background": "#111111",
         "border": "neutral-600",
         "group_box.background": "neutral-800",
@@ -242,6 +244,7 @@
         "foreground": "neutral-50",
         "info.background": "cyan-400",
         "info.foreground": "cyan-600",
+        "input.background": "neutral-700",
         "input.border": "#2f2f2f",
         "list.background": "#0a0a0a",
         "list.active.background": "#1e40af33",
@@ -318,7 +321,8 @@
         "list.hover.background": "#ffffff08",
         "button.secondary.background": "neutral-800",
         "button.secondary.hover.background": "#292929",
-        "button.secondary.active.background": "#373737"
+        "button.secondary.active.background": "#373737",
+        "panel.header.hover.background": "#ffffff04"
       },
       "highlight": {
         "editor.foreground": "#CACCCA",

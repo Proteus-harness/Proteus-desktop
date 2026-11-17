@@ -48,7 +48,7 @@ impl SettingsView {
         in_profile(kind).then_some(profile).flatten()
     }
 
-    pub(super) fn profile_blocked(&self) -> Option<&'static str> {
+    pub(in crate::ui::settings) fn profile_blocked(&self) -> Option<&'static str> {
         if self.context.profile.is_none() {
             return Some("Для этого нужен открытый чат Proteus");
         }
@@ -62,7 +62,7 @@ impl SettingsView {
             .then_some("Сначала сохраните или сбросьте изменения на других страницах настроек")
     }
 
-    pub(super) fn catalog_idle(&self) -> bool {
+    pub(in crate::ui::settings) fn catalog_idle(&self) -> bool {
         !(self.catalogs.busy || self.saving || self.reloading)
     }
 

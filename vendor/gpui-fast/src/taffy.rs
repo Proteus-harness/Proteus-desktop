@@ -464,14 +464,14 @@ impl ToTaffy<taffy::style::Style> for Style {
                     crate::GridTemplateMinSize::Zero => {
                         vec![repeat(
                             template.repeat,
-                            vec![minmax(length(0.0_f32), fr(1.0_f32))],
+                            vec![minmax(length(0.0_f32), fr(template.fraction.max(0.)))],
                         )]
                     }
                     // grid-template-*: repeat(<number>, minmax(min-content, 1fr));
                     crate::GridTemplateMinSize::MinContent => {
                         vec![repeat(
                             template.repeat,
-                            vec![minmax(min_content(), fr(1.0_f32))],
+                            vec![minmax(min_content(), fr(template.fraction.max(0.)))],
                         )]
                     }
                     // grid-template-*: repeat(<number>, minmax(0, max-content))
@@ -751,6 +751,44 @@ impl From<Size<Pixels>> for Size<AvailableSpace> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::px;
+
+    #[test]
+    fn fractional_rows_scale_auto_height_without_a_separate_child_measure() {
+        let rem = px(16.);
+        let mut tree = taffy::TaffyTree::<()>::new();
+        let mut body = Style::default();
+        body.size.width = crate::relative(1.).into();
+        body.size.height = px(100.).into();
+        let body = tree.new_leaf(body.to_taffy(rem, 1.)).unwrap();
+        let mut holder = Style::default();
+        holder.min_size.height = px(0.).into();
+        holder.overflow.y = crate::Overflow::Hidden;
+        let holder = tree
+            .new_with_children(holder.to_taffy(rem, 1.), &[body])
+            .unwrap();
+        let mut grid = Style::default();
+        grid.display = crate::Display::Grid;
+        grid.size.width = crate::relative(1.).into();
+        grid.grid_rows = Some(crate::GridTemplate::fractional(1, 0.));
+        let node = tree
+            .new_with_children(grid.to_taffy(rem, 1.), &[holder])
+            .unwrap();
+        for fraction in [0., 0.25, 0.5, 1., 0.5, 0.] {
+            grid.grid_rows = Some(crate::GridTemplate::fractional(1, fraction));
+            tree.set_style(node, grid.to_taffy(rem, 1.)).unwrap();
+            tree.compute_layout(
+                node,
+                taffy::geometry::Size {
+                    width: taffy::style::AvailableSpace::Definite(200.),
+                    height: taffy::style::AvailableSpace::MaxContent,
+                },
+            )
+            .unwrap();
+            assert_eq!(tree.layout(node).unwrap().size.height, 100. * fraction);
+            assert_eq!(tree.layout(body).unwrap().size.height, 100.);
+        }
+    }
 
     #[test]
     fn border_widths_to_taffy_use_stroke_snapping() {

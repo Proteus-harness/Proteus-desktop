@@ -28,6 +28,7 @@ fn modules_targets_open_their_owner_without_locking_it_open() {
                         id: "first".into(),
                         command: "synthetic".into(),
                         description: None,
+                        icon: None,
                         exports: vec![ConfigBuilderPluginExport {
                             slot: HOOK_SLOT.into(),
                             id: "first-hook".into(),
@@ -44,6 +45,7 @@ fn modules_targets_open_their_owner_without_locking_it_open() {
                         id: "first-extra".into(),
                         command: "synthetic".into(),
                         description: None,
+                        icon: None,
                         exports: vec![ConfigBuilderPluginExport {
                             slot: "workflow".into(),
                             id: "first-workflow".into(),
@@ -89,4 +91,42 @@ fn modules_targets_open_their_owner_without_locking_it_open() {
             assert!(view.open.is_empty(), "another page does not unfold Modules");
         });
     });
+}
+
+#[::core::prelude::v1::test]
+fn module_summary_names_distinct_slots_instead_of_counting_exports() {
+    let export = |slot: &str, id: &str| ConfigBuilderPluginExport {
+        slot: slot.into(),
+        id: id.into(),
+        active: false,
+        description: None,
+        config_schema: None,
+    };
+    let plugin = ConfigBuilderPlugin {
+        id: "combined".into(),
+        command: "synthetic".into(),
+        description: None,
+        icon: None,
+        exports: vec![
+            export("workflow", "one"),
+            export("workflow", "two"),
+            export("model", "provider"),
+            export(HOOK_SLOT, "prepare"),
+            export(CONTEXT_PROVIDER_SLOT, "search"),
+        ],
+        tool_packs: vec![ConfigBuilderToolPack {
+            id: "tools".into(),
+            tools: vec![],
+        }],
+    };
+    let snapshot = ConfigBuilderSnapshot::default();
+    let labels = component_slots(&plugin)
+        .into_iter()
+        .map(|slot| slot_title(&snapshot, slot))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        labels,
+        ["Context Providers", "Hooks", "Model", "Tools", "Workflow"]
+    );
+    assert_eq!(slot_page("model"), PageId::Providers);
 }

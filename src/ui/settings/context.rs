@@ -38,7 +38,7 @@ impl SettingsContext {
 
     pub(super) fn initial_page(&self) -> PageId {
         if self.profile.is_some() {
-            PageId::Model
+            PageId::Providers
         } else {
             PageId::Appearance
         }
@@ -71,7 +71,7 @@ mod tests {
         let chat = ChatKey::Proteus(dir.clone());
         let context = SettingsContext::for_chat(Some(chat.clone()), || Some(api));
         assert_eq!(context.chat, Some(chat.tab_id()));
-        assert_eq!(context.initial_page(), PageId::Model);
+        assert_eq!(context.initial_page(), PageId::Providers);
         let profile = context.profile.unwrap();
         assert_eq!(profile.dir, dir);
         assert_eq!(profile.api.connection_id(), connection);

@@ -6,110 +6,11 @@ use gpui_kit::*;
 use super::widgets::{Tone, card, chip, hashed_id, mono, note, radio_card, row, section};
 use super::{SettingsView, spot};
 use crate::settings::catalog::{
-    CONTEXT_PROVIDER_SLOT, CONTEXT_SLOT, MODEL_SLOT, POLICY_SLOT, exports, find_slot, model_module,
-    permission_description, selected_module,
+    CONTEXT_PROVIDER_SLOT, CONTEXT_SLOT, POLICY_SLOT, exports, find_slot, permission_description,
+    selected_module,
 };
 
 impl SettingsView {
-    pub(super) fn model_page(&self, cx: &Context<Self>) -> Vec<AnyElement> {
-        let Some(snapshot) = self.snapshot() else {
-            return Vec::new();
-        };
-        let view = cx.weak_entity();
-        let cards: Vec<AnyElement> = snapshot
-            .providers
-            .iter()
-            .map(|provider| {
-                // IDs identify configured model aliases, not independent
-                // connections: aliases can share the same model module.
-                let title = provider.id.clone();
-                let label = if provider.label.is_empty() {
-                    provider.model.clone()
-                } else {
-                    provider.label.clone()
-                };
-                let chips = vec![chip(
-                    format!("Модуль · {}", provider.provider),
-                    Tone::Muted,
-                    cx,
-                )];
-                if snapshot.providers.len() == 1
-                    && self.draft.provider.as_deref() == Some(provider.id.as_str())
-                {
-                    return self.spotted(
-                        &spot::provider(&provider.id),
-                        card(
-                            [h_flex()
-                                .px_4()
-                                .py_3()
-                                .gap_3()
-                                .child(
-                                    v_flex()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .gap_1()
-                                        .child(mono(title, cx).text_sm())
-                                        .child(
-                                            div()
-                                                .text_xs()
-                                                .text_color(cx.theme().muted_foreground)
-                                                .child(label),
-                                        ),
-                                )
-                                .children(chips)
-                                .into_any_element()],
-                            cx,
-                        ),
-                        cx,
-                    );
-                }
-                let (view, id) = (view.clone(), provider.id.clone());
-                let card = radio_card(
-                    hashed_id("provider", &provider.id),
-                    self.draft.provider.as_deref() == Some(provider.id.as_str()),
-                    title,
-                    Some(label.into()),
-                    chips,
-                    move |cx| {
-                        let id = id.clone();
-                        let _ = view.update(cx, |this, cx| {
-                            this.update_draft(cx, |draft| draft.provider = Some(id))
-                        });
-                    },
-                    cx,
-                );
-                self.spotted(&spot::provider(&provider.id), card, cx)
-            })
-            .collect();
-        let providers = if cards.is_empty() {
-            card(
-                [note("В профиле нет настроенных провайдеров моделей.", cx).into_any_element()],
-                cx,
-            )
-        } else {
-            v_flex().gap_2().children(cards).into_any_element()
-        };
-        let mut parts = vec![
-            section(
-                "Модель в конфиге",
-                Some("Модель и effort текущего чата также можно выбрать в чате.".into()),
-                None,
-                providers,
-                cx,
-            )
-            .into_any_element(),
-        ];
-        if let Some(module) = model_module(snapshot, &self.draft) {
-            parts.extend(self.params_section_named(
-                MODEL_SLOT,
-                &module,
-                "Параметры провайдера",
-                cx,
-            ));
-        }
-        parts
-    }
-
     pub(super) fn slot_page(&self, slot: &str, cx: &Context<Self>) -> Vec<AnyElement> {
         let mut parts = Vec::new();
         if slot == POLICY_SLOT {
@@ -133,7 +34,7 @@ impl SettingsView {
             radio_card(
                 hashed_id("mode", mode),
                 self.draft.mode == *mode,
-                mode.clone(),
+                crate::settings::catalog::permission_title(mode).to_owned(),
                 Some(description.into()),
                 Vec::new(),
                 move |cx| {
@@ -197,8 +98,11 @@ impl SettingsView {
         let view = cx.weak_entity();
         let cards = info.modules.iter().map(|module| {
             let mut chips = Vec::new();
-            for label in [&module.source, &module.version] {
-                if !label.is_empty() && !chips.iter().any(|(text, _)| text == label) {
+            for label in [&module.version] {
+                if !label.is_empty()
+                    && label != "external"
+                    && !chips.iter().any(|(text, _)| text == label)
+                {
                     chips.push((label.clone(), chip(label.clone(), Tone::Muted, cx)));
                 }
             }
@@ -337,6 +241,25 @@ impl SettingsView {
     ) -> Option<AnyElement> {
         if !self.has_params(slot, module) {
             return None;
+        }
+        if self
+            .snapshot()
+            .and_then(|snapshot| crate::settings::catalog::module_info(snapshot, slot, module))
+            .and_then(|info| info.schema)
+            .is_some_and(|schema| {
+                schema
+                    .fields
+                    .iter()
+                    .filter(|field| crate::settings::catalog::editable_field(field))
+                    .count()
+                    == 1
+            })
+        {
+            return Some(
+                crate::ui::reorder::controls(self.params_nested(slot, module, cx))
+                    .w_full()
+                    .into_any_element(),
+            );
         }
         let changed =
             self.draft.module_config(slot, module) != self.baseline.module_config(slot, module);

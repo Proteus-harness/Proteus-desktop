@@ -13,6 +13,7 @@
         "foreground": "#020a12a3",
         "border": "#6b7d8f1f",
         "ring": "#FF9940",
+        "input.background": "#fcfcfc",
         "input.border": "#D9DCE3",
         "list.active.background": "#55B4D422",
         "list.active.border": "#55B4D4",
@@ -49,7 +50,7 @@
         "status_bar.background": "#ebeef0",
         "tab_bar.segmented.background": "#f8f9fa",
         "group_box.background": "#E6E6E6",
-        "accordion.background": "#dcdcdc",
+        "accordion.background": "#e1e1e1",
         "sidebar.foreground": "#020a12a3",
         "group_box.foreground": "#020a12a3",
         "button.secondary.foreground": "#020a12a3",
@@ -57,7 +58,8 @@
         "list.hover.background": "#00000008",
         "button.secondary.background": "#ECECED",
         "button.secondary.hover.background": "#e0e0e0",
-        "button.secondary.active.background": "#cecece"
+        "button.secondary.active.background": "#cecece",
+        "panel.header.hover.background": "#00000004"
       },
       "highlight": {
         "editor.foreground": "#5C6773",
@@ -253,6 +255,7 @@
         "border": "#1b1f29",
         "ring": "#FFB454",
         "foreground": "#B3B1AD",
+        "input.background": "#2d2f34",
         "input.border": "#2D2F34",
         "list.active.background": "#36A3D922",
         "list.active.border": "#36A3D9",
@@ -287,7 +290,7 @@
         "sidebar.background": "#0d1017",
         "tab_bar.segmented.background": "#0d1017",
         "group_box.background": "#141821",
-        "accordion.background": "#1e2129",
+        "accordion.background": "#191d25",
         "sidebar.foreground": "#B3B1AD",
         "group_box.foreground": "#B3B1AD",
         "button.secondary.foreground": "#B3B1AD",
@@ -295,7 +298,8 @@
         "list.hover.background": "#ffffff08",
         "button.secondary.background": "#1F2127",
         "button.secondary.hover.background": "#23252c",
-        "button.secondary.active.background": "#26282f"
+        "button.secondary.active.background": "#26282f",
+        "panel.header.hover.background": "#ffffff04"
       },
       "highlight": {
         "editor.foreground": "#bfbdb6",

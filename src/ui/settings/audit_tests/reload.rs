@@ -157,8 +157,8 @@ fn current_read_success_and_errors_keep_their_existing_behavior() {
         view.accept(snapshot("initial"));
         let (profile_revision, edit_revision) = pending_read(view);
         view.finish_load(Ok(snapshot("fresh")), profile_revision, edit_revision, cx);
-        assert_eq!(view.baseline.provider.as_deref(), Some("fresh"));
-        assert_eq!(view.draft.provider, view.baseline.provider);
+        assert_eq!(view.baseline.model.as_deref(), Some("fresh"));
+        assert_eq!(view.draft.model, view.baseline.model);
         assert_ne!(view.profile_revision, profile_revision);
         assert!(!view.reloading);
         let (profile_revision, edit_revision) = pending_read(view);
@@ -168,7 +168,7 @@ fn current_read_success_and_errors_keep_their_existing_behavior() {
             edit_revision,
             cx,
         );
-        assert_eq!(view.baseline.provider.as_deref(), Some("fresh"));
+        assert_eq!(view.baseline.model.as_deref(), Some("fresh"));
         assert!(view.feedback.as_ref().unwrap().error);
     });
     let (_, empty) = new_view(&mut cx);
@@ -210,7 +210,7 @@ fn newer_raw_buffers_survive_reload_even_without_a_dirty_parsed_draft() {
 
                 assert_eq!(view.editors.json[&key].input.entity_id(), input.entity_id());
                 assert_eq!(input.read(cx).value().as_ref(), raw);
-                assert_eq!(view.draft.provider.as_deref(), Some("initial"));
+                assert_eq!(view.draft.model.as_deref(), Some("initial"));
                 assert_eq!(view.profile_revision, profile_revision);
             });
         });
@@ -224,7 +224,7 @@ fn edit_then_undo_does_not_authorize_an_older_read() {
     view.update(&mut cx, |view, cx| {
         view.accept(snapshot("initial"));
         let (profile_revision, edit_revision) = pending_read(view);
-        view.update_draft(cx, |draft| draft.provider = Some("temporary".into()));
+        view.update_draft(cx, |draft| draft.model = Some("temporary".into()));
         view.discard(cx);
         assert!(!view.dirty());
         view.finish_load(
@@ -233,7 +233,7 @@ fn edit_then_undo_does_not_authorize_an_older_read() {
             edit_revision,
             cx,
         );
-        assert_eq!(view.baseline.provider.as_deref(), Some("initial"));
+        assert_eq!(view.baseline.model.as_deref(), Some("initial"));
         assert!(!view.dirty());
     });
 }
@@ -244,7 +244,7 @@ fn a_read_started_already_dirty_retains_the_existing_dirty_guard() {
     let (_, view) = new_view(&mut cx);
     view.update(&mut cx, |view, cx| {
         view.accept(snapshot("initial"));
-        view.update_draft(cx, |draft| draft.provider = Some("local".into()));
+        view.update_draft(cx, |draft| draft.model = Some("local".into()));
         let (profile_revision, edit_revision) = pending_read(view);
         view.finish_load(
             Ok(snapshot("old read")),
@@ -252,7 +252,7 @@ fn a_read_started_already_dirty_retains_the_existing_dirty_guard() {
             edit_revision,
             cx,
         );
-        assert_eq!(view.draft.provider.as_deref(), Some("local"));
+        assert_eq!(view.draft.model.as_deref(), Some("local"));
         assert!(view.dirty());
     });
 }
@@ -268,10 +268,7 @@ fn active_read_rejects_another_load_before_changing_view_state() {
         // even before the unavailable-context branch changes the visible state.
         view.load(cx);
         assert!(view.reloading);
-        assert_eq!(
-            view.snapshot().unwrap().active_provider.as_deref(),
-            Some("initial")
-        );
+        assert_eq!(view.snapshot().unwrap().model.as_deref(), Some("initial"));
         assert_eq!(
             (view.profile_revision, view.edit_revision),
             (profile_revision, edit_revision)

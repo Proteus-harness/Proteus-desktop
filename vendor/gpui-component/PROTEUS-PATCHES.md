@@ -1,5 +1,12 @@
 # Proteus component patches (2026-11-07)
 
+Settings surfaces expose independent optional `input.background` and
+`panel.header.hover.background` theme roles. Custom themes without those roles
+retain derived input fill and list-hover fallback; builtin themes map them
+explicitly. Compact sliders use neutral theme colors, an 8px filled track and
+the existing 24px interaction target; range/keyboard/accessibility semantics
+are unchanged.
+
 Upstream provenance remains in `README.proteus.md`. This ledger records the
 applicable component findings from the 2026-11-07 source audit. A vendor API fix
 is not evidence that Desktop exercises that API. The checks below are synthetic

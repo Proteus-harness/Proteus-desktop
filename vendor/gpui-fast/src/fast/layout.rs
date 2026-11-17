@@ -1350,6 +1350,9 @@ fn layout_fingerprint(style: &Style, rem_size: Pixels, scale_factor: f32) -> u64
             Some(template) => {
                 (1u8, template.repeat).hash(hasher);
                 mem::discriminant(&template.min_size).hash(hasher);
+                if template.min_size != crate::GridTemplateMinSize::MaxContent {
+                    template.fraction.max(0.).to_bits().hash(hasher);
+                }
             }
             None => 0u8.hash(hasher),
         }
@@ -1412,6 +1415,26 @@ mod tests {
     use super::layout_fingerprint;
     use crate::px;
     use crate::{GridTemplate, Style, taffy::ToTaffy as _};
+
+    #[test]
+    fn fractional_grid_tracks_keep_default_one_and_invalidate_changed_layout() {
+        let default: GridTemplate =
+            serde_json::from_str(r#"{"repeat":1,"min_size":"Zero"}"#).unwrap();
+        assert_eq!(default.fraction, 1.);
+        let mut base = Style::default();
+        base.grid_rows = Some(default);
+        let native = base.to_taffy(px(16.), 1.);
+        let fingerprint = layout_fingerprint(&base, px(16.), 1.);
+        for fraction in [0., 0.25, 0.5, 1.] {
+            let mut style = base.clone();
+            style.grid_rows = Some(GridTemplate::fractional(1, fraction));
+            assert_eq!(style.to_taffy(px(16.), 1.) == native, fraction == 1.);
+            assert_eq!(
+                layout_fingerprint(&style, px(16.), 1.) == fingerprint,
+                fraction == 1.
+            );
+        }
+    }
 
     /// Every field the conversion to a Taffy style reads has to reach the
     /// fingerprint too: a change the fingerprint cannot see is one a retained
@@ -1482,6 +1505,7 @@ mod tests {
                     s.grid_rows = Some(GridTemplate {
                         repeat: 3,
                         min_size: GridTemplateMinSize::Zero,
+                        ..GridTemplate::default()
                     })
                 }),
             ),
@@ -1491,8 +1515,13 @@ mod tests {
                     s.grid_cols = Some(GridTemplate {
                         repeat: 2,
                         min_size: GridTemplateMinSize::MinContent,
+                        ..GridTemplate::default()
                     })
                 }),
+            ),
+            (
+                "grid_rows_fraction",
+                Box::new(|s| s.grid_rows = Some(GridTemplate::fractional(1, 0.5))),
             ),
             (
                 "grid_location",

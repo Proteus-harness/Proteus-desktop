@@ -1,13 +1,17 @@
 //! Lazy directory listing of user-owned agent configurations. Discovery reads
-//! names/metadata only: profile loading and validation happen after a choice.
+//! directory entries and optional profile labels: loading and validation happen
+//! after a choice. No includes, providers or model catalogs are resolved here.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
 const MAX_DIRECTORIES: usize = 256;
 const MAX_CONFIGS: usize = 1024;
 const MAX_DEPTH: usize = 5;
 const MAX_ENTRIES: usize = 8192;
+const MAX_METADATA_BYTES: usize = 256 * 1024;
+const MAX_METADATA_TOTAL: usize = 8 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ConfigFile {
@@ -15,6 +19,37 @@ pub(super) struct ConfigFile {
     pub relative: String,
     pub name: String,
     pub current: bool,
+    pub title: Option<String>,
+    pub entrypoint: bool,
+    pub duplicate_name: bool,
+}
+
+impl ConfigFile {
+    pub fn display_name(&self) -> &str {
+        self.title.as_deref().unwrap_or(&self.name)
+    }
+}
+
+#[derive(Default, serde::Deserialize)]
+#[serde(default)]
+struct Metadata {
+    profile: ProfileMetadata,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(default)]
+struct ProfileMetadata {
+    title: Option<String>,
+    entrypoint: bool,
+}
+
+impl Default for ProfileMetadata {
+    fn default() -> Self {
+        Self {
+            title: None,
+            entrypoint: true,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -54,6 +89,7 @@ pub(super) fn discover(root: Option<PathBuf>, current: Option<PathBuf>) -> Catal
     let mut directories = HashSet::new();
     let mut files = HashSet::new();
     let mut entries = 0;
+    let mut metadata_bytes = 0;
     scan(
         &root,
         &root,
@@ -62,12 +98,20 @@ pub(super) fn discover(root: Option<PathBuf>, current: Option<PathBuf>) -> Catal
         &mut directories,
         &mut files,
         &mut entries,
+        &mut metadata_bytes,
         &mut catalog,
     );
+    let mut names = HashMap::new();
+    for file in &catalog.files {
+        *names.entry(file.display_name().to_owned()).or_insert(0) += 1;
+    }
+    for file in &mut catalog.files {
+        file.duplicate_name = names[file.display_name()] > 1;
+    }
     catalog.files.sort_by(|a, b| {
-        a.name
+        a.display_name()
             .to_lowercase()
-            .cmp(&b.name.to_lowercase())
+            .cmp(&b.display_name().to_lowercase())
             .then_with(|| a.relative.cmp(&b.relative))
     });
     catalog
@@ -81,6 +125,7 @@ fn scan(
     directories: &mut HashSet<PathBuf>,
     files: &mut HashSet<PathBuf>,
     visited_entries: &mut usize,
+    metadata_bytes: &mut usize,
     catalog: &mut Catalog,
 ) {
     let physical = match directory.canonicalize() {
@@ -154,6 +199,7 @@ fn scan(
                     directories,
                     files,
                     visited_entries,
+                    metadata_bytes,
                     catalog,
                 );
             } else {
@@ -168,6 +214,7 @@ fn scan(
             if !files.insert(physical.clone()) {
                 continue;
             }
+            let metadata = profile_metadata(&path, metadata_bytes, &mut catalog.problem);
             catalog.files.push(ConfigFile {
                 relative: path
                     .strip_prefix(root)
@@ -176,6 +223,9 @@ fn scan(
                     .to_string(),
                 name: name.to_owned(),
                 current: current.as_ref() == Some(&physical),
+                title: metadata.title,
+                entrypoint: metadata.entrypoint,
+                duplicate_name: false,
                 path,
             });
             if catalog.files.len() >= MAX_CONFIGS {
@@ -186,6 +236,55 @@ fn scan(
             }
         }
     }
+}
+
+/// Deserialize only the launcher's presentation keys. Invalid or oversized
+/// documents remain ordinary visible entries, rather than disappearing because
+/// discovery tried to validate an agent configuration.
+fn profile_metadata(
+    path: &Path,
+    bytes: &mut usize,
+    problem: &mut Option<String>,
+) -> ProfileMetadata {
+    let limit = MAX_METADATA_BYTES.min(MAX_METADATA_TOTAL.saturating_sub(*bytes));
+    if limit == 0 {
+        problem
+            .get_or_insert_with(|| "Часть подписей не прочитана; файлы доступны в списке".into());
+        return ProfileMetadata::default();
+    }
+    let Some(mut file) = std::fs::File::open(path)
+        .ok()
+        .map(|file| file.take((limit + 1) as u64))
+    else {
+        return ProfileMetadata::default();
+    };
+    let mut data = Vec::new();
+    if file.read_to_end(&mut data).is_err() {
+        return ProfileMetadata::default();
+    }
+    *bytes += data.len();
+    if data.len() > limit {
+        problem
+            .get_or_insert_with(|| "Часть подписей не прочитана; файлы доступны в списке".into());
+        return ProfileMetadata::default();
+    }
+    let Ok(source) = std::str::from_utf8(&data) else {
+        return ProfileMetadata::default();
+    };
+    let parsed = if path
+        .extension()
+        .is_some_and(|extension| extension == "json")
+    {
+        serde_json::from_str::<Metadata>(source).ok()
+    } else {
+        toml::from_str::<Metadata>(source).ok()
+    };
+    let mut profile = parsed.unwrap_or_default().profile;
+    profile.title = profile
+        .title
+        .map(|title| title.trim().to_owned())
+        .filter(|title| !title.is_empty());
+    profile
 }
 
 fn config_file(path: &Path) -> bool {

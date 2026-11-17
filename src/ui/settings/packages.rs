@@ -44,7 +44,7 @@ impl SettingsView {
             .on_click(cx.listener(|this, _, _, cx| this.choose_package(cx)));
         parts.push(
             section(
-                format!("Пакеты · {enabled} из {}", packages.len()),
+                if packages.len() > 1 {format!("Пакеты · {enabled} из {}", packages.len())} else {"Пакеты".into()},
                 Some(
                     "Пакет не запускает процессных модулей: он даёт skills и описания MCP-серверов."
                         .into(),
@@ -141,7 +141,6 @@ impl SettingsView {
         let removed = package.path.clone();
         let spot_key = spot::package(&package.path);
         // A folder added in the draft is loaded by the next save.
-        let pending = self.addons().is_some() && state.is_none();
         let row = h_flex()
             .px_4()
             .py_3()
@@ -181,14 +180,6 @@ impl SettingsView {
                     .children(
                         problems.map(|(color, text)| div().text_xs().text_color(color).child(text)),
                     )
-                    .when(pending, |text| {
-                        text.child(
-                            div()
-                                .text_xs()
-                                .text_color(theme.muted_foreground)
-                                .child("Пакет загрузится после сохранения."),
-                        )
-                    })
                     .when(!chips.is_empty(), |text| {
                         text.child(h_flex().flex_wrap().gap_1().items_center().children(chips))
                     }),

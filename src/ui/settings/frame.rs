@@ -19,8 +19,6 @@ use crate::ui::kit::Hint as _;
 use crate::ui::motion::{Spinner, late_in, switch_in};
 use crate::ui::prefs;
 
-const COLUMN_WIDTH: f32 = 720.;
-
 impl SettingsView {
     pub(super) fn render_frame(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         if self.page.is_agent() {
@@ -102,7 +100,7 @@ impl SettingsView {
                         .pb_10()
                         // The extension owns its scroll container; constrain
                         // the page without adding a second scrolling surface.
-                        .child(page_column().h_full().min_h_0().child(page.view.clone())),
+                        .child(page_column(cx).h_full().min_h_0().child(page.view.clone())),
                 )
                 .into_any_element();
         }
@@ -113,7 +111,9 @@ impl SettingsView {
         let handle = self.page_scroll();
         super::reveal::begin(handle.clone());
         let body = match &self.page {
-            PageId::Model => self.model_page(cx),
+            PageId::Providers => self.providers_page(cx),
+            PageId::Models => self.models_page(cx),
+            PageId::Modes => self.modes_page(cx),
             PageId::Slot(slot) => self.slot_page(slot, cx),
             PageId::Tools => self.tools_page(cx),
             PageId::Hooks => self.hooks_page(cx),
@@ -148,7 +148,7 @@ impl SettingsView {
             ),
         };
         let key = format!("{:?}", self.page);
-        let column = page_column()
+        let column = page_column(cx)
             .pb_10()
             .gap_6()
             .child(
@@ -163,7 +163,7 @@ impl SettingsView {
                     .children(switch.map(|switch| div().flex_none().pt_1().child(switch))),
             )
             .children(
-                (self.page == PageId::Model)
+                matches!(self.page, PageId::Providers | PageId::Models)
                     .then(|| self.render_warnings(cx))
                     .flatten(),
             )
@@ -353,11 +353,10 @@ impl SettingsView {
 
 /// All settings pages share the same responsive content width, including
 /// extension-owned pages that provide their own title and scroll container.
-fn page_column() -> Div {
-    v_flex()
-        .w_full()
-        .min_w_0()
-        .max_w(prefs::scaled(COLUMN_WIDTH))
+fn page_column(cx: &App) -> Div {
+    v_flex().w_full().min_w_0().max_w(prefs::scaled(f32::from(
+        prefs::visual(cx).view.settings_width,
+    )))
 }
 
 fn centered(content: impl IntoElement) -> AnyElement {

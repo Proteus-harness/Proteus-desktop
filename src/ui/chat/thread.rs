@@ -187,7 +187,21 @@ impl Chat {
             spacing.top = 4.;
         }
         let body = match (&entry.role, &entry.tool, &entry.subagent) {
-            (Role::User, _, _) => render_user(entry, &self.sent_images, cx),
+            (Role::User, _, _) => {
+                // A plain-text contributor adds links while preserving authored
+                // Markdown syntax. The client owns no parsing policy.
+                let reply = self.replies.part(
+                    entry.key,
+                    "text/plain",
+                    &entry.text,
+                    self.workspace.clone(),
+                    self.session.key.clone(),
+                    self.readonly.is_some(),
+                    window,
+                    cx,
+                );
+                render_user(entry, &self.sent_images, reply, cx)
+            }
             (Role::Reasoning, _, _) => super::reasoning::render(
                 entry,
                 expanded,
@@ -197,6 +211,7 @@ impl Chat {
             (Role::Assistant, _, _) => {
                 let reply = self.replies.part(
                     entry.key,
+                    "text/markdown",
                     &entry.text,
                     self.workspace.clone(),
                     self.session.key.clone(),
@@ -304,6 +319,7 @@ impl Chat {
                 v_flex()
                     .w_full()
                     .max_w(prefs::chat_width(cx))
+                    .font_family(prefs::chat_font(cx))
                     .child(body)
                     .when(footer && (copyable || time.is_some()), |row| {
                         row.child(
@@ -463,9 +479,13 @@ pub(super) fn reveal_key(chat: EntityId, key: u64) -> SharedString {
     format!("thread-row-{chat}-{key}").into()
 }
 
-fn render_user(entry: &Entry, images: &SentImages, cx: &App) -> AnyElement {
+fn render_user(
+    entry: &Entry,
+    images: &SentImages,
+    reply: super::replies::Part,
+    cx: &App,
+) -> AnyElement {
     let theme = cx.theme();
-    let text = SharedString::from(&entry.text);
     let has_text = !entry.text.trim().is_empty();
     v_flex()
         .w_full()
@@ -484,9 +504,9 @@ fn render_user(entry: &Entry, images: &SentImages, cx: &App) -> AnyElement {
                     .text_color(theme.secondary_foreground)
                     .child(
                         div()
-                            .font_family(prefs::chat_font(cx))
+                            .font_family(prefs::user_chat_font(cx))
                             .text_size(prefs::chat_text(cx))
-                            .child(SelectableText::new(row_id("user", entry.key), text.clone())),
+                            .child(reply_element(entry.key, reply)),
                     ),
             )
         })
@@ -498,15 +518,18 @@ fn render_assistant(entry: &Entry, reply: super::replies::Part, cx: &App) -> Any
         .w_full()
         .font_family(prefs::chat_font(cx))
         .text_size(prefs::chat_text(cx))
-        .child(match reply {
-            super::replies::Part::Content(view) => view.into_any_element(),
-            super::replies::Part::Plain(text) => gpui_kit::base::SelectableText::new(
-                row_id("plain-reply", entry.key),
-                SharedString::from(text),
-            )
-            .into_any_element(),
-        })
+        .child(reply_element(entry.key, reply))
         .into_any_element()
+}
+
+fn reply_element(key: u64, reply: super::replies::Part) -> AnyElement {
+    match reply {
+        super::replies::Part::Content(view) => view.into_any_element(),
+        super::replies::Part::Plain(text) => {
+            SelectableText::new(row_id("plain-reply", key), SharedString::from(text))
+                .into_any_element()
+        }
+    }
 }
 
 fn render_note(entry: &Entry, cx: &App) -> AnyElement {

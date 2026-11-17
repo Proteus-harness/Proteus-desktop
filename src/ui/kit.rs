@@ -63,7 +63,17 @@ pub(crate) trait ButtonLabel {
 
 impl ButtonLabel for Button {
     fn settings_selector(self, cx: &App) -> Self {
-        self.border_1().border_color(cx.theme().border)
+        let theme = cx.theme();
+        let fill = theme.input_background();
+        self.custom(
+            ButtonCustomVariant::new(cx)
+                .color(fill)
+                .foreground(theme.foreground)
+                .hover(fill.blend(theme.panel_header_hover))
+                .active(fill.blend(theme.list_active)),
+        )
+        .border_1()
+        .border_color(theme.border)
     }
 
     fn quiet(self, cx: &App) -> Self {
@@ -133,8 +143,8 @@ pub(crate) fn checkbox(id: impl Into<ElementId>) -> Checkbox {
 }
 
 /// Keep the native field's fill and geometry, with no decorative edge.
-/// The theme's input color also supplies dark-mode fills, so hide only this
-/// instance's border instead of making that shared token transparent.
+/// The theme supplies an independent input background. Hide only this
+/// instance's border, preserving that fill and the custom-theme fallback.
 pub(crate) fn input(state: &gpui_kit::Entity<InputState>) -> Input {
     Input::new(state)
         .focus_bordered(false)

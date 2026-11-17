@@ -753,6 +753,7 @@ pub trait Styled: Sized {
         self.style().grid_cols = Some(GridTemplate {
             repeat: cols,
             min_size: GridTemplateMinSize::Zero,
+            ..GridTemplate::default()
         });
         self
     }
@@ -763,6 +764,7 @@ pub trait Styled: Sized {
         self.style().grid_cols = Some(GridTemplate {
             repeat: cols,
             min_size: GridTemplateMinSize::MinContent,
+            ..GridTemplate::default()
         });
         self
     }
@@ -772,6 +774,7 @@ pub trait Styled: Sized {
         self.style().grid_cols = Some(GridTemplate {
             repeat: cols,
             min_size: GridTemplateMinSize::MaxContent,
+            ..GridTemplate::default()
         });
         self
     }
@@ -781,6 +784,7 @@ pub trait Styled: Sized {
         self.style().grid_rows = Some(GridTemplate {
             repeat: rows,
             min_size: GridTemplateMinSize::Zero,
+            ..GridTemplate::default()
         });
         self
     }
@@ -791,6 +795,7 @@ pub trait Styled: Sized {
         self.style().grid_rows = Some(GridTemplate {
             repeat: rows,
             min_size: GridTemplateMinSize::MinContent,
+            ..GridTemplate::default()
         });
         self
     }
@@ -800,6 +805,7 @@ pub trait Styled: Sized {
         self.style().grid_rows = Some(GridTemplate {
             repeat: rows,
             min_size: GridTemplateMinSize::MaxContent,
+            ..GridTemplate::default()
         });
         self
     }

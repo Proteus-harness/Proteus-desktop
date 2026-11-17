@@ -3357,6 +3357,45 @@ mod tests {
     }
 
     #[gpui::test]
+    fn raw_gfm_url_and_literal_user_html_open_their_exact_destinations(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        for (source, html, expected) in [
+            (
+                "https://example.com/a?q=1&b=2",
+                false,
+                "https://example.com/a?q=1&b=2",
+            ),
+            (
+                "[**example**](https://example.org/path)",
+                false,
+                "https://example.org/path",
+            ),
+            (
+                "<div style=\"white-space: pre-wrap\"><a href=\"https://example.net/a?q=1&amp;b=2\">https://example.net/a?q=1&amp;b=2</a>  **literal**</div>",
+                true,
+                "https://example.net/a?q=1&b=2",
+            ),
+            (
+                "[file](file:///tmp/proteus-offline-fixture.rs)",
+                false,
+                "file:///tmp/proteus-offline-fixture.rs",
+            ),
+        ] {
+            let (_, cx) = cx.add_window_view(move |_, cx| {
+                let mut root = TextViewTestRoot::new(source, cx);
+                if html {
+                    root.text_view = cx.new(|cx| TextViewState::html(source, cx));
+                }
+                root
+            });
+            let cx: &mut VisualTestContext = cx;
+            cx.simulate_click(point(px(10.), px(10.)), Modifiers::default());
+            // Test platform records the OS-open action: no browser or network.
+            assert_eq!(cx.opened_url().as_deref(), Some(expected));
+        }
+    }
+
+    #[gpui::test]
     fn right_click_does_not_open_url_without_handler(cx: &mut TestAppContext) {
         cx.update(crate::init);
         let (_, cx) =

@@ -12,7 +12,8 @@ impl Fixture {
     fn file(&self, path: &str) -> PathBuf {
         let path = self.0.join(path);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        // Discovery deliberately does not parse a config or query a provider.
+        // Unknown documents stay visible; discovery never validates an agent
+        // config or queries a provider while projecting profile labels.
         std::fs::write(&path, "not a configuration document").unwrap();
         path
     }
@@ -61,6 +62,81 @@ fn catalog_lists_profile_locations_without_reading_fragments_secrets_or_backups(
     );
     assert_eq!(catalog.files.iter().filter(|file| file.current).count(), 1);
     assert!(catalog.files[1].current);
+    assert!(catalog.files[0].duplicate_name);
+    assert!(catalog.files[1].duplicate_name);
+}
+
+#[::core::prelude::v1::test]
+fn catalog_reads_only_optional_profile_presentation_without_resolving_sources() {
+    let fixture = Fixture::new();
+    let helper = fixture.file("configs/arbitrary-worker.toml");
+    std::fs::write(&helper, "include = ['missing-secret-fragment.toml']\nmodel = 'unavailable'\n[profile]\ntitle = '  Worker  '\nentrypoint = false\n").unwrap();
+    let main = fixture.file("custom-setup/configs/main.json");
+    std::fs::write(
+        &main,
+        r#"{"profile":{"title":"Custom main"},"models":"not a valid agent models table"}"#,
+    )
+    .unwrap();
+    fixture.file("configs/unknown.toml");
+    let catalog = discover(Some(fixture.0.clone()), Some(helper));
+    assert!(catalog.problem.is_none());
+    assert_eq!(catalog.files.len(), 3);
+    let helper = catalog
+        .files
+        .iter()
+        .find(|file| file.name == "arbitrary-worker.toml")
+        .unwrap();
+    assert_eq!(helper.display_name(), "Worker");
+    assert!(!helper.entrypoint);
+    assert!(helper.current);
+    let main = catalog.files.iter().find(|file| file.path == main).unwrap();
+    assert_eq!(main.display_name(), "Custom main");
+    assert!(main.entrypoint);
+    assert!(
+        catalog
+            .files
+            .iter()
+            .find(|file| file.name == "unknown.toml")
+            .unwrap()
+            .entrypoint
+    );
+}
+
+#[::core::prelude::v1::test]
+fn catalog_marks_colliding_visible_titles_even_for_distinct_filenames() {
+    let fixture = Fixture::new();
+    for path in ["configs/one.toml", "configs/two.toml"] {
+        std::fs::write(fixture.file(path), "[profile]\ntitle = 'My agent'\n").unwrap();
+    }
+    fixture.file("configs/other.toml");
+    let catalog = discover(Some(fixture.0.clone()), None);
+    assert_eq!(catalog.files.len(), 3);
+    assert_eq!(
+        catalog
+            .files
+            .iter()
+            .filter(|file| file.duplicate_name)
+            .count(),
+        2
+    );
+    assert!(
+        catalog
+            .files
+            .iter()
+            .filter(|file| file.duplicate_name)
+            .all(|file| file.display_name() == "My agent")
+    );
+}
+
+#[::core::prelude::v1::test]
+fn oversized_presentation_is_reported_without_hiding_the_config() {
+    let fixture = Fixture::new();
+    let path = fixture.file("configs/large.toml");
+    std::fs::write(path, " ".repeat(MAX_METADATA_BYTES + 1)).unwrap();
+    let catalog = discover(Some(fixture.0.clone()), None);
+    assert_eq!(catalog.files.len(), 1);
+    assert!(catalog.files[0].entrypoint);
+    assert!(catalog.problem.is_some());
 }
 
 #[::core::prelude::v1::test]

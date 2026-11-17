@@ -37,6 +37,13 @@ impl SettingsView {
             .collect();
         let enabled = if enabled.is_empty() {
             card([note("Hooks не включены.", cx).into_any_element()], cx)
+        } else if enabled.len() == 1 {
+            card(
+                [self
+                    .hook_row(0, &self.draft.hooks[0], cx)
+                    .into_any_element()],
+                cx,
+            )
         } else {
             let view = cx.weak_entity();
             card(
@@ -122,13 +129,13 @@ impl SettingsView {
             .min_w_0()
             .gap_3()
             .items_center()
-            .child(
+            .children((self.draft.hooks.len() > 1).then(|| {
                 div()
                     .w(prefs::scaled(20.))
                     .flex_none()
                     .text_color(cx.theme().muted_foreground)
-                    .child(format!("{}.", ix + 1)),
-            )
+                    .child(format!("{}.", ix + 1))
+            }))
             .child(named(
                 hashed_id("hook-name", &id),
                 id.to_string(),

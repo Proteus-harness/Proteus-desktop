@@ -33,7 +33,8 @@ mod wave_dots;
 
 pub(super) use collapse::Collapse;
 pub(super) use disclosure::{
-    chevron, drive, menu_chevron, moving, moving_at, preview_reveal, reveal, reveal_at, toggled,
+    chevron, drive, menu_chevron, moving, moving_at, preview_reveal, reveal, reveal_at,
+    settle_disclosures, toggled,
 };
 pub(super) use enter::{fade_in_if, late_in, rise_in, rise_in_if, stagger_in, switch_in};
 pub(super) use number::Number;
@@ -103,10 +104,11 @@ pub(super) struct Tween {
 
 impl Tween {
     pub(super) fn start(duration: Duration) -> Self {
-        Self {
-            at: Instant::now(),
-            duration,
-        }
+        Self::start_at(duration, Instant::now())
+    }
+
+    pub(super) fn start_at(duration: Duration, at: Instant) -> Self {
+        Self { at, duration }
     }
 
     /// Linear progress in `0..=1`.

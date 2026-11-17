@@ -30,7 +30,9 @@ use crate::ui::{divider, drag};
 
 pub(super) fn page_icon(page: &PageId) -> Icon {
     match page {
-        PageId::Model => Icon::new(Lucide::Brain),
+        PageId::Providers => Icon::new(Lucide::Server),
+        PageId::Models => Icon::new(Lucide::Brain),
+        PageId::Modes => Icon::new(Lucide::SlidersHorizontal),
         PageId::Slot(slot) => match slot.as_str() {
             "workflow" => Icon::new(Lucide::Workflow),
             "context" => Icon::new(Lucide::Layers),
@@ -70,7 +72,7 @@ impl SettingsView {
     fn agent_page_list(&self) -> Vec<PageId> {
         self.snapshot()
             .map(agent_pages)
-            .unwrap_or_else(|| vec![PageId::Model])
+            .unwrap_or_else(|| vec![PageId::Providers])
     }
 
     /// Enabled extensions in the user's order, plus the open page of a

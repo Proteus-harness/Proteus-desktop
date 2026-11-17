@@ -23,11 +23,11 @@ use crate::ui::prefs;
 mod audit_tests;
 
 /// Everything one field control needs inside its event handlers.
-struct FieldSpec {
-    path: FieldPath,
-    field: ConfigField,
-    value: Option<Value>,
-    view: WeakEntity<SettingsView>,
+pub(super) struct FieldSpec {
+    pub(super) path: FieldPath,
+    pub(super) field: ConfigField,
+    pub(super) value: Option<Value>,
+    pub(super) view: WeakEntity<SettingsView>,
 }
 
 impl FieldSpec {
@@ -51,11 +51,11 @@ impl FieldSpec {
         let _ = self.view.update(cx, |this, cx| this.reset_field(&path, cx));
     }
 
-    fn effective(&self) -> Option<&Value> {
+    pub(super) fn effective(&self) -> Option<&Value> {
         self.value.as_ref().or(self.field.default.as_ref())
     }
 
-    fn id(&self, name: &'static str) -> ElementId {
+    pub(super) fn id(&self, name: &'static str) -> ElementId {
         hashed_id(name, &self.path)
     }
 }
@@ -91,43 +91,51 @@ impl SettingsView {
             kind,
             FieldKind::Text(TextFormat::Integer { .. } | TextFormat::Number | TextFormat::Value)
         );
-        let fit = match kind {
-            FieldKind::MultiChoice(_) => Fit::Below,
-            FieldKind::Text(format) if format.is_multiline() => Fit::Below,
-            FieldKind::Text(_) if !short => Fit::Shrink,
-            _ => Fit::Fixed,
+        let tagged = super::tags::is_tag_field(field);
+        let fit = if tagged {
+            Fit::Below
+        } else {
+            match kind {
+                FieldKind::MultiChoice(_) => Fit::Below,
+                FieldKind::Text(format) if format.is_multiline() => Fit::Below,
+                FieldKind::Text(_) if !short => Fit::Shrink,
+                _ => Fit::Fixed,
+            }
         };
         let vertical = matches!(fit, Fit::Below);
         let stretch = !matches!(fit, Fit::Fixed);
-        let control = match kind {
-            FieldKind::Switch => {
-                let checked = spec.effective().and_then(Value::as_bool).unwrap_or(false);
-                let handler = spec.clone();
-                kit::switch(spec.id("switch"))
-                    .checked(checked)
-                    .on_click(move |checked, _, cx| handler.set(Some(Value::Bool(*checked)), cx))
-                    .into_any_element()
-            }
-            FieldKind::Choice(options) => choice_menu(&spec, options),
-            FieldKind::MultiChoice(options) => multi_choice(&spec, options),
-            FieldKind::Group(fields) => return self.render_group(path, field, fields, cx),
-            FieldKind::Text(format) => match text.map(|text| &text.input) {
-                Some(TextInput::Line(state)) => kit::input(state)
-                    .small()
-                    .map(|input| {
-                        if short {
-                            input.w(prefs::scaled(SHORT_INPUT_WIDTH))
-                        } else {
-                            input.w_full()
-                        }
-                    })
-                    .into_any_element(),
-                Some(TextInput::Area(state)) if format == TextFormat::Lines => {
-                    Self::string_list(state, cx)
+        let control = if tagged {
+            self.string_tags(&spec, cx)
+        } else {
+            match kind {
+                FieldKind::Switch => {
+                    let checked = spec.effective().and_then(Value::as_bool).unwrap_or(false);
+                    let handler = spec.clone();
+                    kit::switch(spec.id("switch"))
+                        .checked(checked)
+                        .on_click(move |checked, _, cx| {
+                            handler.set(Some(Value::Bool(*checked)), cx)
+                        })
+                        .into_any_element()
                 }
-                Some(TextInput::Area(state)) => self.text_area(state, cx),
-                None => div().into_any_element(),
-            },
+                FieldKind::Choice(options) => choice_menu(&spec, options),
+                FieldKind::MultiChoice(options) => multi_choice(&spec, options),
+                FieldKind::Group(fields) => return self.render_group(path, field, fields, cx),
+                FieldKind::Text(_) => match text.map(|text| &text.input) {
+                    Some(TextInput::Line(state)) => kit::input(state)
+                        .small()
+                        .map(|input| {
+                            if short {
+                                input.w(prefs::scaled(SHORT_INPUT_WIDTH))
+                            } else {
+                                input.w_full()
+                            }
+                        })
+                        .into_any_element(),
+                    Some(TextInput::Area(state)) => self.text_area(state, cx),
+                    None => div().into_any_element(),
+                },
+            }
         };
         let unit = field
             .unit

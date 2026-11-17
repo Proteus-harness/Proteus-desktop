@@ -436,6 +436,9 @@ pub struct ThemeConfigColors {
     /// Border color for inputs such as Input, Select, etc.
     #[serde(rename = "input.border")]
     pub input: Option<SharedString>,
+    /// Fill for editable controls. Omission keeps this theme's native derived fill.
+    #[serde(rename = "input.background")]
+    pub input_background: Option<SharedString>,
     /// Link text color.
     #[serde(rename = "link", alias = "link.foreground")]
     pub link: Option<SharedString>,
@@ -463,6 +466,9 @@ pub struct ThemeConfigColors {
     /// Hover background color for ListItem.
     #[serde(rename = "list.hover.background")]
     pub list_hover: Option<SharedString>,
+    /// Subtle hover for panel headings; omitted custom roles follow list hover.
+    #[serde(rename = "panel.header.hover.background")]
+    pub panel_header_hover: Option<SharedString>,
     /// Muted backgrounds such as Skeleton and Switch.
     #[serde(rename = "muted.background")]
     pub muted: Option<SharedString>,
@@ -791,6 +797,16 @@ impl ThemeColor {
         apply_color!(border);
         apply_color!(foreground);
         apply_color!(input, fallback = self.border);
+        // Resolve an omitted fill from this palette, never from the builtin
+        // input.background: custom input/border/background remain authoritative.
+        apply_color!(
+            input_background,
+            fallback = if config.mode.is_dark() {
+                self.input.mix_oklab(gpui::transparent_black(), 0.3)
+            } else {
+                self.background
+            }
+        );
         apply_background_color!(muted);
         apply_color!(
             muted_foreground,
@@ -990,6 +1006,7 @@ impl ThemeColor {
         apply_background_color!(list_even, fallback = tokens.list);
         apply_background_color!(list_head, fallback = tokens.list);
         apply_background_color!(list_hover, fallback = self.accent.opacity(0.6));
+        apply_background_color!(panel_header_hover, fallback = tokens.list_hover);
         apply_background_color!(popover, fallback = tokens.background);
         apply_color!(popover_foreground, fallback = self.foreground);
         apply_background_color!(progress_bar, fallback = tokens.primary);

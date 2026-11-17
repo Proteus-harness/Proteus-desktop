@@ -6,7 +6,10 @@ pub mod catalog;
 mod draft;
 pub mod history;
 pub mod mcp;
+pub mod models;
+pub mod modes;
 pub mod reconcile;
+mod registration;
 mod schema;
 
 pub use draft::{Draft, FieldPath};

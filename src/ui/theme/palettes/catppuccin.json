@@ -13,6 +13,7 @@
         "border": "#acb0be",
         "ring": "#7287fd",
         "foreground": "#4c4f69",
+        "input.background": "#eff1f5",
         "input.border": "#acb0be",
         "link.active": "#7287fd",
         "link": "#7287fd",
@@ -52,7 +53,7 @@
         "tab_bar.segmented.background": "#e6e9ef",
         "group_box.background": "#ccd0da",
         "popover.background": "#ccd0da",
-        "accordion.background": "#d6dae3",
+        "accordion.background": "#d1d5df",
         "sidebar.foreground": "#4c4f69",
         "group_box.foreground": "#4c4f69",
         "popover.foreground": "#4c4f69",
@@ -60,7 +61,8 @@
         "list.hover.background": "#00000008",
         "button.secondary.background": "#ccd0da",
         "button.secondary.hover.background": "#c6cad3",
-        "button.secondary.active.background": "#c0c4cd"
+        "button.secondary.active.background": "#c0c4cd",
+        "panel.header.hover.background": "#00000004"
       },
       "highlight": {
         "editor.foreground": "#4c4f69",
@@ -418,6 +420,7 @@
         "border": "#626880",
         "ring": "#f2d5cf",
         "foreground": "#c6d0f5",
+        "input.background": "#51576d",
         "input.border": "#51576d",
         "list.active.background": "#8caaee15",
         "list.even.background": "#303446",
@@ -455,14 +458,15 @@
         "status_bar.background": "#232634",
         "tab_bar.segmented.background": "#292c3c",
         "group_box.background": "#414559",
-        "accordion.background": "#494e63",
+        "accordion.background": "#454a5e",
         "sidebar.foreground": "#c6d0f5",
         "group_box.foreground": "#c6d0f5",
         "button.secondary.foreground": "#c6d0f5",
         "list.hover.background": "#ffffff03",
         "button.secondary.background": "#414559",
         "button.secondary.hover.background": "#494c60",
-        "button.secondary.active.background": "#51576d"
+        "button.secondary.active.background": "#51576d",
+        "panel.header.hover.background": "#ffffff04"
       },
       "highlight": {
         "editor.foreground": "#c6d0f5",
@@ -568,6 +572,7 @@
         "ring": "#f4dbd6",
         "danger.background": "#ed8796",
         "foreground": "#cad3f5",
+        "input.background": "#494d64",
         "input.border": "#494d64",
         "link.active": "#8aadf4",
         "link": "#8aadf4",
@@ -607,7 +612,7 @@
         "tab.active.background": "#363a4f",
         "group_box.background": "#363a4f",
         "popover.background": "#363a4f",
-        "accordion.background": "#3f4359",
+        "accordion.background": "#3b3f54",
         "sidebar.foreground": "#cad3f5",
         "group_box.foreground": "#cad3f5",
         "tab.active.foreground": "#cad3f5",
@@ -615,7 +620,8 @@
         "list.hover.background": "#ffffff08",
         "button.secondary.background": "#363a4f",
         "button.secondary.hover.background": "#3a3f55",
-        "button.secondary.active.background": "#494d64"
+        "button.secondary.active.background": "#494d64",
+        "panel.header.hover.background": "#ffffff04"
       },
       "highlight": {
         "editor.foreground": "#cad3f5",
@@ -729,6 +735,7 @@
         "danger.active.background": "#eba0ac",
         "danger.hover.background": "#f38ba8",
         "foreground": "#cdd6f4",
+        "input.background": "#45475a",
         "input.border": "#6c7086",
         "link.active": "#89b4fa",
         "link": "#89b4fa",
@@ -770,14 +777,15 @@
         "tab_bar.segmented.background": "#181825",
         "tab.active.background": "#313244",
         "group_box.background": "#313244",
-        "accordion.background": "#3a3c4e",
+        "accordion.background": "#363749",
         "sidebar.foreground": "#cdd6f4",
         "group_box.foreground": "#cdd6f4",
         "tab.active.foreground": "#cdd6f4",
         "button.secondary.foreground": "#cdd6f4",
         "button.secondary.background": "#302d41",
         "button.secondary.hover.background": "#45475a",
-        "button.secondary.active.background": "#575268"
+        "button.secondary.active.background": "#575268",
+        "panel.header.hover.background": "#ffffff04"
       },
       "highlight": {
         "editor.foreground": "#cdd6f4",

@@ -48,9 +48,14 @@ pub fn chat_text(cx: &App) -> Rems {
     scaled(f32::from(visual(cx).view.chat_text))
 }
 
-/// Conversation prose and composer family; code retains the theme's mono.
+/// Agent prose and tool labels; code retains the theme's mono.
 pub fn chat_font(cx: &App) -> SharedString {
     visual::chat_font(cx).unwrap_or_else(|| Theme::global(cx).font_family.clone())
+}
+
+/// Sent messages and composer inherit the agent font unless overridden.
+pub fn user_chat_font(cx: &App) -> SharedString {
+    visual::user_chat_font(cx).unwrap_or_else(|| chat_font(cx))
 }
 
 /// Widest conversation column.
@@ -252,7 +257,8 @@ impl Effects {
                 || previous.view.surface_radius != value.view.surface_radius,
             shortcuts: previous.shortcuts != value.shortcuts,
             motion: previous.motion != value.motion,
-            chat_font: previous.fonts.chat != value.fonts.chat,
+            chat_font: previous.fonts.chat != value.fonts.chat
+                || previous.fonts.user_chat != value.fonts.user_chat,
             renderers: previous.extensions.disabled != value.extensions.disabled
                 || previous.extensions.order != value.extensions.order,
             refresh: previous.theme != value.theme
@@ -311,6 +317,7 @@ fn apply(value: &Preferences, effects: Effects, cx: &mut App) {
     }
     if effects.motion {
         cx.set_reduce_motion(value.motion == MotionPreference::Off);
+        super::motion::settle_disclosures(cx);
     }
     if effects.refresh {
         cx.refresh_windows();
@@ -369,6 +376,7 @@ mod tests {
             Box::new(|p| p.theme = ThemePreference::Light),
             Box::new(|p| p.fonts.interface = Some("Fixture UI".into())),
             Box::new(|p| p.fonts.chat = Some("Fixture Chat".into())),
+            Box::new(|p| p.fonts.user_chat = Some("Fixture User".into())),
             Box::new(|p| p.view.scale = 125),
             Box::new(|p| p.view.surface_radius = 4),
             Box::new(|p| p.view.chat_text = 20),

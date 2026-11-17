@@ -5,12 +5,15 @@ use gpui_kit::component::slider::{Slider, SliderEvent, SliderState};
 use gpui_kit::*;
 
 use super::SettingsView;
-use crate::preferences::{CHAT_TEXT, CHAT_WIDTH, Preference, Preferences, SURFACE_RADIUS};
+use crate::preferences::{
+    CHAT_TEXT, CHAT_WIDTH, Preference, Preferences, SETTINGS_WIDTH, SURFACE_RADIUS,
+};
 use crate::ui::prefs;
 
 pub(super) struct SizeSliders {
     pub chat_text: Entity<SliderState>,
     pub chat_width: Entity<SliderState>,
+    pub settings_width: Entity<SliderState>,
     pub surface_radius: Entity<SliderState>,
 }
 
@@ -38,6 +41,13 @@ impl SizeSliders {
                 .step(1.)
                 .default_value(f32::from(view.surface_radius))
         });
+        let settings_width = cx.new(|_| {
+            SliderState::new()
+                .max(f32::from(*SETTINGS_WIDTH.end()))
+                .min(f32::from(*SETTINGS_WIDTH.start()))
+                .step(10.)
+                .default_value(f32::from(view.settings_width))
+        });
         let subscriptions = vec![
             follow(&chat_text, window, cx, |prefs, value| {
                 prefs.view.chat_text = value
@@ -48,12 +58,16 @@ impl SizeSliders {
             follow(&surface_radius, window, cx, |prefs, value| {
                 prefs.view.surface_radius = value
             }),
+            follow(&settings_width, window, cx, |prefs, value| {
+                prefs.view.settings_width = value
+            }),
         ];
         (
             Self {
                 chat_text,
                 chat_width,
                 surface_radius,
+                settings_width,
             },
             subscriptions,
         )
@@ -64,6 +78,7 @@ impl SizeSliders {
             (&self.chat_text, view.chat_text),
             (&self.chat_width, view.chat_width),
             (&self.surface_radius, view.surface_radius),
+            (&self.settings_width, view.settings_width),
         ] {
             let value = f32::from(value);
             if state.read(cx).value().end() != value {
@@ -78,6 +93,7 @@ impl SizeSliders {
             Preference::SurfaceRadius => (&self.surface_radius, defaults.surface_radius),
             Preference::ChatText => (&self.chat_text, defaults.chat_text),
             Preference::ChatWidth => (&self.chat_width, defaults.chat_width),
+            Preference::SettingsWidth => (&self.settings_width, defaults.settings_width),
             _ => return,
         };
         state.update(cx, |state, cx| {

@@ -153,7 +153,7 @@ impl Chat {
             .children(self.render_attachments(cx))
             .child(kit::contain_scroll(
                 Textarea::new(&self.composer)
-                    .font_family(prefs::chat_font(cx))
+                    .font_family(prefs::user_chat_font(cx))
                     .text_size(prefs::chat_text(cx))
                     .appearance(false)
                     .bordered(false)

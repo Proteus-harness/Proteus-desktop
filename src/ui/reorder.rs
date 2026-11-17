@@ -12,7 +12,7 @@ use std::time::Instant;
 mod geometry;
 mod hold;
 pub(crate) use geometry::move_before;
-use geometry::{Pending, Position, keyboard_target, preview_order};
+use geometry::{Arrangement, Pending, keyboard_target, preview_order};
 use hold::Hold;
 
 use super::kit::RowRule as _;
@@ -108,7 +108,7 @@ struct State {
     active: Option<SharedString>,
     before: Option<SharedString>,
     over: bool,
-    motion: HashMap<SharedString, Position>,
+    motion: Arrangement,
     focus: HashMap<SharedString, FocusHandle>,
     pending: Option<Pending>,
 }
@@ -530,7 +530,7 @@ impl Element for Arrange {
             .zip(layouts.iter().map(|id| window.layout_bounds(*id)))
             .collect();
         let now = Instant::now();
-        let animate = motion::moves(cx);
+        let animate = motion::moves(cx) && !cx.reduce_motion();
         let positions = self.state.update(cx, |state, _| {
             state.bounds = bounds;
             state.rows = raw.clone();
@@ -544,7 +544,6 @@ impl Element for Arrange {
                 state.release();
             }
             state.exclusions.clear();
-            state.motion.retain(|id, _| self.ids.contains(id));
             state.focus.retain(|id, _| self.ids.contains(id));
             let heights: HashMap<_, _> = raw
                 .iter()
@@ -557,25 +556,9 @@ impl Element for Arrange {
             } else {
                 self.ids.clone()
             };
-            let mut top = px(0.);
-            let mut shown = HashMap::new();
-            for id in order {
-                let position = state.motion.entry(id.clone()).or_insert(Position {
-                    from: top,
-                    target: top,
-                    tween: motion::Tween::start(motion::BASE),
-                });
-                if position.target != top {
-                    position.from = position.sample(now);
-                    position.target = top;
-                    position.tween = motion::Tween::start(motion::BASE);
-                }
-                let y = if animate { position.sample(now) } else { top };
-                if y != top {
-                    window.request_animation_frame();
-                }
-                shown.insert(id.clone(), y);
-                top += heights.get(&id).copied().unwrap_or_default() + self.gap;
+            let (shown, moving) = state.motion.layout(order, &heights, self.gap, now, animate);
+            if moving {
+                window.request_animation_frame();
             }
             shown
         });

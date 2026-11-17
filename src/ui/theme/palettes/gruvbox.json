@@ -15,6 +15,7 @@
         "danger.active.background": "#cc241d",
         "danger.foreground": "#fbf1c7",
         "foreground": "#3c3836",
+        "input.background": "#fbf1c7",
         "input.border": "#d5c4a1",
         "link.active": "#458588",
         "link": "#458588",
@@ -57,13 +58,14 @@
         "status_bar.background": "#ebdbb2",
         "tab_bar.segmented.background": "#f2e5bc",
         "group_box.background": "#ebdbb2",
-        "accordion.background": "#e1d1ab",
+        "accordion.background": "#e6d6af",
         "sidebar.foreground": "#3c3836",
         "group_box.foreground": "#3c3836",
         "button.secondary.foreground": "#3c3836",
         "button.secondary.background": "#EBDBB2",
         "button.secondary.hover.background": "#e8d5a6",
-        "button.secondary.active.background": "#d5c4a1"
+        "button.secondary.active.background": "#d5c4a1",
+        "panel.header.hover.background": "#00000004"
       },
       "highlight": {
         "editor.foreground": "#3c3836",
@@ -174,6 +176,7 @@
         "border": "#665c54",
         "danger.active.background": "#fb4934",
         "foreground": "#ebdbb2",
+        "input.background": "#504945",
         "input.border": "#504945",
         "link.active": "#83a598",
         "link": "#83a598",
@@ -214,14 +217,15 @@
         "status_bar.background": "#1d2021",
         "tab_bar.segmented.background": "#282828",
         "group_box.background": "#3c3836",
-        "accordion.background": "#46413e",
+        "accordion.background": "#413d3a",
         "sidebar.foreground": "#ebdbb2",
         "group_box.foreground": "#ebdbb2",
         "button.secondary.foreground": "#ebdbb2",
         "list.hover.background": "#ffffff08",
         "button.secondary.background": "#3c3836",
         "button.secondary.hover.background": "#504945",
-        "button.secondary.active.background": "#665c54"
+        "button.secondary.active.background": "#665c54",
+        "panel.header.hover.background": "#ffffff04"
       },
       "highlight": {
         "editor.foreground": "#DDDDDD",

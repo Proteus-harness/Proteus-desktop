@@ -75,7 +75,7 @@ impl SettingsView {
                         let text = if this.dirty() {
                             "Сохранено · более новые изменения ещё не сохранены"
                         } else {
-                            "Сохранено · новые запросы используют обновлённую сборку"
+                            "Сохранено"
                         };
                         this.show_feedback(text, false, cx);
                         cx.emit(SettingsEvent::Saved);

@@ -67,8 +67,12 @@ pub(super) fn row(title: &str) -> String {
     format!("row:{title}")
 }
 
-pub(super) fn provider(id: &str) -> String {
-    format!("provider:{id}")
+pub(super) fn model(id: &str) -> String {
+    format!("model:{id}")
+}
+
+pub(super) fn model_role(name: &str) -> String {
+    format!("model-role:{name}")
 }
 
 pub(super) fn module(slot: &str, id: &str) -> String {

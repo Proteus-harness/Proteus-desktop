@@ -78,6 +78,16 @@ fn explicit_roles(theme: &Theme) -> impl Iterator<Item = (&'static str, Hsla, Th
         ("muted.background", theme.muted, theme.tokens.muted),
         ("border", theme.border, theme.tokens.border),
         (
+            "panel.header.hover.background",
+            theme.panel_header_hover,
+            theme.tokens.panel_header_hover,
+        ),
+        (
+            "input.background",
+            theme.input_background(),
+            theme.tokens.input_background,
+        ),
+        (
             "accordion.background",
             theme.accordion,
             theme.tokens.accordion,

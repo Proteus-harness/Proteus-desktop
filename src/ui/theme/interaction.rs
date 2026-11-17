@@ -31,7 +31,8 @@ fn project(theme: &mut Theme) {
 mod tests {
     use super::project;
     use gpui_kit::component::scroll::ScrollbarMode;
-    use gpui_kit::component::{Theme, ThemeConfig, ThemeSet};
+    use gpui_kit::component::{Colorize, Theme, ThemeConfig, ThemeSet};
+    use gpui_kit::{Hsla, transparent_black};
     use std::rc::Rc;
 
     fn assert_palette_preserved(mut theme: Theme) {
@@ -69,10 +70,12 @@ mod tests {
                     "sidebar.accent.background":"blue-600/80",
                     "list.active.background":"green-500/15",
                     "list.hover.background":"green-500/10",
+                    "panel.header.hover.background":"#2468ac20",
                     "table.active.background":"amber-500/15",
                     "table.hover.background":"amber-500/10",
                     "border":"blue-500",
                     "input.border":"red-500",
+                    "input.background":"#234567c0",
                     "secondary.background":"gray-700",
                     "secondary.hover.background":"gray-600",
                     "secondary.active.background":"gray-500",
@@ -86,6 +89,18 @@ mod tests {
             .unwrap();
             let mut theme = Theme::default();
             theme.apply_config(&Rc::new(config));
+            assert_eq!(
+                theme.input_background(),
+                Hsla::parse_hex("#234567c0").unwrap()
+            );
+            assert_eq!(
+                theme.panel_header_hover,
+                Hsla::parse_hex("#2468ac20").unwrap()
+            );
+            assert_eq!(
+                theme.tokens.input_background.color,
+                theme.input_background()
+            );
             assert_palette_preserved(theme);
         }
     }
@@ -95,12 +110,31 @@ mod tests {
         for mode in ["dark", "light"] {
             let config: ThemeConfig = serde_json::from_value(serde_json::json!({
                 "name":"Synthetic sparse palette", "mode":mode, "colors":{
-                    "accent.background":"blue-200"
+                    "accent.background":"blue-200",
+                    "background":"#142536",
+                    "input.border":"#6789ab"
                 }
             }))
             .unwrap();
             let mut theme = Theme::default();
+            // Applying a custom theme after an opaque builtin must not leak
+            // that builtin's input role into the custom palette.
+            let builtins: ThemeSet = serde_json::from_str(super::super::BUNDLED).unwrap();
+            let builtin = builtins
+                .themes
+                .into_iter()
+                .find(|theme| theme.mode.is_dark() == (mode == "dark"))
+                .unwrap();
+            theme.apply_config(&Rc::new(builtin));
             theme.apply_config(&Rc::new(config));
+            let native_fill = if mode == "dark" {
+                theme.input.mix_oklab(transparent_black(), 0.3)
+            } else {
+                theme.background
+            };
+            assert_eq!(theme.input_background(), native_fill);
+            assert_eq!(theme.tokens.input_background.color, native_fill);
+            assert_eq!(theme.panel_header_hover, theme.list_hover);
             assert_palette_preserved(theme);
         }
     }

@@ -582,36 +582,72 @@
   "nested_surface_policy": {
     "baseline_commit": "4cfda36",
     "role": "accordion.background",
-    "rule": "For builtin themes only, move the previous accordion towards group_box along the same sRGB channel vector when its maximum channel gap exceeds 10; scale to a gap of 10, rounding each channel half up. Resolve named source colors to canonical source hex first. Store concrete colors in JSON; no runtime mixing. Already subtle variants remain unchanged. This changes the second level of all shared nested surfaces, including settings and extension disclosures.",
+    "rule": "Builtin accordion is a subtle inset of group_box, narrowing the existing sRGB channel vector to a maximum gap of 5, rounded half-up. Values are stored in JSON, never generated at runtime; input fill stays independent.",
     "native_variants": [
       {
         "name": "Proteus Graphite",
         "previous": "#414141",
-        "color": "#323232"
+        "color": "#2d2d2d"
       },
       {
         "name": "Proteus Slate",
         "previous": "#354256",
-        "color": "#2b3545"
+        "color": "#283240"
       },
       {
         "name": "Proteus Light",
         "previous": "neutral-300",
-        "color": "#dbdbdb"
+        "color": "#e0e0e0"
       },
       {
         "name": "Default Light",
         "previous": "neutral-300",
-        "color": "#dbdbdb"
+        "color": "#e0e0e0"
       },
       {
         "name": "Default Dark",
         "previous": "neutral-700",
-        "color": "#303030"
+        "color": "#2b2b2b"
+      }
+    ]
+  },
+  "input_surface_policy": {
+    "role": "input.background",
+    "rule": "Editable controls have an explicit opaque fill separate from input.border and from both nested panel levels. Text, numeric, optional and multiline fields use the same resolved input role; string-list editors keep code geometry but use this field fill. Builtin values are authored here and in ROLE-MAPPING.json, never projected at runtime. Custom palettes that omit this role keep the native fill derived from their own input border/background and mode.",
+    "native_variants": [
+      {
+        "name": "Proteus Graphite",
+        "color": "#3c3c3c",
+        "source": "Proteus authored opaque input gray"
+      },
+      {
+        "name": "Proteus Slate",
+        "color": "#384559",
+        "source": "Proteus authored slate input; muted text remains readable"
+      },
+      {
+        "name": "Proteus Light",
+        "color": "#ffffff",
+        "source": "native white"
+      },
+      {
+        "name": "Default Light",
+        "color": "#ffffff",
+        "source": "native white"
+      },
+      {
+        "name": "Default Dark",
+        "color": "neutral-700",
+        "source": "native neutral-700"
       }
     ],
-    "exceptions": {
-      "Tokyo Storm": "#222638 would coincide with content. Use #232739, one further step towards card, to keep the disclosure role distinct."
-    }
+    "protected_payload_note": "input.background was absent from the import. Adding only this new excluded field does not change the existing protected payload hashes."
+  },
+  "panel_header_policy": {
+    "role": "panel.header.hover.background",
+    "dark": "#ffffff04",
+    "light": "#00000004",
+    "custom_fallback": "list.hover.background",
+    "shape": "Frame upper corners and rounded lower corners of the header; no straight clipped bottom stripe."
   }
 }

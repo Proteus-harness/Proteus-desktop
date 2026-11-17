@@ -1,7 +1,6 @@
 //! Filled panels alternate the two theme surfaces by actual paint nesting.
-//! Header highlights reuse their containing frame's quad. GPUI's overflow
-//! mask is rectangular, so rounding a shorter header independently cannot
-//! follow a large card's corners. Clip the frame-sized fill to the header.
+//! Header highlights keep the panel's upper curve and round their own lower
+//! edge, so an expanded disclosure has no abruptly cut hover stripe.
 
 use std::cell::RefCell;
 
@@ -27,19 +26,18 @@ pub(crate) fn surface_highlight(group: &'static str, cx: &App) -> Div {
     surface_paint(
         group,
         transparent_black(),
-        cx.theme().list_hover,
+        cx.theme().panel_header_hover,
         px(1.),
         cx,
     )
 }
 
-/// The header highlights its panel's existing fill while retaining the same
-/// curve as the full panel, including when the body is expanded.
+/// The header has the panel's upper curve and a rounded lower edge.
 pub(crate) fn surface_header(group: &'static str, cx: &App) -> Div {
     surface_paint(
         group,
         transparent_black(),
-        cx.theme().list_hover,
+        cx.theme().panel_header_hover,
         px(0.),
         cx,
     )
@@ -47,6 +45,7 @@ pub(crate) fn surface_header(group: &'static str, cx: &App) -> Div {
 
 fn surface_paint(group: &'static str, base: Hsla, hover: Hsla, edge: Pixels, cx: &App) -> Div {
     let radius = cx.theme().radius_lg;
+    let inner_radius = cx.theme().radius;
     div()
         .absolute()
         .inset_0()
@@ -62,15 +61,25 @@ fn surface_paint(group: &'static str, base: Hsla, hover: Hsla, edge: Pixels, cx:
                     }
                     let frame = FRAMES.with_borrow(|frames| frames.last().copied());
                     window.with_content_mask(Some(ContentMask { bounds }), |window| {
-                        let quad = if let Some((frame, radius)) = frame {
-                            fill(frame, color)
-                                .corner_radii(
-                                    Corners::all(radius).clamp_radii_for_quad_size(frame.size),
-                                )
-                                .border_widths(edge)
-                        } else {
-                            fill(bounds, color).corner_radii(radius)
-                        };
+                        let (top, bottom) = frame.map_or((radius, radius), |(frame, radius)| {
+                            let bottom = if bounds.bottom() < frame.bottom() - px(1.) {
+                                inner_radius.min(radius)
+                            } else {
+                                radius
+                            };
+                            (radius, bottom)
+                        });
+                        let quad = fill(bounds, color)
+                            .corner_radii(
+                                Corners {
+                                    top_left: top,
+                                    top_right: top,
+                                    bottom_left: bottom,
+                                    bottom_right: bottom,
+                                }
+                                .clamp_radii_for_quad_size(bounds.size),
+                            )
+                            .border_widths(edge);
                         window.paint_quad(quad);
                     });
                 },

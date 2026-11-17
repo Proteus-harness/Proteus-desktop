@@ -1,8 +1,7 @@
-//! The element under every disclosure. While the disclosure rests open the
-//! child takes part in the surrounding layout and its height is remembered,
-//! so a close starts from that height instead of collapsing to nothing for a
-//! frame. While it moves, the child is laid out on its own and clipped to a
-//! share of its height.
+//! The element under every disclosure. A fractional grid row keeps the child
+//! in the parent's current layout while its visible height opens or closes.
+//! Nested disclosures, wrapping and width changes therefore share one layout
+//! generation instead of following heights cached from the previous frame.
 
 use gpui_kit::*;
 
@@ -25,16 +24,10 @@ pub(in crate::ui) enum PopupOrigin {
     Anchor(Bounds<Pixels>),
 }
 
-#[derive(Clone, Copy, Default)]
-struct RevealState {
-    height: Option<Pixels>,
-    preview_height: Option<Pixels>,
-}
-
 pub(super) enum Flow {
     Content,
     Preview,
-    Clipped,
+    Clipped { content: LayoutId, visible: bool },
     Popup,
 }
 
@@ -135,7 +128,7 @@ impl Element for Reveal {
 
     fn request_layout(
         &mut self,
-        global_id: Option<&GlobalElementId>,
+        _: Option<&GlobalElementId>,
         _: Option<&InspectorElementId>,
         window: &mut Window,
         cx: &mut App,
@@ -154,100 +147,68 @@ impl Element for Reveal {
                 (self.child.request_layout(window, cx), Flow::Content)
             };
         };
-        let measured = window.with_element_state(
-            global_id.expect("Reveal has an id"),
-            |state: Option<RevealState>, _| {
-                let state = state.unwrap_or_default();
-                (state, state)
-            },
-        );
-        // A block never seen at rest has no height yet: one that starts
-        // closing shows in full for the frame that measures it, one that
-        // starts opening shows nothing.
-        let Some(height) = measured.height else {
-            if self.preview.is_none() && progress >= 0.5 {
-                return (self.child.request_layout(window, cx), Flow::Content);
-            }
-            let mut style = Style::default();
-            style.size.width = relative(1.).into();
-            style.size.height = measured.preview_height.unwrap_or_default().into();
-            return (window.request_layout(style, None, cx), Flow::Clipped);
-        };
-        let minimum = measured.preview_height.unwrap_or_default().min(height);
+        let content = self.child.request_layout(window, cx);
+        let mut rows = Vec::with_capacity(2);
+        if let Some(preview) = &mut self.preview {
+            let preview = preview.request_layout(window, cx);
+            rows.push(fractional_row(preview, 1. - progress, window, cx));
+        }
+        rows.push(fractional_row(content, progress, window, cx));
         let mut style = Style::default();
+        style.display = Display::Flex;
+        style.flex_direction = FlexDirection::Column;
+        style.flex_shrink = 0.;
         style.size.width = relative(1.).into();
-        style.size.height = (minimum + (height - minimum) * progress).into();
-        (window.request_layout(style, None, cx), Flow::Clipped)
+        (
+            window.request_layout(style, rows, cx),
+            Flow::Clipped {
+                content,
+                visible: false,
+            },
+        )
     }
 
     fn prepaint(
         &mut self,
-        global_id: Option<&GlobalElementId>,
+        _: Option<&GlobalElementId>,
         _: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
         flow: &mut Self::RequestLayoutState,
         window: &mut Window,
         cx: &mut App,
     ) -> Self::PrepaintState {
-        let id = global_id.expect("Reveal has an id");
         match flow {
             Flow::Content => {
-                remember(id, bounds.size.height, false, window);
-                if let Some(preview) = &mut self.preview {
-                    let measured = preview.layout_as_root(
-                        size(
-                            AvailableSpace::Definite(bounds.size.width),
-                            AvailableSpace::MinContent,
-                        ),
-                        window,
-                        cx,
-                    );
-                    remember(id, measured.height, true, window);
-                }
                 self.child.prepaint(window, cx);
                 return;
             }
             Flow::Preview => {
-                remember(id, bounds.size.height, true, window);
                 self.preview
                     .as_mut()
                     .expect("Preview flow has a preview")
                     .prepaint(window, cx);
                 return;
             }
-            Flow::Clipped => {}
+            Flow::Clipped { content, visible } => {
+                *visible = bounds.size.width > px(0.) && bounds.size.height > px(0.);
+                if !*visible {
+                    return;
+                }
+                // A preview reserves its own interpolated space but never
+                // pushes the full content down. Both branches start at the
+                // same origin, as at either settled endpoint.
+                let content_bounds = window.layout_bounds(*content);
+                let offset = bounds.origin - content_bounds.origin;
+                window.with_content_mask(Some(ContentMask { bounds }), |window| {
+                    window.with_element_offset(offset, |window| self.child.prepaint(window, cx));
+                });
+            }
             Flow::Popup => {
                 let mask = self.popup_mask(bounds);
                 window.with_content_mask(Some(mask), |window| self.child.prepaint(window, cx));
                 return;
             }
         }
-        let measured = self.child.layout_as_root(
-            size(
-                AvailableSpace::Definite(bounds.size.width),
-                AvailableSpace::MinContent,
-            ),
-            window,
-            cx,
-        );
-        let mut changed = remember(id, measured.height, false, window);
-        if let Some(preview) = &mut self.preview {
-            let measured = preview.layout_as_root(
-                size(
-                    AvailableSpace::Definite(bounds.size.width),
-                    AvailableSpace::MinContent,
-                ),
-                window,
-                cx,
-            );
-            changed |= remember(id, measured.height, true, window);
-        }
-        if changed {
-            window.request_animation_frame();
-        }
-        window.with_content_mask(Some(ContentMask { bounds }), |window| {
-            self.child.prepaint_at(bounds.origin, window, cx);
-        });
     }
 
     fn paint(
@@ -269,7 +230,8 @@ impl Element for Reveal {
                     .expect("Preview flow has a preview")
                     .paint(window, cx);
             }
-            Flow::Clipped => {}
+            Flow::Clipped { visible: false, .. } => return,
+            Flow::Clipped { visible: true, .. } => {}
             Flow::Popup => {
                 let mask = self.popup_mask(bounds);
                 window.with_content_mask(Some(mask), |window| self.child.paint(window, cx));
@@ -282,20 +244,26 @@ impl Element for Reveal {
     }
 }
 
-/// Stores the child's height; true when it differs from the stored one.
-fn remember(id: &GlobalElementId, height: Pixels, preview: bool, window: &mut Window) -> bool {
-    window.with_element_state(id, |state: Option<RevealState>, _| {
-        let mut state = state.unwrap_or_default();
-        let previous = if preview {
-            &mut state.preview_height
-        } else {
-            &mut state.height
-        };
-        let changed = *previous != Some(height);
-        *previous = Some(height);
-        (changed, state)
-    })
+/// The zero minimum allows the track to shrink; the block inside retains
+/// its natural content layout and is clipped by the outer Reveal at paint.
+fn fractional_row(content: LayoutId, fraction: f32, window: &mut Window, cx: &mut App) -> LayoutId {
+    let mut holder = Style::default();
+    holder.display = Display::Block;
+    holder.min_size.width = px(0.).into();
+    holder.min_size.height = px(0.).into();
+    holder.overflow.y = Overflow::Hidden;
+    let holder = window.request_layout(holder, [content], cx);
+    let mut grid = Style::default();
+    grid.display = Display::Grid;
+    grid.grid_rows = Some(GridTemplate::fractional(1, fraction));
+    grid.size.width = relative(1.).into();
+    grid.flex_shrink = 0.;
+    window.request_layout(grid, [holder], cx)
 }
+
+#[cfg(test)]
+#[path = "reveal/layout_tests.rs"]
+mod layout_tests;
 
 #[cfg(test)]
 mod tests {

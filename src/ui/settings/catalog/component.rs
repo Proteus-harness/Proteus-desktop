@@ -25,7 +25,10 @@ impl SettingsView {
             return self.catalog_failed(anyhow::anyhow!(reason), cx);
         }
         let Target::Component {
-            command, exports, ..
+            command,
+            exports,
+            icon,
+            ..
         } = &installed.target
         else {
             return self.catalog_failed(anyhow::anyhow!("Неверный пакет модуля"), cx);
@@ -71,7 +74,10 @@ impl SettingsView {
             component_packages: vec![ComponentPackageInstall {
                 id: installed.entry.clone(),
                 command: command.clone(),
+                icon: icon.clone(),
                 exports: exports.clone(),
+                env_allowlist: Vec::new(),
+                initial_config: Default::default(),
                 replace,
             }],
             ..Default::default()

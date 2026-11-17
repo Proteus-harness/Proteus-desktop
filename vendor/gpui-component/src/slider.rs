@@ -120,7 +120,7 @@ impl Slider {
         }
     }
 
-    /// Thin track and outlined thumb, retaining a 24 px pointer target at 100%.
+    /// Compact neutral fill and a narrow marker, retaining a 24 px pointer target.
     /// Values, events and keyboard interaction are unchanged.
     pub fn compact(mut self) -> Self {
         self.compact = true;
@@ -187,7 +187,8 @@ impl RenderOnce for Slider {
         let rem_size = window.rem_size();
         let compact_hit = rem_size * (24. / 16.);
         let compact_thumb = rem_size * (14. / 16.);
-        let compact_track = rem_size * (3. / 16.);
+        let compact_marker = rem_size * (3. / 16.);
+        let compact_track = rem_size * (8. / 16.);
         let compact_offset = (compact_track - compact_hit) / 2.;
 
         let bar_color = self
@@ -195,7 +196,13 @@ impl RenderOnce for Slider {
             .background
             .clone()
             .and_then(|bg| bg.color())
-            .unwrap_or(cx.theme().tokens.slider_bar.into());
+            .unwrap_or_else(|| {
+                if self.compact {
+                    cx.theme().foreground.opacity(0.6).into()
+                } else {
+                    cx.theme().tokens.slider_bar.into()
+                }
+            });
         let thumb_bg: Background = self
             .style
             .text
@@ -225,7 +232,11 @@ impl RenderOnce for Slider {
                 .unwrap_or(default_radius),
         };
 
-        let ring_color = cx.theme().ring;
+        let ring_color = if self.compact {
+            cx.theme().foreground
+        } else {
+            cx.theme().ring
+        };
         let entity_id = self.state.entity_id();
         let start_ring =
             is_range.then(|| ThumbRing::new(entity_id, true, ring_color, self.compact, window, cx));
@@ -297,15 +308,14 @@ impl RenderOnce for Slider {
                             div()
                                 .relative()
                                 .flex_none()
-                                .size(compact_thumb)
+                                .when(axis.is_horizontal(), |this| {
+                                    this.w(compact_marker).h(compact_thumb)
+                                })
+                                .when(axis.is_vertical(), |this| {
+                                    this.h(compact_marker).w(compact_thumb)
+                                })
                                 .rounded_full_style(cx)
-                                .border(px(1.))
-                                .border_color(
-                                    bar_color
-                                        .as_solid()
-                                        .unwrap_or_else(|| cx.theme().tokens.slider_bar.into()),
-                                )
-                                .bg(cx.theme().background)
+                                .bg(cx.theme().foreground)
                                 .child(thumb_ring(&ring, cx))
                                 .into_any_element()
                         } else {

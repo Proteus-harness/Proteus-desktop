@@ -2,6 +2,7 @@
 //! an entry never adds a new agent runtime extension path.
 
 pub mod build;
+pub mod connections;
 pub mod download;
 pub mod git;
 pub mod install;
@@ -83,6 +84,8 @@ pub enum Target {
         path: PathBuf,
         command: Vec<String>,
         exports: std::collections::BTreeMap<String, Vec<String>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        icon: Option<String>,
     },
     Folder {
         path: PathBuf,

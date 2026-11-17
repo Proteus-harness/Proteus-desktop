@@ -16,15 +16,71 @@ pub fn describe_changes(
     after: &Draft,
 ) -> Vec<String> {
     let mut lines = Vec::new();
+    for name in before
+        .modes
+        .keys()
+        .chain(after.modes.keys())
+        .collect::<BTreeSet<_>>()
+    {
+        if before.modes.get(name) != after.modes.get(name) {
+            let action = if !before.modes.contains_key(name) {
+                "добавлен"
+            } else if !after.modes.contains_key(name) {
+                "удалён"
+            } else {
+                "изменён"
+            };
+            lines.push(format!("Режимы: {action} {name}"));
+        }
+    }
     if before.mode != after.mode {
         lines.push(format!("permission_mode: {} → {}", before.mode, after.mode));
     }
-    if before.provider != after.provider {
+    if before.model != after.model {
         lines.push(format!(
             "Model: {} → {}",
-            before.provider.as_deref().unwrap_or("нет"),
-            after.provider.as_deref().unwrap_or("нет")
+            before.model.as_deref().unwrap_or("нет"),
+            after.model.as_deref().unwrap_or("нет")
         ));
+    }
+    for name in before
+        .models
+        .keys()
+        .chain(after.models.keys())
+        .collect::<BTreeSet<_>>()
+    {
+        if before.models.get(name) != after.models.get(name) {
+            let action = if !before.models.contains_key(name) {
+                "добавлена"
+            } else if !after.models.contains_key(name) {
+                "удалена"
+            } else {
+                "изменена"
+            };
+            lines.push(format!("Модели: {action} {name}"));
+        }
+    }
+    for role in before
+        .role_models
+        .keys()
+        .chain(after.role_models.keys())
+        .collect::<BTreeSet<_>>()
+    {
+        if before.role_models.get(role) != after.role_models.get(role) {
+            lines.push(format!(
+                "Модель {role}: {} → {}",
+                before
+                    .role_models
+                    .get(role)
+                    .and_then(Option::as_deref)
+                    .unwrap_or("наследовать"),
+                after
+                    .role_models
+                    .get(role)
+                    .and_then(Option::as_deref)
+                    .unwrap_or("наследовать")
+            ));
+        }
     }
     let tools: Vec<String> = after
         .tools

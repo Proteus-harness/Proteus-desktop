@@ -29,6 +29,12 @@ pub struct Inventory {
 }
 
 impl Inventory {
+    pub fn module_packages(&self) -> impl Iterator<Item = (&str, &Package)> {
+        self.modules
+            .iter()
+            .map(|(id, package)| (id.as_str(), package))
+    }
+
     pub fn local() -> Self {
         let backend = resolve_binary(&crate::backend::proteus_binary());
         let bundled = crate::declarative::manifest::bundled_root();

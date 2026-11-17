@@ -5,12 +5,27 @@ use crate::ui::extensions::OpenDocument;
 use crate::ui::workspace::Workspace;
 
 mod catalog_save;
+mod mode_edits;
+mod model_edits;
 mod reload;
 
 fn snapshot(provider: &str) -> ConfigBuilderSnapshot {
     ConfigBuilderSnapshot {
         writable: true,
-        active_provider: Some(provider.into()),
+        model: Some(provider.into()),
+        models: [(
+            provider.to_owned(),
+            proteus_contracts::app_protocol::config_builder::ConfigBuilderModelPreset {
+                provider: "synthetic".into(),
+                model: "test".into(),
+                stream: true,
+                ..Default::default()
+            },
+        )]
+        .into_iter()
+        .collect(),
+        models_writable: true,
+        model_writable: true,
         permission_mode: "normal".into(),
         ..Default::default()
     }
@@ -41,7 +56,7 @@ fn save_acknowledges_submitted_values_while_newer_edits_stay_dirty() {
     });
     view.update(&mut cx, |view, cx| {
         view.accept(snapshot("initial"));
-        view.update_draft(cx, |draft| draft.provider = Some("submitted".into()));
+        view.update_draft(cx, |draft| draft.model = Some("submitted".into()));
         let submitted = view.draft.clone();
         let submitted_revision = view.edit_revision;
         // The successful server response below acknowledges only this request.
@@ -50,13 +65,16 @@ fn save_acknowledges_submitted_values_while_newer_edits_stay_dirty() {
         view.update_draft(cx, |draft| draft.set_tool("newer-tool", true));
         view.saving = false;
         view.accept_save(snapshot("submitted"), submitted_revision);
-        assert_eq!(sent.active_provider.as_deref(), Some("submitted"));
+        assert_eq!(
+            sent.model.as_ref().and_then(Option::as_deref),
+            Some("submitted")
+        );
         assert!(sent.tools_enabled.is_none());
-        assert_eq!(view.baseline.provider.as_deref(), Some("submitted"));
+        assert_eq!(view.baseline.model.as_deref(), Some("submitted"));
         assert!(view.draft.tools.contains("newer-tool"));
         assert!(view.dirty());
         let later = view.draft.changes(&view.baseline);
-        assert!(later.active_provider.is_none());
+        assert!(later.model.is_none());
         assert_eq!(later.tools_enabled, Some(vec!["newer-tool".into()]));
     });
 }
@@ -78,7 +96,7 @@ fn save_does_not_destroy_invalid_text_entered_after_submission() {
     window.update(|window, cx| {
         view.update(cx, |view, cx| {
             view.accept(snapshot("initial"));
-            view.draft.provider = Some("submitted".into());
+            view.draft.model = Some("submitted".into());
             let submitted_revision = view.edit_revision;
             view.ensure_json("tool", "synthetic", window, cx);
             let key = ("tool".into(), "synthetic".into());
@@ -137,7 +155,7 @@ fn every_explicit_destination_preserves_dirty_settings_and_pending_save() {
             let settings = workspace.settings.clone().unwrap();
             settings.update(cx, |settings, _| {
                 settings.accept(snapshot("initial"));
-                settings.draft.provider = Some("unsaved".into());
+                settings.draft.model = Some("unsaved".into());
             });
             let before = workspace.layout.clone();
             workspace.toggle_settings(window, cx);
@@ -203,7 +221,7 @@ fn delayed_project_response_cannot_replace_settings_or_a_new_chat_intention() {
             let settings = workspace.settings.clone().unwrap();
             settings.update(cx, |settings, _| {
                 settings.accept(snapshot("initial"));
-                settings.draft.provider = Some("unsaved".into());
+                settings.draft.model = Some("unsaved".into());
             });
             workspace.finish_project_navigation(
                 "/old-project".into(),
@@ -260,6 +278,7 @@ fn tools_and_disabled_hooks_prepare_editors_without_visiting_modules() {
                 id: "fixture".into(),
                 command: "synthetic".into(),
                 description: None,
+                icon: None,
                 tool_packs: vec![],
                 exports: vec![ConfigBuilderPluginExport {
                     slot: "tool".into(),

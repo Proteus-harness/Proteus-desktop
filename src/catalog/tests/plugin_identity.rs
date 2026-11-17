@@ -197,9 +197,9 @@ fn zip_result_rejects_a_changed_package_list_and_preserves_other_edits() {
         draft.addons.addons.plugins.clone(),
     )
     .unwrap();
-    draft.provider = Some("newer-provider".into());
+    draft.model = Some("newer-provider".into());
     fresh.connect(&mut draft).unwrap();
-    assert_eq!(draft.provider.as_deref(), Some("newer-provider"));
+    assert_eq!(draft.model.as_deref(), Some("newer-provider"));
     assert!(!draft.addons.addons.plugins[0].enabled);
     assert_eq!(draft.addons.addons.plugins.len(), 1);
 }

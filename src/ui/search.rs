@@ -115,6 +115,7 @@ impl RenderOnce for Search {
                         .overflow_hidden()
                         .child(
                             field(&self.input)
+                                .aria_label(self.hint.clone())
                                 .small()
                                 .w_full()
                                 .pl(prefs::scaled(4. + 4. * progress))
@@ -140,6 +141,7 @@ impl RenderOnce for Search {
                     .quiet(cx)
                     .small()
                     .icon(IconName::Search)
+                    .accessibility_label(self.hint.clone())
                     .hint_keys(&self.hint, Some("Ctrl+F"), cx)
                     .on_click(move |_, window, cx| {
                         cx.stop_propagation();

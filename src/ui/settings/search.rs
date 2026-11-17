@@ -17,8 +17,8 @@ use crate::settings::FieldPath;
 use crate::settings::addons;
 use crate::settings::catalog::{
     CONTEXT_PROVIDER_SLOT, CONTEXT_SLOT, HOOK_SLOT, MODEL_SLOT, PageId, TOOL_SLOT, agent_pages,
-    editable_field, exports, find_slot, missing_tools, model_module, module_info, page_description,
-    page_title, selected_module,
+    editable_field, exports, find_slot, missing_tools, module_info, page_description, page_title,
+    selected_module,
 };
 use crate::shortcuts::Command;
 use crate::ui::extensions;
@@ -103,7 +103,9 @@ fn page_words(page: &PageId) -> &'static str {
         PageId::Configurations => {
             "config desktop визуальный агент профиль файл default умолчанию привязка переключение"
         }
-        PageId::Model => "модель провайдер",
+        PageId::Providers => "подключение провайдер авторизация ключ API",
+        PageId::Models => "модель effort reasoning набор имя preset субагент наследование",
+        PageId::Modes => "режим поведения инструкции разрешения tools hooks наследование",
         PageId::Tools => "инструменты",
         PageId::Hooks => "обработчики хуки",
         PageId::Modules => "модули компоненты плагины",
@@ -164,21 +166,71 @@ impl SettingsView {
     }
 
     fn search_profile(&self, snapshot: &ConfigBuilderSnapshot, finder: &mut Finder) {
-        for provider in &snapshot.providers {
+        for (name, mode) in &self.draft.modes {
+            let key = super::modes::mode_key(name);
             finder.add(
-                Hit::new(&provider.id, "Model · модель в конфиге", PageId::Model)
-                    .spot(spot::provider(&provider.id)),
-                &[&provider.model, &provider.label, &provider.provider],
+                Hit::new(
+                    mode.title.as_deref().unwrap_or(name),
+                    "Режимы",
+                    PageId::Modes,
+                )
+                .open(vec![key.clone()])
+                .spot(key),
+                &[name, mode.instructions.as_deref().unwrap_or("")],
             );
         }
-        if let Some(module) = model_module(snapshot, &self.draft) {
-            let place = format!("Model · {module}");
+        for (name, model) in &self.draft.models {
+            finder.add(
+                Hit::new(name, "Модели · именованный набор", PageId::Models)
+                    .open(vec![super::models::model_key(name)])
+                    .spot(spot::model(name)),
+                &[
+                    &model.model,
+                    &model.provider,
+                    model.reasoning.effort.as_deref().unwrap_or(""),
+                ],
+            );
+            for title in [
+                "ID модели",
+                "Effort",
+                "Бюджет рассуждения",
+                "Потоковый ответ",
+                "Сводка рассуждений",
+                "Доступные уровни effort",
+            ] {
+                finder.add(
+                    Hit::new(title, format!("Модели · {name}"), PageId::Models)
+                        .open(vec![super::models::model_key(name)])
+                        .spot(spot::model(name)),
+                    &[name, &model.model],
+                );
+            }
+        }
+        for role in &snapshot.model_roles {
+            finder.add(
+                Hit::new(&role.name, "Модели · субагент", PageId::Models)
+                    .spot(spot::model_role(&role.name)),
+                &[
+                    &role.description,
+                    role.model
+                        .as_deref()
+                        .unwrap_or("наследовать модель родителя"),
+                ],
+            );
+        }
+        for module in &snapshot.model_modules {
+            finder.add(
+                Hit::new(&module.id, "Провайдеры · подключение", PageId::Providers)
+                    .spot(spot::module(MODEL_SLOT, &module.id)),
+                &[module.description.as_deref().unwrap_or("")],
+            );
+            let place = format!("Провайдеры · {}", module.id);
             self.search_params(
                 snapshot,
                 finder,
                 MODEL_SLOT,
-                &module,
-                &PageId::Model,
+                &module.id,
+                &PageId::Providers,
                 &place,
                 &[],
             );
@@ -444,7 +496,7 @@ mod tests {
         Scope {
             slot: "model",
             module: "example",
-            page: &PageId::Model,
+            page: &PageId::Providers,
         }
         .fields(&mut finder, &[field], None, "Провайдеры", &[]);
         let hits = finder.finish();
@@ -466,6 +518,7 @@ mod tests {
                 id: "process".into(),
                 command: "host".into(),
                 description: None,
+                icon: None,
                 exports: Vec::new(),
                 tool_packs: vec![ConfigBuilderToolPack {
                     id: "planner".into(),

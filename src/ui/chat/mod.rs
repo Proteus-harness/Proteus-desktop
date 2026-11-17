@@ -111,6 +111,7 @@ pub(super) enum ChatEvent {
 #[derive(Clone, PartialEq)]
 struct RowFonts {
     chat: SharedString,
+    user_chat: SharedString,
     interface: SharedString,
     mono: SharedString,
     interface_size: Pixels,
@@ -122,6 +123,7 @@ impl RowFonts {
         let theme = Theme::global(cx);
         Self {
             chat: prefs::chat_font(cx),
+            user_chat: prefs::user_chat_font(cx),
             interface: theme.font_family.clone(),
             mono: theme.mono_font_family.clone(),
             interface_size: theme.font_size,
@@ -220,9 +222,10 @@ fn height_layout_fingerprint(cx: &App) -> [u8; 32] {
     let view = prefs::visual(cx).view;
     // Source stamps were collected by extension discovery already.
     scroller::height_hash(format!(
-        "scalar-v2:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{:?}:{:?}",
+        "scalar-v3:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{:?}:{:?}",
         env!("PROTEUS_BUILD_COMMIT"),
         fonts.chat,
+        fonts.user_chat,
         fonts.interface,
         fonts.mono,
         f32::from(fonts.interface_size).to_bits(),
@@ -389,7 +392,9 @@ impl Chat {
                 }
             });
         }
-        if appearance_changed {
+        if appearance_changed || remeasure {
+            // Rebuild row typography and retained child roots, including labels
+            // and marked spans; measuring only the scroller is insufficient.
             cx.notify();
         }
     }

@@ -63,8 +63,12 @@ impl SettingsView {
         }
         parts.push(
             section(
-                format!("Skills · {enabled} из {}", skills.len()),
-                Some("Изменения применяются после сохранения.".into()),
+                if skills.len() > 1 {
+                    format!("Skills · {enabled} из {}", skills.len())
+                } else {
+                    "Skills".into()
+                },
+                None,
                 None,
                 card(rows, cx),
                 cx,

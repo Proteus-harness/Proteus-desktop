@@ -20,6 +20,7 @@ type FontPicker = Picker<Option<SharedString>>;
 enum Target {
     Interface,
     Chat,
+    UserChat,
 }
 
 impl Target {
@@ -27,6 +28,7 @@ impl Target {
         match self {
             Self::Interface => prefs.fonts.interface.as_deref(),
             Self::Chat => prefs.fonts.chat.as_deref(),
+            Self::UserChat => prefs.fonts.user_chat.as_deref(),
         }
     }
 
@@ -34,6 +36,7 @@ impl Target {
         match self {
             Self::Interface => prefs.fonts.interface = value,
             Self::Chat => prefs.fonts.chat = value,
+            Self::UserChat => prefs.fonts.user_chat = value,
         }
     }
 
@@ -41,13 +44,15 @@ impl Target {
         match self {
             Self::Interface => "Из темы",
             Self::Chat => "Как интерфейс",
+            Self::UserChat => "Как у ответов агента",
         }
     }
 
     fn label(self) -> &'static str {
         match self {
             Self::Interface => "Шрифт интерфейса",
-            Self::Chat => "Шрифт чата",
+            Self::Chat => "Ответы агента",
+            Self::UserChat => "Ваши сообщения",
         }
     }
 }
@@ -55,17 +60,27 @@ impl Target {
 pub(super) struct Fonts {
     interface: Entity<FontControl>,
     chat: Entity<FontControl>,
+    user_chat: Entity<FontControl>,
 }
 
 impl Fonts {
     pub fn new(_: &mut Window, cx: &mut Context<SettingsView>) -> (Self, Vec<Subscription>) {
         let interface = cx.new(|cx| FontControl::new(Target::Interface, cx));
         let chat = cx.new(|cx| FontControl::new(Target::Chat, cx));
+        let user_chat = cx.new(|cx| FontControl::new(Target::UserChat, cx));
         let changes = vec![
             cx.subscribe(&interface, |_, _, _: &FontChanged, cx| cx.notify()),
             cx.subscribe(&chat, |_, _, _: &FontChanged, cx| cx.notify()),
+            cx.subscribe(&user_chat, |_, _, _: &FontChanged, cx| cx.notify()),
         ];
-        (Self { interface, chat }, changes)
+        (
+            Self {
+                interface,
+                chat,
+                user_chat,
+            },
+            changes,
+        )
     }
 
     pub fn reset_interface(&self, window: &mut Window, cx: &mut Context<SettingsView>) {
@@ -82,14 +97,27 @@ impl Fonts {
         });
     }
 
+    pub fn reset_user_chat(&self, window: &mut Window, cx: &mut Context<SettingsView>) {
+        self.user_chat.update(cx, |state, cx| {
+            state.close(window, cx);
+            cx.notify();
+        });
+    }
+
     pub fn close(&self, window: &mut Window, cx: &mut Context<SettingsView>) {
         self.interface
             .update(cx, |state, cx| state.close(window, cx));
         self.chat.update(cx, |state, cx| state.close(window, cx));
+        self.user_chat
+            .update(cx, |state, cx| state.close(window, cx));
     }
 
     pub fn interface(&self) -> AnyElement {
         self.interface.clone().into_any_element()
+    }
+
+    pub fn user_chat(&self) -> AnyElement {
+        self.user_chat.clone().into_any_element()
     }
 
     pub fn chat(&self) -> AnyElement {
@@ -179,7 +207,7 @@ impl FontControl {
         let picker = cx.new(|cx| {
             Picker::new(
                 options,
-                "Поиск шрифтов…".into(),
+                "".into(),
                 "Шрифты не найдены".into(),
                 window,
                 cx,
@@ -194,6 +222,7 @@ impl FontControl {
                     });
                 },
             )
+            .search_label("Поиск шрифтов")
             .render_label(|option, _, cx| {
                 div()
                     .min_w_0()
@@ -380,6 +409,7 @@ mod tests {
         let mut prefs = Preferences::default();
         Target::Interface.apply(&mut prefs, Some("Interface font".into()));
         Target::Chat.apply(&mut prefs, Some("Chat font".into()));
+        Target::UserChat.apply(&mut prefs, Some("User font".into()));
         Target::Interface.apply(&mut prefs, None);
         assert_eq!(prefs.fonts.interface, None);
         assert_eq!(prefs.fonts.chat.as_deref(), Some("Chat font"));
@@ -390,5 +420,8 @@ mod tests {
             Some("Another interface font")
         );
         assert_eq!(prefs.fonts.chat, None);
+        assert_eq!(prefs.fonts.user_chat.as_deref(), Some("User font"));
+        Target::UserChat.apply(&mut prefs, None);
+        assert_eq!(prefs.fonts.user_chat, None);
     }
 }

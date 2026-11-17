@@ -174,6 +174,10 @@ pub struct ThemeColor {
     pub info_hover: Hsla,
     /// Border color for inputs such as Input, Select, etc.
     pub input: Hsla,
+    /// Fill for editable controls, independent of their functional border.
+    pub input_background: Hsla,
+    /// Hover overlay for a disclosure or panel heading.
+    pub panel_header_hover: Hsla,
     /// Link text color.
     pub link: Hsla,
     /// Active link text color.
@@ -467,6 +471,8 @@ define_theme_tokens! {
     info_foreground,
     info_hover,
     input,
+    input_background,
+    panel_header_hover,
     link,
     link_active,
     link_hover,

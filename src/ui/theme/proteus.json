@@ -9,7 +9,7 @@
       "colors": {
         "accent.background": "#ffffff0d",
         "accent.foreground": "#dfdfdf",
-        "accordion.background": "#323232",
+        "accordion.background": "#2d2d2d",
         "background": "#1d1d1d",
         "border": "#414141",
         "group_box.background": "#282828",
@@ -29,6 +29,7 @@
         "foreground": "#dfdfdf",
         "info.background": "cyan-400",
         "info.foreground": "cyan-600",
+        "input.background": "#3c3c3c",
         "input.border": "#343434",
         "list.background": "#212121",
         "list.active.background": "#ffffff1f",
@@ -111,7 +112,8 @@
         "slider.background": "#7c93ff",
         "button.secondary.background": "#303030",
         "button.secondary.hover.background": "#383838",
-        "button.secondary.active.background": "#414141"
+        "button.secondary.active.background": "#414141",
+        "panel.header.hover.background": "#ffffff04"
       },
       "highlight": {
         "editor.foreground": "#CACCCA",
@@ -230,7 +232,7 @@
       "colors": {
         "accent.background": "#303b49",
         "accent.foreground": "#e9eef6",
-        "accordion.background": "#2b3545",
+        "accordion.background": "#283240",
         "background": "#1c222b",
         "border": "#455166",
         "group_box.background": "#252e3b",
@@ -250,6 +252,7 @@
         "foreground": "#e9eef6",
         "info.background": "cyan-400",
         "info.foreground": "cyan-600",
+        "input.background": "#384559",
         "input.border": "#3a475b",
         "list.background": "#202630",
         "list.active.background": "#91aeff26",
@@ -329,7 +332,8 @@
         "list.hover.background": "#ffffff08",
         "button.secondary.background": "#2c3746",
         "button.secondary.hover.background": "#303b49",
-        "button.secondary.active.background": "#354256"
+        "button.secondary.active.background": "#354256",
+        "panel.header.hover.background": "#ffffff04"
       },
       "highlight": {
         "editor.foreground": "#e9eef6",
@@ -448,7 +452,7 @@
       "colors": {
         "accent.background": "neutral-100",
         "accent.foreground": "neutral-900",
-        "accordion.background": "#dbdbdb",
+        "accordion.background": "#e0e0e0",
         "background": "#ffffff",
         "button.background": "#e6e8ed",
         "border": "neutral-400",
@@ -469,6 +473,7 @@
         "foreground": "neutral-950",
         "info.background": "cyan-500",
         "info.foreground": "neutral-50",
+        "input.background": "#ffffff",
         "input.border": "neutral-200",
         "list.background": "white",
         "list.active.background": "#3b5ce61f",
@@ -549,7 +554,8 @@
         "slider.background": "#3b5ce6",
         "button.secondary.background": "neutral-200",
         "button.secondary.hover.background": "#dcdcdc",
-        "button.secondary.active.background": "neutral-300"
+        "button.secondary.active.background": "neutral-300",
+        "panel.header.hover.background": "#00000004"
       },
       "highlight": {
         "editor.foreground": "#000000",

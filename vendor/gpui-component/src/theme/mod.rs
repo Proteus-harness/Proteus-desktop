@@ -477,17 +477,11 @@ impl Theme {
         crate::text::install_text_view_defaults(&theme, cx);
     }
 
-    /// Get the input background color.
-    ///
-    /// For dark, use a transparent color mixed with the input border: `cx.theme().input`,
-    /// otherwise use the `cx.theme().background` color.
+    /// Get the editable control fill, resolved independently of its border.
+    /// Themes without input.background retain their native derived fill.
     #[inline]
     pub fn input_background(&self) -> Hsla {
-        if self.is_dark() {
-            self.input.mix_oklab(self.transparent, 0.3)
-        } else {
-            self.background
-        }
+        self.colors.input_background
     }
 
     /// Get the editor background color, if not set, use the input background color.
