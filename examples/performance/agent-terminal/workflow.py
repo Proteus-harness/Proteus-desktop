@@ -13,9 +13,9 @@ def initialize(params):
     exports = []
     for export in params["exports"]:
         if (export["slot"], export["contract_version"], export["composition"]) != (
-            "workflow", "v20", "select_one"
+            "workflow", "v21", "select_one"
         ):
-            raise ProtocolError("expected workflow/v20")
+            raise ProtocolError("expected workflow/v21")
         exports.append({key: export[key] for key in (
             "slot", "module_id", "contract_version", "composition"
         )} | {"module_features": [], "config_schema": None})
