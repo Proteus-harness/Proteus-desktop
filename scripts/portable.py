@@ -126,8 +126,16 @@ def assemble(stage, selected, roots, profile, base_record=None):
 def archive():
     packaged = json.loads((PORTABLE / "share/release-sources.json").read_text())["version"]
     path = BUILD / f"Proteus-{packaged}-linux-{os.uname().machine}.tar.gz"
-    with tarfile.open(path, "w:gz") as tar:
-        tar.add(PORTABLE, arcname="Proteus")
+    # Build on the same filesystem, then replace only after gzip close succeeds.
+    # Ordinary file creation retains the process umask, unlike mkstemp's 0600.
+    mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else None
+    with tempfile.TemporaryDirectory(prefix=f".{path.name}.", dir=BUILD) as temporary:
+        staged = Path(temporary) / path.name
+        with tarfile.open(staged, "w:gz") as tar:
+            tar.add(PORTABLE, arcname="Proteus")
+        if mode is not None:
+            staged.chmod(mode)
+        os.replace(staged, path)
     return path
 
 

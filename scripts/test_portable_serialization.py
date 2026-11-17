@@ -2,10 +2,12 @@
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 import fcntl
+import gzip
 import importlib.util
 import json
 from pathlib import Path
 import subprocess
+import stat
 import sys
 import tarfile
 import tempfile
@@ -184,6 +186,51 @@ class PortableSerializationTests(unittest.TestCase):
             self.assertEqual(saved.extractfile('Proteus/core.txt').read(), b'new')
             self.assertEqual(saved.extractfile('Proteus/extensions.txt').read(), b'old')
         self.assertFalse(is_locked(portable.PORTABLE))
+
+    def test_archive_failure_preserves_previous_and_cleans_temporary(self):
+        portable, _ = configure(self.root)
+        seed(portable.PORTABLE, 'old')
+        archive = portable.archive()
+        archive.chmod(0o640)
+        old_bytes = archive.read_bytes()
+        (portable.PORTABLE / 'core.txt').write_text('new')
+        for operation in ('add', 'compress', 'close', 'replace'):
+            with self.subTest(operation=operation):
+                target, name = {
+                    'add': (tarfile.TarFile, 'add'),
+                    'compress': (gzip.GzipFile, 'write'),
+                    'close': (gzip.GzipFile, 'close'),
+                    'replace': (portable.os, 'replace'),
+                }[operation]
+                original_close = gzip.GzipFile.close
+
+                def fail_close(stream):
+                    was_closed = stream.closed
+                    original_close(stream)
+                    if not was_closed:
+                        raise OSError('synthetic archive failure')
+
+                failure = (patch.object(target, name, fail_close) if operation == 'close'
+                           else patch.object(target, name, side_effect=OSError('synthetic archive failure')))
+                with failure:
+                    with self.assertRaisesRegex(OSError, 'synthetic archive failure'):
+                        portable.archive()
+                self.assertEqual(archive.read_bytes(), old_bytes)
+                self.assertEqual(list(portable.BUILD.glob(f'.{archive.name}.*')), [])
+        self.assertEqual(portable.archive(), archive)
+        self.assertEqual(stat.S_IMODE(archive.stat().st_mode), 0o640)
+        with tarfile.open(archive) as saved:
+            self.assertEqual(saved.extractfile('Proteus/core.txt').read(), b'new')
+        self.assertEqual(list(portable.BUILD.glob(f'.{archive.name}.*')), [])
+
+    def test_new_archive_keeps_normal_creation_permissions(self):
+        portable, _ = configure(self.root)
+        seed(portable.PORTABLE, 'old')
+        reference = portable.BUILD / 'ordinary-created-file'
+        reference.write_bytes(b'')
+        archive = portable.archive()
+        self.assertEqual(stat.S_IMODE(archive.stat().st_mode),
+                         stat.S_IMODE(reference.stat().st_mode))
 
     def test_plan_does_not_create_build_or_lock(self):
         portable, _ = configure(self.root)
