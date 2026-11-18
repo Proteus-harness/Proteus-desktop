@@ -22,13 +22,14 @@ pub(super) struct TabMenu {
 
 impl TabMenu {
     pub(super) fn new(pane: PaneId, id: &str, pinned: bool, layout: &TabLayout) -> Self {
+        let (has_others, has_right) = layout.close_availability(id);
         Self {
             pane,
             id: id.to_string().into(),
             pinned,
             can_split: layout.can_split(id, pane),
-            has_others: !layout.others(id).is_empty(),
-            has_right: !layout.right_of(id).is_empty(),
+            has_others,
+            has_right,
         }
     }
 

@@ -31,24 +31,18 @@ pub(super) fn files(patch: &str) -> Vec<File> {
                 }));
         let start = if plain_header {
             let old_path = path(&line[4..]);
-            Some(File {
-                path: if old_path == "/dev/null" {
-                    String::new()
-                } else {
-                    old_path.clone()
-                },
-                old_path: (old_path != "/dev/null").then_some(old_path.clone()),
-                status: if old_path == "/dev/null" {
-                    "added".into()
-                } else {
-                    String::new()
-                },
-                ..File::default()
-            })
+            let mut file = File::default();
+            // The following +++ header sets the display path, even for deletions.
+            if old_path == "/dev/null" {
+                file.status = "added".into();
+            } else {
+                file.old_path = Some(old_path);
+            }
+            Some(file)
         } else if let Some(header) = line.strip_prefix("diff --git ") {
             envelope = false;
             Some(File {
-                path: git_paths(header).1,
+                path: git_destination(header),
                 ..File::default()
             })
         } else {
@@ -298,20 +292,20 @@ fn unquote(text: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-fn git_paths(header: &str) -> (String, String) {
+fn git_destination(header: &str) -> String {
     // Unquoted names may contain spaces. The ` b/` separator is reliable
     // for Git's binary/rename headers; +++/--- later refine textual paths.
     if let Some(rest) = header.strip_prefix('"') {
         let mut escaped = false;
         for (i, ch) in rest.char_indices() {
             if ch == '"' && !escaped {
-                return (path(&header[..i + 2]), path(header[i + 2..].trim_start()));
+                return path(rest[i + 1..].trim_start());
             }
             escaped = ch == '\\' && !escaped;
         }
     }
-    header.split_once(" b/").map_or_else(
-        || (String::new(), path(header)),
-        |(a, b)| (path(a), b.into()),
-    )
+    match header.split_once(" b/") {
+        Some((_, destination)) => destination.into(),
+        None => path(header),
+    }
 }

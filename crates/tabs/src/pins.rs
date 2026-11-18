@@ -20,26 +20,31 @@ impl TabLayout {
 
     /// Unpinned tabs of the pane of `id` besides `id` itself.
     pub fn others(&self, id: &str) -> Vec<String> {
-        self.unpinned_around(id, |_| true)
+        let (left, right) = self.unpinned_neighbors(id);
+        left.iter().chain(right).cloned().collect()
     }
 
     /// Unpinned tabs to the right of `id` in its pane.
     pub fn right_of(&self, id: &str) -> Vec<String> {
-        self.unpinned_around(id, |after| after)
+        self.unpinned_neighbors(id).1.to_vec()
     }
 
-    fn unpinned_around(&self, id: &str, take: impl Fn(bool) -> bool) -> Vec<String> {
-        let Some(pane) = self.pane_of(id).and_then(|pane| self.pane(pane)) else {
-            return Vec::new();
-        };
-        let at = pane.position(id).expect("tab is open");
-        pane.tabs
-            .iter()
-            .enumerate()
-            .skip(pane.pinned)
-            .filter(|(ix, _)| *ix != at && take(*ix > at))
-            .map(|(_, tab)| tab.clone())
-            .collect()
+    /// Whether "close others" and "close to the right" would each close a tab.
+    pub fn close_availability(&self, id: &str) -> (bool, bool) {
+        let (left, right) = self.unpinned_neighbors(id);
+        (!left.is_empty() || !right.is_empty(), !right.is_empty())
+    }
+
+    /// Eligible tabs on each side of `id`, in the owning pane's strip order.
+    fn unpinned_neighbors(&self, id: &str) -> (&[String], &[String]) {
+        for pane in self.panes() {
+            if let Some(at) = pane.position(id) {
+                let left = pane.tabs.get(pane.pinned..at).unwrap_or_default();
+                let right = pane.tabs.get(pane.pinned.max(at + 1)..).unwrap_or_default();
+                return (left, right);
+            }
+        }
+        (&[], &[])
     }
 
     /// Closes the unpinned tabs of the pane of `id` besides `id`, which

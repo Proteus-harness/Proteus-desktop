@@ -546,11 +546,11 @@ impl Element for Arrange {
                 state.release();
             }
             state.exclusions.clear();
-            state.focus.retain(|id, _| self.ids.contains(id));
             let heights: HashMap<_, _> = raw
                 .iter()
                 .map(|(id, rect)| (id.clone(), rect.size.height))
                 .collect();
+            state.focus.retain(|id, _| heights.contains_key(id));
             let order = if state.active.is_some() && state.over {
                 preview_order(&self.ids, state.active.as_ref(), state.before.as_ref())
             } else if let Some(pending) = &state.pending {

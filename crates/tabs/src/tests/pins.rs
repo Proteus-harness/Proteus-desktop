@@ -42,6 +42,9 @@ fn closing_others_and_to_the_right_spares_pinned_tabs() {
     assert_eq!(layout.others("b"), ["a", "c", "e"]);
     assert_eq!(layout.right_of("a"), ["b", "c", "e"]);
     assert_eq!(layout.right_of("e"), Vec::<String>::new());
+    assert_eq!(layout.close_availability("b"), (true, true));
+    assert_eq!(layout.close_availability("e"), (true, false));
+    assert_eq!(layout.close_availability("missing"), (false, false));
     layout.close_right("b");
     assert_eq!(shape(&layout), "0[d^, a, b*]");
 
@@ -50,8 +53,10 @@ fn closing_others_and_to_the_right_spares_pinned_tabs() {
     layout.close_others("c");
     assert_eq!(shape(&layout), "0[a^, c*]");
     // From a pinned tab, the others are the unpinned ones.
+    assert_eq!(layout.close_availability("a"), (true, true));
     layout.close_others("a");
     assert_eq!(shape(&layout), "0[a^*]");
+    assert_eq!(layout.close_availability("a"), (false, false));
 }
 
 #[test]
@@ -61,6 +66,7 @@ fn pins_travel_with_their_tabs() {
     layout.set_pinned("b", true);
     layout.split("b", PaneId(0), Edge::Right);
     assert_eq!(shape(&layout), "row(0[a^, c*, d, e] | 1[b^*])");
+    assert_eq!(layout.close_availability("b"), (false, false));
     layout.open("x", |_| false);
     layout.move_tab("a", PaneId(1), None);
     assert_eq!(shape(&layout), "row(0[c*, d, e] | 1[b^, a^*, x])");

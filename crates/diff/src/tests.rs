@@ -66,6 +66,26 @@ fn decodes_git_octal_utf8_and_space_paths() {
 }
 
 #[test]
+fn header_only_diffs_keep_the_destination_without_inventing_a_rename() {
+    for (header, expected) in [
+        (r#"diff --git "a/old\"name" "b/\320\260.txt""#, "а.txt"),
+        ("diff --git a/old name b/./new name", "./new name"),
+        ("diff --git a/lone", "lone"),
+    ] {
+        let files = parse(header, &[]);
+        assert_eq!(files[0].path, expected);
+        assert_eq!(files[0].old_path, None);
+    }
+}
+
+#[test]
+fn plain_headers_keep_distinct_paths_without_an_envelope() {
+    let files = parse("--- a/old name\n+++ b/new name\n", &[]);
+    assert_eq!(files[0].path, "new name");
+    assert_eq!(files[0].old_path.as_deref(), Some("old name"));
+}
+
+#[test]
 fn binary_oversized_and_empty_files_remain_visible() {
     let info = [
         FileInfo {
