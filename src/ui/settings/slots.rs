@@ -8,8 +8,8 @@ use gpui_kit::*;
 use super::widgets::{Tone, card, chip, hashed_id, item_row, mono, note, radio_card, row, section};
 use super::{SettingsView, spot};
 use crate::settings::catalog::{
-    CONTEXT_PROVIDER_SLOT, CONTEXT_SLOT, POLICY_SLOT, PageId, SESSION_STORAGE_SLOT, agent_pages,
-    exports, find_slot, model_module, page_title, permission_description, plural, selected_module,
+    CONTEXT_PROVIDER_SLOT, CONTEXT_SLOT, POLICY_SLOT, SESSION_STORAGE_SLOT, exports, find_slot,
+    permission_description, selected_module,
 };
 use crate::ui::kit::{self, ButtonLabel as _};
 
@@ -22,50 +22,6 @@ fn storage_title(id: &str) -> &str {
 }
 
 impl SettingsView {
-    pub(super) fn slots_page(&self, cx: &Context<Self>) -> Vec<AnyElement> {
-        let Some(snapshot) = self.snapshot() else {
-            return Vec::new();
-        };
-        let rows = agent_pages(Some(snapshot)).into_iter().filter_map(|page| {
-            let value = match &page {
-                PageId::Providers => model_module(snapshot, &self.draft),
-                PageId::Tools => Some(plural(
-                    self.draft.tools.len(),
-                    "инструмент",
-                    "инструмента",
-                    "инструментов",
-                )),
-                PageId::Hooks => Some(plural(self.draft.hooks.len(), "hook", "hooks", "hooks")),
-                PageId::Slot(slot) if slot == SESSION_STORAGE_SLOT => Some(
-                    if find_slot(snapshot, slot).is_some() {
-                        selected_module(snapshot, &self.draft, slot)
-                            .map_or("Только в памяти", storage_title)
-                    } else {
-                        "Недоступно"
-                    }
-                    .to_owned(),
-                ),
-                PageId::Slot(slot) if find_slot(snapshot, slot).is_some() => {
-                    selected_module(snapshot, &self.draft, slot).map(str::to_owned)
-                }
-                _ => return None,
-            };
-            let link = self.settings_link(
-                hashed_id("slot-overview", &page),
-                page_title(Some(snapshot), &page),
-                spot::Destination::new(page),
-                cx,
-            );
-            let value = div()
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child(value.unwrap_or_else(|| "Не выбран".into()))
-                .into_any_element();
-            Some(item_row(link, [value]).into_any_element())
-        });
-        vec![card(rows, cx)]
-    }
-
     pub(super) fn slot_page(&self, slot: &str, cx: &Context<Self>) -> Vec<AnyElement> {
         if slot == SESSION_STORAGE_SLOT {
             return self.storage_page(cx);

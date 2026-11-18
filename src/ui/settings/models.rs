@@ -328,7 +328,7 @@ impl SettingsView {
                         .children(input.error.clone().map(|error| {
                             div().text_xs().text_color(cx.theme().danger).child(error)
                         }));
-                rows.push(field_row(field.title(), editor, Fit::Shrink).into_any_element());
+                rows.push(field_row(field.title(), editor, Fit::Fill).into_any_element());
             }
         }
         for (field, title, checked) in [

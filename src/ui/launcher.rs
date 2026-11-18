@@ -19,7 +19,7 @@ use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::kit::Pressable as _;
 
-mod config;
+pub(in crate::ui) mod config;
 pub(in crate::ui) mod visual;
 
 pub struct Launcher {
@@ -53,7 +53,7 @@ impl Launcher {
             |this, _, request: &WorkspaceRequest, window, cx| match request {
                 WorkspaceRequest::Open(path) => this.open(path.clone(), window, cx),
                 WorkspaceRequest::ChooseFolder => this.choose_folder(window, cx),
-                WorkspaceRequest::OpenConfig => this.choose_config(window, cx),
+                WorkspaceRequest::OpenConfig(path) => this.select_config(path.clone(), window, cx),
             },
         );
         Self {
@@ -215,7 +215,7 @@ impl Launcher {
             |this, _, request: &WorkspaceRequest, window, cx| match request {
                 WorkspaceRequest::Open(path) => this.open(path.clone(), window, cx),
                 WorkspaceRequest::ChooseFolder => this.choose_folder(window, cx),
-                WorkspaceRequest::OpenConfig => this.choose_config(window, cx),
+                WorkspaceRequest::OpenConfig(path) => this.select_config(path.clone(), window, cx),
             },
         ));
         self.stage = Stage::Ready(view);

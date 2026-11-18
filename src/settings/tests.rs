@@ -212,7 +212,6 @@ fn pages_cover_known_slots_and_append_unknown_ones() {
         PageId::Providers,
         PageId::Models,
         PageId::Modes,
-        PageId::Slots,
         PageId::Tools,
         PageId::Hooks,
     ] {
@@ -232,7 +231,7 @@ fn pages_cover_known_slots_and_append_unknown_ones() {
     );
     assert_eq!(
         page_title(Some(&snapshot), &slot_page("session_storage")),
-        "Хранилище чатов"
+        "Session Storage"
     );
     let during_load = agent_pages(None);
     assert!(during_load.contains(&slot_page("session_storage")));
@@ -309,7 +308,7 @@ fn revision_restores_old_state_and_describes_it() {
         [
             "permission_mode: normal → auto",
             "Tools: + shell",
-            "Контекст: simple → repo; параметры: limit",
+            "Context: simple → repo; параметры: limit",
         ]
     );
 }

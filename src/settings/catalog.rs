@@ -27,7 +27,6 @@ pub enum PageId {
     Providers,
     Models,
     Modes,
-    Slots,
     Slot(String),
     Tools,
     Hooks,
@@ -69,11 +68,11 @@ pub fn slot_text(slot: &str) -> Option<(&'static str, &'static str)> {
     Some(match slot {
         MODEL_SLOT => ("Model", "Модель профиля и параметры её модуля."),
         "workflow" => (
-            "Рабочий цикл",
+            "Workflow",
             "Управляет шагами агента от запроса до результата.",
         ),
         "context" => (
-            "Контекст",
+            "Context",
             "Собирает сведения, которые получает модель, в том числе от поставщиков контекста: skills, поиска и памяти.",
         ),
         CONTEXT_PROVIDER_SLOT => (
@@ -81,7 +80,7 @@ pub fn slot_text(slot: &str) -> Option<(&'static str, &'static str)> {
             "Поставляют skills, поиск и память. Автоматическое чтение задаётся в настройках контекста.",
         ),
         POLICY_SLOT => (
-            "Разрешения",
+            "Policy",
             "Режим прав профиля и политика, которая решает, какие действия требуют подтверждения. Режим текущего чата меняется в поле ввода.",
         ),
         TOOL_SLOT => ("Tools", "Инструменты, которые профиль разрешает агенту."),
@@ -90,7 +89,7 @@ pub fn slot_text(slot: &str) -> Option<(&'static str, &'static str)> {
             "Hooks дополняют шаги агента: готовят историю и сжимают её, отбирают видимые модели инструменты, проверяют вызовы и завершение. Вызываются по порядку списка.",
         ),
         SESSION_STORAGE_SLOT => (
-            "Хранилище чатов",
+            "Session Storage",
             "Где сохраняются история и вложения чатов.",
         ),
         _ => return None,
@@ -107,12 +106,7 @@ pub fn slot_title(snapshot: &ConfigBuilderSnapshot, slot: &str) -> String {
 /// Agent pages by what the part does: the known slots, then unknown
 /// select-one slots.
 pub fn agent_pages(snapshot: Option<&ConfigBuilderSnapshot>) -> Vec<PageId> {
-    let mut pages = vec![
-        PageId::Slots,
-        PageId::Providers,
-        PageId::Models,
-        PageId::Modes,
-    ];
+    let mut pages = vec![PageId::Providers, PageId::Models, PageId::Modes];
     pages.extend(
         ["workflow", "context"]
             .into_iter()
@@ -158,7 +152,6 @@ pub fn page_title(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId) -> St
         PageId::Providers => "Провайдеры".into(),
         PageId::Models => "Модели".into(),
         PageId::Modes => "Режимы".into(),
-        PageId::Slots => "Слоты".into(),
         PageId::Slot(slot) => match snapshot {
             Some(snapshot) => slot_title(snapshot, slot),
             None => slot_text(slot)
@@ -188,7 +181,6 @@ pub fn page_description(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId)
         PageId::Modes => {
             "Варианты инструкций, инструментов, hooks и разрешений для отдельного чата."
         }
-        PageId::Slots => "",
         PageId::Providers => {
             "Подключения и авторизация. Одно подключение может использоваться несколькими именованными моделями."
         }

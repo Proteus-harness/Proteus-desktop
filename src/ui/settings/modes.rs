@@ -260,7 +260,7 @@ impl SettingsView {
             field_row(
                 "Название",
                 kit::input(&fields.title).small().w_full(),
-                Fit::Shrink,
+                Fit::Fill,
             )
             .into_any_element(),
             field_row(

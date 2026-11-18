@@ -204,7 +204,7 @@ impl SettingsView {
         } else if short {
             Fit::Fixed
         } else {
-            Fit::Shrink
+            Fit::Fill
         };
         let control = match form.and_then(|form| form.inputs.get(&field)) {
             Some(TextInput::Line(state)) => kit::input(state)

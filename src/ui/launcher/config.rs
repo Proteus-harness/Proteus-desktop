@@ -8,6 +8,7 @@ use crate::conversations::AgentKind;
 
 mod catalog;
 mod picker;
+pub(in crate::ui) use picker::config_selector;
 
 impl Launcher {
     pub(super) fn open_configuration_settings(
@@ -26,9 +27,9 @@ impl Launcher {
         }
         let launcher = cx.weak_entity();
         let open_agent: crate::ui::settings::configurations::OpenAgent =
-            std::rc::Rc::new(move |window, cx| {
+            std::rc::Rc::new(move |path, window, cx| {
                 launcher
-                    .update(cx, |this, cx| this.choose_config(window, cx))
+                    .update(cx, |this, cx| this.select_config(path, window, cx))
                     .ok();
             });
         window.open_dialog(cx, move |dialog, _, cx| {
@@ -47,48 +48,17 @@ impl Launcher {
         });
     }
 
-    pub(super) fn choose_config(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let current = cx
-            .global::<prefs::WindowVisualPreferences>()
-            .agent_path
-            .clone()
-            .or_else(|| match &self.target {
-                Target::Spawn {
-                    profile: Some(profile),
-                } => Some(PathBuf::from(profile)),
-                _ => None,
-            });
-        let selected_owner = cx.weak_entity();
-        let other_owner = cx.weak_entity();
-        let picker = cx.new(|cx| {
-            picker::ConfigPicker::new(
-                catalog::config_home(),
-                current,
-                window,
-                cx,
-                move |path, window, cx| {
-                    selected_owner
-                        .update(cx, |this, cx| this.open_config_path(path, window, cx))
-                        .ok();
-                },
-                move |window, cx| {
-                    other_owner
-                        .update(cx, |this, cx| this.choose_config_file(window, cx))
-                        .ok();
-                },
-            )
-        });
-        let content = picker.clone();
-        window.open_dialog(cx, move |dialog, _, _| {
-            dialog
-                .title("Выбрать конфиг агента")
-                .w(px(680.))
-                .child(content.clone())
-        });
-        window.defer(cx, move |window, cx| {
-            let focus = picker.read(cx).focus_handle(cx);
-            focus.focus(window, cx);
-        });
+    pub(super) fn select_config(
+        &mut self,
+        path: Option<PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(path) = path {
+            self.open_config_path(path, window, cx);
+        } else {
+            self.choose_config_file(window, cx);
+        }
     }
 
     fn choose_config_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {

@@ -163,7 +163,7 @@ fn tag_row(spec: &Rc<TagEditor>, index: usize, cx: &App) -> AnyElement {
 }
 
 fn tag_pill(label: String, cx: &App) -> Div {
-    h_flex().py_0p5().child(
+    h_flex().py_0p5().cursor_grab().child(
         h_flex()
             .min_w_0()
             .max_w_full()

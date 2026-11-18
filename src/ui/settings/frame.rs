@@ -114,7 +114,6 @@ impl SettingsView {
             PageId::Providers => self.providers_page(cx),
             PageId::Models => self.models_page(cx),
             PageId::Modes => self.modes_page(cx),
-            PageId::Slots => self.slots_page(cx),
             PageId::Slot(slot) => self.slot_page(slot, cx),
             PageId::Tools => self.tools_page(cx),
             PageId::Hooks => self.hooks_page(cx),

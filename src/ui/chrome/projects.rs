@@ -18,7 +18,7 @@ const RECENT_SHOWN: usize = 8;
 pub(in crate::ui) enum WorkspaceRequest {
     Open(PathBuf),
     ChooseFolder,
-    OpenConfig,
+    OpenConfig(Option<PathBuf>),
 }
 
 type OpenFolder = Rc<dyn Fn(PathBuf, &mut Window, &mut App)>;

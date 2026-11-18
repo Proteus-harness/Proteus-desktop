@@ -3,7 +3,7 @@
 
 use super::{
     SettingsView, spot,
-    widgets::{card, mono, note, section},
+    widgets::{card, mono_line, note, section},
 };
 use crate::ui::kit::{ButtonLabel as _, Hint as _};
 use crate::{
@@ -44,7 +44,10 @@ impl SettingsView {
             return parts;
         }
         for module in &snapshot.model_modules {
-            let title = mono(module.id.clone(), cx).text_sm();
+            let title = mono_line(module.id.clone(), cx)
+                .text_sm()
+                .flex_auto()
+                .max_w_full();
             let to_models = kit::button(super::widgets::hashed_id("provider-models", &module.id))
                 .faded_label("Модели")
                 .quiet(cx)
@@ -73,14 +76,22 @@ impl SettingsView {
                 .on_click(cx.listener(move |this, _, window, cx| {
                     this.confirm_provider_removal(&id, window, cx);
                 }));
-            let header = h_flex()
-                .px_4()
-                .py_3()
-                .gap_3()
-                .child(div().flex_1().min_w_0().child(title))
+            let actions = h_flex()
+                .min_w_0()
+                .max_w_full()
+                .flex_wrap()
+                .gap_2()
                 .children(self.provider_auth_action(&module.id, cx))
                 .child(to_models)
                 .child(remove);
+            let header = h_flex()
+                .px_4()
+                .py_3()
+                .flex_wrap()
+                .gap_x_3()
+                .gap_y_1()
+                .child(title)
+                .child(actions);
             let body = card(
                 [
                     header.into_any_element(),

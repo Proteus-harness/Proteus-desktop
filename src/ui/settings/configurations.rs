@@ -4,7 +4,6 @@
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::menu::PopupMenu;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -16,19 +15,20 @@ use crate::ui::chrome::WorkspaceRequest;
 use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::kit::ButtonLabel as _;
+use crate::ui::launcher::config::config_selector;
 use crate::ui::launcher::visual::{self, Action};
 use crate::ui::prefs::{self, WindowVisualPreferences};
 use crate::ui::tip::Tip as _;
 use crate::visual_config::SelectionOrigin;
 
-pub(in crate::ui) type OpenAgent = Rc<dyn Fn(&mut Window, &mut App)>;
+pub(in crate::ui) type OpenAgent = Rc<dyn Fn(Option<PathBuf>, &mut Window, &mut App)>;
 
 impl SettingsView {
     pub(super) fn configurations_page(&self, cx: &Context<Self>) -> Vec<AnyElement> {
         let workspace = self.workspace.clone();
-        let open_agent: OpenAgent = Rc::new(move |_, cx| {
+        let open_agent: OpenAgent = Rc::new(move |path, _, cx| {
             workspace
-                .update(cx, |_, cx| cx.emit(WorkspaceRequest::OpenConfig))
+                .update(cx, |_, cx| cx.emit(WorkspaceRequest::OpenConfig(path)))
                 .ok();
         });
         let agent = self
@@ -57,18 +57,11 @@ pub(in crate::ui) fn controls(
     let has_agent = state.agent_path.is_some();
     let origin = state.selection.origin;
 
-    let agent_file = h_flex()
-        .gap_3()
-        .items_center()
-        .child(file_label(agent, "По умолчанию"))
-        .child(
-            kit::button("config-open-agent")
-                .small()
-                .icon(Lucide::ChevronDown)
-                .faded_label("Сменить…")
-                .tip_text("Открыть новый чат в отдельном окне")
-                .on_click(move |_, window, cx| open_agent(window, cx)),
-        );
+    let agent_file = crate::ui::kit::settings_row(
+        file_label(agent, "По умолчанию"),
+        config_selector(agent.cloned(), open_agent, cx),
+        false,
+    );
     let visual_name = file_name(selected.map(PathBuf::as_path), "Встроенное");
     let visual_tooltip = selected.map_or_else(
         || "Оформление этого окна".into(),
@@ -87,6 +80,10 @@ pub(in crate::ui) fn controls(
             menu.item(
                 crate::ui::selection::menu_option("Выбрать файл…", false)
                     .on_click(|_, window, cx| visual::run(Action::Open, window, cx)),
+            )
+            .item(
+                crate::ui::selection::menu_option("Сохранить оформление как…", false)
+                    .on_click(|_, window, cx| visual::run(Action::SaveAs, window, cx)),
             )
             .item(
                 crate::ui::selection::menu_option(
@@ -109,19 +106,7 @@ pub(in crate::ui) fn controls(
     .settings_selector()
     .min_w_0()
     .max_w_full();
-    let current = row(
-        "Это окно",
-        None,
-        h_flex().gap_2().min_w_0().child(visual_choice).child(
-            kit::button("config-save-visual")
-                .small()
-                .quiet(cx)
-                .faded_label("Сохранить…")
-                .on_click(|_, window, cx| visual::run(Action::SaveAs, window, cx)),
-        ),
-        false,
-        cx,
-    );
+    let current = row("Это окно", None, visual_choice, false, cx);
     let common = row(
         "Для новых окон",
         None,
@@ -172,7 +157,7 @@ pub(in crate::ui) fn controls(
             "Агент",
             None,
             None,
-            card([div().p_4().child(agent_file).into_any_element()], cx),
+            card([agent_file.into_any_element()], cx),
             cx,
         )
         .into_any_element(),

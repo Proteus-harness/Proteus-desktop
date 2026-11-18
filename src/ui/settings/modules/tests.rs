@@ -126,13 +126,7 @@ fn module_summary_names_distinct_slots_instead_of_counting_exports() {
         .collect::<Vec<_>>();
     assert_eq!(
         labels,
-        [
-            "Context Providers",
-            "Hooks",
-            "Model",
-            "Tools",
-            "Рабочий цикл"
-        ]
+        ["Context Providers", "Hooks", "Model", "Tools", "Workflow"]
     );
     assert_eq!(slot_page("model"), PageId::Providers);
 }

@@ -190,11 +190,15 @@ impl SettingsView {
             .on_click(cx.listener(move |this, _, _, cx| this.sign_in_provider(&id, cx)));
         Some(
             h_flex()
+                .max_w_full()
+                .flex_wrap()
                 .gap_2()
                 .items_center()
                 .when(entry.authenticated && !entry.busy, |line| {
                     line.child(
                         div()
+                            .flex_none()
+                            .whitespace_nowrap()
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
                             .child("Вход выполнен"),

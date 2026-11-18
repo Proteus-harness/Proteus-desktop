@@ -34,7 +34,6 @@ pub(super) fn page_icon(page: &PageId) -> Icon {
         PageId::Providers => Icon::new(Lucide::Server),
         PageId::Models => Icon::new(Lucide::Brain),
         PageId::Modes => Icon::new(Lucide::SlidersHorizontal),
-        PageId::Slots => Icon::new(Lucide::ListTree),
         PageId::Slot(slot) => match slot.as_str() {
             "workflow" => Icon::new(Lucide::Workflow),
             "context" => Icon::new(Lucide::Layers),
@@ -272,7 +271,7 @@ impl SettingsView {
                     .pb_3()
                     .gap_0p5()
                     .child(div().pt_2().child(item(PageId::Catalog, cx)))
-                    .child(heading("Агент"))
+                    .child(heading("Proteus"))
                     .children(agent.into_iter().map(|page| item(page, cx)))
                     .child(heading("Подключения"))
                     .children(CONNECTION_PAGES.iter().cloned().map(|page| item(page, cx)))

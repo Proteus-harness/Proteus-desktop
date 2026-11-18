@@ -99,7 +99,7 @@ impl SettingsView {
             match kind {
                 FieldKind::MultiChoice(_) => Fit::Below,
                 FieldKind::Text(format) if format.is_multiline() => Fit::Below,
-                FieldKind::Text(_) if !short => Fit::Shrink,
+                FieldKind::Text(_) if !short => Fit::Fill,
                 _ => Fit::Fixed,
             }
         };

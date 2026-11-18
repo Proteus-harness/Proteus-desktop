@@ -173,8 +173,8 @@ pub(super) fn row_with_reset(
 pub(super) enum Fit {
     /// At its content width on the right, shrinking with the available row.
     Fixed,
-    /// A bounded single-line input on the right; it shrinks on narrow windows.
-    Shrink,
+    /// Uses the space available to the right of its label.
+    Fill,
     /// Under the title at full width.
     Below,
 }
@@ -185,16 +185,11 @@ pub(super) fn field_row(
     control: impl IntoElement,
     fit: Fit,
 ) -> kit::SettingsRow {
-    let control = match fit {
-        Fit::Shrink => div()
-            .w(prefs::scaled(220.))
-            .min_w_0()
-            .max_w_full()
-            .child(control),
-        _ => div().min_w_0().max_w_full().child(control),
-    };
-    kit::settings_row(title, control, matches!(fit, Fit::Below))
-        .minimum_control_width(if matches!(fit, Fit::Shrink) { 64. } else { 36. })
+    let row = kit::settings_row(title, control, matches!(fit, Fit::Below));
+    match fit {
+        Fit::Fill => row.minimum_control_width(64.).fill_control(),
+        _ => row,
+    }
 }
 
 /// One caption and optional information mark own one tooltip. Title clipping

@@ -4,6 +4,7 @@
 //! minimum does the caption shrink. Multiline editors explicitly go below.
 
 use gpui_kit::component::{h_flex, v_flex};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::ui::prefs;
@@ -13,6 +14,7 @@ pub(crate) struct SettingsRow {
     title: AnyElement,
     control: AnyElement,
     below: bool,
+    fill_control: bool,
     minimum_control_width: f32,
     style: StyleRefinement,
 }
@@ -26,6 +28,7 @@ pub(crate) fn settings_row(
         title: title.into_any_element(),
         control: control.into_any_element(),
         below,
+        fill_control: false,
         // The standard switch is 36px wide. Wider controls opt into a useful
         // minimum; their preferred width still belongs to the control itself.
         minimum_control_width: 36.,
@@ -36,6 +39,11 @@ pub(crate) fn settings_row(
 impl SettingsRow {
     pub(crate) fn minimum_control_width(mut self, width: f32) -> Self {
         self.minimum_control_width = width;
+        self
+    }
+
+    pub(crate) fn fill_control(mut self) -> Self {
+        self.fill_control = true;
         self
     }
 }
@@ -61,13 +69,7 @@ impl RenderOnce for SettingsRow {
                 .py_2p5()
                 .gap_2()
                 .child(title)
-                .child(
-                    div()
-                        .w_full()
-                        .min_w_0()
-                        .max_w(prefs::scaled(560.))
-                        .child(self.control),
-                )
+                .child(div().w_full().min_w_0().child(self.control))
         } else {
             h_flex()
                 .min_w_0()
@@ -81,7 +83,13 @@ impl RenderOnce for SettingsRow {
                         .flex_1()
                         .min_w(prefs::scaled(self.minimum_control_width))
                         .justify_end()
-                        .child(div().min_w_0().max_w_full().child(self.control)),
+                        .child(
+                            div()
+                                .min_w_0()
+                                .max_w_full()
+                                .when(self.fill_control, |control| control.flex_1())
+                                .child(self.control),
+                        ),
                 )
         };
         row.style().refine(&self.style);
