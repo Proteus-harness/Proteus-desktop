@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import tomllib
 import unittest
 
 
@@ -35,20 +36,32 @@ class ShortcutTests(unittest.TestCase):
             launcher.write_bytes(source.read_bytes())
             bundled = base / "share/configs/fragments"
             bundled.mkdir(parents=True)
+            (bundled.parent / "config.toml").write_text('[modules]\nsession_storage = "jsonl"\n')
             (bundled / "codex.toml").write_text('mode = "bundled"\n')
             (bundled / "new.toml").write_text('mode = "new"\n')
             config = base / "custom XDG/Proteus-harness"
             existing = config / "configs/fragments"
             existing.mkdir(parents=True)
             (existing / "codex.toml").write_text('mode = "restored"\n')
-            (base / "share/system_proxy.py").write_text("import os\nprint(os.environ['PROTEUS_CONFIG_HOME'])\n")
+            default = existing.parent / "config.toml"
+            default.write_text('model = "restored"\n[modules]\ncontext = "simple"\n')
+            helper = Path(__file__).with_name("settings-migration.py")
+            (base / "share/settings-migration.py").write_bytes(helper.read_bytes())
+            (base / "share/system_proxy.py").write_text(
+                "import os, sys\nprint(os.environ['PROTEUS_CONFIG_HOME'])\nprint(len(sys.argv[2:]))\n"
+            )
 
-            env = {**os.environ, "XDG_CONFIG_HOME": str(config.parent)}
+            env = {**os.environ, "XDG_CONFIG_HOME": str(config.parent),
+                   "XDG_STATE_HOME": str(base / "state")}
             env.pop("PROTEUS_CONFIG_HOME", None)
+            env.pop("PROTEUS_CONFIG_PATH", None)
             result = subprocess.run(["sh", str(launcher)], env=env, check=True, capture_output=True, text=True)
-            self.assertEqual(result.stdout.strip(), str(config))
+            self.assertEqual(result.stdout.splitlines(), [str(config), "0"])
             self.assertEqual((existing / "codex.toml").read_text(), 'mode = "restored"\n')
             self.assertEqual((existing / "new.toml").read_text(), 'mode = "new"\n')
+            updated = tomllib.loads(default.read_text())
+            self.assertEqual(updated["model"], "restored")
+            self.assertEqual(updated["modules"], {"context": "simple", "session_storage": "jsonl"})
 
 
 if __name__ == "__main__":

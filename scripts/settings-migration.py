@@ -44,6 +44,11 @@ def roots(args):
     }
 
 
+def settings_state_dir(args, home):
+    default = home / '.local/state'
+    return Path(os.environ.get('XDG_STATE_HOME', default)) if not args.home else default
+
+
 def regular_path(path):
     """Refuse linked ancestors as well as linked files at either end."""
     for part in [path, *path.parents]:
@@ -87,10 +92,7 @@ def read_settings(path):
     regular_path(path)
     if path.stat().st_size > MAX_FILE:
         raise ValueError(f'Settings file is too large: {path}')
-    data = path.read_bytes()
-    if path.suffix in ('.json', '.toml'):
-        reject_credentials(structured(data, path.suffix), path)
-    return data
+    return path.read_bytes()
 
 
 def export_archive(args):
@@ -112,6 +114,8 @@ def export_archive(args):
                     continue
                 name = f'files/{kind}/{path.relative_to(locations[kind]).as_posix()}'
                 data = read_settings(path)
+                if path.suffix in ('.json', '.toml'):
+                    reject_credentials(structured(data, path.suffix), path)
                 if kind == 'desktop' and item == 'preferences.json':
                     preferences = json.loads(data)
                     for key in WINDOW_STATE:
@@ -286,7 +290,7 @@ def restore_archive(args):
     for path in data_by_path:
         if is_named_profile(path, locations['agent']):
             data_by_path[path] = with_session_storage(path, data_by_path, home)
-    apply_settings(home, data_by_path, args.dry_run)
+    apply_settings(settings_state_dir(args, home), data_by_path, args.dry_run)
 
 
 def upgrade_storage(args):
@@ -303,20 +307,22 @@ def upgrade_storage(args):
         )
     if not profiles:
         raise ValueError('No Proteus TOML profiles found')
-    original = {path: read_settings(path) for path in profiles}
+    original = {path: read_settings(path.resolve(strict=True)) for path in profiles}
     updated = {path: with_session_storage(path, original, home) for path in profiles}
-    apply_settings(home, updated, args.dry_run, action='update')
+    apply_settings(settings_state_dir(args, home), updated, args.dry_run, action='update')
 
 
-def apply_settings(home, data_by_path, dry_run, action='restore'):
+def apply_settings(state_dir, data_by_path, dry_run, action='restore'):
     prepared = [
         (path, data) for path, data in data_by_path.items()
         if not path.exists() or path.read_bytes() != data
     ]
+    for path, _ in prepared:
+        regular_path(path)
     if dry_run:
         print(f'Would {action} {len(prepared)} settings files')
         return
-    backup = home / '.local/state/Proteus-settings-backups' / datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ')
+    backup = state_dir / 'Proteus-settings-backups' / datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ')
     if prepared:
         backup.mkdir(parents=True, mode=0o700)
     written = []

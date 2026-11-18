@@ -57,6 +57,7 @@ def install_desktop(stage, flags):
         install_file(ASSETS / name, stage / name, True)
     install_file(ASSETS / "system_proxy.py", stage / "share/system_proxy.py")
     install_file(NATIVE / "scripts/codex_executable.py", stage / "share/codex_executable.py")
+    install_file(NATIVE / "scripts/settings-migration.py", stage / "share/settings-migration.py")
 
 
 def install_core(stage, core, flags):
