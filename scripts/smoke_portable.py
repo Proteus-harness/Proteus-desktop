@@ -93,6 +93,14 @@ def probe(archive, extensions):
         # overlay at the same depth so its inherited prompt paths resolve.
         config = work / "config/configs/fixtures/release-smoke.toml"
         config.parent.mkdir(parents=True, exist_ok=True)
+        hook = work / "release-hook.mjs"
+        hook.write_text(r"""export default function setup(hooks) {
+  hooks.on("after_tool", ({ result }) => ({
+    action: "tool_output",
+    output: result.output + "\nRELOCATED_SCRIPT_HOOK",
+  }), { tools: ["apply_patch"] });
+}
+""")
         config.write_text("include = " + json.dumps(str(portable / "share/configs/fixtures/restricted.toml")) + "\n" + '''active_provider = "fake"
 [providers.fake]
 provider = "fake"
@@ -104,7 +112,13 @@ roles = []
 [components.reference-model.exports.model.fake]
 [module_config.model.fake]
 implementation = "fake"
-''')
+[modules]
+hooks = ["codex_compact", "release_script"]
+[components.release-script]
+command = "proteus-hook-worker"
+[components.release-script.exports.hook.release_script]
+[module_config.hook.release_script]
+entry = ''' + json.dumps(str(hook)) + "\n")
         with config.open("a") as output:
             for component in ("reference-model", "skill-pack", "memory-pack", "file-tools",
                               "git-tools", "shell-tool", "plan-tool", "rust-lsp", "policy-pack", "codex-patch"):
@@ -123,7 +137,8 @@ implementation = "fake"
         journal = journals[0]
         records = [json.loads(line) for line in journal.read_text().splitlines()]
         assert "SYNTHETIC_RELEASE_INSTRUCTIONS" in json.dumps(records)
-        for hook in ("codex_compact",):
+        assert "RELOCATED_SCRIPT_HOOK" in json.dumps(records)
+        for hook in ("codex_compact", "release_script"):
             assert any(hook in json.dumps(record) for record in records if "hook_invoked" in json.dumps(record))
         checks.append("restricted_workflow_context_policy_hooks_and_file_turn")
         before = hashlib.sha256(journal.read_bytes()).hexdigest()

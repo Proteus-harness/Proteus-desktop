@@ -17,8 +17,8 @@ def probe(portable):
         for name in ("claude-command-hooks", "hook-process"):
             shutil.copytree(portable / "share/modules" / name, staging / "share/modules" / name)
         (staging / "bin").mkdir()
-        for name in ("proteus-hook-worker", "proteus-claude-hooks-inspect"):
-            shutil.copy2(portable / "bin" / name, staging / "bin" / name)
+        name = "proteus-claude-hooks-inspect"
+        shutil.copy2(portable / "bin" / name, staging / "bin" / name)
         relocated = work / "relocated Proteus"
         staging.rename(relocated)
         adapter = relocated / "share/modules/claude-command-hooks"
@@ -50,33 +50,12 @@ def probe(portable):
         assert json.loads(inspected.stdout)["compatible"] is True
         assert not marker.exists(), "Inspector executed a command hook"
 
-        # Check the generic launcher itself; bundled Node tests cover invocation,
-        # command execution, cancellation and the adapter's worker protocol.
-        entry = work / "generic-entry.mjs"
-        entry.write_text("export default function setup(hooks) {}\n")
-        frame = {
-            "jsonrpc": "2.0", "id": "h:1:0", "method": "initialize",
-            "params": {"protocol_version": "v3", "component_id": "generic-hooks", "exports": [{
-                "slot": "hook", "module_id": "generic", "contract_version": "v8",
-                "composition": "ordered_many", "host_features": [],
-                "module_config": {"entry": str(entry)},
-            }]},
-        }
-        initialized = subprocess.run(
-            [str(relocated / "bin/proteus-hook-worker")], input=json.dumps(frame) + "\n",
-            cwd=cwd, check=True, capture_output=True, text=True, timeout=10,
-        )
-        response = json.loads(initialized.stdout)
-        assert response["id"] == frame["id"], response
-        assert response["result"]["component_id"] == "generic-hooks", response
-        assert response["result"]["exports"][0]["module_id"] == "generic", response
-
         env = os.environ.copy()
         env["PROTEUS_HOOK_SDK_ROOT"] = str(sdk)
         tests = sorted((adapter / "tests").glob("*.test.mjs"))
         assert tests, "Missing bundled adapter tests"
         subprocess.run(["node", "--test", *map(str, tests)], cwd=cwd, env=env, check=True, timeout=60)
-    print("PASS: relocated hook launchers, sources/licenses, inspection without execution and adapter Node gate")
+    print("PASS: relocated hook assets, sources/licenses, inspection without execution and adapter Node gate")
 
 
 if __name__ == "__main__":
