@@ -25,6 +25,13 @@ SECRET_FIELDS = {'api_key', 'access_token', 'refresh_token', 'password', 'client
 EXCLUDED = {'secrets', 'sessions', '.proteus', '.env', 'environment', '__pycache__', 'cache'}
 WINDOW_STATE = {'tabs', 'tabs_workspace', 'sessions', 'recent'}
 TOML_STRING = re.compile(r'# [^\n]*|#[^\n]*|"""[\s\S]*?"""|\x27\x27\x27[\s\S]*?\x27\x27\x27|"(?:\\.|[^"\\])*"|\x27[^\x27\n]*\x27')
+STORAGE_COMPONENT = '''
+[components.session-storage]
+command = "proteus-session-storage-module"
+transport.max_frame_bytes = 134217728
+
+[components.session-storage.exports.session_storage.jsonl]
+'''
 
 
 def roots(args):
@@ -200,6 +207,69 @@ def relocate(data, suffix, mappings):
     return text.encode()
 
 
+def is_named_profile(path, agent):
+    return (
+        path.parent in (agent / 'configs', agent / 'opencode-go/configs')
+        and (path.name == 'config.toml' or path.name.endswith('.config.toml'))
+    )
+
+
+def profile_storage(path, data_by_path, home, parents=frozenset()):
+    if path in parents:
+        raise ValueError(f'Circular config include: {path}')
+    data = data_by_path[path] if path in data_by_path else read_settings(path)
+    doc = structured(data, path.suffix)
+    selected = 'session_storage' in doc.get('modules', {})
+    components = doc.get('components', {})
+    declared = 'session-storage' in components or any(
+        'session_storage' in component.get('exports', {}) for component in components.values()
+    )
+    if selected:
+        return selected, declared
+    includes = doc.get('include', [])
+    for entry in [includes] if isinstance(includes, str) else includes:
+        include = home / entry[2:] if entry.startswith('~/') else path.parent / entry
+        child_selected, child_declared = profile_storage(
+            include.resolve(), data_by_path, home, parents | {path}
+        )
+        selected |= child_selected
+        declared |= child_declared
+    return selected, declared
+
+
+def with_session_storage(path, data_by_path, home):
+    data = data_by_path[path]
+    selected, declared = profile_storage(path, data_by_path, home)
+    if selected:
+        return data
+    if declared:
+        raise ValueError(f'{path}: choose an existing storage export in modules.session_storage')
+    text = data.decode('utf-8')
+    expected = tomllib.loads(text)
+    modules = expected.setdefault('modules', {})
+    had_modules = bool(modules)
+    modules['session_storage'] = 'jsonl'
+    component = tomllib.loads(STORAGE_COMPONENT)['components']
+    expected.setdefault('components', {}).update(component)
+    header = re.search(r'(?m)^[ \t]*\[[ \t]*modules[ \t]*\][ \t]*(?:#[^\n]*)?$', text)
+    inline = re.search(r'(?m)^[ \t]*modules[ \t]*=[ \t]*\{', text)
+    if header:
+        text = text[:header.end()] + '\nsession_storage = "jsonl"' + text[header.end():]
+    elif inline:
+        field = 'session_storage = "jsonl", ' if had_modules else 'session_storage = "jsonl"'
+        text = text[:inline.end()] + field + text[inline.end():]
+    else:
+        text = text.rstrip() + '\n\n[modules]\nsession_storage = "jsonl"\n'
+    text = text.rstrip() + '\n\n' + STORAGE_COMPONENT.lstrip()
+    try:
+        unchanged_settings = tomllib.loads(text) == expected
+    except tomllib.TOMLDecodeError:
+        unchanged_settings = False
+    if not unchanged_settings:
+        raise ValueError(f'{path}: add session storage to this TOML profile manually')
+    return text.encode()
+
+
 def restore_archive(args):
     manifest, files = read_archive(args.archive)
     home, locations = roots(args)
@@ -207,17 +277,44 @@ def restore_archive(args):
                       + [(manifest['home'], str(home))], key=lambda pair: len(pair[0]), reverse=True)
     if any(not Path(source).is_absolute() or source == '/' for source, _ in mappings):
         raise ValueError('Invalid source roots')
-    prepared = []
+    data_by_path = {}
     for name, data in files.items():
         parts = PurePosixPath(name).parts
         destination = locations[parts[1]].joinpath(*parts[2:])
         regular_path(destination)
-        moved = relocate(data, destination.suffix, mappings)
-        if destination.exists() and destination.read_bytes() == moved:
-            continue
-        prepared.append((destination, moved))
-    if args.dry_run:
-        print(f'Would restore {len(prepared)} settings files')
+        data_by_path[destination] = relocate(data, destination.suffix, mappings)
+    for path in data_by_path:
+        if is_named_profile(path, locations['agent']):
+            data_by_path[path] = with_session_storage(path, data_by_path, home)
+    apply_settings(home, data_by_path, args.dry_run)
+
+
+def upgrade_storage(args):
+    home, locations = roots(args)
+    agent = locations['agent']
+    if args.archive:
+        profiles = [args.archive.expanduser().absolute()]
+        if profiles[0].suffix != '.toml':
+            raise ValueError('upgrade-storage expects a TOML profile')
+    else:
+        profiles = sorted(
+            path for directory in (agent / 'configs', agent / 'opencode-go/configs')
+            for path in directory.glob('*.toml') if is_named_profile(path, agent)
+        )
+    if not profiles:
+        raise ValueError('No Proteus TOML profiles found')
+    original = {path: read_settings(path) for path in profiles}
+    updated = {path: with_session_storage(path, original, home) for path in profiles}
+    apply_settings(home, updated, args.dry_run, action='update')
+
+
+def apply_settings(home, data_by_path, dry_run, action='restore'):
+    prepared = [
+        (path, data) for path, data in data_by_path.items()
+        if not path.exists() or path.read_bytes() != data
+    ]
+    if dry_run:
+        print(f'Would {action} {len(prepared)} settings files')
         return
     backup = home / '.local/state/Proteus-settings-backups' / datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ')
     if prepared:
@@ -248,24 +345,28 @@ def restore_archive(args):
         raise
     if prepared:
         (backup / 'manifest.json').write_text(json.dumps({str(saved): str(path) for path, saved in written if saved}, indent=2) + '\n')
-    print(f'Restored {len(prepared)} settings files')
+    past = 'Restored' if action == 'restore' else 'Updated'
+    print(f'{past} {len(prepared)} settings files')
     if prepared:
         print(f'Previous files backed up at {backup}')
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('operation', choices=('export', 'restore'))
-    parser.add_argument('archive', type=Path)
+    parser.add_argument('operation', choices=('export', 'restore', 'upgrade-storage'))
+    parser.add_argument('archive', type=Path, nargs='?', metavar='ARCHIVE_OR_PROFILE')
     parser.add_argument('--home', type=Path, help='home for a staged or alternate user')
     parser.add_argument('--agent-config', type=Path)
     parser.add_argument('--desktop-config', type=Path)
-    parser.add_argument('--dry-run', action='store_true', help='show restore count without writing')
+    parser.add_argument('--dry-run', action='store_true', help='show changes without writing')
     args = parser.parse_args()
-    if args.dry_run and args.operation != 'restore':
-        parser.error('--dry-run applies to restore')
+    if args.operation != 'upgrade-storage' and args.archive is None:
+        parser.error('export and restore require an archive path')
+    if args.dry_run and args.operation == 'export':
+        parser.error('--dry-run applies to restore and upgrade-storage')
     try:
-        (export_archive if args.operation == 'export' else restore_archive)(args)
+        operations = {'export': export_archive, 'restore': restore_archive, 'upgrade-storage': upgrade_storage}
+        operations[args.operation](args)
     except (OSError, ValueError, KeyError, tarfile.TarError) as error:
         parser.exit(1, f'{error}\n')
 

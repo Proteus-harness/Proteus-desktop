@@ -37,15 +37,16 @@ class ShortcutTests(unittest.TestCase):
             bundled.mkdir(parents=True)
             (bundled / "codex.toml").write_text('mode = "bundled"\n')
             (bundled / "new.toml").write_text('mode = "new"\n')
-            config = base / "profile"
+            config = base / "custom XDG/Proteus-harness"
             existing = config / "configs/fragments"
             existing.mkdir(parents=True)
             (existing / "codex.toml").write_text('mode = "restored"\n')
-            (base / "share/system_proxy.py").write_text("print('client launched')\n")
+            (base / "share/system_proxy.py").write_text("import os\nprint(os.environ['PROTEUS_CONFIG_HOME'])\n")
 
-            env = {**os.environ, "PROTEUS_CONFIG_HOME": str(config)}
+            env = {**os.environ, "XDG_CONFIG_HOME": str(config.parent)}
+            env.pop("PROTEUS_CONFIG_HOME", None)
             result = subprocess.run(["sh", str(launcher)], env=env, check=True, capture_output=True, text=True)
-            self.assertEqual(result.stdout.strip(), "client launched")
+            self.assertEqual(result.stdout.strip(), str(config))
             self.assertEqual((existing / "codex.toml").read_text(), 'mode = "restored"\n')
             self.assertEqual((existing / "new.toml").read_text(), 'mode = "new"\n')
 

@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import tomllib
 import unittest
 from unittest.mock import patch
 
@@ -61,6 +62,9 @@ class SettingsMigrationTests(unittest.TestCase):
         result = self.run_script('restore', home=self.target)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(str(self.target / '.config/Proteus-harness/configs/prompts/a.md'), target_profile.read_text())
+        restored = tomllib.loads(target_profile.read_text())
+        self.assertEqual(restored['modules']['session_storage'], 'jsonl')
+        self.assertEqual(restored['components']['session-storage']['exports']['session_storage'], {'jsonl': {}})
         prefs = json.loads((self.target / '.config/dev.proteus.native/preferences.json').read_text())
         self.assertNotIn('sessions', prefs)
         self.assertNotIn('recent', prefs)
@@ -70,6 +74,24 @@ class SettingsMigrationTests(unittest.TestCase):
         result = self.run_script('restore', home=self.target)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('Restored 0', result.stdout)
+
+    def test_upgrade_storage_preserves_an_existing_included_storage_selection(self):
+        shared = self.agent / 'configs/fragments/storage.toml'
+        shared.parent.mkdir()
+        shared.write_text('[modules]\nsession_storage = "sqlite"\n')
+        modern = self.agent / 'configs/modern.config.toml'
+        modern.write_text('include = ["fragments/storage.toml"]\n[modules]\ncontext = "simple"\n')
+        legacy = 'modules = { context = "simple" }\n'
+        self.profile.write_text(legacy)
+        before = modern.read_bytes()
+        command = [sys.executable, str(SCRIPT), 'upgrade-storage', '--home', str(self.source)]
+        subprocess.run([*command, '--dry-run'], check=True, capture_output=True)
+        self.assertEqual(self.profile.read_text(), legacy)
+        result = subprocess.run(command, check=True, capture_output=True, text=True)
+        self.assertIn('Updated 1', result.stdout)
+        self.assertEqual(tomllib.loads(self.profile.read_text())['modules'],
+                         {'context': 'simple', 'session_storage': 'jsonl'})
+        self.assertEqual(modern.read_bytes(), before)
 
     def test_home_override_isolates_environment_and_explicit_root_takes_precedence(self):
         external = self.root / 'external agent'
