@@ -89,9 +89,11 @@ def probe(archive, extensions):
                         portable / "share/extensions"])
         assert [json.loads(line) for line in wire.splitlines() if line.strip()]
         checks.append("packaged_extensions_wire")
-        config = work / "config/configs/release-smoke.toml"
+        # The fixture stays out of the launcher's profile list. Keep this
+        # overlay at the same depth so its inherited prompt paths resolve.
+        config = work / "config/configs/fixtures/release-smoke.toml"
         config.parent.mkdir(parents=True, exist_ok=True)
-        config.write_text("include = " + json.dumps(str(portable / "share/configs/restricted.config.toml")) + "\n" + '''active_provider = "fake"
+        config.write_text("include = " + json.dumps(str(portable / "share/configs/fixtures/restricted.toml")) + "\n" + '''active_provider = "fake"
 [providers.fake]
 provider = "fake"
 model = "fake-tool-model"
