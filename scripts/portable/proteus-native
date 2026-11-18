@@ -1,9 +1,8 @@
 #!/bin/sh
 # Launcher of the portable native client.
 #
-# Installs the bundled profiles into the agent config folder (named profiles
-# are copied only when missing, their fragments and prompts are refreshed),
-# then starts the client with the bundled agent server and independent modules.
+# Seeds missing profiles, fragments and prompts, then starts the client
+# with the bundled agent server and independent modules.
 set -eu
 
 here=$(dirname "$(readlink -f "$0")")
@@ -23,7 +22,7 @@ for source in "${bundled}"/*; do
     # Same folder when configs is a symlink to the bundled copy.
     if [ ! "${source}" -ef "${target}" ]; then
       mkdir -p "${target}"
-      cp -R "${source}/." "${target}/"
+      cp -R --update=none "${source}/." "${target}/"
     fi
   elif [ ! -e "${target}" ]; then
     cp "${source}" "${target}"

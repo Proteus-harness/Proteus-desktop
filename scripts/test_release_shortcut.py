@@ -27,6 +27,28 @@ class ShortcutTests(unittest.TestCase):
             subprocess.run(["sh", str(installer), "--remove"], check=True, env=env, capture_output=True)
             self.assertFalse(entry.exists())
 
+    def test_launcher_adds_missing_assets_and_preserves_restored_fragments(self):
+        source = Path(__file__).parent / "portable" / "proteus-native"
+        with tempfile.TemporaryDirectory(prefix="proteus restore test ") as temporary:
+            base = Path(temporary)
+            launcher = base / "proteus-native"
+            launcher.write_bytes(source.read_bytes())
+            bundled = base / "share/configs/fragments"
+            bundled.mkdir(parents=True)
+            (bundled / "codex.toml").write_text('mode = "bundled"\n')
+            (bundled / "new.toml").write_text('mode = "new"\n')
+            config = base / "profile"
+            existing = config / "configs/fragments"
+            existing.mkdir(parents=True)
+            (existing / "codex.toml").write_text('mode = "restored"\n')
+            (base / "share/system_proxy.py").write_text("print('client launched')\n")
+
+            env = {**os.environ, "PROTEUS_CONFIG_HOME": str(config)}
+            result = subprocess.run(["sh", str(launcher)], env=env, check=True, capture_output=True, text=True)
+            self.assertEqual(result.stdout.strip(), "client launched")
+            self.assertEqual((existing / "codex.toml").read_text(), 'mode = "restored"\n')
+            self.assertEqual((existing / "new.toml").read_text(), 'mode = "new"\n')
+
 
 if __name__ == "__main__":
     unittest.main()
