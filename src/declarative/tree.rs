@@ -59,7 +59,7 @@ impl Row {
 pub enum Kind {
     #[default]
     Item,
-    /// A section title: a click folds it, the keyboard passes it by.
+    /// A clickable section title, skipped by the keyboard while any item row remains.
     Header,
 }
 

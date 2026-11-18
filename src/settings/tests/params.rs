@@ -5,6 +5,38 @@ use crate::settings::catalog::{editable_field, editable_params};
 use crate::settings::{FieldPath, field_sections, section_scope};
 
 #[test]
+fn form_addresses_keep_literal_separators_distinct_from_structure() {
+    use crate::settings::form_scope;
+    let variants = [
+        form_scope("model", "example", &["panel.theme".into(), "value".into()]),
+        form_scope(
+            "model",
+            "example",
+            &["panel".into(), "theme".into(), "value".into()],
+        ),
+        form_scope("model:example", "panel", &["value".into()]),
+        form_scope("model", "example:panel", &["value".into()]),
+        form_scope(
+            "model",
+            "example",
+            &["panel%2Etheme".into(), "value".into()],
+        ),
+        form_scope("model", "example", &[]),
+        form_scope("model", "example", &["".into()]),
+    ];
+    let unique = variants.iter().collect::<std::collections::HashSet<_>>();
+    assert_eq!(unique.len(), variants.len());
+    let field = |id| {
+        ConfigField::new("field", "Field", "", ConfigValueSchema::text()).section(id, "Section", "")
+    };
+    let nested = form_scope("model", "example", &["panel".into()]);
+    assert_ne!(
+        section_scope(&nested, &field("one.two")),
+        section_scope(&nested, &field("one%2Etwo"))
+    );
+}
+
+#[test]
 fn presentation_sections_preserve_paths_and_first_occurrence_order() {
     let field = |key| ConfigField::new(key, key, "", ConfigValueSchema::Boolean {});
     let fields = vec![

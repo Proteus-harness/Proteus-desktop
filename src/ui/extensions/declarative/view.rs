@@ -600,9 +600,7 @@ impl DeclarativeView {
             } => {
                 if let Some(stepper) = self.steps.get(id) {
                     stepper.update(cx, |stepper, cx| {
-                        if stepper.options != *options || stepper.selected != *selected {
-                            stepper.options = options.clone();
-                            stepper.selected = *selected;
+                        if stepper.sync_options(options, *selected) {
                             cx.notify();
                         }
                     });

@@ -53,8 +53,8 @@ impl Hit {
 }
 
 /// Every word of the query must occur in the title or the other texts of a
-/// hit; titles that start with the query come first, then titles that hold
-/// it, then the rest in screen order.
+/// hit. Exact titles come first, then titles starting with the first term,
+/// then other title-only matches, then the rest, stably in screen order.
 struct Finder {
     terms: Vec<String>,
     hits: Vec<(u8, Hit)>,
@@ -79,10 +79,17 @@ impl Finder {
             return;
         }
         let in_title = self.terms.iter().all(|term| title.contains(term.as_str()));
-        let rank = match (in_title, title.starts_with(self.terms[0].as_str())) {
-            (true, true) => 0,
-            (true, false) => 1,
-            _ => 2,
+        let rank = if !in_title {
+            3
+        } else if title
+            .split_whitespace()
+            .eq(self.terms.iter().map(String::as_str))
+        {
+            0
+        } else if title.starts_with(self.terms[0].as_str()) {
+            1
+        } else {
+            2
         };
         self.hits.push((rank, hit));
     }
@@ -359,7 +366,16 @@ impl SettingsView {
             return;
         };
         let scope = Scope { slot, module, page };
+        let first = finder.hits.len();
         scope.fields(finder, &schema.fields, None, place, open);
+        if finder.hits.len() > first && self.is_json(slot, module) {
+            let anchor = spot::params_json(slot, module);
+            for (_, hit) in &mut finder.hits[first..] {
+                hit.place.push_str(" · JSON");
+                open.clone_into(&mut hit.target.open);
+                hit.target.spot = Some(anchor.clone());
+            }
+        }
     }
 
     fn search_addons(&self, addons: &AppAddonsSnapshot, finder: &mut Finder) {
@@ -437,10 +453,11 @@ impl Scope<'_> {
         place: &str,
         open: &[String],
     ) {
-        let scope = match parent {
-            None => format!("{}:{}", self.slot, self.module),
-            Some(path) => format!("{}:{}:{}", self.slot, self.module, path.dotted()),
-        };
+        let scope = crate::settings::form_scope(
+            self.slot,
+            self.module,
+            parent.map_or(&[], |path| path.keys.as_slice()),
+        );
         for field in fields.iter().filter(|field| editable_field(field)) {
             let path = match parent {
                 None => FieldPath::new(self.slot, self.module, &field.key),
@@ -474,10 +491,8 @@ impl Scope<'_> {
                 && !nested.is_empty()
             {
                 way.push(format!(
-                    "group:{}:{}:{}",
-                    self.slot,
-                    self.module,
-                    path.dotted()
+                    "group:{}",
+                    crate::settings::form_scope(self.slot, self.module, &path.keys)
                 ));
                 let place = format!("{place} · {}", field.title);
                 self.fields(finder, nested, Some(&path), &place, &way);
@@ -493,6 +508,19 @@ mod tests {
         ConfigBuilderPlugin, ConfigBuilderTool, ConfigBuilderToolPack,
     };
     use proteus_contracts::contracts::ProcessToolOwner;
+
+    #[::core::prelude::v1::test]
+    fn exact_title_remains_visible_among_many_prefix_matches() {
+        let mut finder = Finder::new("  ШРИФТ   ЧАТА  ");
+        for i in 0..LIMIT {
+            finder.add(Hit::new(format!("Шрифт чата {i}"), "", PageId::Chat), &[]);
+        }
+        finder.add(Hit::new("Шрифт чата", "", PageId::Chat), &[]);
+        let hits = finder.finish();
+        assert_eq!(hits.len(), LIMIT);
+        assert_eq!(hits[0].title, "Шрифт чата");
+        assert_eq!(hits[1].title, "Шрифт чата 0");
+    }
 
     #[::core::prelude::v1::test]
     fn section_search_opens_the_correct_advanced_group_without_changing_field_path() {

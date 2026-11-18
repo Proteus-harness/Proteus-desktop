@@ -264,11 +264,22 @@ impl Row<'_> {
     }
 }
 
+/// Full preview before the row clips it, or the title shown for an empty session.
+pub(crate) fn preview_title(summary: &ConversationSummary) -> &str {
+    summary
+        .preview
+        .as_deref()
+        .map(str::trim)
+        .filter(|preview| !preview.is_empty())
+        .unwrap_or("Новая сессия")
+}
+
 fn title_holds(summary: &ConversationSummary, mark: &SessionMark, search: &str) -> bool {
     mark.title
         .as_deref()
-        .or(summary.preview.as_deref())
-        .is_some_and(|title| title.to_lowercase().contains(search))
+        .unwrap_or_else(|| preview_title(summary))
+        .to_lowercase()
+        .contains(search)
 }
 
 /// Each node has at most one parent: a three-colour walk breaks one edge
@@ -458,6 +469,18 @@ mod tests {
         assert_eq!(shown(&listing), ["/s/a", "/s/c", "/s/d"].map(key));
         assert_eq!(listing.archived_count, 1);
         assert!(shown(&marks.arrange(&sessions, &view(false, "нет такого"))).is_empty());
+    }
+
+    #[test]
+    fn search_finds_the_displayed_title_of_empty_sessions() {
+        let sessions = [
+            changed("/s/a", "/w", None, None),
+            changed("/s/b", "/w", None, Some("")),
+            changed("/s/c", "/w", None, Some(" \n\t ")),
+            changed("/s/d", "/w", None, Some("Обзор")),
+        ];
+        let listing = SessionMarks::default().arrange(&sessions, &view(false, " НОВАЯ СЕССИЯ "));
+        assert_eq!(shown(&listing), ["/s/a", "/s/b", "/s/c"].map(key));
     }
 
     fn linked(id: u128, parent: Option<u128>, title: &str) -> ConversationSummary {

@@ -174,6 +174,13 @@ impl Positioner {
         self
     }
 
+    /// Maximum outer popup height inside this window's usable vertical edges.
+    /// A scrollable child can use this during layout; positioning only moves it.
+    pub fn available_height(window: &Window, margin: Pixels) -> Pixels {
+        let frame = window_frame_insets(window);
+        (window.viewport_size().height - frame.top - frame.bottom - margin * 2.).max(px(0.))
+    }
+
     /// Sets the minimum distance kept between the popup and the viewport edge.
     pub fn margin(mut self, margin: Pixels) -> Self {
         self.margin = margin;
@@ -201,6 +208,13 @@ fn frame_insets(decorations: Decorations, client_inset: Pixels) -> Edges<Pixels>
             left: if tiling.left { px(0.) } else { client_inset },
         },
     }
+}
+
+fn window_frame_insets(window: &Window) -> Edges<Pixels> {
+    frame_insets(
+        window.window_decorations(),
+        window.client_inset().unwrap_or(px(0.)),
+    )
 }
 
 /// Resolves the bounds of a popup of `popup_size`.
@@ -389,10 +403,7 @@ impl Element for Positioner {
         }
 
         let popup_size = (child_max - child_min).into();
-        let frame = frame_insets(
-            window.window_decorations(),
-            window.client_inset().unwrap_or(px(0.)),
-        );
+        let frame = window_frame_insets(window);
         let mut strategy = self.strategy;
         if let (Strategy::Corner { position, .. }, Some(tracked)) =
             (&mut strategy, &self.corner_position)

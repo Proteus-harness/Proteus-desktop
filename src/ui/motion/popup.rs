@@ -12,6 +12,13 @@ use gpui_kit::*;
 
 use super::{PopupOrigin, SLOW, ease_enter};
 
+const POPUP_MARGIN: Pixels = px(8.);
+
+/// Space available inside the two 1 px frame edges of an unattached popup.
+pub(in crate::ui) fn popup_inner_height(window: &Window) -> Pixels {
+    (Positioner::available_height(window, POPUP_MARGIN) - px(2.)).max(px(0.))
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Effect {
     Reveal,
@@ -350,7 +357,7 @@ pub(in crate::ui) fn popup(
             .margin(if frame.attachment.is_some() {
                 px(0.)
             } else {
-                px(8.)
+                POPUP_MARGIN
             })
             .when(frame.open, |positioner| positioner.occlude())
             .child(surface),

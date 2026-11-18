@@ -272,9 +272,27 @@ fn task_checked(node: &Rc<Node>) -> Option<bool> {
     None
 }
 
+// GFM writes the same align attribute on every header and body cell in a
+// column. Our table has column alignment, not independent HTML cell styles.
+fn gfm_cell_align(attrs: &[html5ever::Attribute]) -> Option<node::ColumnumnAlign> {
+    use node::ColumnumnAlign;
+    match attrs {
+        [] => Some(ColumnumnAlign::None),
+        [attr] if attr.name.local.as_ref() == "align" => match attr.value.as_ref() {
+            "left" => Some(ColumnumnAlign::Left),
+            "center" => Some(ColumnumnAlign::Center),
+            "right" => Some(ColumnumnAlign::Right),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 fn parse_table_row(table: &mut Table, node: &Rc<Node>, cx: &mut NodeContext) {
     let mut row = TableRow::default();
     let mut count = 0;
+    let header = table.children.is_empty();
+    let mut gfm = header || !table.column_aligns.is_empty();
     for child in node.children.borrow().iter() {
         match child.data {
             NodeData::Element {
@@ -282,6 +300,23 @@ fn parse_table_row(table: &mut Table, node: &Rc<Node>, cx: &mut NodeContext) {
                 ref attrs,
                 ..
             } if name.local == local_name!("td") || name.local == local_name!("th") => {
+                if gfm {
+                    match gfm_cell_align(&attrs.borrow()) {
+                        Some(align) if header && name.local == local_name!("th") => {
+                            if align != node::ColumnumnAlign::None {
+                                table
+                                    .column_aligns
+                                    .resize(count, node::ColumnumnAlign::None);
+                                table.column_aligns.push(align);
+                            }
+                        }
+                        Some(align)
+                            if !header
+                                && name.local == local_name!("td")
+                                && table.column_align(count) == align => {}
+                        _ => gfm = false,
+                    }
+                }
                 count += 1;
                 parse_table_cell(&mut row, child, attrs, cx);
             }
@@ -290,6 +325,13 @@ fn parse_table_row(table: &mut Table, node: &Rc<Node>, cx: &mut NodeContext) {
     }
 
     if count > 0 {
+        if !gfm || !header && count != table.children[0].children.len() {
+            table.column_aligns.clear();
+        } else if header && !table.column_aligns.is_empty() {
+            table
+                .column_aligns
+                .resize(count, node::ColumnumnAlign::None);
+        }
         table.children.push(row);
     }
 }
@@ -988,6 +1030,27 @@ mod tests {
             panic!("expected task text");
         };
         assert_eq!(text.text().trim(), "Придумать идею");
+    }
+
+    #[test]
+    fn aligned_gfm_cells_recover_column_alignment_without_guessing_from_mixed_html() {
+        use crate::text::node::ColumnumnAlign::{Center, None, Right};
+
+        let table = |html| {
+            let parsed = super::parse(html, &mut NodeContext::default()).unwrap();
+            let BlockNode::Table(table) = &parsed.blocks[0] else {
+                panic!("expected table");
+            };
+            table.clone()
+        };
+        let html = r#"<table><thead><tr><th>Name</th><th align="center">Ready</th><th align="right">Price</th></tr></thead><tbody><tr><td>A</td><td align="center">Yes</td><td align="right">12</td></tr></tbody></table>"#;
+        let aligned = table(html);
+        assert_eq!(aligned.column_aligns(), &[None, Center, Right]);
+        assert!(aligned.to_markdown().contains("| :-- | :-: | --: |"));
+        let different = html.replace(r#"<td align="right">"#, "<td>");
+        assert!(table(&different).column_aligns().is_empty());
+        let spanned = html.replace("<td>A", r#"<td colspan="2">A"#);
+        assert!(table(&spanned).column_aligns().is_empty());
     }
 
     #[test]

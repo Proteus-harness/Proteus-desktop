@@ -222,6 +222,12 @@ impl FontControl {
                     });
                 },
             )
+            .height_limit(|window| {
+                // The outer font popup has 6 scaled px of padding on each side.
+                (motion::popup_inner_height(window)
+                    - prefs::scaled(12.).to_pixels(window.rem_size()))
+                .max(px(0.))
+            })
             .search_label("Поиск шрифтов")
             .render_label(|option, _, cx| {
                 div()

@@ -3297,15 +3297,19 @@ impl<M: InputModeKind> InputBaseState<M> {
         if !self.selections.is_single() {
             self.selections.merge_overlapping();
         }
-        let lines: Vec<String> = new_text.split('\n').map(|s| s.to_string()).collect();
         let count = self.selections.len();
-        if count > 1 && lines.len() == count {
+        // A CR in a CRLF separator is not part of the text for that cursor.
+        // Keep the empty final field that split('\n') gave a trailing newline.
+        let lines = new_text
+            .lines()
+            .chain(new_text.ends_with('\n').then_some(""));
+        if count > 1 && lines.clone().take(count.saturating_add(1)).count() == count {
             let mut selections: Vec<CursorSelection> = self.selections.iter().copied().collect();
             selections.sort_by_key(|sel| sel.start);
             let edits: Vec<(Range<usize>, String)> = selections
                 .iter()
                 .zip(lines)
-                .map(|(sel, line)| (sel.start..sel.end, line))
+                .map(|(sel, line)| (sel.start..sel.end, line.to_owned()))
                 .collect();
             self.replace_text_in_ranges(&edits, window, cx);
         } else {
@@ -11927,6 +11931,32 @@ mod tests {
         });
         // One clipboard line per cursor.
         assert_cursors(&mut cx, &input, "x|1\ny|2\nz|3");
+    }
+
+    #[gpui::test]
+    fn test_textarea_paste_crlf_is_only_split_when_distributing(cx: &mut TestAppContext) {
+        let view = multi_line(cx);
+        let mut cx = VisualTestContext::from_window(view.window_handle.into(), cx);
+        let input = view.input;
+
+        for (cursors, clipboard, expected) in [
+            ("|1\n|2", "A\r\nБ", "A1\nБ2\n"),
+            ("|1\n|2\n|3", "A\nБ\r\nC", "A1\nБ2\nC3\n"),
+            ("|1\n|2", "A\r\n", "A1\n2\n"),
+            ("|1\n|2", "A\r\nB\r", "A1\nB\r2\n"),
+            ("|1\n|2", "A\r\nB\nC", "A\r\nB\nC1\nA\r\nB\nC2\n"),
+            ("|1\n2", "A\r\nB", "A\r\nB1\n2\n"),
+        ] {
+            setup_cursors(&mut cx, &input, cursors);
+            cx.update(|window, cx| {
+                input.update(cx, |state, cx| {
+                    state.insert_clipboard(ClipboardItem::new_string(clipboard.into()), window, cx);
+                    assert_eq!(state.text.to_string(), expected);
+                    state.undo(&Undo, window, cx);
+                });
+            });
+            assert_cursors(&mut cx, &input, cursors);
+        }
     }
 
     #[gpui::test]

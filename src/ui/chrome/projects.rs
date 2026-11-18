@@ -46,20 +46,21 @@ impl Projects {
 
     /// Recent folders other than the open one, then the folder dialog.
     pub(in crate::ui) fn items(&self, mut menu: PopupMenu, cx: &App) -> PopupMenu {
-        let recent: Vec<PathBuf> = prefs::current(cx)
+        let recent: Vec<&Path> = prefs::current(cx)
             .recent
             .iter()
             .filter(|path| Some(*path) != self.current.as_deref())
             .take(RECENT_SHOWN)
-            .map(Path::to_path_buf)
             .collect();
         if !recent.is_empty() {
             menu = menu.label("Недавние проекты");
         }
-        for path in recent {
+        let labels = recent_labels(&recent);
+        for (path, label) in recent.into_iter().zip(labels) {
+            let path = path.to_path_buf();
             let open = self.open.clone();
             menu = menu.item(
-                PopupMenuItem::new(folder_name(&path))
+                PopupMenuItem::new(label)
                     .icon(Icon::new(Lucide::Folder))
                     .disabled(!path.is_dir())
                     .on_click(move |_, window, cx| open(path.clone(), window, cx)),
@@ -78,4 +79,82 @@ pub(in crate::ui) fn folder_name(path: &Path) -> String {
     path.file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.display().to_string())
+}
+
+/// Use the shortest parent suffix that separates each namesake from its peers.
+/// Only compare the rows in this menu; callbacks still receive their original paths.
+fn recent_labels(paths: &[&Path]) -> Vec<String> {
+    let names: Vec<_> = paths.iter().map(|path| folder_name(path)).collect();
+    let mut labels = names.clone();
+    for (i, &path) in paths.iter().enumerate() {
+        let mut peers = paths
+            .iter()
+            .enumerate()
+            .filter_map(|(j, &other)| (other != path && names[i] == names[j]).then_some(other))
+            .peekable();
+        if peers.peek().is_none() {
+            continue;
+        }
+        let suffix = path
+            .ancestors()
+            .skip(2)
+            .filter_map(|base| path.strip_prefix(base).ok())
+            .find(|suffix| !peers.clone().any(|other| other.ends_with(suffix)))
+            .unwrap_or(path);
+        labels[i] = suffix
+            .to_str()
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("{suffix:?}"));
+    }
+    // A quoted non-UTF-8 spelling can also be someone else's literal filename.
+    // Keep the literal name; distinguish only a changed caption when necessary.
+    for i in 0..labels.len() {
+        if labels[i] != names[i]
+            && labels
+                .iter()
+                .enumerate()
+                .any(|(j, label)| paths[i] != paths[j] && label == &labels[i])
+        {
+            let mut label = format!("{}. {}", i + 1, labels[i]);
+            while labels.contains(&label) {
+                label.insert(0, '#');
+            }
+            labels[i] = label;
+        }
+    }
+    labels
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[::core::prelude::v1::test]
+    fn recent_names_keep_only_the_distinguishing_directories() {
+        let paths = [
+            Path::new("/work/team/a/shared/app"),
+            Path::new("/work/team/b/shared/app"),
+            Path::new("/other/app"),
+            Path::new("/work/notes"),
+        ];
+        assert_eq!(
+            recent_labels(&paths),
+            ["a/shared/app", "b/shared/app", "other/app", "notes"]
+        );
+    }
+
+    #[cfg(unix)]
+    #[::core::prelude::v1::test]
+    fn literal_name_stays_distinct_from_escaped_native_name() {
+        use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
+        let paths = [
+            Path::new(OsStr::from_bytes(b"app\xFF")),
+            Path::new(OsStr::from_bytes(b"app\xFE")),
+            Path::new(r#""app\xFF""#),
+        ];
+        let labels = recent_labels(&paths);
+        assert_ne!(labels[0], labels[1]);
+        assert_ne!(labels[0], labels[2]);
+        assert_eq!(labels[2], r#""app\xFF""#);
+    }
 }

@@ -1,3 +1,4 @@
+use crate::text_boundary::is_word_char;
 use std::ops::Range;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -10,22 +11,6 @@ pub(crate) enum CharType {
     Newline,
     /// . , ; : ( ) [ ] { } ... or CJK characters: `汉`, `🎉` etc.
     Other,
-}
-
-/// Implementation based on <https://github.com/zed-industries/zed/blob/main/crates/gpui/src/text_system/line_wrapper.rs>
-fn is_word_char(c: char) -> bool {
-    matches!(c, '_')
-        // ASCII alphanumeric characters, for English, numbers: `Hello123`, etc.
-        || c.is_ascii_alphanumeric()
-        // Latin script in Unicode for French, German, Spanish, etc.
-        || matches!(c, '\u{00C0}'..='\u{00FF}')
-        || matches!(c, '\u{0100}'..='\u{017F}')
-        || matches!(c, '\u{0180}'..='\u{024F}')
-        // Cyrillic for Russian, Ukrainian, etc.
-        || matches!(c, '\u{0400}'..='\u{04FF}')
-        // Vietnamese
-        || matches!(c, '\u{1E00}'..='\u{1EFF}')
-        || matches!(c, '\u{0300}'..='\u{036F}')
 }
 
 impl From<char> for CharType {
@@ -112,6 +97,25 @@ fn clip_offset(text: &str, offset: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn math_operators_separate_words_in_selectable_and_inline_text() {
+        for operator in ["×", "÷"] {
+            let text = format!("déjà{operator}мир");
+            for (offset, expected) in [
+                (0, "déjà"),
+                ("déjà".len(), operator),
+                ("déjà".len() + operator.len(), "мир"),
+            ] {
+                for range in [
+                    crate::text_boundary::word_range_at(&text, offset),
+                    word_range_at(&text, offset),
+                ] {
+                    assert_eq!(range.map(|range| &text[range]), Some(expected));
+                }
+            }
+        }
+    }
 
     #[test]
     fn test_char_type_from_char() {

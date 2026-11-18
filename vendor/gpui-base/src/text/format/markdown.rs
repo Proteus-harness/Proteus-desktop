@@ -652,6 +652,27 @@ fn decoded_entity(source: &str) -> Option<(String, usize)> {
     Some((decoded, semicolon + 1))
 }
 
+/// The parser already supplies the literal inline-code text. When the raw
+/// body matches it exactly (possibly after one padding space on each side),
+/// map by position: a visible backtick must never match the opening fence.
+fn inline_code_segments(raw: &str, code: &str, source_start: usize) -> Vec<SourceSegment> {
+    let ticks = raw.bytes().take_while(|byte| *byte == b'`').count();
+    let body = raw.get(ticks..raw.len().saturating_sub(ticks));
+    let pad = match body {
+        Some(body) if body == code => 0,
+        Some(body) if body.strip_prefix(' ').and_then(|s| s.strip_suffix(' ')) == Some(code) => 1,
+        // A multiline container can contribute source-only prefixes. Keep
+        // the existing alignment when the body is not literally contiguous.
+        _ => return aligned_source_segments(raw, code, source_start, false, false),
+    };
+    let start = source_start + ticks + pad;
+    vec![SourceSegment {
+        rendered: 0..code.len(),
+        source: start..start + code.len(),
+        linear: true,
+    }]
+}
+
 fn code_source_segments(
     source: &str,
     code: &str,
@@ -819,13 +840,13 @@ fn parse_paragraph(
         }
         Node::InlineCode(val) => {
             text = val.value.clone();
-            let span = node.position().map(|position| Span {
-                start: cx.offset + position.start.offset,
-                end: cx.offset + position.end.offset,
-            });
+            let segments = span
+                .zip(parse_cx.node_source(node))
+                .map(|(span, raw)| inline_code_segments(raw, &text, span.start))
+                .unwrap_or_default();
             paragraph.push(
                 InlineNode::new(text.clone())
-                    .source_segments(code_source_segments(source, &text, span, cx.offset, false))
+                    .source_segments(segments)
                     .marks(vec![(0..text.len(), TextMark::default().code())]),
             );
         }
@@ -1594,6 +1615,20 @@ mod tests {
 
         let literal_entity = "`&amp;`";
         assert_eq!(selected_rendered_range(literal_entity, 0..5), Some(1..6));
+    }
+
+    #[test]
+    fn selected_inline_code_ignores_delimiters_and_one_padding_space() {
+        let ticks = "A `` `x` `` B";
+        assert_eq!(selected_rendered_range(ticks, 2..3), Some(5..6));
+        assert_eq!(selected_rendered_range(ticks, 2..5), Some(5..8));
+
+        let spaces = "A ``   x   `` B";
+        assert_eq!(selected_rendered_range(spaces, 2..4), Some(5..7));
+        assert_eq!(selected_rendered_range(spaces, 6..7), Some(9..10));
+
+        // If the body is all spaces, CommonMark removes no padding.
+        assert_eq!(selected_rendered_range("A `   ` B", 2..5), Some(3..6));
     }
 
     #[test]

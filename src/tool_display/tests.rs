@@ -205,3 +205,27 @@ fn plans_summarize_progress() {
     );
     assert_eq!(plan_steps(&args)[2].status, StepStatus::Pending);
 }
+
+#[test]
+fn expanded_known_path_list_is_bounded_and_keeps_filename_boundaries() {
+    let args = json!({"paths": ["src/lib.rs", "part\n2.rs", "α".repeat(161)]});
+    let header = headline("read_many_files", &args);
+    assert_eq!(header.subject.as_deref(), Some("src/lib.rs +2"));
+    assert_eq!(
+        path_list_preview(&header, &args),
+        Some(format!(
+            "\"src/lib.rs\"\n\"part\\n2.rs\"\n\"{}\"…",
+            "α".repeat(160)
+        ))
+    );
+    let escaped = json!({"paths": vec!["\u{e0001}".repeat(160); 20]});
+    let compact = path_list_preview(&headline("read_many_files", &escaped), &escaped).unwrap();
+    assert!(compact.len() <= 2000);
+    assert_eq!(compact.lines().count(), 20);
+    assert!(compact.lines().all(|line| line.ends_with("\"…")));
+    assert!(path_list_preview(&headline("custom", &args), &args).is_none());
+    for paths in [json!(["one"]), json!(["a", 2]), json!(vec!["a"; 21])] {
+        let args = json!({"paths": paths});
+        assert!(path_list_preview(&headline("read_many_files", &args), &args).is_none());
+    }
+}

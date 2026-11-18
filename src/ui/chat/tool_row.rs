@@ -423,6 +423,10 @@ fn argument_details(fold: &Fold, tool: &AppTranscriptTool, cx: &App) -> Vec<AnyE
                 cx,
             )
             .into_any_element()
+        })
+        .or_else(|| {
+            tool_display::path_list_preview(&headline, args)
+                .map(|text| code_block(row_id("tool-paths", key), text, cx).into_any_element())
         });
     let mono = theme.mono_font_family.clone();
     let rows = tool_display::other_args(args, subject_key)

@@ -4,6 +4,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use gpui_kit::*;
 
@@ -21,13 +22,15 @@ const ZONE_ALONG: Pixels = px(3.);
 const ZONE_ACROSS: Pixels = px(2.);
 
 /// Where the dragged icon would land.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Default, PartialEq)]
 enum Target {
     /// Away from every row the icon holds its own place.
+    #[default]
     Home,
     At(BadgePlace, usize),
 }
 
+#[derive(Default)]
 struct Arrange {
     dragging: Option<&'static str>,
     /// Bumped whenever a drag starts or ends, so the rows are drawn afresh
@@ -38,13 +41,15 @@ struct Arrange {
     bounds: HashMap<&'static str, Bounds<Pixels>>,
 }
 
-thread_local! {
-    static STATE: RefCell<Arrange> = RefCell::new(Arrange {
-        dragging: None,
-        generation: 0,
-        target: Target::Home,
-        bounds: HashMap::new(),
-    });
+/// Window-local strip state. Callbacks of that window share the same handle;
+/// another workspace can paint the same badge IDs at unrelated coordinates.
+#[derive(Clone, Default)]
+pub(in crate::ui) struct BadgeArrangement(Rc<RefCell<Arrange>>);
+
+impl BadgeArrangement {
+    fn update<R>(&self, update: impl FnOnce(&mut Arrange) -> R) -> R {
+        update(&mut self.0.borrow_mut())
+    }
 }
 
 /// How one row is drawn this frame.
@@ -60,7 +65,12 @@ pub(super) struct Frame {
     pub gap_length: Pixels,
 }
 
-pub(super) fn frame(place: BadgePlace, ids: &[&'static str], cx: &App) -> Frame {
+pub(super) fn frame(
+    arrangement: &BadgeArrangement,
+    place: BadgePlace,
+    ids: &[&'static str],
+    cx: &App,
+) -> Frame {
     let dragging = drag::current(cx)
         .and_then(|key| key.strip_prefix("badge:"))
         .and_then(|id| {
@@ -68,7 +78,7 @@ pub(super) fn frame(place: BadgePlace, ids: &[&'static str], cx: &App) -> Frame 
                 .into_iter()
                 .find(|known| *known == id)
         });
-    STATE.with_borrow_mut(|state| {
+    arrangement.update(|state| {
         if state.dragging != dragging {
             state.dragging = dragging;
             state.generation += 1;
@@ -124,16 +134,34 @@ pub(super) fn zone(place: BadgePlace) -> (Pixels, Pixels) {
     }
 }
 
-pub(super) fn record(id: &'static str, bounds: Bounds<Pixels>) {
-    STATE.with_borrow_mut(|state| {
-        state.bounds.insert(id, bounds);
-    });
+pub(super) fn record(arrangement: &BadgeArrangement, id: &'static str, bounds: Bounds<Pixels>) {
+    arrangement.0.borrow_mut().bounds.insert(id, bounds);
+}
+
+impl Arrange {
+    fn insertion_index(
+        &self,
+        place: BadgePlace,
+        others: &[&'static str],
+        position: Point<Pixels>,
+    ) -> usize {
+        let along = |point: Point<Pixels>| if place.is_rail() { point.y } else { point.x };
+        others
+            .iter()
+            .filter(|id| {
+                self.bounds
+                    .get(*id)
+                    .is_some_and(|bounds| along(bounds.center()) < along(position))
+            })
+            .count()
+    }
 }
 
 /// Follows the pointer over a row: within reach of it the icon goes in front
 /// of the first other icon whose middle lies past the pointer; leaving the
 /// row sends it back to its place. A row the icon does not fit ignores it.
 pub(super) fn hover(
+    arrangement: &BadgeArrangement,
     place: BadgePlace,
     others: &[&'static str],
     row: Bounds<Pixels>,
@@ -147,22 +175,10 @@ pub(super) fn hover(
         bottom: y,
         left: x,
     });
-    let along = |point: Point<Pixels>| {
-        if place.is_rail() { point.y } else { point.x }
-    };
-    STATE.with_borrow_mut(|state| {
+    arrangement.update(|state| {
         let welcome = state.dragging.is_some_and(|id| fits(place, id));
         let next = if welcome && reach.contains(&position) {
-            let index = others
-                .iter()
-                .filter(|id| {
-                    state
-                        .bounds
-                        .get(*id)
-                        .is_some_and(|bounds| along(bounds.center()) < along(position))
-                })
-                .count();
-            Target::At(place, index)
+            Target::At(place, state.insertion_index(place, others, position))
         } else {
             match state.target {
                 Target::At(at, _) if at == place => Target::Home,
@@ -177,9 +193,44 @@ pub(super) fn hover(
 }
 
 /// Index among the other icons of `place` where a drop lands.
-pub(super) fn drop_index(place: BadgePlace) -> Option<usize> {
-    STATE.with_borrow(|state| match state.target {
+pub(super) fn drop_index(arrangement: &BadgeArrangement, place: BadgePlace) -> Option<usize> {
+    match arrangement.0.borrow().target {
         Target::At(at, index) if at == place => Some(index),
         _ => None,
-    })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[::core::prelude::v1::test]
+    fn painting_the_same_badges_in_a_second_workspace_keeps_the_first_drop_position() {
+        let a = BadgeArrangement::default();
+        let b = BadgeArrangement::default();
+        let a_strip = a.clone();
+        for (owner, left) in [(&a_strip, 20.), (&b, 200.)] {
+            record(
+                owner,
+                "b",
+                Bounds::new(point(px(left), px(0.)), size(px(20.), px(20.))),
+            );
+            record(
+                owner,
+                "c",
+                Bounds::new(point(px(left + 40.), px(0.)), size(px(20.), px(20.))),
+            );
+        }
+        let position = point(px(50.), px(10.));
+        assert_eq!(
+            a.0.borrow()
+                .insertion_index(BadgePlace::HeaderStart, &["b", "c"], position),
+            1
+        );
+        assert_eq!(
+            b.0.borrow()
+                .insertion_index(BadgePlace::HeaderStart, &["b", "c"], position),
+            0
+        );
+    }
 }

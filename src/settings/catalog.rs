@@ -460,11 +460,54 @@ pub fn tool_pack<'a>(
     })
 }
 
-pub fn tool_matches(tool: &ConfigBuilderTool, query: &str) -> bool {
-    let query = query.trim().to_lowercase();
-    query.is_empty()
-        || tool.name.to_lowercase().contains(&query)
-        || tool.description.to_lowercase().contains(&query)
+/// The Tools filter, like Settings search, requires every query word.
+/// Keep the normalized query for all rows in this render.
+pub struct ToolQuery(String);
+
+impl ToolQuery {
+    pub fn new(query: &str) -> Self {
+        Self(query.trim().to_lowercase())
+    }
+
+    pub fn matches_tool(&self, tool: &ConfigBuilderTool) -> bool {
+        self.matches(&tool.name, &tool.description)
+    }
+
+    /// A row without a registered tool has only a name.
+    pub fn matches_name(&self, name: &str) -> bool {
+        self.matches(name, "")
+    }
+
+    fn matches(&self, name: &str, description: &str) -> bool {
+        if self.0.is_empty() {
+            return true;
+        }
+        let name = name.to_lowercase();
+        let mut lower_description = None;
+        self.0.split_whitespace().all(|word| {
+            name.contains(word)
+                || lower_description
+                    .get_or_insert_with(|| description.to_lowercase())
+                    .contains(word)
+        })
+    }
+}
+
+#[cfg(test)]
+mod tool_search_tests {
+    use super::ToolQuery;
+
+    #[test]
+    fn matches_all_visible_words_without_searching_unavailable_metadata() {
+        let description = "Show the current git branch and working tree status in short format.";
+        let matches = |text| ToolQuery::new(text).matches("git_status", description);
+        assert!(matches("git status"));
+        assert!(matches("Status BRANCH"));
+        assert!(matches(" git_status "));
+        assert!(ToolQuery::new("status  git").matches_name("git_status"));
+        assert!(!ToolQuery::new("branch").matches_name("git_status"));
+        assert!(!matches("changed files"));
+    }
 }
 
 /// Tool names enabled in the draft that the snapshot does not know.

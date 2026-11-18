@@ -21,7 +21,10 @@ mod tests;
 pub(super) fn is_tag_field(field: &ConfigField) -> bool {
     match &field.value {
         ConfigValueSchema::Array { items } => match items.as_ref() {
-            ConfigValueSchema::String { secret: false, .. } => true,
+            ConfigValueSchema::String {
+                multiline: false,
+                secret: false,
+            } => true,
             ConfigValueSchema::Enum { options } => {
                 options.iter().all(|option| option.value.is_string())
             }
@@ -166,7 +169,8 @@ fn added_value(field: &ConfigField, text: &str) -> Option<Value> {
     {
         if let Some(value) = options
             .iter()
-            .find(|option| option.value.as_str() == Some(text) || option.title == text)
+            .find(|option| option.value.as_str() == Some(text))
+            .or_else(|| options.iter().find(|option| option.title == text))
             .map(|option| option.value.clone())
         {
             return Some(value);

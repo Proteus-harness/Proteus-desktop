@@ -1,5 +1,6 @@
 //! Generic interactive graph: local pan, zoom and node dragging.
 
+use super::fields::WidgetAction;
 use crate::declarative::graph::{Edge, Node};
 use crate::ui::kit::ButtonLabel as _;
 use crate::ui::{fade::faded, kit, kit::Pressable as _, prefs};
@@ -25,15 +26,11 @@ pub(super) struct Graph {
     drag: Option<Drag>,
     area: Rc<Cell<Option<Bounds<Pixels>>>>,
     fit: bool,
-    selected: Rc<dyn Fn(String, &mut App)>,
+    pub(super) action: WidgetAction,
 }
 
 impl Graph {
-    pub fn new(
-        nodes: Vec<Node>,
-        edges: Vec<Edge>,
-        selected: impl Fn(String, &mut App) + 'static,
-    ) -> Self {
+    pub fn new(nodes: Vec<Node>, edges: Vec<Edge>, action: WidgetAction) -> Self {
         Self {
             nodes,
             edges,
@@ -43,7 +40,7 @@ impl Graph {
             drag: None,
             area: Rc::default(),
             fit: true,
-            selected: Rc::new(selected),
+            action,
         }
     }
     pub fn set_data(&mut self, nodes: Vec<Node>, edges: Vec<Edge>, cx: &mut Context<Self>) {
@@ -147,6 +144,7 @@ impl Render for Graph {
                     *positions.get(&edge.to)?,
                     color,
                     linked,
+                    edge.from == edge.to,
                 ))
             })
             .collect();
@@ -154,8 +152,16 @@ impl Render for Graph {
         let edges = canvas(
             |_, _, _| {},
             move |bounds, _, window, _| {
-                for (from, to, color, _) in &lines {
-                    paint_edge(window, bounds.origin + offset, zoom, *from, *to, *color);
+                for (from, to, color, _, self_loop) in &lines {
+                    paint_edge(
+                        window,
+                        bounds.origin + offset,
+                        zoom,
+                        *from,
+                        *to,
+                        *self_loop,
+                        *color,
+                    );
                 }
             },
         )
@@ -211,7 +217,7 @@ impl Render for Graph {
                         }),
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        (this.selected)(select.clone(), cx);
+                        this.action.emit(select.clone().into(), cx);
                     }))
                     .into_any_element()
             })
@@ -317,10 +323,38 @@ fn paint_edge(
     zoom: f32,
     from: Point<f32>,
     to: Point<f32>,
+    self_loop: bool,
     color: Hsla,
 ) {
     let at = |x: f32, y: f32| point(origin.x + px(x * zoom), origin.y + px(y * zoom));
-    let (start, end, control_a, control_b) = if (to.x - from.x).abs() < 1. {
+    let [start, control_a, control_b, end] = edge_curve(from, to, self_loop);
+    let mut path = PathBuilder::stroke(px(1.5));
+    path.move_to(at(start.0, start.1));
+    path.cubic_bezier_to(
+        at(end.0, end.1),
+        at(control_a.0, control_a.1),
+        at(control_b.0, control_b.1),
+    );
+    if let Ok(path) = path.build() {
+        window.paint_path(path, color);
+    }
+}
+
+/// Cubic points in graph coordinates, ordered from start to end.
+fn edge_curve(from: Point<f32>, to: Point<f32>, self_loop: bool) -> [(f32, f32); 4] {
+    if self_loop {
+        // Keep the original bottom/top anchors, but run the curve around the
+        // card. A neighbor flush with its right edge won't hide both ends.
+        let middle = from.x + NODE_WIDTH / 2.;
+        let outer = from.x + NODE_WIDTH + 64.;
+        let bottom = from.y + NODE_HEIGHT;
+        [
+            (middle, bottom),
+            (outer, bottom + 64.),
+            (outer, from.y - 64.),
+            (middle, from.y),
+        ]
+    } else if (to.x - from.x).abs() < 1. {
         let (top, bottom) = if from.y < to.y {
             (from, to)
         } else {
@@ -329,12 +363,12 @@ fn paint_edge(
         let start = (top.x + NODE_WIDTH / 2., top.y + NODE_HEIGHT);
         let end = (bottom.x + NODE_WIDTH / 2., bottom.y);
         let bend = ((end.1 - start.1) / 2.).max(20.);
-        (
+        [
             start,
-            end,
             (start.0 + 30., start.1 + bend),
             (end.0 + 30., end.1 - bend),
-        )
+            end,
+        ]
     } else {
         let forward = to.x > from.x;
         let start = if forward {
@@ -349,22 +383,12 @@ fn paint_edge(
         };
         let bend = ((end.0 - start.0).abs() / 2.).max(40.);
         let sign = if forward { 1. } else { -1. };
-        (
+        [
             start,
-            end,
             (start.0 + bend * sign, start.1),
             (end.0 - bend * sign, end.1),
-        )
-    };
-    let mut path = PathBuilder::stroke(px(1.5));
-    path.move_to(at(start.0, start.1));
-    path.cubic_bezier_to(
-        at(end.0, end.1),
-        at(control_a.0, control_a.1),
-        at(control_b.0, control_b.1),
-    );
-    if let Ok(path) = path.build() {
-        window.paint_path(path, color);
+            end,
+        ]
     }
 }
 
@@ -372,10 +396,31 @@ fn paint_edge(
 mod fit_tests {
     use super::*;
     #[::core::prelude::v1::test]
+    fn self_loop_stays_outside_the_card_between_distinct_anchors() {
+        let at = point(12., -8.);
+        let [a, b, c, d] = edge_curve(at, at, true);
+        assert_eq!(a, (at.x + NODE_WIDTH / 2., at.y + NODE_HEIGHT));
+        assert_eq!(d, (a.0, at.y));
+        for i in 1..32 {
+            let t = i as f32 / 32.;
+            let u = 1. - t;
+            let sample = |a, b, c, d| {
+                u * u * u * a + 3. * u * u * t * b + 3. * u * t * t * c + t * t * t * d
+            };
+            let x = sample(a.0, b.0, c.0, d.0);
+            let y = sample(a.1, b.1, c.1, d.1);
+            assert!(x > at.x + NODE_WIDTH || y > at.y + NODE_HEIGHT || y < at.y);
+        }
+        // Distinct nodes can occupy the same position without forming a loop.
+        assert_ne!(edge_curve(at, at, false), [a, b, c, d]);
+    }
+
+    #[::core::prelude::v1::test]
     fn empty_graph_quiesces_and_first_data_reenables_fit() {
         let cx = ::gpui::TestAppContext::single();
         cx.update(|cx| {
-            let graph = cx.new(|_| Graph::new(vec![], vec![], |_, _| {}));
+            let graph =
+                cx.new(|_| Graph::new(vec![], vec![], WidgetAction::new("select", |_, _, _| {})));
             graph.update(cx, |graph, cx| {
                 graph.area.set(Some(Bounds::new(
                     point(px(0.), px(0.)),

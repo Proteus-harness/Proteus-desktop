@@ -48,6 +48,21 @@ mod wasm_stub;
 #[cfg(not(feature = "tree-sitter"))]
 pub use wasm_stub::*;
 
+impl SyntaxHighlighter {
+    /// Revision for consumers caching highlighted output. A backend without a
+    /// change counter can't promise a reusable entry across document updates.
+    pub fn language_revision() -> Option<u64> {
+        #[cfg(feature = "tree-sitter")]
+        {
+            Some(LanguageRegistry::singleton().generation())
+        }
+        #[cfg(not(feature = "tree-sitter"))]
+        {
+            None
+        }
+    }
+}
+
 #[cfg(test)]
 mod audit_regressions {
     use super::*;

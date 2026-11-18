@@ -5,6 +5,60 @@ use proteus_contracts::app_protocol::config_builder::{
 };
 use serde_json::json;
 
+#[::core::prelude::v1::test]
+fn multiline_string_array_uses_the_json_editor_instead_of_single_line_tags() {
+    let field = ConfigField::new(
+        "notes",
+        "Notes",
+        "",
+        ConfigValueSchema::Array {
+            items: Box::new(ConfigValueSchema::String {
+                multiline: true,
+                secret: false,
+            }),
+        },
+    );
+    assert!(!is_tag_field(&field));
+    assert!(matches!(
+        crate::settings::field_kind(&field),
+        crate::settings::FieldKind::Text(crate::settings::TextFormat::StringArrayJson)
+    ));
+    let format = crate::settings::TextFormat::StringArrayJson;
+    let items = json!(["first\nsecond", "", "first\nsecond"]);
+    let text = crate::settings::format_value(format, &items);
+    assert_eq!(crate::settings::parse_text(format, &text), Ok(Some(items)));
+    for bad in ["42", "[1]", r#"["ok", null]"#] {
+        assert!(crate::settings::parse_text(format, bad).is_err());
+    }
+}
+
+#[::core::prelude::v1::test]
+fn literal_enum_key_takes_priority_over_another_choices_title() {
+    use proteus_contracts::domain::ConfigChoice;
+    let field = ConfigField::new(
+        "values",
+        "Values",
+        "",
+        ConfigValueSchema::Array {
+            items: Box::new(ConfigValueSchema::Enum {
+                options: vec![
+                    ConfigChoice {
+                        value: json!("first"),
+                        title: "second".into(),
+                    },
+                    ConfigChoice {
+                        value: json!("second"),
+                        title: "Other".into(),
+                    },
+                ],
+            }),
+        },
+    );
+    assert_eq!(added_value(&field, "second"), Some(json!("second")));
+    assert_eq!(added_value(&field, "Other"), Some(json!("second")));
+    assert_eq!(added_value(&field, "unknown"), Some(json!("unknown")));
+}
+
 fn with_view(value: Option<Value>, run: impl FnOnce(Entity<SettingsView>, &mut App)) {
     let mut cx = ::gpui::TestAppContext::single();
     cx.update(|cx| {

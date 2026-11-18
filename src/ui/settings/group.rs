@@ -175,7 +175,7 @@ impl SettingsView {
         cx: &Context<Self>,
     ) -> AnyElement {
         let theme = cx.theme();
-        let scope = format!("{}:{}:{}", path.slot, path.module, path.dotted());
+        let scope = crate::settings::form_scope(&path.slot, &path.module, &path.keys);
         let key = format!("group:{scope}");
         let open = self.is_open(&key);
         let value = self.draft.value(path);

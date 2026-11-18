@@ -57,7 +57,7 @@ def probe(portable):
         frame = {
             "jsonrpc": "2.0", "id": "h:1:0", "method": "initialize",
             "params": {"protocol_version": "v3", "component_id": "generic-hooks", "exports": [{
-                "slot": "hook", "module_id": "generic", "contract_version": "v6",
+                "slot": "hook", "module_id": "generic", "contract_version": "v8",
                 "composition": "ordered_many", "host_features": [],
                 "module_config": {"entry": str(entry)},
             }]},

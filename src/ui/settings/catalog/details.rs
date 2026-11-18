@@ -7,12 +7,14 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::super::{
-    SettingsView,
+    SettingsView, extension, spot,
     widgets::{self, Tone, chip, hashed_id},
 };
 use super::items::{Item, Status, version_label};
 use super::view::kind_badge;
 use crate::catalog::schema::Kind;
+use crate::settings::catalog::PageId;
+use crate::ui::extensions;
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
@@ -79,6 +81,17 @@ impl SettingsView {
             .installed
             .filter(|_| item.status != Status::Available && entry.kind != Kind::ProcessModule)
             .cloned();
+        let preview = (entry.kind == Kind::ClientExtension
+            && matches!(item.status, Status::Installed | Status::Update))
+        .then(|| extensions::find(&entry.id))
+        .flatten()
+        .filter(|manifest| manifest.preview.is_some())
+        .map(|manifest| {
+            let key = extension::preview_key(manifest.id);
+            spot::Destination::new(PageId::Extension(manifest.id.to_owned()))
+                .open(vec![key.clone()])
+                .spot(key)
+        });
         div()
             .id(hashed_id("catalog-details", &item.key()))
             .map(|pane| {
@@ -184,6 +197,15 @@ impl SettingsView {
                             })),
                     )
                     .child(div().text_sm().child(entry.description.clone()))
+                    .children(preview.map(|target| {
+                        kit::button("catalog-open-preview")
+                            .faded_label("Попробовать без модели")
+                            .small()
+                            .quiet(cx)
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.go_to(&target, window, cx);
+                            }))
+                    }))
                     .children(entry.source.as_ref().map(|source| {
                         let command = source.command();
                         let copied = command.clone();

@@ -8,8 +8,8 @@ use gpui_kit::component::*;
 use gpui_kit::*;
 
 use super::SettingsView;
-use super::editors::module_key;
-use super::widgets::{card, card_cell, hashed_id, section};
+use super::editors::{ParameterMode, module_key};
+use super::widgets::{MenuOption, card, card_cell, hashed_id, section, select_menu};
 use crate::settings::FieldPath;
 use crate::settings::catalog::{editable_fields, editable_params, module_info};
 use crate::ui::kit;
@@ -92,7 +92,35 @@ impl SettingsView {
             .map(|_| {
                 let json = self.is_json(slot, module);
                 let (slot, module) = (slot.to_string(), module.to_string());
-                kit::button(hashed_id("params-mode", &(&slot, &module)))
+                let id = hashed_id("params-mode", &(&slot, &module));
+                if !json && self.editors.form_error(&slot, &module) {
+                    let view = cx.weak_entity();
+                    return select_menu(
+                        id,
+                        "JSON…",
+                        vec![MenuOption {
+                            label: "Отбросить ввод с ошибками и открыть JSON".into(),
+                            value: (),
+                            checked: false,
+                        }],
+                        move |(), cx| {
+                            let _ = view.update(cx, |this, cx| {
+                                this.switch_mode(
+                                    &slot,
+                                    &module,
+                                    ParameterMode::DiscardInvalidFormAndOpenJson,
+                                    cx,
+                                )
+                            });
+                        },
+                    );
+                }
+                let target = if json {
+                    ParameterMode::Form
+                } else {
+                    ParameterMode::Json
+                };
+                kit::button(id)
                     .faded_label(if json { "Форма" } else { "JSON" })
                     .quiet(cx)
                     .xsmall()
@@ -105,9 +133,10 @@ impl SettingsView {
                         },
                         cx,
                     )
-                    .on_click(
-                        cx.listener(move |this, _, _, cx| this.toggle_json(&slot, &module, cx)),
-                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.switch_mode(&slot, &module, target, cx)
+                    }))
+                    .into_any_element()
             });
         (file.is_some() || mode.is_some()).then(|| {
             h_flex()
@@ -135,7 +164,7 @@ impl SettingsView {
             let hint = schema
                 .is_none()
                 .then_some("Описание параметров недоступно. Настройки можно изменить в JSON.");
-            return v_flex()
+            let editor = v_flex()
                 .gap_1p5()
                 .px(if embedded { rems(1.) } else { rems(0.) })
                 .children(field.map(|field| self.text_area(&field.input, cx)))
@@ -149,15 +178,15 @@ impl SettingsView {
                         .text_xs()
                         .text_color(theme.muted_foreground)
                         .child(hint)
-                }))
-                .into_any_element();
+                }));
+            return self.spotted(&super::spot::params_json(slot, module), editor, cx);
         }
         let schema = schema.expect("form mode needs a schema");
         let rows = self.field_rows(
             &schema.fields,
             |key| FieldPath::new(slot, module, key),
             self.draft.module_config(slot, module),
-            &format!("{slot}:{module}"),
+            &crate::settings::form_scope(slot, module, &[]),
             cx,
         );
         if embedded {

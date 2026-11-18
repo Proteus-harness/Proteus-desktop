@@ -6,7 +6,7 @@ mod shimmer;
 #[path = "../../src/ui/motion/ticker.rs"]
 mod ticker;
 
-fn moves() -> bool {
+fn moves(_: &gpui_kit::App) -> bool {
     crate::moves()
 }
 

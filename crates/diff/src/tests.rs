@@ -136,3 +136,99 @@ fn plain_unified_files_are_separate_and_header_like_source_is_content() {
         input
     );
 }
+
+#[test]
+fn metadata_without_a_patch_does_not_claim_to_know_the_contents() {
+    let raw = "diff --git a/empty.txt b/empty.txt\nnew file mode 100644\n";
+    for status in ["added", "untracked", "modified", "renamed", "conflict", ""] {
+        let info = FileInfo {
+            path: "other.txt".into(),
+            status: status.into(),
+            message: None,
+        };
+        let files = parse(raw, &[info]);
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[0].lines[0].text, "Пустой файл");
+        assert_eq!(files[0].patch, raw);
+        let card = &files[1];
+        assert_eq!(
+            card.lines[0].text, "Текст изменений не предоставлен",
+            "{status:?}"
+        );
+        assert_eq!(card.status, status);
+        assert_eq!(card.unified, [0]);
+        assert_eq!(card.pairs, [Pair::Full(0)]);
+        assert!(card.patch.is_empty());
+    }
+}
+
+#[test]
+fn git_control_escapes_merge_file_metadata() {
+    for (escape, decoded) in [
+        ("a", '\u{7}'),
+        ("b", '\u{8}'),
+        ("v", '\u{b}'),
+        ("f", '\u{c}'),
+    ] {
+        let expected = format!("name{decoded}.txt");
+        let patch = format!(
+            "diff --git \"a/name\\{escape}.txt\" \"b/name\\{escape}.txt\"\n--- \"a/name\\{escape}.txt\"\n+++ \"b/name\\{escape}.txt\"\n@@ -1 +1 @@\n-old\n+new\n"
+        );
+        let files = parse(
+            &patch,
+            &[FileInfo {
+                path: expected.clone(),
+                status: "modified".into(),
+                message: None,
+            }],
+        );
+        assert_eq!(files.len(), 1, "escape {escape}: duplicate file card");
+        assert_eq!(files[0].path, expected);
+        assert_eq!(files[0].patch, patch);
+        assert_eq!((files[0].added, files[0].removed), (1, 1));
+    }
+}
+
+#[test]
+fn git_binary_body_is_copyable_without_becoming_display_rows() {
+    // Git's literal patch for adding a two-by-two PNG.
+    let image = r#"diff --git a/after/tile.png b/after/tile.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..26abf04982d6d6afd6f8a8e34d2f2b3672ffbd08
+GIT binary patch
+literal 73
+zcmeAS@N?(olHy`uVBq!ia0vp^Od!kwBL7~QRScvAJY5_^D&{2bxGBx=!Xv=NVBEwm
+UnkiN?7bwTz>FVdQ&MBb@0RKb}>i_@%
+
+literal 0
+HcmV?d00001
+
+"#;
+    let text = "diff --git a/name b/name\n--- a/name\n+++ b/name\n@@ -1 +1 @@\n-old\n+new\n";
+    let files = parse(&format!("{image}{text}"), &[]);
+    assert_eq!(files.len(), 2);
+    let file = &files[0];
+    assert_eq!(file.path, "after/tile.png");
+    assert_eq!(file.status, "added");
+    assert_eq!(file.patch, image);
+    assert_eq!((file.added, file.removed), (0, 0));
+    assert_eq!(file.unified, [0]);
+    assert_eq!(file.pairs, [Pair::Full(0)]);
+    assert_eq!(file.lines[0].kind, Kind::Note);
+    assert_eq!(file.lines[0].text, "Двоичный файл");
+    assert_eq!(files[1].patch, text);
+    assert_eq!((files[1].added, files[1].removed), (1, 1));
+
+    // A finished binary record must not hide unrelated annotations.
+    let footer = "-- \n2.52.0\n";
+    let with_footer = format!("{image}{footer}");
+    let file = &parse(&with_footer, &[])[0];
+    assert_eq!(file.patch, with_footer);
+    assert_eq!(
+        file.lines
+            .iter()
+            .map(|l| l.text.as_str())
+            .collect::<Vec<_>>(),
+        ["Двоичный файл", "-- ", "2.52.0"]
+    );
+}

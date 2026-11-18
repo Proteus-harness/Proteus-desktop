@@ -30,10 +30,38 @@ pub fn field_sections(fields: &[ConfigField]) -> Vec<FieldSection<'_>> {
     sections
 }
 
+fn push_scope_part(out: &mut String, part: &str) {
+    for ch in part.chars() {
+        match ch {
+            '%' => out.push_str("%25"),
+            ':' => out.push_str("%3A"),
+            '.' => out.push_str("%2E"),
+            _ => out.push(ch),
+        }
+    }
+}
+
+/// Display paths can contain separators; encode each component before joining.
+pub fn form_scope(slot: &str, module: &str, keys: &[String]) -> String {
+    let mut out = String::new();
+    push_scope_part(&mut out, slot);
+    out.push(':');
+    push_scope_part(&mut out, module);
+    for (index, key) in keys.iter().enumerate() {
+        out.push(if index == 0 { ':' } else { '.' });
+        push_scope_part(&mut out, key);
+    }
+    out
+}
+
 pub fn section_scope(scope: &str, field: &ConfigField) -> String {
     field.section.as_ref().map_or_else(
         || scope.to_owned(),
-        |section| format!("{scope}:section:{}", section.id),
+        |section| {
+            let mut out = format!("{scope}:section:");
+            push_scope_part(&mut out, &section.id);
+            out
+        },
     )
 }
 
@@ -50,6 +78,8 @@ pub enum TextFormat {
     Multiline,
     /// Array of single-line strings, one per line.
     Lines,
+    /// Exact list of multiline strings, entered as a JSON array.
+    StringArrayJson,
     Json,
     /// JSON on one line for short values like `100000` or `80%`; text that
     /// is not JSON is taken as a string.
@@ -58,7 +88,10 @@ pub enum TextFormat {
 
 impl TextFormat {
     pub fn is_multiline(self) -> bool {
-        matches!(self, Self::Multiline | Self::Lines | Self::Json)
+        matches!(
+            self,
+            Self::Multiline | Self::Lines | Self::StringArrayJson | Self::Json
+        )
     }
 }
 
@@ -108,6 +141,10 @@ fn schema_kind(schema: &ConfigValueSchema) -> FieldKind<'_> {
                 multiline: false,
                 secret: false,
             } => FieldKind::Text(TextFormat::Lines),
+            ConfigValueSchema::String {
+                multiline: true,
+                secret: false,
+            } => FieldKind::Text(TextFormat::StringArrayJson),
             _ => FieldKind::Text(TextFormat::Json),
         },
         ConfigValueSchema::Object { fields } if !fields.is_empty() => FieldKind::Group(fields),
@@ -126,12 +163,20 @@ pub fn choice_title<'a>(options: &'a [ConfigChoice], value: &Value) -> Option<&'
 
 pub fn format_value(format: TextFormat, value: &Value) -> String {
     match (format, value) {
+        // Leave strings bare only when re-reading them preserves their value.
         (TextFormat::Value, Value::String(text))
-            if serde_json::from_str::<Value>(text).is_err() =>
+            if !text.is_empty()
+                && text.trim() == text
+                && serde_json::from_str::<Value>(text).is_err() =>
         {
             text.clone()
         }
-        (_, Value::String(text)) if !matches!(format, TextFormat::Json | TextFormat::Value) => {
+        (_, Value::String(text))
+            if !matches!(
+                format,
+                TextFormat::Json | TextFormat::StringArrayJson | TextFormat::Value
+            ) =>
+        {
             text.clone()
         }
         (TextFormat::Lines, Value::Array(items)) if items.iter().all(Value::is_string) => items
@@ -142,9 +187,13 @@ pub fn format_value(format: TextFormat, value: &Value) -> String {
         (TextFormat::Integer { .. } | TextFormat::Number, Value::Number(number)) => {
             number.to_string()
         }
-        (TextFormat::Json | TextFormat::Lines | TextFormat::Multiline, _) => {
-            serde_json::to_string_pretty(value).unwrap_or_default()
-        }
+        (
+            TextFormat::Json
+            | TextFormat::StringArrayJson
+            | TextFormat::Lines
+            | TextFormat::Multiline,
+            _,
+        ) => serde_json::to_string_pretty(value).unwrap_or_default(),
         _ => serde_json::to_string(value).unwrap_or_default(),
     }
 }
@@ -172,7 +221,17 @@ pub fn parse_text(format: TextFormat, text: &str) -> Result<Option<Value>, Strin
         TextFormat::Number => trimmed
             .parse::<f64>()
             .ok()
-            .and_then(serde_json::Number::from_f64)
+            .and_then(|number| {
+                // Preserve the existing representation unless binary64 would round
+                // an integer spelling that JSON can store exactly.
+                if let Ok(whole) = trimmed.parse::<i128>()
+                    && whole != number as i128
+                    && let Some(exact) = serde_json::Number::from_i128(whole)
+                {
+                    return Some(exact);
+                }
+                serde_json::Number::from_f64(number)
+            })
             .map(|number| Some(Value::Number(number)))
             .ok_or_else(|| "Нужно число".to_string()),
         TextFormat::Line | TextFormat::Secret | TextFormat::Multiline => {
@@ -185,15 +244,47 @@ pub fn parse_text(format: TextFormat, text: &str) -> Result<Option<Value>, Strin
                 .map(|line| Value::String(line.to_string()))
                 .collect(),
         ))),
-        TextFormat::Json => match serde_json::from_str::<Value>(trimmed) {
-            Ok(Value::Null) => Ok(None),
-            Ok(value) => Ok(Some(value)),
-            Err(error) => Err(format!("Неверный JSON: {error}")),
-        },
+        TextFormat::Json | TextFormat::StringArrayJson => {
+            match serde_json::from_str::<Value>(trimmed) {
+                Ok(Value::Null) => Ok(None),
+                Ok(value)
+                    if format == TextFormat::StringArrayJson
+                        && !value
+                            .as_array()
+                            .is_some_and(|items| items.iter().all(Value::is_string)) =>
+                {
+                    Err("Нужен JSON-массив строк".to_string())
+                }
+                Ok(value) => Ok(Some(value)),
+                Err(error) => Err(format!("Неверный JSON: {error}")),
+            }
+        }
         TextFormat::Value => match serde_json::from_str::<Value>(trimmed) {
             Ok(Value::Null) => Ok(None),
             Ok(value) => Ok(Some(value)),
             Err(_) => Ok(Some(Value::String(trimmed.to_string()))),
         },
+    }
+}
+
+#[cfg(test)]
+mod value_roundtrip_tests {
+    use super::*;
+
+    #[test]
+    fn compact_json_text_preserves_strings_on_the_next_edit() {
+        let format = TextFormat::Value;
+        for text in [
+            "",
+            " ",
+            "\u{202f}°C",
+            "Итого: ",
+            "\u{202f}42\u{202f}",
+            "\u{202f}null\u{202f}",
+        ] {
+            let original = Value::String(text.into());
+            let shown = format_value(format, &original);
+            assert_eq!(parse_text(format, &shown), Ok(Some(original)), "{text:?}");
+        }
     }
 }

@@ -1,6 +1,6 @@
 //! Rows for module `config_schema` fields.
 
-use std::rc::Rc;
+use std::{collections::HashSet, rc::Rc};
 
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -36,6 +36,14 @@ impl FieldSpec {
     fn set(&self, value: Option<Value>, cx: &mut App) {
         let _ = self.view.update(cx, |this, cx| {
             this.edit_field(&self.path, value, self.field.default.as_ref(), cx)
+        });
+    }
+
+    fn set_choices(&self, next: Vec<Value>, cx: &mut App) {
+        let _ = self.view.update(cx, |this, cx| {
+            let default = self.field.default.as_ref();
+            let saved = this.baseline.value(&self.path).or(default);
+            this.edit_field(&self.path, Some(checkbox_value(next, saved)), default, cx);
         });
     }
 
@@ -231,15 +239,33 @@ fn choice_menu(spec: &Rc<FieldSpec>, options: &[ConfigChoice]) -> AnyElement {
     })
 }
 
+/// A checkbox group edits membership. Restoring its original unique members
+/// also restores their saved order instead of recording an incidental sort.
+fn checkbox_value(next: Vec<Value>, saved: Option<&Value>) -> Value {
+    if let Some(original) = saved.and_then(Value::as_array)
+        && original.len() == next.len()
+        && original != &next
+    {
+        let mut remaining: HashSet<_> = next.iter().collect();
+        if original.iter().all(|value| remaining.remove(value)) {
+            return Value::Array(original.clone());
+        }
+    }
+    Value::Array(next)
+}
+
 fn multi_choice(spec: &Rc<FieldSpec>, options: &[ConfigChoice]) -> AnyElement {
-    let selected: Vec<Value> = spec
+    let selected: Rc<[Value]> = spec
         .effective()
         .and_then(Value::as_array)
-        .cloned()
+        .map(|values| Rc::from(values.as_slice()))
         .unwrap_or_default();
+    // All checkboxes use the same immutable inputs. Titles belong to the labels,
+    // not to each retained click handler.
+    let values: Rc<[Value]> = options.iter().map(|choice| choice.value.clone()).collect();
     let boxes = options.iter().enumerate().map(|(ix, choice)| {
         let checked = selected.contains(&choice.value);
-        let (handler, options, value) = (spec.clone(), options.to_vec(), choice.value.clone());
+        let (handler, values) = (spec.clone(), values.clone());
         let selected = selected.clone();
         div().min_w_0().max_w_full().child(
             kit::checkbox(hashed_id("multi", &(&spec.path, ix)))
@@ -248,11 +274,10 @@ fn multi_choice(spec: &Rc<FieldSpec>, options: &[ConfigChoice]) -> AnyElement {
                 .max_w_full()
                 .label(choice.title.clone())
                 .on_click(move |checked, _, cx| {
-                    let next: Vec<Value> = options
+                    let next: Vec<Value> = values
                         .iter()
-                        .map(|option| &option.value)
                         .filter(|option| {
-                            if **option == value {
+                            if **option == values[ix] {
                                 *checked
                             } else {
                                 selected.contains(option)
@@ -260,7 +285,7 @@ fn multi_choice(spec: &Rc<FieldSpec>, options: &[ConfigChoice]) -> AnyElement {
                         })
                         .cloned()
                         .collect();
-                    handler.set(Some(Value::Array(next)), cx);
+                    handler.set_choices(next, cx);
                 }),
         )
     });

@@ -1332,6 +1332,24 @@ pub(crate) fn reconstruct_markdown(
     source.finish()
 }
 
+/// Protect column boundaries in reconstructed cell Markdown. The table lexer
+/// consumes paired backslashes, so a pipe needs an odd preceding run.
+fn protect_table_pipes(text: &str) -> String {
+    if !text.contains('|') {
+        return text.to_owned();
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut escaped = false;
+    for ch in text.chars() {
+        if ch == '|' && !escaped {
+            out.push('\\');
+        }
+        out.push(ch);
+        escaped = ch == '\\' && !escaped;
+    }
+    out
+}
+
 /// Reconstruct the Markdown source of the selected cells of `table`.
 ///
 /// Cells emit their own selected source; rows are piped (`| a | b |`) and the
@@ -1359,7 +1377,7 @@ fn table_selected_source(table: &Table) -> String {
         let cells: Vec<String> = row
             .children
             .iter()
-            .map(|cell| cell_source(cell).trim().to_string())
+            .map(|cell| protect_table_pipes(cell_source(cell).trim()))
             .collect();
         lines.push(format!("| {} |", cells.join(" | ")));
 
@@ -5670,7 +5688,7 @@ mod tests {
                     children: vec![cell("Name"), cell("Age")],
                 },
                 TableRow {
-                    children: vec![cell("Alice"), cell("30")],
+                    children: vec![cell("red|green"), cell("30")],
                 },
             ],
             column_aligns: vec![ColumnumnAlign::Left, ColumnumnAlign::Right],
@@ -5681,8 +5699,48 @@ mod tests {
         let block = BlockNode::Table(table);
         assert_eq!(
             block.selected_text(SelectionFormat::Source),
-            "| Name | Age |\n| :-- | --: |\n| Alice | 30 |\n"
+            "| Name | Age |\n| :-- | --: |\n| red\\|green | 30 |\n"
         );
+    }
+
+    #[test]
+    fn selected_table_pipes_after_backslashes_do_not_add_columns() {
+        for n in 0..=6 {
+            let text = format!("x{}|y", "\\".repeat(n));
+            for code in [false, true] {
+                let mark = if code {
+                    TextMark::default().code()
+                } else {
+                    TextMark::default()
+                };
+                let content = paragraph_with_children(vec![
+                    InlineNode::new(text.as_str()).marks(vec![(0..text.len(), mark)]),
+                ]);
+                set_paragraph_selection(&content, 0..text.len());
+                let table = table_of(
+                    vec![
+                        vec![plain_cell("Name"), plain_cell("Count")],
+                        vec![
+                            TableCell {
+                                children: content,
+                                width: None,
+                            },
+                            TableCell {
+                                children: selected_paragraph("17"),
+                                width: None,
+                            },
+                        ],
+                    ],
+                    vec![ColumnumnAlign::Left, ColumnumnAlign::Right],
+                );
+                let fence = if code { "`" } else { "" };
+                let slash = "\\".repeat(n + usize::from(n % 2 == 0));
+                assert_eq!(
+                    table_selected_source(&table).lines().last().unwrap(),
+                    format!("| {fence}x{slash}|y{fence} | 17 |")
+                );
+            }
+        }
     }
 
     /// A drag that starts in a table cell stays in it, so the copy is the
@@ -5694,7 +5752,7 @@ mod tests {
                 vec![plain_cell("Name"), plain_cell("Age")],
                 vec![
                     TableCell {
-                        children: selected_paragraph("Alice"),
+                        children: selected_paragraph("red|green"),
                         width: None,
                     },
                     plain_cell("30"),
@@ -5703,8 +5761,11 @@ mod tests {
             vec![ColumnumnAlign::Left, ColumnumnAlign::Right],
         );
         let block = BlockNode::Table(table);
-        assert_eq!(block.selected_text(SelectionFormat::Plain).trim(), "Alice");
-        assert_eq!(block.selected_text(SelectionFormat::Source), "Alice\n");
+        assert_eq!(
+            block.selected_text(SelectionFormat::Plain).trim(),
+            "red|green"
+        );
+        assert_eq!(block.selected_text(SelectionFormat::Source), "red|green\n");
     }
 
     /// A cell holding plain text, as `Table::to_markdown` and

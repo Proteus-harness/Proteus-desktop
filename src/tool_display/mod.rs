@@ -103,6 +103,42 @@ pub fn headline(name: &str, args: &Value) -> Headline {
     }
 }
 
+/// A known path-list subject is summarized in the header. Show its members only
+/// in the expanded card, without treating arbitrary arrays as filenames.
+pub fn path_list_preview(headline: &Headline, args: &Value) -> Option<String> {
+    let key = headline.subject_key.as_deref()?;
+    if key != "paths" || known_subject(&headline.label) != Some(key) {
+        return None;
+    }
+    let paths = args.get(key)?.as_array()?;
+    // The stock batch reader documents at most 20 paths. Do not expand
+    // unbounded arrays just because supplied arguments use the same shape.
+    if !(2..=20).contains(&paths.len()) {
+        return None;
+    }
+    // Give every path its own line within a 2000-byte preview; reserve two
+    // quotes, a three-byte ellipsis and a newline per path.
+    let content_bytes = 2000 / paths.len() - 6;
+    let mut rows = Vec::with_capacity(paths.len());
+    for item in paths {
+        let path = item.as_str()?;
+        // Quote each filename separately: embedded line breaks and quotes
+        // must not look like additional files. Bound work before escaping.
+        let mut bytes = 0;
+        let cut = path.char_indices().enumerate().find_map(|(i, (at, ch))| {
+            // A char's Debug escape conservatively bounds its contribution
+            // to the quoted string. Never cut through an escape or scalar.
+            bytes += ch.escape_debug().map(char::len_utf8).sum::<usize>();
+            (i == ARG_LIMIT || bytes > content_bytes).then_some(at)
+        });
+        rows.push(match cut {
+            Some(end) => format!("{:?}…", &path[..end]),
+            None => format!("{path:?}"),
+        });
+    }
+    Some(rows.join("\n"))
+}
+
 /// Arguments not already shown in the headline, as short `key: value` pairs.
 pub fn other_args(args: &Value, subject_key: Option<&str>) -> Vec<(String, String)> {
     let Some(map) = args.as_object() else {

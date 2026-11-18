@@ -67,8 +67,10 @@ impl File {
         }
         if self.lines.is_empty() {
             self.note(match self.status.as_str() {
-                "added" | "untracked" => "Пустой файл",
                 "deleted" => "Файл удалён",
+                // FileInfo alone says nothing about the contents of the file.
+                _ if self.patch.is_empty() => "Текст изменений не предоставлен",
+                "added" | "untracked" => "Пустой файл",
                 "renamed" => "Файл переименован без изменения содержимого",
                 _ => "Содержимое не изменилось",
             });

@@ -38,10 +38,10 @@ mod motion {
         gpui_kit::component::Icon::new(gpui_kit::component::IconName::Ellipsis)
     }
     pub const SLOW: std::time::Duration = std::time::Duration::from_millis(260);
-    pub fn plays() -> bool {
+    pub fn plays(_: &gpui_kit::App) -> bool {
         PLAYS.load(Ordering::Relaxed)
     }
-    pub fn rise_in<E>(element: E, _: impl Into<gpui_kit::ElementId>) -> E {
+    pub fn rise_in<E>(element: E, _: impl Into<gpui_kit::ElementId>, _: &gpui_kit::App) -> E {
         element
     }
 }

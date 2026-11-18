@@ -125,11 +125,20 @@ impl TabLayout {
     /// The pane right beyond `edge` of `pane`: the closest one along the
     /// way, then the one sharing the longest border.
     pub fn neighbor(&self, pane: PaneId, edge: Edge) -> Option<PaneId> {
-        let from = self.rect(pane)?;
+        Self::neighbor_in(&self.rects(), pane, edge)
+    }
+
+    pub(super) fn neighbor_in(
+        rects: &[(PaneId, Rect)],
+        pane: PaneId,
+        edge: Edge,
+    ) -> Option<PaneId> {
+        let from = rects.iter().find(|(id, _)| *id == pane)?.1;
         let overlap = |a0: f32, a1: f32, b0: f32, b1: f32| a1.min(b1) - a0.max(b0);
-        self.rects()
-            .into_iter()
-            .filter(|(id, _)| *id != pane)
+        rects
+            .iter()
+            .copied()
+            .filter(|(id, rect)| *id != pane && rect.w > 0. && rect.h > 0.)
             .filter_map(|(id, to)| {
                 let (gap, shared) = match edge {
                     Edge::Right => (

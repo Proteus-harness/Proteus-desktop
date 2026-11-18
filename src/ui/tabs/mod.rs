@@ -13,6 +13,7 @@ mod split;
 mod tab;
 mod view;
 
+pub(super) use arrange::TabArrangement;
 pub(super) use drop::TabDrop;
 pub(super) use motion::TabMotion;
 pub(super) use split::{SplitDrag, SplitResize};
@@ -354,7 +355,23 @@ impl Workspace {
             return;
         }
         let mut next = None;
-        self.update_tabs(cx, |tabs| next = tabs.focus_neighbor(edge));
+        let area = self
+            .tab_area
+            .get()
+            .filter(|a| a.width > px(0.) && a.height > px(0.));
+        let scale = prefs::scale(cx);
+        self.update_tabs(cx, |tabs| {
+            next = if let Some(area) = area {
+                let rects = tabs.rects_spaced(
+                    area.width.as_f32() / scale,
+                    area.height.as_f32() / scale,
+                    split::DIVIDER,
+                );
+                tabs.focus_neighbor_in(edge, &rects)
+            } else {
+                tabs.focus_neighbor(edge)
+            };
+        });
         if let Some(id) = next {
             self.focus_tab(&id, window, cx);
         }

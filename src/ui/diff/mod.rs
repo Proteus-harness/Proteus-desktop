@@ -11,7 +11,9 @@ mod lines;
 mod row;
 mod syntax;
 
-use std::collections::HashSet;
+use gpui_kit::component::highlighter::SyntaxHighlighter;
+
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use gpui_kit::assets::IconName as Lucide;
@@ -37,6 +39,7 @@ pub(in crate::ui) struct DiffView {
     files: Vec<Rc<File>>,
     syntax: Vec<Rc<syntax::Syntax>>,
     syntax_theme: std::sync::Arc<gpui_kit::component::highlighter::HighlightTheme>,
+    syntax_revision: Option<u64>,
     folded: HashSet<String>,
     /// Documents own a vertical viewport; chat diffs participate in the
     /// surrounding message's natural height instead.
@@ -81,6 +84,7 @@ impl DiffView {
         let horizontal = files.iter().map(|_| Default::default()).collect();
         let file_focus = files.iter().map(|_| cx.focus_handle()).collect();
         let syntax_theme = cx.theme().highlight_theme.clone();
+        let syntax_revision = SyntaxHighlighter::language_revision();
         let syntax = files
             .iter()
             .map(|file| Rc::new(syntax::Syntax::new(file, &syntax_theme)))
@@ -91,6 +95,7 @@ impl DiffView {
             files,
             syntax,
             syntax_theme,
+            syntax_revision,
             folded: HashSet::new(),
             list,
             horizontal,
@@ -135,31 +140,48 @@ impl DiffView {
                 }
             }
         }
-        self.horizontal = files
+        // Match the same first old path as the scrolling and focus handles
+        // did before. Keep one index instead of scanning twice per new file.
+        let mut previous = HashMap::with_capacity(self.files.len());
+        for (index, file) in self.files.iter().enumerate() {
+            previous.entry(file.path.as_str()).or_insert(index);
+        }
+        let indices: Vec<_> = files
             .iter()
-            .map(|file| {
-                self.files
-                    .iter()
-                    .position(|old| old.path == file.path)
-                    .map(|index| self.horizontal[index].clone())
-                    .unwrap_or_default()
-            })
+            .map(|file| previous.get(file.path.as_str()).copied())
             .collect();
-        self.file_focus = files
+        self.horizontal = indices
             .iter()
-            .map(|file| {
-                self.files
-                    .iter()
-                    .position(|old| old.path == file.path)
-                    .map(|index| self.file_focus[index].clone())
+            .map(|i| i.map(|i| self.horizontal[i].clone()).unwrap_or_default())
+            .collect();
+        self.file_focus = indices
+            .iter()
+            .map(|i| {
+                i.map(|i| self.file_focus[i].clone())
                     .unwrap_or_else(|| cx.focus_handle())
             })
             .collect();
-        self.syntax_theme = cx.theme().highlight_theme.clone();
+        let theme = cx.theme().highlight_theme.clone();
+        let revision = SyntaxHighlighter::language_revision();
+        let same_style = revision.is_some()
+            && self.syntax_revision == revision
+            && std::sync::Arc::ptr_eq(&self.syntax_theme, &theme);
         self.syntax = files
             .iter()
-            .map(|file| Rc::new(syntax::Syntax::new(file, &self.syntax_theme)))
+            .zip(indices)
+            .map(|(file, i)| {
+                if let Some(i) = i
+                    && same_style
+                    && &self.files[i] == file
+                {
+                    self.syntax[i].clone()
+                } else {
+                    Rc::new(syntax::Syntax::new(file, &theme))
+                }
+            })
             .collect();
+        self.syntax_theme = theme;
+        self.syntax_revision = revision;
         self.files = files;
         self.folded
             .retain(|path| self.files.iter().any(|file| &file.path == path));
@@ -320,7 +342,11 @@ impl DiffView {
 impl Render for DiffView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         motion::drive(window, cx);
-        if !std::sync::Arc::ptr_eq(&self.syntax_theme, &cx.theme().highlight_theme) {
+        let revision = SyntaxHighlighter::language_revision();
+        if self.syntax_revision != revision
+            || !std::sync::Arc::ptr_eq(&self.syntax_theme, &cx.theme().highlight_theme)
+        {
+            self.syntax_revision = revision;
             self.syntax_theme = cx.theme().highlight_theme.clone();
             self.syntax = self
                 .files
@@ -350,9 +376,11 @@ impl Render for DiffView {
                 .files
                 .iter()
                 .map(|file| {
-                    file.lines
+                    // Hunk headers are metadata in both display modes.
+                    file.unified
                         .iter()
-                        .map(|line| {
+                        .map(|&index| {
+                            let line = &file.lines[index];
                             let mut text = line.text.replace('\t', "    ");
                             if line.no_newline {
                                 text.push_str("  Нет перевода строки");

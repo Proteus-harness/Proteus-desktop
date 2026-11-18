@@ -2,6 +2,7 @@
 //! cursor that survives new rows, the keyboard, focus, clicks and the row
 //! menu. Each kind draws its own rows and says what the keys and clicks send.
 
+use super::fields::WidgetAction;
 use crate::declarative::control::MenuItem;
 use crate::ui::context::RightClickMenu as _;
 use gpui_kit::component::*;
@@ -51,7 +52,7 @@ pub(super) struct Rows<K: Kind> {
     focus: FocusHandle,
     scroll: UniformListScrollHandle,
     view: WeakEntity<super::view::DeclarativeView>,
-    action: super::tree::RowAction,
+    pub(super) action: WidgetAction,
 }
 
 impl<K: Kind> Rows<K> {
@@ -59,7 +60,7 @@ impl<K: Kind> Rows<K> {
         rows: Vec<K::Row>,
         view: WeakEntity<super::view::DeclarativeView>,
         cx: &mut Context<Self>,
-        action: impl Fn(String, &'static str, &mut App) + 'static,
+        action: WidgetAction,
     ) -> Self {
         let mut list = Self {
             kind: K::default(),
@@ -68,7 +69,7 @@ impl<K: Kind> Rows<K> {
             focus: cx.focus_handle().tab_stop(true),
             scroll: UniformListScrollHandle::new(),
             view,
-            action: Rc::new(action),
+            action,
         };
         list.set_rows(rows, cx);
         list
@@ -108,7 +109,7 @@ impl<K: Kind> Rows<K> {
 
     fn act_at(&self, index: usize, event: &'static str, cx: &mut App) {
         if let Some(row) = self.rows.get(index) {
-            (self.action)(K::id(row).to_owned(), event, cx);
+            self.action.row(K::id(row), event, cx);
         }
     }
 

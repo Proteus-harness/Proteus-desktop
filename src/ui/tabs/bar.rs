@@ -29,7 +29,7 @@ impl Workspace {
             .get(&id)
             .map(|(strip, _)| strip.clone())
             .unwrap_or_default();
-        let frame = arrange::frame(pane, layout, cx);
+        let frame = arrange::frame(&self.tab_arrangement, pane, layout, cx);
         let tabs = match &frame.dragging {
             Some(dragging) => self.render_dragged_strip(pane, layout, &frame, dragging, cx),
             None => self.render_strip_tabs(pane, layout, cx),
@@ -53,9 +53,11 @@ impl Workspace {
                     .when_some(frame.dragging, |strip, dragging| {
                         let pinned = dragged_state(&dragging, layout).is_some_and(|s| s.pinned);
                         let (hovered, dropped) = (pane.clone(), pane.clone());
+                        let arrangement = self.tab_arrangement.clone();
                         strip
                             .on_drag_move::<DraggedTab>(move |event, window, _| {
                                 arrange::hover(
+                                    &arrangement,
                                     &hovered,
                                     &dragging,
                                     pinned,
@@ -66,7 +68,11 @@ impl Workspace {
                             })
                             .on_drop(cx.listener(move |this, dragged: &DraggedTab, window, cx| {
                                 this.tab_drag = false;
-                                if let Some(before) = arrange::drop_before(&dropped, &dragged.id) {
+                                if let Some(before) = arrange::drop_before(
+                                    &this.tab_arrangement,
+                                    &dropped,
+                                    &dragged.id,
+                                ) {
                                     let before = before.as_deref();
                                     this.move_tab(&dragged.id, dropped.id, before, window, cx);
                                 }
@@ -169,10 +175,11 @@ impl Workspace {
     ) -> AnyElement {
         let element = self.render_tab(pane.id, tab, state, layout, cx);
         let id = tab.to_string();
+        let arrangement = self.tab_arrangement.clone();
         let measured = div()
             .w_full()
             .h_full()
-            .on_prepaint(move |bounds, _, _| arrange::record(&id, bounds))
+            .on_prepaint(move |bounds, _, _| arrange::record(&arrangement, &id, bounds))
             .child(element);
         let min = min_width(state.pinned);
         reveal(tab, shown, min, measured.into_any_element())

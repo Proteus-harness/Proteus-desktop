@@ -5,6 +5,7 @@ pub(super) fn files(patch: &str) -> Vec<File> {
     let (mut old, mut new) = (None, None);
     let (mut hunk, mut envelope) = (false, false);
     let mut remaining = None;
+    let mut binary = BinaryPart::Outside;
     let mut input = patch.split_inclusive('\n').peekable();
     while let Some(raw) = input.next() {
         let line = raw.trim_end_matches(['\r', '\n']);
@@ -22,6 +23,7 @@ pub(super) fn files(patch: &str) -> Vec<File> {
             && !envelope
             && (!hunk || remaining == Some((0, 0)))
             && (files.is_empty()
+                || matches!(binary, BinaryPart::Header)
                 || hunk
                 || files.last().is_some_and(|file: &File| {
                     file.patch.starts_with("--- ")
@@ -72,6 +74,7 @@ pub(super) fn files(patch: &str) -> Vec<File> {
             new = (file.status == "added").then_some(1);
             old = None;
             hunk = envelope;
+            binary = BinaryPart::Outside;
             remaining = None;
             files.push(file);
             continue;
@@ -84,6 +87,9 @@ pub(super) fn files(patch: &str) -> Vec<File> {
         }
         let file = files.last_mut().expect("a file was started");
         file.patch.push_str(raw);
+        if binary.hide(line) {
+            continue;
+        }
         if let Some(target) = line.strip_prefix("*** Move to: ") {
             file.old_path = Some(std::mem::replace(&mut file.path, target.into()));
             file.status = "renamed".into();
@@ -125,6 +131,9 @@ pub(super) fn files(patch: &str) -> Vec<File> {
         } else if !hunk && line.starts_with("deleted file mode ") {
             file.status = "deleted".into();
         } else if line.starts_with("Binary files ") || line == "GIT binary patch" {
+            if line == "GIT binary patch" {
+                binary = BinaryPart::Header;
+            }
             file.note("Двоичный файл");
         } else if line.starts_with("\\ No newline at end of file") {
             if let Some(line) = file
@@ -175,6 +184,40 @@ pub(super) fn files(patch: &str) -> Vec<File> {
         }
     }
     files
+}
+
+// Git can include forward and reverse records. Keep their exact bytes in
+// File::patch; neither their headers nor their encoded lines are source rows.
+enum BinaryPart {
+    Outside,
+    Header,
+    Body,
+}
+
+impl BinaryPart {
+    fn hide(&mut self, line: &str) -> bool {
+        match self {
+            Self::Outside => false,
+            Self::Header => {
+                let count = line
+                    .strip_prefix("literal ")
+                    .or_else(|| line.strip_prefix("delta "));
+                if count.is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())) {
+                    *self = Self::Body;
+                    true
+                } else {
+                    *self = Self::Outside;
+                    false
+                }
+            }
+            Self::Body => {
+                if line.is_empty() {
+                    *self = Self::Header;
+                }
+                true
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -241,6 +284,10 @@ fn unquote(text: &str) -> String {
             out.push(value as u8);
         } else {
             out.push(match byte {
+                b'a' => 0x07,
+                b'b' => 0x08,
+                b'v' => 0x0b,
+                b'f' => 0x0c,
                 b'n' => b'\n',
                 b't' => b'\t',
                 b'r' => b'\r',

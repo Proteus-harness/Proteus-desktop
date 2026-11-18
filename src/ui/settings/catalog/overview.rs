@@ -51,7 +51,10 @@ impl SettingsView {
             sections.push(
                 section(
                     "Установленные",
-                    count(Status::Installed),
+                    items
+                        .iter()
+                        .filter(|item| item.status.in_overview_installed())
+                        .count(),
                     Show::Installed,
                     cx,
                 )

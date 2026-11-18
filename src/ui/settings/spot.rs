@@ -60,7 +60,14 @@ pub(super) struct Spot {
 }
 
 pub(super) fn field(path: &FieldPath) -> String {
-    format!("field:{}:{}:{}", path.slot, path.module, path.dotted())
+    format!(
+        "field:{}",
+        crate::settings::form_scope(&path.slot, &path.module, &path.keys)
+    )
+}
+
+pub(super) fn params_json(slot: &str, module: &str) -> String {
+    format!("params-json:{slot:?}:{module:?}")
 }
 
 pub(super) fn row(title: &str) -> String {

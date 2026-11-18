@@ -139,6 +139,25 @@ fn focus_moves_by_geometry() {
 }
 
 #[test]
+fn focus_uses_the_visible_neighbor_after_a_locked_split_resizes() {
+    let mut layout = single(&["a", "b", "c", "d", "e"]);
+    layout.split("b", PaneId(0), Edge::Right);
+    layout.split("c", PaneId(0), Edge::Bottom);
+    layout.split("d", PaneId(1), Edge::Top);
+    layout.split("e", PaneId(2), Edge::Bottom);
+    layout.reset(&[0]); // three equal panes at left
+    layout.lock_pane(PaneId(3), true, 1200., 841., 1.); // 420 logical pixels at top right
+    for (height, tab) in [(600., "d"), (1000., "b")] {
+        layout.focus(PaneId(2));
+        let rects = layout.rects_spaced(1200., height, 1.);
+        assert_eq!(
+            layout.focus_neighbor_in(Edge::Right, &rects).as_deref(),
+            Some(tab)
+        );
+    }
+}
+
+#[test]
 fn resizing_keeps_minimum_sizes() {
     let mut layout = grid();
     layout.resize(&[], 0, 0.3, 1., 0.1);

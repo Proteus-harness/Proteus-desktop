@@ -108,6 +108,7 @@ pub struct Workspace {
     pub(super) badges: HashMap<&'static str, AnyView>,
     pub(super) header_bounds: Rc<Cell<Bounds<Pixels>>>,
     pub(super) rail_bounds: Rc<Cell<Bounds<Pixels>>>,
+    pub(super) badge_arrangement: super::badges::BadgeArrangement,
     /// Size of the split whose divider is being dragged.
     pub(super) split_drag: Option<SplitResize>,
     /// Width of the side panel while its edge is dragged.
@@ -117,6 +118,7 @@ pub struct Workspace {
     pub(super) sidebar_last: Option<&'static str>,
     /// A tab is being dragged, so panes show where it can go.
     pub(super) tab_drag: bool,
+    pub(super) tab_arrangement: super::tabs::TabArrangement,
     /// Where the dragged tab would land when dropped onto a pane.
     pub(super) tab_drop: Option<TabDrop>,
     /// Scroll of each pane's tab strip and the active tab it last showed,
@@ -285,10 +287,12 @@ impl Workspace {
             badges: HashMap::new(),
             header_bounds: Rc::default(),
             rail_bounds: Rc::default(),
+            badge_arrangement: Default::default(),
             split_drag: None,
             sidebar_drag: None,
             sidebar_last: None,
             tab_drag: false,
+            tab_arrangement: Default::default(),
             tab_drop: None,
             tab_strips: HashMap::new(),
             sessions_arrived: None,

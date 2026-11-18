@@ -16,7 +16,7 @@ use super::mcp::mcp_key;
 use super::spot::Destination;
 use super::widgets::{Tone, card, changed_dot, chip, hashed_id, item_row, named, note, section};
 use crate::settings::addons::{ToolOrigin, package_state, tool_origin};
-use crate::settings::catalog::{PageId, find_tool, missing_tools, tool_matches, tool_pack};
+use crate::settings::catalog::{PageId, ToolQuery, find_tool, missing_tools, tool_pack};
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::prefs;
@@ -30,6 +30,7 @@ impl SettingsView {
         let Some(snapshot) = self.snapshot() else {
             return Vec::new();
         };
+        let query = ToolQuery::new(&self.tool_query);
         let enabled = snapshot
             .tools
             .iter()
@@ -40,18 +41,17 @@ impl SettingsView {
             for pack in &plugin.tool_packs {
                 if self.tool_query.is_empty()
                     || pack.tools.iter().any(|name| {
-                        find_tool(snapshot, name)
-                            .is_some_and(|tool| tool_matches(tool, &self.tool_query))
+                        find_tool(snapshot, name).is_some_and(|tool| query.matches_tool(tool))
                             && tool_pack(snapshot, name).is_some_and(|(owner, group)| {
                                 owner.id == plugin.id && group.id == pack.id
                             })
                     })
                 {
-                    bodies.push(self.tool_pack_group(plugin, pack, cx));
+                    bodies.push(self.tool_pack_group(plugin, pack, &query, cx));
                 }
             }
         }
-        bodies.extend(self.tool_groups(cx));
+        bodies.extend(self.tool_groups(&query, cx));
         if bodies.is_empty() {
             bodies.push(note("Ничего не найдено.", cx).into_any_element());
         }
@@ -79,6 +79,7 @@ impl SettingsView {
         &self,
         plugin: &ConfigBuilderPlugin,
         pack: &ConfigBuilderToolPack,
+        query: &ToolQuery,
         cx: &Context<Self>,
     ) -> AnyElement {
         let snapshot = self.snapshot().expect("tools page needs a snapshot");
@@ -118,7 +119,7 @@ impl SettingsView {
             if let Some(tool) = find_tool(snapshot, name) {
                 if tool_pack(snapshot, name)
                     .is_some_and(|(owner, group)| owner.id == plugin.id && group.id == pack.id)
-                    && tool_matches(tool, &self.tool_query)
+                    && query.matches_tool(tool)
                 {
                     rows.push(self.tool_row(tool, cx));
                 }
@@ -153,14 +154,16 @@ impl SettingsView {
     }
 
     /// Tools not actually placed in a process pack keep their reported origin.
-    pub(super) fn tool_groups(&self, cx: &Context<Self>) -> Vec<AnyElement> {
+    pub(super) fn tool_groups(&self, query: &ToolQuery, cx: &Context<Self>) -> Vec<AnyElement> {
         let Some(snapshot) = self.snapshot() else {
             return Vec::new();
         };
         let mut groups = BTreeMap::<ToolOrigin<'_>, Vec<&ConfigBuilderTool>>::new();
-        for tool in snapshot.tools.iter().filter(|tool| {
-            tool_pack(snapshot, &tool.name).is_none() && tool_matches(tool, &self.tool_query)
-        }) {
+        for tool in snapshot
+            .tools
+            .iter()
+            .filter(|tool| tool_pack(snapshot, &tool.name).is_none() && query.matches_tool(tool))
+        {
             groups
                 .entry(tool_origin(tool, self.addons()))
                 .or_default()
@@ -179,10 +182,9 @@ impl SettingsView {
                 .into_any_element()
             })
             .collect();
-        let query = self.tool_query.to_lowercase();
         let missing: Vec<_> = missing_tools(snapshot, &self.draft)
             .into_iter()
-            .filter(|name| name.to_lowercase().contains(&query))
+            .filter(|name| query.matches_name(name))
             .collect();
         if !missing.is_empty() {
             bodies.push(

@@ -40,6 +40,7 @@ pub(super) struct Picker<T: Clone + PartialEq + 'static> {
     scroll: UniformListScrollHandle,
     pick: Pick<T>,
     render_label: Option<RenderLabel<T>>,
+    height_limit: Option<fn(&Window) -> Pixels>,
     _search: Subscription,
 }
 
@@ -73,6 +74,7 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
             scroll: UniformListScrollHandle::new(),
             pick: Rc::new(pick),
             render_label: None,
+            height_limit: None,
             _search: subscription,
         };
         picker.filter(None, cx);
@@ -118,6 +120,12 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
         render: impl Fn(&Choice<T>, &mut Window, &mut App) -> AnyElement + 'static,
     ) -> Self {
         self.render_label = Some(Rc::new(render));
+        self
+    }
+
+    /// Bound the list and its header together, leaving the list itself scrollable.
+    pub fn height_limit(mut self, limit: fn(&Window) -> Pixels) -> Self {
+        self.height_limit = Some(limit);
         self
     }
 
@@ -225,7 +233,12 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                     .scroll_to_item(self.cursor, ScrollStrategy::Nearest);
                 cx.notify();
             }
-            "enter" => {
+            // Search and Back are real header buttons: their focused Enter
+            // must reach the native press/release handler, not commit a row.
+            "enter"
+                if self.list_focus.is_focused(window)
+                    || self.search_focus(cx).is_focused(window) =>
+            {
                 if let Some(choice) = self.current() {
                     (self.pick)(choice.value.clone(), window, cx);
                 }
@@ -316,6 +329,7 @@ impl<T: Clone + PartialEq + 'static> Render for Picker<T> {
             .id("picker")
             .track_focus(&self.list_focus)
             .tab_stop(true)
+            .when_some(self.height_limit, |body, limit| body.max_h(limit(window)))
             .w_full()
             .min_w_0()
             .gap_1()

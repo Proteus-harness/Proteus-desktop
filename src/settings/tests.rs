@@ -54,6 +54,25 @@ fn text_values_round_trip_and_validate() {
 }
 
 #[test]
+fn numeric_fields_preserve_json_integer_spellings_beyond_binary64_precision() {
+    for text in [
+        "9007199254740993",
+        "-9007199254740993",
+        "18446744073709551615",
+    ] {
+        let value = parse_text(TextFormat::Number, text).unwrap().unwrap();
+        assert_eq!(value.to_string(), text);
+        assert_eq!(format_value(TextFormat::Number, &value), text);
+    }
+    assert_eq!(parse_text(TextFormat::Number, "1.5"), Ok(Some(json!(1.5))));
+    assert_eq!(
+        parse_text(TextFormat::Number, "1e3"),
+        Ok(Some(json!(1000.0)))
+    );
+    assert!(parse_text(TextFormat::Number, "NaN").is_err());
+}
+
+#[test]
 fn changes_send_only_changed_sections() {
     let mut baseline = Draft::default();
     baseline.modules.insert("context".into(), "a".into());

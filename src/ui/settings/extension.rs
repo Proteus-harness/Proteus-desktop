@@ -154,7 +154,7 @@ impl SettingsView {
                     })
                     .unwrap_or_else(|| div().into_any_element())
             });
-            parts.push(kit::surface(
+            let example = kit::surface(
                 v_flex()
                     .w_full()
                     .disclosure_frame(cx)
@@ -162,7 +162,8 @@ impl SettingsView {
                     .children(body)
                     .into_any_element(),
                 cx,
-            ));
+            );
+            parts.push(self.spotted(&key, example, cx));
         }
         parts.push(
             section(

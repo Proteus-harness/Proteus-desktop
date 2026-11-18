@@ -4,6 +4,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use gpui_kit::*;
 
@@ -15,12 +16,14 @@ const REACH_Y: Pixels = px(8.);
 
 /// Where the dragged tab would land: a pane and an index among its other
 /// tabs.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Default, PartialEq)]
 enum Target {
+    #[default]
     Home,
     At(PaneId, usize),
 }
 
+#[derive(Default)]
 struct Arrange {
     dragging: Option<String>,
     /// Bumped whenever a drag starts or ends, so the strips are drawn afresh
@@ -31,13 +34,14 @@ struct Arrange {
     bounds: HashMap<String, Bounds<Pixels>>,
 }
 
-thread_local! {
-    static STATE: RefCell<Arrange> = RefCell::new(Arrange {
-        dragging: None,
-        generation: 0,
-        target: Target::Home,
-        bounds: HashMap::new(),
-    });
+/// Shared by the strips of one workspace, never by two system windows.
+#[derive(Clone, Default)]
+pub(in crate::ui) struct TabArrangement(Rc<RefCell<Arrange>>);
+
+impl TabArrangement {
+    fn update<R>(&self, f: impl FnOnce(&mut Arrange) -> R) -> R {
+        f(&mut self.0.borrow_mut())
+    }
 }
 
 /// How one strip is drawn this frame.
@@ -51,12 +55,17 @@ pub(super) struct Frame {
     pub gap_width: Pixels,
 }
 
-pub(super) fn frame(pane: &Pane, layout: &TabLayout, cx: &App) -> Frame {
+pub(super) fn frame(
+    arrangement: &TabArrangement,
+    pane: &Pane,
+    layout: &TabLayout,
+    cx: &App,
+) -> Frame {
     let dragging = drag::current(cx)
         .and_then(|key| key.strip_prefix("tab:"))
         .filter(|id| layout.contains(id))
         .map(str::to_string);
-    STATE.with_borrow_mut(|state| {
+    arrangement.update(|state| {
         if state.dragging != dragging {
             if dragging.is_none() {
                 state.bounds.clear();
@@ -85,8 +94,8 @@ pub(super) fn frame(pane: &Pane, layout: &TabLayout, cx: &App) -> Frame {
     })
 }
 
-pub(super) fn record(id: &str, bounds: Bounds<Pixels>) {
-    STATE.with_borrow_mut(|state| match state.bounds.get_mut(id) {
+pub(super) fn record(arrangement: &TabArrangement, id: &str, bounds: Bounds<Pixels>) {
+    arrangement.update(|state| match state.bounds.get_mut(id) {
         Some(known) => *known = bounds,
         None => {
             state.bounds.insert(id.to_string(), bounds);
@@ -98,6 +107,7 @@ pub(super) fn record(id: &str, bounds: Bounds<Pixels>) {
 /// front of the first other tab whose middle lies to the right, within its
 /// own group of pinned or unpinned tabs; leaving the strip sends it back.
 pub(super) fn hover(
+    arrangement: &TabArrangement,
     pane: &Pane,
     dragging: &str,
     pinned: bool,
@@ -110,7 +120,7 @@ pub(super) fn hover(
         bottom: REACH_Y,
         ..Default::default()
     });
-    STATE.with_borrow_mut(|state| {
+    arrangement.update(|state| {
         let next = if reach.contains(&position) {
             let others = others(pane, dragging);
             let index = others
@@ -138,11 +148,15 @@ pub(super) fn hover(
 
 /// The tab a drop on the strip of `pane` lands in front of: `Some(None)`
 /// for the end of its group, `None` when the drag is not over this strip.
-pub(super) fn drop_before(pane: &Pane, dragging: &str) -> Option<Option<String>> {
-    let index = STATE.with_borrow(|state| match state.target {
-        Target::At(at, index) if at == pane.id => Some(index),
-        _ => None,
-    })?;
+pub(super) fn drop_before(
+    arrangement: &TabArrangement,
+    pane: &Pane,
+    dragging: &str,
+) -> Option<Option<String>> {
+    let index = match arrangement.0.borrow().target {
+        Target::At(at, index) if at == pane.id => index,
+        _ => return None,
+    };
     Some(others(pane, dragging).get(index).cloned())
 }
 
@@ -167,5 +181,40 @@ fn clamp(pane: &Pane, dragging: &str, pinned: bool, index: usize) -> usize {
         index.min(pinned_others)
     } else {
         index.clamp(pinned_others, others)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[::core::prelude::v1::test]
+    fn another_windows_frame_keeps_the_first_windows_target_and_geometry() {
+        let app = ::gpui::TestAppContext::single();
+        let first = TabArrangement::default();
+        let second = TabArrangement::default();
+        let mut pane = Pane::new(PaneId(0));
+        pane.tabs = vec!["a".into(), "b".into(), "c".into()];
+        record(
+            &first,
+            "a",
+            Bounds::new(point(px(10.), px(20.)), size(px(80.), px(24.))),
+        );
+        first.update(|state| {
+            state.dragging = Some("a".into());
+            state.target = Target::At(pane.id, 1);
+        });
+        record(
+            &second,
+            "a",
+            Bounds::new(point(px(400.), px(90.)), size(px(160.), px(24.))),
+        );
+        app.update(|cx| {
+            prefs::init_in_memory(cx);
+            frame(&second, &pane, &TabLayout::default(), cx);
+        });
+        assert_eq!(drop_before(&first, &pane, "a"), Some(Some("c".into())));
+        assert_eq!(first.0.borrow().bounds["a"].size.width, px(80.));
+        assert!(drop_before(&second, &pane, "a").is_none());
     }
 }

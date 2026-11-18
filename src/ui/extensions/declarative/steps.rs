@@ -13,8 +13,8 @@ use gpui_kit::*;
 use crate::ui::{motion, prefs};
 
 pub(super) struct Stepper {
-    pub options: Vec<String>,
-    pub selected: usize,
+    options: Vec<String>,
+    selected: usize,
     scrub: Option<usize>,
     track: Rc<Cell<Bounds<Pixels>>>,
     thumb: Rc<Cell<Option<f32>>>,
@@ -43,6 +43,17 @@ impl Stepper {
             thumb: Rc::default(),
             changed: Rc::new(changed),
         }
+    }
+    /// A pending pointer position refers to the option list on which it was chosen.
+    pub(super) fn sync_options(&mut self, options: &[String], selected: usize) -> bool {
+        if self.options != options {
+            self.scrub = None;
+            self.options = options.to_vec();
+        } else if self.selected == selected {
+            return false;
+        }
+        self.selected = selected;
+        true
     }
     fn scrub_to(&mut self, position: usize, cx: &mut Context<Self>) {
         self.scrub = Some(position);
@@ -275,6 +286,23 @@ fn paint_pill(
 mod tests {
     use super::*;
     use gpui_kit::{black, white};
+
+    #[::core::prelude::v1::test]
+    fn refreshed_options_invalidate_a_pending_position_but_selection_alone_does_not() {
+        let options = ["Low", "Medium", "High"].map(str::to_owned);
+        let mut stepper = Stepper::new(options.to_vec(), 0, |_, _| {});
+        stepper.scrub = Some(2);
+        assert!(!stepper.sync_options(&options, 0));
+        assert!(stepper.sync_options(&options, 1));
+        assert_eq!(stepper.scrub, Some(2));
+        let reordered = [options[2].clone(), options[0].clone(), options[1].clone()];
+        assert!(stepper.sync_options(&reordered, 1));
+        assert_eq!(stepper.scrub, None);
+        stepper.scrub = Some(2);
+        assert!(stepper.sync_options(&reordered[..2], 0));
+        assert_eq!(stepper.scrub, None);
+        assert_eq!(stepper.selected, 0);
+    }
 
     #[::core::prelude::v1::test]
     fn maximum_surface_radius_keeps_effort_endpoints_round_and_inside_track() {

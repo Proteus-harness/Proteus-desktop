@@ -21,6 +21,12 @@ pub(super) enum Status {
     Installed,
 }
 
+impl Status {
+    pub(super) fn in_overview_installed(self) -> bool {
+        matches!(self, Self::Installed | Self::Broken)
+    }
+}
+
 pub(super) struct Item<'a> {
     pub source: &'a Source,
     pub catalog: &'a Catalog,
@@ -44,17 +50,21 @@ impl Item<'_> {
     }
 
     fn matches(&self, query: &str) -> bool {
-        query.is_empty()
-            || [
-                self.entry.id.as_str(),
-                &self.entry.title,
-                &self.entry.description,
-                self.entry.kind.title(),
-                self.category().unwrap_or_default(),
-                &self.catalog.title,
-            ]
-            .iter()
-            .any(|text| text.to_lowercase().contains(query))
+        if query.is_empty() {
+            return true;
+        }
+        let search_fields = [
+            self.entry.id.as_str(),
+            &self.entry.title,
+            &self.entry.description,
+            self.entry.kind.title(),
+            self.category().unwrap_or_default(),
+            &self.catalog.title,
+        ]
+        .map(str::to_lowercase);
+        query
+            .split_whitespace()
+            .all(|word| search_fields.iter().any(|field| field.contains(word)))
     }
 }
 
@@ -233,6 +243,47 @@ mod tests {
     use crate::catalog::inventory::Package;
 
     #[test]
+    fn overview_surfaces_broken_packages_and_search_matches_words_across_fields() {
+        let source = Source {
+            url: "https://example.invalid/extensions".into(),
+            branch: None,
+        };
+        let entry: Entry = serde_json::from_value(serde_json::json!({
+            "id": "mermaid-render",
+            "kind": "client_extension",
+            "title": "Диаграммы Mermaid",
+            "description": "Диаграмма в Markdown",
+            "category": "content",
+            "version": "1.0",
+            "path": "packages/mermaid"
+        }))
+        .unwrap();
+        let catalog = Catalog {
+            root: "/extensions".into(),
+            revision: None,
+            title: "Extensions".into(),
+            categories: Vec::new(),
+            entries: vec![entry],
+            problems: Vec::new(),
+        };
+        let items = [Item {
+            source: &source,
+            catalog: &catalog,
+            entry: &catalog.entries[0],
+            installed: None,
+            present: None,
+            status: Status::Broken,
+        }];
+        let (updates, installed) = overview_rows(&items);
+        assert!(updates.is_empty());
+        assert_eq!(installed.len(), 1);
+        assert_eq!(installed[0].status, Status::Broken);
+        assert!(items[0].matches("диаграмма"));
+        assert!(items[0].matches("mermaid markdown"));
+        assert!(!items[0].matches("mermaid terminal"));
+    }
+
+    #[test]
     fn unknown_extension_version_is_installed_without_fabricating_update() {
         let mut package = Package {
             version: None,
@@ -281,7 +332,7 @@ mod tests {
 /// Rows the overview lists in full before linking to the rest.
 pub(super) const OVERVIEW_ROWS: usize = 5;
 
-/// The first updates and installed entries the overview shows.
+/// Surface packages needing repair even when the rest of the list is healthy.
 pub(super) fn overview_rows<'a, 'b>(
     items: &'b [Item<'a>],
 ) -> (Vec<&'b Item<'a>>, Vec<&'b Item<'a>>) {
@@ -292,5 +343,11 @@ pub(super) fn overview_rows<'a, 'b>(
             .take(OVERVIEW_ROWS)
             .collect()
     };
-    (pick(Status::Update), pick(Status::Installed))
+    let installed = items
+        .iter()
+        .filter(|item| item.status == Status::Broken)
+        .chain(items.iter().filter(|item| item.status == Status::Installed))
+        .take(OVERVIEW_ROWS)
+        .collect();
+    (pick(Status::Update), installed)
 }

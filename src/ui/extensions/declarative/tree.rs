@@ -2,6 +2,7 @@
 //! A branch that opens or closes draws its children as one block that grows
 //! or shrinks, like every other disclosure.
 
+use super::fields::WidgetAction;
 use crate::declarative::tree::Row;
 use crate::ui::motion;
 use gpui_kit::component::v_flex;
@@ -9,7 +10,6 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::HashMap;
 use std::ops::Range;
-use std::rc::Rc;
 
 /// How rows are indented and joined.
 #[derive(Clone, Copy, PartialEq)]
@@ -18,9 +18,6 @@ pub(super) struct Layout {
     pub chevrons: bool,
     pub guides: bool,
 }
-
-/// Sends an event of the row with this id to the process.
-pub(super) type RowAction = Rc<dyn Fn(String, &'static str, &mut App)>;
 
 pub(super) struct Tree {
     pub rows: Vec<Row>,
@@ -33,7 +30,7 @@ pub(super) struct Tree {
     /// Keeps the motion keys of this tree apart from other trees'.
     entity: EntityId,
     pub(super) view: WeakEntity<super::view::DeclarativeView>,
-    action: RowAction,
+    pub(super) action: WidgetAction,
     /// Embedded surfaces belong to the host scroller, so small trees render
     /// existing rows directly instead of requiring a virtual-list viewport.
     natural: bool,
@@ -62,7 +59,7 @@ impl Tree {
         natural: bool,
         view: WeakEntity<super::view::DeclarativeView>,
         cx: &mut Context<Self>,
-        action: impl Fn(String, &'static str, &mut App) + 'static,
+        action: WidgetAction,
     ) -> Self {
         let mut tree = Self {
             rows,
@@ -73,7 +70,7 @@ impl Tree {
             folds: Vec::new(),
             entity: cx.entity_id(),
             view,
-            action: Rc::new(action),
+            action,
             natural,
         };
         tree.list.splice(0..0, tree.rows.len());
@@ -138,6 +135,9 @@ impl Tree {
 
     /// Moving folds by row, dropping the ones that have settled.
     fn spans(&mut self, cx: &App) -> Vec<Span> {
+        if self.folds.is_empty() {
+            return Vec::new();
+        }
         let mut settled = Vec::new();
         let keys: Vec<_> = self
             .folds
@@ -228,11 +228,24 @@ impl Tree {
 
     pub(super) fn act_at(&self, index: usize, event: &'static str, cx: &mut App) {
         if let Some(row) = self.rows.get(index) {
-            (self.action)(row.id.clone(), event, cx);
+            self.action.row(&row.id, event, cx);
         }
     }
 
     fn act(&self, event: &'static str, cx: &mut App) {
+        // Only a header-only tree can have keyboard focus on a section.
+        // Navigation stays local; activation uses the section's mouse events.
+        let event = match self.rows.get(self.cursor).filter(|row| row.header()) {
+            Some(_) if event == "preview" => return,
+            Some(row) if matches!(event, "open" | "select") => {
+                if row.expanded == Some(true) {
+                    "collapse"
+                } else {
+                    "expand"
+                }
+            }
+            _ => event,
+        };
         self.act_at(self.cursor, event, cx);
     }
 
@@ -248,7 +261,8 @@ impl Tree {
         } else {
             backward.or(forward)
         };
-        found.unwrap_or(self.cursor)
+        // If no items remain, let the keyboard reach each section to reopen it.
+        found.unwrap_or(index)
     }
 
     /// Rows under the open branch nearest to the cursor and that branch's
@@ -419,4 +433,91 @@ fn folds(old: &[Row], new: &[Row]) -> Vec<Fold> {
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod navigation_tests {
+    use super::*;
+    use serde_json::json;
+    use std::{cell::RefCell, rc::Rc};
+
+    #[::core::prelude::v1::test]
+    fn all_collapsed_sections_remain_keyboard_reachable_and_expandable() {
+        let mut app = ::gpui::TestAppContext::single();
+        app.update(|cx| {
+            gpui_kit::init(cx);
+            crate::ui::prefs::init_in_memory(cx);
+        });
+        let window = app.add_empty_window();
+        let sent = Rc::new(RefCell::new(Vec::new()));
+        window.update(|_, cx| {
+            let observed = sent.clone();
+            let action = WidgetAction::new("sections", move |_, value, _| {
+                observed.borrow_mut().push(value)
+            });
+            let row = |id| {
+                serde_json::from_value(json!({
+                    "id":id, "label":id, "kind":"header", "expanded":false
+                }))
+                .unwrap()
+            };
+            let tree = cx.new(|cx| {
+                Tree::new(
+                    vec![row("staged"), row("unstaged")],
+                    Layout {
+                        indent: 16.,
+                        chevrons: true,
+                        guides: false,
+                    },
+                    false,
+                    WeakEntity::new_invalid(),
+                    cx,
+                    action,
+                )
+            });
+            tree.update(cx, |tree, cx| {
+                tree.key(
+                    &KeyDownEvent {
+                        keystroke: Keystroke::parse("down").unwrap(),
+                        is_held: false,
+                        prefer_character_input: false,
+                    },
+                    cx,
+                );
+                assert_eq!(tree.cursor, 1);
+                tree.key(
+                    &KeyDownEvent {
+                        keystroke: Keystroke::parse("enter").unwrap(),
+                        is_held: false,
+                        prefer_character_input: false,
+                    },
+                    cx,
+                );
+                tree.key(
+                    &KeyDownEvent {
+                        keystroke: Keystroke::parse("up").unwrap(),
+                        is_held: false,
+                        prefer_character_input: false,
+                    },
+                    cx,
+                );
+                assert_eq!(tree.cursor, 0);
+                tree.key(
+                    &KeyDownEvent {
+                        keystroke: Keystroke::parse("space").unwrap(),
+                        is_held: false,
+                        prefer_character_input: false,
+                    },
+                    cx,
+                );
+            });
+        });
+        assert_eq!(
+            *sent.borrow(),
+            vec![
+                json!({"id":"unstaged","event":"expand"}),
+                json!({"id":"staged","event":"expand"}),
+            ]
+        );
+    }
 }

@@ -81,6 +81,34 @@ fn reset_restores_the_saved_list_order_and_keeps_other_edits() {
 }
 
 #[::core::prelude::v1::test]
+fn checkbox_membership_revert_restores_the_saved_order_and_omission() {
+    let original = json!([false, 4, "x"]);
+    for explicit in [false, true] {
+        let config = if explicit {
+            json!({"choices":original})
+        } else {
+            json!({})
+        };
+        with_view(config, |view, cx| {
+            let spec = FieldSpec {
+                path: FieldPath::new("tool", "codex_patch", "choices"),
+                field: ConfigField::new("choices", "Choices", "", ConfigValueSchema::Json {})
+                    .with_default(original.clone()),
+                value: None,
+                view: view.downgrade(),
+            };
+            spec.set_choices(vec![json!("x"), json!(4)], cx);
+            spec.set_choices(vec![json!("x"), json!(4), json!(false)], cx);
+            view.update(cx, |view, _| assert_clean(view));
+        });
+    }
+    assert_eq!(
+        checkbox_value(vec![json!(1), json!(2)], Some(&json!([2, 2]))),
+        json!([1, 2])
+    );
+}
+
+#[::core::prelude::v1::test]
 fn switch_revert_restores_explicit_and_omitted_defaults_without_reverting_siblings() {
     for explicit in [false, true] {
         let mut config = json!({"reject_self_move":false});

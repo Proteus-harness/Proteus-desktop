@@ -12,6 +12,7 @@ use super::workspace::Workspace;
 use crate::preferences::BadgePlace;
 
 mod arrange;
+pub(super) use arrange::BadgeArrangement;
 
 impl Workspace {
     /// Builds icons that became visible and drops the hidden ones, so an
@@ -60,7 +61,7 @@ impl Workspace {
             .map(|manifest| manifest.id)
             .filter(|id| self.badges.contains_key(id))
             .collect();
-        let frame = arrange::frame(place, &ids, cx);
+        let frame = arrange::frame(&self.badge_arrangement, place, &ids, cx);
         // Keep an empty destination while dragging, but do not reserve a row
         // when this place has neither a widget nor an active drop target.
         if ids.is_empty() && frame.dragging.is_none() {
@@ -102,8 +103,9 @@ impl Workspace {
             let item = if source {
                 div()
             } else {
+                let arrangement = self.badge_arrangement.clone();
                 item_box(vertical)
-                    .on_prepaint(move |bounds, _, _| arrange::record(id, bounds))
+                    .on_prepaint(move |bounds, _, _| arrange::record(&arrangement, id, bounds))
                     .child(self.badges[id].clone())
             };
             row.push(
@@ -123,6 +125,7 @@ impl Workspace {
             row.push(gap(index).into_any_element());
         }
         let hover_others = others.clone();
+        let hover_arrangement = self.badge_arrangement.clone();
         let dragging = frame.dragging.is_some();
         let zone = dragging.then(|| drop_zone(place, frame.hovered, cx));
         let strip = if vertical {
@@ -148,6 +151,7 @@ impl Workspace {
                 .children(row)
                 .on_drag_move::<DraggedBadge>(move |event, window, _| {
                     arrange::hover(
+                        &hover_arrangement,
                         place,
                         &hover_others,
                         event.bounds,
@@ -155,7 +159,9 @@ impl Workspace {
                         window,
                     )
                 })
-                .when(dragging, |strip| strip.child(drop_catcher(place, others)))
+                .when(dragging, |strip| {
+                    strip.child(drop_catcher(self.badge_arrangement.clone(), place, others))
+                })
                 .into_any_element(),
         )
     }
@@ -228,7 +234,11 @@ fn drop_zone(place: BadgePlace, hovered: bool, cx: &App) -> impl IntoElement {
 
 /// Drop target reaching a little past the row on every side, laid over it
 /// while an icon is dragged.
-fn drop_catcher(place: BadgePlace, others: Vec<&'static str>) -> impl IntoElement {
+fn drop_catcher(
+    arrangement: BadgeArrangement,
+    place: BadgePlace,
+    others: Vec<&'static str>,
+) -> impl IntoElement {
     let (x, y) = arrange::reach(place);
     div()
         .absolute()
@@ -237,7 +247,7 @@ fn drop_catcher(place: BadgePlace, others: Vec<&'static str>) -> impl IntoElemen
         .left(-x)
         .right(-x)
         .on_drop(move |dragged: &DraggedBadge, _, cx| {
-            let Some(index) = arrange::drop_index(place) else {
+            let Some(index) = arrange::drop_index(&arrangement, place) else {
                 return;
             };
             let before = others

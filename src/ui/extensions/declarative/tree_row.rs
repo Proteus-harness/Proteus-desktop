@@ -116,10 +116,7 @@ impl Tree {
             })
             .children(checkbox)
             .when(
-                index == Some(self.cursor)
-                    && focused
-                    && !row.header()
-                    && crate::ui::kit::keyboard(),
+                index == Some(self.cursor) && focused && crate::ui::kit::keyboard(),
                 |element| element.child(crate::ui::selection::focus(cx)),
             )
             .when_some(hint, |element, hint| element.tip_text(hint));

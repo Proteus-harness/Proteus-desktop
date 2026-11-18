@@ -11,10 +11,6 @@ use crate::ui::kit::Frame as _;
 use crate::ui::kit::Pressable as _;
 use crate::ui::{fade::faded, format::editor_preview, motion};
 
-pub(super) fn disclosure_id(id: &str) -> String {
-    format!("input-preview:{id}")
-}
-
 /// This limits measured display rows, rather than allocating a fixed height.
 pub(super) fn max_rows(value: &str, min_rows: usize, grow: bool) -> usize {
     if grow {
@@ -59,11 +55,14 @@ pub(in crate::ui::extensions::declarative) fn render(
         // The editor propagates wheel events when it fits, or at its edge.
         return area.into_any_element();
     };
-    let id = disclosure_id(id);
-    let open = view.fields.disclosures.get(&id).copied().unwrap_or(false);
-    let key: SharedString = format!("extension-input-{}-{id}", cx.entity_id()).into();
-    let (toggle, input_id) = (key.clone(), id.clone());
-    let (keyboard_toggle, keyboard_id) = (key.clone(), id.clone());
+    let open = view
+        .fields
+        .inputs
+        .get(id)
+        .is_some_and(|input| input.preview_open);
+    let key: SharedString = format!("extension-input-{}-input-preview:{id}", cx.entity_id()).into();
+    let (toggle, input_id) = (key.clone(), id.to_owned());
+    let (keyboard_toggle, keyboard_id) = (key.clone(), id.to_owned());
     let focus = state.read(cx).focus_handle(cx);
     let keyboard_focus = focus.clone();
     let header = h_flex()
@@ -89,7 +88,7 @@ pub(in crate::ui::extensions::declarative) fn render(
         }))
         .on_click(cx.listener(move |view, _, _, cx| {
             cx.emit(WillResize);
-            view.fields.disclosures.insert(input_id.clone(), !open);
+            view.fields.set_input_preview(&input_id, !open);
             motion::toggled(toggle.clone(), !open, cx);
             cx.notify();
         }))
@@ -100,7 +99,7 @@ pub(in crate::ui::extensions::declarative) fn render(
                 && matches!(event.keystroke.key.as_str(), "enter" | "space")
             {
                 cx.emit(WillResize);
-                view.fields.disclosures.insert(keyboard_id.clone(), true);
+                view.fields.set_input_preview(&keyboard_id, true);
                 motion::toggled(keyboard_toggle.clone(), true, cx);
                 cx.notify();
                 cx.stop_propagation();

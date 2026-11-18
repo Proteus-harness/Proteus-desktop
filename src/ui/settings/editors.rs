@@ -119,10 +119,23 @@ impl Editors {
             || self.mcp.values().any(McpForm::has_errors)
     }
 
+    pub(super) fn form_error(&self, slot: &str, module: &str) -> bool {
+        self.fields.iter().any(|(path, field)| {
+            path.slot == slot && path.module == module && field.error.is_some()
+        })
+    }
+
     fn forget_form(&mut self, slot: &str, module: &str) {
         self.fields
             .retain(|path, _| path.slot != slot || path.module != module);
     }
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum ParameterMode {
+    Form,
+    Json,
+    DiscardInvalidFormAndOpenJson,
 }
 
 pub(super) fn module_key(slot: &str, module: &str) -> ModuleKey {
@@ -470,15 +483,31 @@ impl SettingsView {
         }
     }
 
-    /// Switches one module between the form and raw JSON; each side is
-    /// rebuilt from the draft.
-    pub(super) fn toggle_json(&mut self, slot: &str, module: &str, cx: &mut Context<Self>) {
+    /// Rebuilds the destination from the draft. Invalid form text is discarded
+    /// only after the user chooses the explicit discard action.
+    pub(super) fn switch_mode(
+        &mut self,
+        slot: &str,
+        module: &str,
+        target: ParameterMode,
+        cx: &mut Context<Self>,
+    ) {
         let key = module_key(slot, module);
-        if self.json.remove(&key) {
-            self.editors.json.remove(&key);
-        } else {
-            self.editors.forget_form(slot, module);
-            self.json.insert(key);
+        match target {
+            ParameterMode::Form => {
+                if self.json_error(slot, module) || !self.json.remove(&key) {
+                    return;
+                }
+                self.editors.json.remove(&key);
+            }
+            ParameterMode::Json | ParameterMode::DiscardInvalidFormAndOpenJson => {
+                if (matches!(target, ParameterMode::Json) && self.editors.form_error(slot, module))
+                    || !self.json.insert(key)
+                {
+                    return;
+                }
+                self.editors.forget_form(slot, module);
+            }
         }
         cx.notify();
     }
@@ -556,11 +585,5 @@ struct TextLeaf {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::editor_max_rows;
-
-    #[test]
-    fn editor_growth_counts_unicode_characters() {
-        assert_eq!(editor_max_rows("я\n"), 3);
-    }
-}
+#[path = "audit_tests/parameter_modes.rs"]
+mod tests;

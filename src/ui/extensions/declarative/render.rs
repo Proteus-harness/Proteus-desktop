@@ -126,22 +126,30 @@ impl DeclarativeView {
                         crate::ui::motion::toggled(toggle.clone(), !opened, cx);
                         cx.notify();
                     }));
-                let inset = cx
-                    .theme()
-                    .radius
-                    .max(prefs::scaled(8.).to_pixels(cx.theme().font_size));
-                let content = self
-                    .fill(children, path, cx)
-                    .w_full()
-                    .px(inset)
-                    .pb(inset)
-                    .into_any_element();
+                // The motion helper takes an immutable App, but building the subtree
+                // needs the mutable view context. Use one instant for both decisions.
+                let at = std::time::Instant::now();
+                let body = if opened || crate::ui::motion::moving_at(&key, opened, at, cx) {
+                    let inset = cx
+                        .theme()
+                        .radius
+                        .max(prefs::scaled(8.).to_pixels(cx.theme().font_size));
+                    let content = self
+                        .fill(children, path, cx)
+                        .w_full()
+                        .px(inset)
+                        .pb(inset)
+                        .into_any_element();
+                    crate::ui::motion::reveal_at(key, opened, at, cx, || content)
+                } else {
+                    None
+                };
                 kit::surface(
                     v_flex()
                         .w_full()
                         .disclosure_frame(cx)
                         .child(header)
-                        .children(crate::ui::motion::reveal(key, opened, cx, || content)),
+                        .children(body),
                     cx,
                 )
             }

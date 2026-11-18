@@ -3,6 +3,7 @@
 //! holding the room of locked neighbours, no single-child or nested
 //! same-axis splits.
 
+use super::geometry::Rect;
 use super::layout::TabLayout;
 use super::pane::Pane;
 use super::tree::{Edge, PaneId};
@@ -132,7 +133,12 @@ impl TabLayout {
     /// Moves the focus to the pane beyond `edge` of the focused one;
     /// returns that pane's active tab.
     pub fn focus_neighbor(&mut self, edge: Edge) -> Option<String> {
-        let pane = self.neighbor(self.focused, edge)?;
+        self.focus_neighbor_in(edge, &self.rects())
+    }
+
+    /// Moves focus using the pane rectangles for the rendered layout.
+    pub fn focus_neighbor_in(&mut self, edge: Edge, rects: &[(PaneId, Rect)]) -> Option<String> {
+        let pane = Self::neighbor_in(rects, self.focused, edge)?;
         self.focus(pane);
         self.active(pane).map(str::to_string)
     }

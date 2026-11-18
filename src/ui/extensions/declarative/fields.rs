@@ -11,6 +11,41 @@ use std::collections::HashMap;
 
 pub(super) mod textarea;
 
+#[cfg(test)]
+mod tests;
+
+/// A retained widget keeps its event sink, but its current declaration names the action.
+pub(super) struct WidgetAction {
+    name: String,
+    send: Box<dyn Fn(String, serde_json::Value, &mut App)>,
+}
+
+impl WidgetAction {
+    pub(super) fn new(
+        name: &str,
+        send: impl Fn(String, serde_json::Value, &mut App) + 'static,
+    ) -> Self {
+        Self {
+            name: name.to_owned(),
+            send: Box::new(send),
+        }
+    }
+
+    fn rebind(&mut self, name: &str) {
+        if self.name != name {
+            name.clone_into(&mut self.name);
+        }
+    }
+
+    pub(super) fn emit(&self, value: serde_json::Value, cx: &mut App) {
+        (self.send)(self.name.clone(), value, cx);
+    }
+
+    pub(super) fn row(&self, id: &str, event: &'static str, cx: &mut App) {
+        self.emit(serde_json::json!({"id": id, "event": event}), cx);
+    }
+}
+
 pub(super) enum Text {
     Line(Entity<InputState>),
     Area(Entity<TextareaState>),
@@ -54,9 +89,28 @@ pub(super) struct TextInput {
     pub state: Text,
     pub settings: bool,
     pub grow: bool,
+    preview_open: bool,
+    // Bindings may change while the native field with this id stays mounted.
+    action: String,
+    submit: Option<String>,
+    lines: usize,
     value: String,
     placeholder: String,
     _subscription: Subscription,
+}
+
+impl TextInput {
+    fn action_for(&self, text: &str, event: &InputEvent) -> Option<&str> {
+        match event {
+            InputEvent::Change if self.value != text => Some(&self.action),
+            InputEvent::PressEnter { secondary, .. }
+                if *secondary == matches!(self.state, Text::Area(_)) =>
+            {
+                self.submit.as_deref()
+            }
+            _ => None,
+        }
+    }
 }
 
 /// Embedded prose keeps only its source and disclosure state, without an
@@ -108,6 +162,14 @@ pub(super) struct Fields {
     pub pickers: HashMap<String, Entity<crate::ui::picker::Picker<serde_json::Value>>>,
 }
 
+impl Fields {
+    fn set_input_preview(&mut self, id: &str, open: bool) {
+        if let Some(input) = self.inputs.get_mut(id) {
+            input.preview_open = open;
+        }
+    }
+}
+
 impl DeclarativeView {
     pub(super) fn prune_fields(&mut self, root: &Node) {
         let mut ids = std::collections::HashSet::new();
@@ -120,7 +182,6 @@ impl DeclarativeView {
             }
             Node::Input { id, .. } => {
                 ids.insert((0, id.clone()));
-                ids.insert((9, textarea::disclosure_id(id)));
             }
             Node::Code { id, .. } => {
                 ids.insert((1, id.clone()));
@@ -318,17 +379,13 @@ impl DeclarativeView {
             } => {
                 if let Some(graph) = self.fields.graphs.get(id) {
                     graph.update(cx, |graph, cx| {
+                        graph.action.rebind(action);
                         graph.set_data(nodes.clone(), edges.clone(), cx)
                     });
                 } else {
-                    let (this, action) = (cx.weak_entity(), action.clone());
-                    let graph = cx.new(|_| {
-                        super::graph::Graph::new(nodes.clone(), edges.clone(), move |id, cx| {
-                            let _ = this.update(cx, |this, cx| {
-                                this.act(action.clone(), Some(serde_json::json!(id)), cx)
-                            });
-                        })
-                    });
+                    let send = self.widget_action(action, cx);
+                    let graph =
+                        cx.new(|_| super::graph::Graph::new(nodes.clone(), edges.clone(), send));
                     self.fields.graphs.insert(id.clone(), graph);
                 }
             }
@@ -343,7 +400,15 @@ impl DeclarativeView {
             } => {
                 let grow = settings && *lines > 1;
                 if let Some(input) = self.fields.inputs.get_mut(id) {
-                    let layout_changed = input.grow != grow || input.value != *value;
+                    let layout_changed =
+                        input.grow != grow || input.lines != *lines || input.value != *value;
+                    if input.action != *action {
+                        input.action.clone_from(action);
+                    }
+                    if input.submit != *submit {
+                        input.submit.clone_from(submit);
+                    }
+                    input.lines = *lines;
                     input.settings = settings;
                     input.grow = grow;
                     if input.placeholder != *placeholder {
@@ -361,36 +426,22 @@ impl DeclarativeView {
                     }
                 } else {
                     let multi = *lines > 1;
-                    let (action, submit, identity) = (action.clone(), submit.clone(), id.clone());
+                    let identity = id.clone();
                     let handle =
                         move |this: &mut DeclarativeView,
                               text: SharedString,
                               event: &InputEvent,
                               cx: &mut Context<DeclarativeView>| {
-                            match event {
-                                InputEvent::Change
-                                    if this
-                                        .fields
-                                        .inputs
-                                        .get(&identity)
-                                        .is_some_and(|input| input.value != text.as_ref()) =>
-                                {
-                                    this.act(
-                                        action.clone(),
-                                        Some(serde_json::json!(text.to_string())),
-                                        cx,
-                                    )
-                                }
-                                InputEvent::PressEnter { secondary, .. } if *secondary == multi => {
-                                    if let Some(submit) = &submit {
-                                        this.act(
-                                            submit.clone(),
-                                            Some(serde_json::json!(text.to_string())),
-                                            cx,
-                                        )
-                                    }
-                                }
-                                _ => {}
+                            let Some(input) = this.fields.inputs.get(&identity) else {
+                                return;
+                            };
+                            let action = input.action_for(&text, event);
+                            if let Some(action) = action {
+                                this.act(
+                                    action.to_owned(),
+                                    Some(serde_json::json!(text.to_string())),
+                                    cx,
+                                );
                             }
                         };
                     let (state, subscription) = if multi {
@@ -401,19 +452,15 @@ impl DeclarativeView {
                             input.set_value(value.clone(), window, cx);
                             input
                         });
-                        let (input_id, min_rows) = (id.clone(), *lines);
+                        let input_id = id.clone();
                         let subscription = cx.subscribe(&state, move |this, state, event, cx| {
-                            if matches!(event, InputEvent::Change) {
-                                let grow = this
-                                    .fields
-                                    .inputs
-                                    .get(&input_id)
-                                    .is_some_and(|input| input.grow);
+                            if matches!(event, InputEvent::Change)
+                                && let Some(input) = this.fields.inputs.get(&input_id)
+                            {
+                                let (min_rows, grow) = (input.lines, input.grow);
                                 textarea::resize(&state, min_rows, grow, cx);
                                 if grow && textarea::preview(&state.read(cx).value()).is_some() {
-                                    this.fields
-                                        .disclosures
-                                        .insert(textarea::disclosure_id(&input_id), true);
+                                    this.fields.set_input_preview(&input_id, true);
                                 }
                             }
                             let text = state.read(cx).value();
@@ -439,6 +486,10 @@ impl DeclarativeView {
                             state,
                             settings,
                             grow,
+                            preview_open: false,
+                            action: action.clone(),
+                            submit: submit.clone(),
+                            lines: *lines,
                             value: value.clone(),
                             placeholder: placeholder.clone(),
                             _subscription: subscription,
@@ -551,9 +602,12 @@ impl DeclarativeView {
                     guides: *guides,
                 };
                 if let Some(tree) = self.fields.trees.get(id) {
-                    tree.update(cx, |tree, cx| tree.set_rows(rows.clone(), layout, cx));
+                    tree.update(cx, |tree, cx| {
+                        tree.action.rebind(action);
+                        tree.set_rows(rows.clone(), layout, cx);
+                    });
                 } else {
-                    let send = self.row_sender(action, cx);
+                    let send = self.widget_action(action, cx);
                     let view = cx.weak_entity();
                     let natural = self.embedded;
                     let tree =
@@ -569,11 +623,12 @@ impl DeclarativeView {
             } => {
                 if let Some(lanes) = self.fields.lanes.get(id) {
                     lanes.update(cx, |lanes, cx| {
+                        lanes.action.rebind(action);
                         lanes.set_columns(columns, cx);
                         lanes.set_rows(rows.clone(), cx);
                     });
                 } else {
-                    let send = self.row_sender(action, cx);
+                    let send = self.widget_action(action, cx);
                     let view = cx.weak_entity();
                     let lanes = cx.new(|cx| {
                         let mut lanes = Lanes::new(rows.clone(), view, cx, send);
@@ -585,9 +640,12 @@ impl DeclarativeView {
             }
             Node::List { id, rows, action } => {
                 if let Some(list) = self.fields.lists.get(id) {
-                    list.update(cx, |list, cx| list.set_rows(rows.clone(), cx));
+                    list.update(cx, |list, cx| {
+                        list.action.rebind(action);
+                        list.set_rows(rows.clone(), cx);
+                    });
                 } else {
-                    let send = self.row_sender(action, cx);
+                    let send = self.widget_action(action, cx);
                     let view = cx.weak_entity();
                     let list = cx.new(|cx| List::new(rows.clone(), view, cx, send));
                     self.fields.lists.insert(id.clone(), list);
@@ -615,21 +673,10 @@ impl DeclarativeView {
 }
 
 impl DeclarativeView {
-    /// Sends `{id, event}` of a tree, lanes or list row with `action`.
-    fn row_sender(
-        &self,
-        action: &str,
-        cx: &mut Context<Self>,
-    ) -> impl Fn(String, &'static str, &mut App) + 'static {
-        let (this, action) = (cx.weak_entity(), action.to_string());
-        move |id, event, cx| {
-            let _ = this.update(cx, |this, cx| {
-                this.act(
-                    action.clone(),
-                    Some(serde_json::json!({"id": id, "event": event})),
-                    cx,
-                )
-            });
-        }
+    fn widget_action(&self, action: &str, cx: &mut Context<Self>) -> WidgetAction {
+        let this = cx.weak_entity();
+        WidgetAction::new(action, move |name, value, cx| {
+            let _ = this.update(cx, |this, cx| this.act(name, Some(value), cx));
+        })
     }
 }

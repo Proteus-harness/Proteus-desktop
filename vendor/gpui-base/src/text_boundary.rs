@@ -8,12 +8,23 @@ enum CharacterKind {
     Other,
 }
 
+// Word selection in native input/selectable text and inline Markdown uses the same policy.
+// Script ranges follow the GPUI line wrapper; × and ÷ are symbols inside Latin-1.
+pub(crate) fn is_word_char(c: char) -> bool {
+    match c {
+        '×' | '÷' => false,
+        '_'
+        | '\u{00C0}'..='\u{024F}'
+        | '\u{0400}'..='\u{04FF}'
+        | '\u{1E00}'..='\u{1EFF}'
+        | '\u{0300}'..='\u{036F}' => true,
+        _ => c.is_ascii_alphanumeric(),
+    }
+}
+
 impl From<char> for CharacterKind {
     fn from(character: char) -> Self {
-        if character == '_'
-            || character.is_ascii_alphanumeric()
-            || matches!(character, '\u{00C0}'..='\u{024F}' | '\u{0400}'..='\u{04FF}' | '\u{1E00}'..='\u{1EFF}' | '\u{0300}'..='\u{036F}')
-        {
+        if is_word_char(character) {
             Self::Word
         } else if matches!(character, '\n' | '\r') {
             Self::Newline
