@@ -68,14 +68,21 @@ def runner_options(args):
     return cargo + args[boundary:], extensions, build
 
 
-def include_ignored(args):
-    """Enable explicit conformance without treating libtest args as Cargo flags."""
-    if "--" not in args:
-        return [*args, "--", "--include-ignored"]
-    boundary = args.index("--")
-    if "--ignored" in args[boundary + 1:] or "--include-ignored" in args[boundary + 1:]:
-        return args
-    return [*args, "--include-ignored"]
+CONFORMANCE = "declarative::protocol::tests::shipped_processes_conform_to_the_public_ui_protocol"
+
+
+def conformance_args(args):
+    """Run only wire conformance after an unfiltered default workspace gate.
+
+    Explicit Cargo scopes and libtest arguments remain entirely caller-owned.
+    The default release gate reuses its built Native target for this one test.
+    """
+    build_flags = {"--release", "--locked", "--offline", "--frozen", "-q", "--quiet",
+                   "-v", "-vv", "--verbose"}
+    if any(arg not in build_flags for arg in args):
+        return None
+    return [*args, "-p", "proteus-native", "--bin", "proteus-native",
+            CONFORMANCE, "--", "--ignored", "--exact"]
 
 
 def explicit_selection(args):
@@ -106,13 +113,16 @@ def main(args):
         require_extensions(extensions / "packages", hint="Prepare extensions explicitly: python3 scripts/test.py --build-extensions.", path=env.get("PATH"))
         env["PROTEUS_TEST_EXTENSIONS_SOURCE"] = str(extensions)
         env["PROTEUS_EXTENSIONS_DIR"] = str(extensions / "packages")
-        args = include_ignored(args)
     if headless:
         print("Targeted headless package check; not the client workspace gate.", file=sys.stderr)
     else:
         env = prepare_desktop(ROOT, args, env)
     selection = [] if explicit_selection(args) else ["--workspace"]
-    return subprocess.call(["cargo", "test", "--locked", *selection, *args], cwd=ROOT, env=env)
+    result = subprocess.call(["cargo", "test", "--locked", *selection, *args], cwd=ROOT, env=env)
+    conformance = conformance_args(args) if extensions_enabled else None
+    if result == 0 and conformance is not None:
+        return subprocess.call(["cargo", "test", "--locked", *conformance], cwd=ROOT, env=env)
+    return result
 
 
 if __name__ == "__main__":

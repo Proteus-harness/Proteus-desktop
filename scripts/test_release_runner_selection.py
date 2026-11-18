@@ -140,14 +140,19 @@ class RunnerTests(unittest.TestCase):
         self.assertNotIn("PROTEUS_TEST_EXTENSIONS_SOURCE", cargo.kwargs["env"])
 
     def test_extensions_are_ready_only_and_explicit(self):
-        self.assertEqual(self.runner.main(["--extensions", "--release", "--", "--nocapture"]), 0)
+        self.assertEqual(self.runner.main(["--extensions", "--release"]), 0)
         self.runner.resolve.assert_called_once_with("extensions")
         self.runner.subprocess.run.assert_not_called()
         self.runner.require_extensions.assert_called_once()
-        cargo = self.runner.subprocess.call.call_args
-        self.assertEqual(cargo.args[0], ["cargo", "test", "--locked", "--workspace", "--release", "--", "--nocapture", "--include-ignored"])
-        self.assertEqual(cargo.kwargs["env"]["PROTEUS_TEST_EXTENSIONS_SOURCE"], str(EXTENSIONS))
-        self.assertEqual(cargo.kwargs["env"]["PROTEUS_EXTENSIONS_DIR"], str(EXTENSIONS / "packages"))
+        calls = self.runner.subprocess.call.call_args_list
+        self.assertEqual(calls[0].args[0], ["cargo", "test", "--locked", "--workspace", "--release"])
+        self.assertEqual(calls[1].args[0], [
+            "cargo", "test", "--locked", "--release", "-p", "proteus-native", "--bin",
+            "proteus-native", self.runner.CONFORMANCE, "--", "--ignored", "--exact",
+        ])
+        env = calls[1].kwargs["env"]
+        self.assertEqual(env["PROTEUS_TEST_EXTENSIONS_SOURCE"], str(EXTENSIONS))
+        self.assertEqual(env["PROTEUS_EXTENSIONS_DIR"], str(EXTENSIONS / "packages"))
         self.assertEqual([c.args[0] for c in self.runner.check.call_args_list], [ROOT, EXTENSIONS])
 
     def test_build_extensions_is_the_only_build_opt_in(self):
@@ -157,18 +162,34 @@ class RunnerTests(unittest.TestCase):
         extensions_env.pop("ZIG")
         self.runner.subprocess.run.assert_called_once_with(
             [sys.executable, str(EXTENSIONS / "package.py"), "--dev"], check=True, env=extensions_env)
-        self.assertEqual(self.runner.subprocess.call.call_args.args[0][-2:], ["--", "--include-ignored"])
+        self.assertEqual(self.runner.subprocess.call.call_args.args[0][-3:], ["--", "--ignored", "--exact"])
 
-    def test_explicit_ignored_and_libtest_boundary(self):
-        for flag in ("--ignored", "--include-ignored"):
+    def test_explicit_scope_and_libtest_flags_are_not_widened_for_extensions(self):
+        for args in (
+            ["-p", "proteus-tabs", "--lib"],
+            ["-p", "proteus-native", "--bin", "proteus-native", "ui::reorder"],
+            ["--", "--nocapture"],
+            ["--", "--ignored"], ["--", "--include-ignored"],
+        ):
             runner = load_runner()
-            runner.main(["--extensions", "--", flag])
-            self.assertEqual(runner.subprocess.call.call_args.args[0].count(flag), 1)
+            runner.main(["--extensions", *args])
+            runner.subprocess.call.assert_called_once()
+            selection = [] if runner.explicit_selection(args) else ["--workspace"]
+            self.assertEqual(runner.subprocess.call.call_args.args[0],
+                             ["cargo", "test", "--locked", *selection, *args])
         runner = load_runner()
         runner.main(["--", "--extensions", "--build-extensions"])
         runner.resolve.assert_not_called()
         runner.subprocess.run.assert_not_called()
         self.assertEqual(runner.subprocess.call.call_args.args[0][-3:], ["--", "--extensions", "--build-extensions"])
+
+    def test_workspace_failure_prevents_conformance_and_its_failure_is_reported(self):
+        self.runner.subprocess.call.return_value = 101
+        self.assertEqual(self.runner.main(["--extensions"]), 101)
+        self.runner.subprocess.call.assert_called_once()
+        runner = load_runner()
+        runner.subprocess.call.side_effect = [0, 102]
+        self.assertEqual(runner.main(["--extensions"]), 102)
 
     def test_missing_ready_extensions_fail_before_cargo(self):
         self.runner.require_extensions.side_effect = SystemExit("missing executable; --build-extensions")
