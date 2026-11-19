@@ -189,7 +189,30 @@ impl Transcript {
             .map(|((turn, item), _)| (turn.as_str(), item.as_str()))
     }
 
-    pub(crate) fn external_trim_budget(&mut self, limit: usize, bytes: usize) -> Change {
+    /// Keep one scalar lower bound on unused bytes in the live Codex binding.
+    /// Only an in-place delta can have a bounded growth; inserts and replacements
+    /// require a recount, including row overhead, nested JSON and evictions.
+    pub(crate) fn external_trim_after_change(
+        &mut self,
+        limit: usize,
+        bytes: usize,
+        headroom: &mut usize,
+        growth: Option<usize>,
+    ) -> Change {
+        if let Some(growth) = growth
+            && growth > 0
+            && self.entries.len() <= limit
+            && let Some(left) = headroom.checked_sub(growth)
+        {
+            *headroom = left;
+            return Change::None;
+        }
+        let (change, left) = self.external_trim_budget(limit, bytes);
+        *headroom = left;
+        change
+    }
+
+    pub(crate) fn external_trim_budget(&mut self, limit: usize, bytes: usize) -> (Change, usize) {
         let mut count = self.entries.len().saturating_sub(limit);
         let mut retained = self.entries[count..]
             .iter()
@@ -199,12 +222,13 @@ impl Transcript {
             retained = retained.saturating_sub(self.entries[count].retained_bytes());
             count += 1;
         }
+        let left = bytes.saturating_sub(retained);
         if count == 0 {
-            return Change::None;
+            return (Change::None, left);
         }
         let change = self.remove(0..count);
         self.external_prune();
-        change
+        (change, left)
     }
 
     pub(crate) fn external_prune(&mut self) {
@@ -361,5 +385,68 @@ mod tests {
                 .sum::<usize>()
                 <= 200 * 1024
         );
+    }
+    #[::core::prelude::v1::test]
+    fn bounded_appends_evict_the_same_rows_as_a_full_recount() {
+        const LIMIT: usize = 5;
+        for budget in [0, 1024, 4096, 7000, 512 * 1024] {
+            let mut live = Transcript::default();
+            let mut left = 0;
+            for step in 0..160 {
+                let n = step / 8;
+                let id = n.to_string();
+                let mut bound = None;
+                let change = match step % 8 {
+                    0 => live.external_upsert(item(&id, "t", "seed", false)),
+                    1 | 2 | 4 | 6 => {
+                        let text = match step % 3 {
+                            0 => "Я".to_owned(),
+                            1 => "text".to_owned(),
+                            _ => "long ".repeat(55),
+                        };
+                        bound = Some(text.len());
+                        live.external_delta("t", &id, &text, false, false)
+                    }
+                    3 => live.external_upsert(Item {
+                        id: format!("tool-{id}"),
+                        turn_id: "t".into(),
+                        status: "running".into(),
+                        timestamp_ms: None,
+                        kind: ItemKind::Tool {
+                            name: "example".into(),
+                            input: serde_json::json!({"args":[1, 2, {"name":"value"}]}),
+                            output: String::new(),
+                        },
+                    }),
+                    5 => {
+                        let text = "out".repeat(31);
+                        bound = Some(text.len());
+                        live.external_delta("t", &format!("tool-{id}"), &text, false, true)
+                    }
+                    _ => live.external_upsert(item(&id, "t", &"я".repeat(700), true)),
+                };
+                if change == Change::None {
+                    continue;
+                }
+                // Clone after the fold. No later keys are allocated in either copy.
+                let mut checked = live.clone();
+                let (expected, exact_left) = checked.external_trim_budget(LIMIT, budget);
+                let growth = matches!(change, Change::Updated(_))
+                    .then_some(bound)
+                    .flatten();
+                let actual = live.external_trim_after_change(LIMIT, budget, &mut left, growth);
+                assert_eq!(actual, expected);
+                assert_eq!(live.external_ids, checked.external_ids);
+                assert_eq!(
+                    live.entries.iter().map(|row| row.key).collect::<Vec<_>>(),
+                    checked
+                        .entries
+                        .iter()
+                        .map(|row| row.key)
+                        .collect::<Vec<_>>(),
+                );
+                assert!(left <= exact_left);
+            }
+        }
     }
 }

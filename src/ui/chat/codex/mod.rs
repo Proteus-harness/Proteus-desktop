@@ -22,6 +22,7 @@ pub(super) struct Binding {
     pub selected: HashMap<(String, String), String>,
     pub responding: Vec<Value>,
     pub archive: Option<Transcript>,
+    live_headroom: usize,
     pub next_cursor: Option<String>,
     pub cursor_chain: Vec<Option<String>>,
     pub page_rows: std::collections::VecDeque<usize>,
@@ -88,7 +89,7 @@ impl Chat {
         for item in history.data {
             session.transcript.external_upsert(item);
         }
-        session.transcript.external_trim_budget(50, 8 * 1024 * 1024);
+        let (_, live_headroom) = session.transcript.external_trim_budget(50, 8 * 1024 * 1024);
         let mut chat = Self::base(None, workspace, session, extras, window, cx);
         chat.composer.update(cx, |state, cx| {
             state.set_placeholder("Сообщение для Codex", window, cx)
@@ -113,6 +114,7 @@ impl Chat {
             selected: HashMap::new(),
             responding: vec![],
             archive: None,
+            live_headroom,
             next_cursor: history.next_cursor,
             cursor_chain: vec![None],
             page_rows: Default::default(),
@@ -195,6 +197,12 @@ impl Chat {
         let state = self.session.external.as_mut().expect("Codex state");
         let mut settled = false;
         let mut rejected = None;
+        let append_bound = match &event {
+            Event::TextDelta { delta, .. }
+            | Event::ReasoningDelta { delta, .. }
+            | Event::ToolOutputDelta { delta, .. } => Some(delta.len()),
+            _ => None,
+        };
         let change = match event {
             Event::SubscriptionSuspended => {
                 self.session.connected = false;
@@ -349,10 +357,17 @@ impl Chat {
             {
                 self.apply_change(change, cx);
             }
-            let trimmed = self
-                .session
-                .transcript
-                .external_trim_budget(50, 8 * 1024 * 1024);
+            let headroom = &mut self.codex.as_mut().expect("Codex binding").live_headroom;
+            let trimmed = self.session.transcript.external_trim_after_change(
+                50,
+                8 * 1024 * 1024,
+                headroom,
+                if matches!(change, Change::Updated(_)) {
+                    append_bound
+                } else {
+                    None
+                },
+            );
             if self
                 .codex
                 .as_ref()
@@ -388,6 +403,8 @@ impl Chat {
             return;
         }
         let binding = self.codex.as_mut().expect("Codex binding");
+        // The optimistic row bypasses apply_codex until its canonical echo.
+        binding.live_headroom = 0;
         binding.send_generation += 1;
         let generation = binding.send_generation;
         let local = format!("local-send:{generation}");
