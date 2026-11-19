@@ -39,10 +39,11 @@ pub(in crate::ui) fn installed(cx: &App) -> &[SharedString] {
 /// sending a missing font through the native shaping fallback chain.
 pub(in crate::ui) fn resolve(requested: Option<&str>, cx: &App) -> Option<SharedString> {
     let requested = requested?;
-    installed(cx)
-        .iter()
-        .find(|family| family.as_ref() == requested)
-        .cloned()
+    let families = installed(cx);
+    let index = families
+        .binary_search_by(|family| family.as_str().cmp(requested))
+        .ok()?;
+    Some(families[index].clone())
 }
 
 pub(super) fn configure(

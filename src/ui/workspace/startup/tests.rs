@@ -60,6 +60,45 @@ fn startup_resumes_split_chats_without_resuming_hidden_tabs_or_reordering_them()
 }
 
 #[test]
+fn owned_restore_prefers_a_required_address_not_an_unrelated_hidden_chat() {
+    let server = Server::start(&["/sessions/hidden", "/sessions/visible"]);
+    let mut saved = TabLayout::default();
+    saved.open("chat:/sessions/hidden", |_| false);
+    saved.open("chat:/sessions/visible", |_| false);
+    let mut options = codex_options();
+    options.target = crate::launch::Target::Spawn { profile: None };
+    let boot = boot_with(
+        &options,
+        saved,
+        |_, preferred| {
+            assert_eq!(preferred, Some(Path::new("/sessions/visible")));
+            Ok((server.api(), None))
+        },
+        |_, _| panic!("no Codex chat is required"),
+    )
+    .unwrap();
+    assert_eq!(boot.resumed, paths(&["/sessions/visible"]));
+}
+
+#[test]
+fn stale_saved_chat_resumes_the_bootstrap_fallback() {
+    let server = Server::start(&["/sessions/latest"]);
+    let mut saved = TabLayout::default();
+    saved.open("chat:/sessions/deleted", |_| false);
+    let boot = restore(server.api(), None, saved).unwrap();
+    assert!(boot.resumed.is_empty());
+    assert_eq!(boot.startup.as_deref(), Some(Path::new("/sessions/latest")));
+    assert_eq!(
+        server.calls(),
+        [
+            ("/resume".into(), json!("/sessions/deleted")),
+            ("/bootstrap".into(), Value::Null),
+            ("/resume".into(), json!("/sessions/latest")),
+        ]
+    );
+}
+
+#[test]
 fn focused_document_resumes_only_the_hidden_command_target() {
     let server = Server::start(&["/sessions/other", "/sessions/target"]);
     let mut saved = TabLayout::default();
@@ -121,7 +160,13 @@ fn opening_another_config_creates_fresh_history_without_restoring_saved_tabs_or_
     let boot = boot_spaces_with(
         &options,
         saved,
-        |_| Ok((server.api(), None)),
+        |_, preferred| {
+            assert!(
+                preferred.is_none(),
+                "a fresh profile must not select old history"
+            );
+            Ok((server.api(), None))
+        },
         |_, _| panic!("fresh config must not restore the other agent"),
     )
     .unwrap();
@@ -172,7 +217,7 @@ fn codex_only_restore_keeps_hidden_core_tabs_without_starting_core_or_reading_ca
     let boot = boot_with(
         &options,
         saved,
-        |_| panic!("Codex restore must not launch Core"),
+        |_, _| panic!("Codex restore must not launch Core"),
         |_, _| Ok(codex_peer("opaque:target", false)),
     )
     .unwrap();
@@ -190,7 +235,7 @@ fn fresh_codex_launch_creates_own_thread_without_choosing_other_clients_history(
     let boot = boot_with(
         &codex_options(),
         TabLayout::default(),
-        |_| panic!("Fresh Codex launch must not start Core"),
+        |_, _| panic!("Fresh Codex launch must not start Core"),
         |_, _| Ok(codex_peer("", false)),
     )
     .unwrap();
@@ -206,7 +251,7 @@ fn failed_codex_thread_is_local_and_does_not_create_a_replacement_thread() {
     let boot = boot_with(
         &codex_options(),
         saved,
-        |_| panic!("Missing Codex thread must not start Core"),
+        |_, _| panic!("Missing Codex thread must not start Core"),
         |_, _| Ok(codex_peer("opaque:missing", true)),
     )
     .unwrap();
@@ -226,7 +271,7 @@ fn missing_codex_thread_preserves_healthy_split_restoration() {
     let boot = boot_with(
         &codex_options(),
         saved,
-        |_| panic!("Codex restore must not launch Core"),
+        |_, _| panic!("Codex restore must not launch Core"),
         |_, _| Ok(codex_peer_many(&["opaque:healthy", "opaque:missing"], true)),
     )
     .unwrap();
@@ -242,7 +287,7 @@ fn lost_codex_transport_still_fails_restoration() {
     let result = boot_with(
         &codex_options(),
         saved,
-        |_| panic!("Codex restore must not launch Core"),
+        |_, _| panic!("Codex restore must not launch Core"),
         |_, _| Ok(codex_peer("opaque:disconnected", false)),
     );
     assert!(result.is_err());
@@ -331,7 +376,7 @@ fn codex_restart_resumes_child_and_owner_but_no_inactive_area() {
     let boot = boot_spaces_with(
         &codex_options(),
         spaces,
-        |_| panic!("Inactive Core area must not launch Core"),
+        |_, _| panic!("Inactive Core area must not launch Core"),
         |_, _| Ok(codex_peer_many(&["opaque:child", "opaque:root"], false)),
     )
     .unwrap();
@@ -542,6 +587,13 @@ fn respond(stream: TcpStream, catalog: &[AppSessionSummary], calls: &Mutex<Vec<(
             json!({"session_dir":catalog.first().map(|session| &session.session_dir),"cwd":"/workspace"})
         }
         "/sessions" => serde_json::to_value(catalog).unwrap(),
+        "/resume"
+            if !catalog
+                .iter()
+                .any(|s| Some(s.session_dir.as_path()) == dir.as_str().map(Path::new)) =>
+        {
+            json!({"type":"response", "id":body["id"], "ok":false, "error":"session unavailable", "output":null})
+        }
         "/resume" => json!({
             "type": "response", "id": body["id"], "ok": true, "error": null,
             "output": {"session_dir": dir, "workspace_path": catalog.iter().find(|summary| summary.session_dir == Path::new(dir.as_str().unwrap())).map(|summary| &summary.workspace_path).unwrap(), "activity": {

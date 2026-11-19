@@ -3707,7 +3707,7 @@ impl BlockNode {
             .relative()
             .items_start()
             .content_start()
-            .when(!options.todo && checked.is_none(), |this| {
+            .when(checked.is_none(), |this| {
                 // The marker hangs in an indent column, right-aligned against
                 // the text like an outside list marker, and steps back in
                 // color so the item text leads.
@@ -3812,117 +3812,58 @@ impl BlockNode {
                     .children({
                         let mut items: Vec<Div> = Vec::with_capacity(children.len());
 
-                        for (child_ix, child) in children.iter().enumerate() {
-                            match child {
-                                BlockNode::Paragraph { .. } => {
-                                    let last_not_list = child_ix > 0
-                                        && !matches!(
-                                            children[child_ix - 1],
-                                            BlockNode::List { .. }
-                                        );
-
-                                    let text = child.render_block(
-                                        NodeRenderOptions {
-                                            depth: options.depth + 1,
-                                            todo: checked.is_some(),
-                                            is_last: true,
-                                            ..options
-                                        },
-                                        node_cx,
-                                        window,
-                                        cx,
-                                    );
-
-                                    // Continuation paragraph — stack vertically below
-                                    // the previous row, indented to align with the text
-                                    // column (past bullet/number prefix).
-                                    if last_not_list {
-                                        if let Some(preceding_row) = items.pop() {
-                                            items.push(
-                                                div().child(preceding_row).child(
-                                                    div()
-                                                        .w_full()
-                                                        .pl(indent)
-                                                        .overflow_hidden()
-                                                        .child(text),
-                                                ),
-                                            );
-                                            continue;
-                                        }
-                                    }
-
-                                    items.push(Self::render_list_item_row(
-                                        text,
-                                        ix,
-                                        options,
-                                        *checked,
-                                        &node_cx.style,
-                                        window.line_height(),
-                                        indent,
-                                        cx.theme().tokens.radius.sm,
-                                    ));
-                                }
-                                BlockNode::List { .. } => {
-                                    items.push(div().ml(indent).child(child.render_block(
-                                        NodeRenderOptions {
-                                            depth: options.depth + 1,
-                                            todo: checked.is_some(),
-                                            is_last: true,
-                                            ..options
-                                        },
-                                        node_cx,
-                                        window,
-                                        cx,
-                                    )));
-                                }
-                                BlockNode::Root { .. }
+                        let mut needs_marker = true;
+                        for child in children {
+                            let nested = match child {
+                                BlockNode::List { .. } => true,
+                                BlockNode::Paragraph { .. }
+                                | BlockNode::Root { .. }
                                 | BlockNode::Heading { .. }
                                 | BlockNode::Blockquote { .. }
                                 | BlockNode::CodeBlock(_)
                                 | BlockNode::Custom { .. }
                                 | BlockNode::Table(_)
-                                | BlockNode::HorizontalRule { .. } => {
-                                    let block = child.render_block(
-                                        NodeRenderOptions {
-                                            depth: options.depth + 1,
-                                            todo: checked.is_some(),
-                                            is_last: true,
-                                            ..options
-                                        },
-                                        node_cx,
-                                        window,
-                                        cx,
-                                    );
-
-                                    if child_ix == 0 {
-                                        items.push(Self::render_list_item_row(
-                                            block,
-                                            ix,
-                                            options,
-                                            *checked,
-                                            &node_cx.style,
-                                            window.line_height(),
-                                            indent,
-                                            cx.theme().tokens.radius.sm,
-                                        ));
-                                    } else {
-                                        // Indent continuation blocks to align with a
-                                        // nested sub-list (`ml(indent)`) and with
-                                        // continuation paragraphs.
-                                        items.push(
-                                            div()
-                                                .w_full()
-                                                .min_w_0()
-                                                .pl(indent)
-                                                .overflow_hidden()
-                                                .child(block),
-                                        );
-                                    }
-                                }
+                                | BlockNode::HorizontalRule { .. } => false,
                                 BlockNode::ListItem { .. }
                                 | BlockNode::Break { .. }
                                 | BlockNode::Definition { .. }
-                                | BlockNode::Unknown => {}
+                                | BlockNode::Unknown => continue,
+                            };
+                            let block = child.render_block(
+                                NodeRenderOptions {
+                                    depth: options.depth + 1,
+                                    is_last: true,
+                                    ..options
+                                },
+                                node_cx,
+                                window,
+                                cx,
+                            );
+                            if nested {
+                                items.push(div().ml(indent).child(block));
+                            } else if needs_marker {
+                                needs_marker = false;
+                                items.push(Self::render_list_item_row(
+                                    block,
+                                    ix,
+                                    options,
+                                    *checked,
+                                    &node_cx.style,
+                                    window.line_height(),
+                                    indent,
+                                    cx.theme().tokens.radius.sm,
+                                ));
+                            } else {
+                                // A continuation stays in the same item, including
+                                // a paragraph following a nested list.
+                                items.push(
+                                    div()
+                                        .w_full()
+                                        .min_w_0()
+                                        .pl(indent)
+                                        .overflow_hidden()
+                                        .child(block),
+                                );
                             }
                         }
                         items

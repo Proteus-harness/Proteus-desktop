@@ -14,6 +14,12 @@ use super::widgets::{
 use crate::settings::{FieldPath, field_sections, section_scope};
 use crate::ui::kit::{self, RowRule as _};
 
+// A directly visible singleton needs a section caption only for extra context.
+fn adds_context(section: &str, field: &str) -> bool {
+    let section = section.trim();
+    !section.is_empty() && section != field.trim()
+}
+
 impl SettingsView {
     /// Rows of `fields` living in `object`: ordinary fields, advanced ones
     /// folded, then a note on keys the schema does not describe.
@@ -29,7 +35,10 @@ impl SettingsView {
         for section in field_sections(fields) {
             let section_scope = section_scope(scope, section.fields[0]);
             if let Some(metadata) = section.metadata
-                && section.fields.iter().any(|field| !field.advanced)
+                && (section.fields.iter().any(|field| !field.advanced)
+                    || matches!(section.fields.as_slice(), [field]
+                        if adds_context(&metadata.title, &field.title)
+                            || adds_context(&metadata.description, &field.description)))
             {
                 rows.push(
                     v_flex()

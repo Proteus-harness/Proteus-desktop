@@ -28,7 +28,7 @@ pub(super) trait Kind: Default + 'static {
     /// Layout shared by all rows, recomputed when they change.
     fn measure(&mut self, rows: &[Rc<Self::Row>]);
     /// One row without its click and menu; `ring` marks the cursor.
-    fn draw(&self, row: &Self::Row, index: usize, ring: bool, cx: &App) -> Stateful<Div>;
+    fn draw(&self, row: &Rc<Self::Row>, index: usize, ring: bool, cx: &App) -> Stateful<Div>;
 
     fn frame(&self, frame: Stateful<Div>, _: &Context<Rows<Self>>) -> Stateful<Div>
     where
@@ -57,7 +57,7 @@ pub(super) struct Rows<K: Kind> {
 
 impl<K: Kind> Rows<K> {
     pub fn new(
-        rows: Vec<K::Row>,
+        rows: &[K::Row],
         view: WeakEntity<super::view::DeclarativeView>,
         cx: &mut Context<Self>,
         action: WidgetAction,
@@ -75,8 +75,14 @@ impl<K: Kind> Rows<K> {
         list
     }
 
-    pub fn set_rows(&mut self, rows: Vec<K::Row>, cx: &mut Context<Self>) {
-        if self.rows.len() == rows.len() && self.rows.iter().zip(&rows).all(|(a, b)| **a == *b) {
+    pub fn set_rows(&mut self, rows: &[K::Row], cx: &mut Context<Self>) {
+        let prefix = self
+            .rows
+            .iter()
+            .zip(rows)
+            .take_while(|(old, new)| old.as_ref() == *new)
+            .count();
+        if prefix == self.rows.len() && prefix == rows.len() {
             return;
         }
         let selected = rows.iter().position(K::selected);
@@ -94,7 +100,19 @@ impl<K: Kind> Rows<K> {
             })
             .unwrap_or(self.cursor)
             .min(rows.len().saturating_sub(1));
-        self.rows = rows.into_iter().map(Rc::new).collect();
+        // Keep immutable snapshots for unchanged rows and any active paint/menu callback.
+        self.rows.truncate(rows.len());
+        if rows.len() <= self.rows.capacity() / 4 {
+            self.rows.shrink_to_fit();
+        }
+        let common = self.rows.len();
+        for (old, new) in self.rows[prefix..].iter_mut().zip(&rows[prefix..]) {
+            if old.as_ref() != new {
+                *old = Rc::new(new.clone());
+            }
+        }
+        self.rows
+            .extend(rows[common..].iter().cloned().map(Rc::new));
         self.kind.measure(&self.rows);
         if moved {
             self.scroll

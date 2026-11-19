@@ -49,7 +49,7 @@ impl Kind for ListRows {
 
     fn measure(&mut self, _: &[Rc<Row>]) {}
 
-    fn draw(&self, row: &Row, index: usize, ring: bool, cx: &App) -> Stateful<Div> {
+    fn draw(&self, row: &Rc<Row>, index: usize, ring: bool, cx: &App) -> Stateful<Div> {
         let theme = cx.theme();
         let muted = theme.muted_foreground;
         let hidden = row.chips.len().saturating_sub(CHIPS);

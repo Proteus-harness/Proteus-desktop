@@ -32,7 +32,11 @@ pub struct Backend {
 }
 
 impl Backend {
-    pub fn launch(profile: Option<&str>, workspace: &Path) -> Result<Self> {
+    pub fn launch(
+        profile: Option<&str>,
+        workspace: &Path,
+        preferred: Option<&Path>,
+    ) -> Result<Self> {
         let token = uuid::Uuid::new_v4().simple().to_string();
         let binary = proteus_binary();
         let mut command = Command::new(&binary);
@@ -42,6 +46,14 @@ impl Backend {
             let inherited = std::env::var_os("PATH").unwrap_or_default();
             let paths = std::iter::once(dir.to_path_buf()).chain(std::env::split_paths(&inherited));
             command.env("PATH", std::env::join_paths(paths)?);
+        }
+        // This optional HTTP supervisor hint is ignored by older bundled cores.
+        // Never inherit another process's choice on a fresh or unrelated launch.
+        const PREFERRED: &str = "PROTEUS_HTTP_PREFERRED_SESSION";
+        if let Some(path) = preferred {
+            command.env(PREFERRED, path);
+        } else {
+            command.env_remove(PREFERRED);
         }
         if let Some(profile) = profile {
             command.arg("--config").arg(profile);

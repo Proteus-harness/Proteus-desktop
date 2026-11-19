@@ -32,32 +32,41 @@ fn hint(segment: &Segment) -> SharedString {
     .into()
 }
 
+/// Expand runs lazily, resolving a style only for segments that contribute cells.
+fn cell_styles<T: Clone>(
+    segments: &[Segment],
+    mut prepare: impl FnMut(&Segment) -> T,
+) -> impl Iterator<Item = T> {
+    segments
+        .iter()
+        .filter(|segment| segment.cells > 0)
+        .flat_map(move |segment| std::iter::repeat_n(prepare(segment), segment.cells))
+}
+
 pub(super) fn cells(path: &str, columns: usize, segments: &[Segment], cx: &App) -> AnyElement {
     let theme = cx.theme();
     let radius = theme.radius / 2.;
-    let flat: Vec<usize> = segments
-        .iter()
-        .enumerate()
-        .flat_map(|(index, segment)| std::iter::repeat_n(index, segment.cells))
-        .collect();
-    let grid = v_flex().flex_none().gap(prefs::scaled(3.)).children(
-        flat.chunks(columns.max(1)).enumerate().map(|(row, chunk)| {
-            h_flex()
-                .gap(prefs::scaled(3.))
-                .children(chunk.iter().enumerate().map(|(column, &index)| {
-                    let segment = &segments[index];
-                    div()
-                        .id(SharedString::from(format!(
-                            "{path}-cell-{}",
-                            row * columns + column
-                        )))
-                        .size(prefs::scaled(14.))
-                        .rounded(radius)
-                        .bg(color(segment, cx))
-                        .tip_text(hint(segment))
-                }))
-        }),
-    );
+    // The color and captured tooltip are shared by all cells of one segment.
+    let mut styles = cell_styles(segments, |segment| (color(segment, cx), hint(segment)));
+    let count = segments.iter().map(|s| s.cells).sum::<usize>();
+    let columns = columns.max(1);
+    let grid =
+        v_flex()
+            .flex_none()
+            .gap(prefs::scaled(3.))
+            .children((0..count).step_by(columns).map(|start| {
+                h_flex()
+                    .gap(prefs::scaled(3.))
+                    .children((start..count.min(start + columns)).map(|index| {
+                        let (color, hint) = styles.next().expect("one style per counted cell");
+                        div()
+                            .id(SharedString::from(format!("{path}-cell-{index}")))
+                            .size(prefs::scaled(14.))
+                            .rounded(radius)
+                            .bg(color)
+                            .tip_text(hint)
+                    }))
+            }));
     let legend = v_flex()
         .gap_1p5()
         .text_xs()
@@ -98,4 +107,29 @@ pub(super) fn cells(path: &str, columns: usize, segments: &[Segment], cx: &App) 
         .child(grid)
         .child(legend)
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[::core::prelude::v1::test]
+    fn cell_styles_prepare_each_nonempty_segment_once() {
+        let segments = [0, 3, 0, 2, 0].map(|cells| Segment {
+            cells,
+            label: String::new(),
+            value: None,
+            detail: None,
+            color: None,
+            tone: Default::default(),
+        });
+        let mut count = 0;
+        let styles: Vec<_> = cell_styles(&segments, |_| {
+            count += 1;
+            count
+        })
+        .collect();
+        assert_eq!(styles, [1, 1, 1, 2, 2]);
+        assert_eq!(count, 2);
+    }
 }

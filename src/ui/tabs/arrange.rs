@@ -122,9 +122,7 @@ pub(super) fn hover(
     });
     arrangement.update(|state| {
         let next = if reach.contains(&position) {
-            let others = others(pane, dragging);
-            let index = others
-                .iter()
+            let index = others(pane, dragging)
                 .filter(|id| {
                     state
                         .bounds
@@ -157,16 +155,12 @@ pub(super) fn drop_before(
         Target::At(at, index) if at == pane.id => index,
         _ => return None,
     };
-    Some(others(pane, dragging).get(index).cloned())
+    Some(others(pane, dragging).nth(index).cloned())
 }
 
 /// The tabs of `pane` other than the dragged one, in order.
-pub(super) fn others(pane: &Pane, dragging: &str) -> Vec<String> {
-    pane.tabs
-        .iter()
-        .filter(|tab| *tab != dragging)
-        .cloned()
-        .collect()
+fn others<'a>(pane: &'a Pane, dragging: &'a str) -> impl Iterator<Item = &'a String> {
+    pane.tabs.iter().filter(move |tab| tab.as_str() != dragging)
 }
 
 /// Keeps a pinned tab among the pinned ones and an unpinned one after them,

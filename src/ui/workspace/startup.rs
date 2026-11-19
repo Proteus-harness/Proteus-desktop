@@ -106,15 +106,18 @@ fn needs_core(agent: AgentKind, required: &[ChatKey]) -> bool {
 }
 
 pub(super) fn boot(options: &LaunchOptions, saved: ChatSpaces) -> Result<Boot> {
-    boot_spaces_with(options, saved, connection::connect, |program, cwd| {
-        Ok(CodexService::spawn(program, cwd)?)
-    })
+    boot_spaces_with(
+        options,
+        saved,
+        connection::connect_with_preference,
+        |program, cwd| Ok(CodexService::spawn(program, cwd)?),
+    )
 }
 
 fn boot_spaces_with(
     options: &LaunchOptions,
     saved: ChatSpaces,
-    connect: impl FnOnce(&LaunchOptions) -> Result<(Api, Option<BackendGuard>)>,
+    connect: impl FnOnce(&LaunchOptions, Option<&Path>) -> Result<(Api, Option<BackendGuard>)>,
     spawn_codex: impl FnOnce(PathBuf, PathBuf) -> Result<CodexService>,
 ) -> Result<Boot> {
     boot_with_owner(
@@ -130,7 +133,7 @@ fn boot_spaces_with(
 fn boot_with(
     options: &LaunchOptions,
     saved: TabLayout,
-    connect: impl FnOnce(&LaunchOptions) -> Result<(Api, Option<BackendGuard>)>,
+    connect: impl FnOnce(&LaunchOptions, Option<&Path>) -> Result<(Api, Option<BackendGuard>)>,
     spawn_codex: impl FnOnce(PathBuf, PathBuf) -> Result<CodexService>,
 ) -> Result<Boot> {
     boot_with_owner(options, saved, None, connect, spawn_codex)
@@ -140,7 +143,7 @@ fn boot_with_owner(
     options: &LaunchOptions,
     saved: TabLayout,
     owner: Option<&str>,
-    connect: impl FnOnce(&LaunchOptions) -> Result<(Api, Option<BackendGuard>)>,
+    connect: impl FnOnce(&LaunchOptions, Option<&Path>) -> Result<(Api, Option<BackendGuard>)>,
     spawn_codex: impl FnOnce(PathBuf, PathBuf) -> Result<CodexService>,
 ) -> Result<Boot> {
     let _trace = crate::startup_trace::span("workspace.boot");
@@ -158,7 +161,11 @@ fn boot_with_owner(
         })
         .collect();
     let mut boot = if needs_core(options.agent, &required) {
-        let (api, backend) = connect(options)?;
+        let preferred = required.iter().find_map(|key| match key {
+            ChatKey::Proteus(dir) if dir.is_absolute() => Some(dir.as_path()),
+            _ => None,
+        });
+        let (api, backend) = connect(options, preferred)?;
         crate::startup_trace::mark("backend.ready");
         if fresh {
             fresh_core(api, backend, &options.workspace)?

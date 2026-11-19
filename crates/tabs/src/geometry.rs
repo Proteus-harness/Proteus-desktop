@@ -176,17 +176,47 @@ impl TabLayout {
         }
         let mut lengths = extents(&split.children, total);
         let start: f32 = lengths[..index].iter().sum();
-        let pair = lengths[index] + lengths[index + 1];
+        let before = lengths[index];
+        let requested = at - (start + before);
+        let pair = before + lengths[index + 1];
         let min_a = split.children[index].node.min_panes(split.axis) as f32 * min;
         let min_b = split.children[index + 1].node.min_panes(split.axis) as f32 * min;
-        let at = if min_a + min_b <= pair {
+        let enough_room = min_a + min_b <= pair;
+        let at = if enough_room {
             at.clamp(start + min_a, start + pair - min_b)
         } else {
             start + pair * min_a / (min_a + min_b)
         };
         lengths[index] = at - start;
         lengths[index + 1] = pair - lengths[index];
-        set_extents(&mut split.children, &lengths, &[index, index + 1]);
+        if set_extents(&mut split.children, &lengths, &[index, index + 1]) {
+            return;
+        }
+
+        // All flexible siblings may have lost their pixels to these two
+        // fixed panes. Their positive weights still describe how to divide
+        // room after the window grows; there is no reason to replace them.
+        // When clamping, the divider may stop short of the pointer. It
+        // must not jump past it, reverse direction, or move on a still drag.
+        let applied = lengths[index] - before;
+        let follows = if requested > EPSILON {
+            applied > 0. && applied <= requested
+        } else {
+            requested < -EPSILON && applied < 0. && applied >= requested
+        };
+        if enough_room
+            && follows
+            && split.children.iter().enumerate().all(|(i, child)| {
+                if i == index || i == index + 1 {
+                    child.size.is_fixed() && lengths[i].is_finite() && lengths[i] > 0.
+                } else {
+                    !child.size.is_fixed() && lengths[i] == 0.
+                }
+            })
+        {
+            split.children[index].size = Size::Fixed(lengths[index]);
+            split.children[index + 1].size = Size::Fixed(lengths[index + 1]);
+        }
     }
 
     /// Gives every weighted child of the split at `path` the same share;

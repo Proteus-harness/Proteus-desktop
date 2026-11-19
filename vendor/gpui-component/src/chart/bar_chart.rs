@@ -1087,7 +1087,8 @@ where
         } else {
             position.x
         };
-        let index = band_scale.nearest_index(cursor_band.as_f32() - band_offset);
+        // The scale returns band starts; the hover and its highlight follow bar centers.
+        let index = band_scale.nearest_index(cursor_band.as_f32() - band_offset - band_width / 2.);
         let d = self.data.get(index)?;
         let center = band_scale.tick(&band_fn(d))? + band_offset + band_width / 2.;
 
@@ -1417,6 +1418,38 @@ mod tests {
             .value_axis_label_placement(AxisLabelPlacement::Inside);
         assert_eq!(outside.value_axis_gap(), super::VALUE_AXIS_GAP);
         assert_eq!(inside.value_axis_gap(), 0.);
+    }
+
+    #[gpui::test]
+    fn tooltip_follows_the_painted_bar_at_both_ends(cx: &mut gpui::TestAppContext) {
+        let bounds = Bounds::new(point(px(0.), px(0.)), gpui::size(px(90.), px(90.)));
+        cx.update(|cx| {
+            for alignment in [
+                BarAlignment::Bottom,
+                BarAlignment::Top,
+                BarAlignment::Left,
+                BarAlignment::Right,
+            ] {
+                let chart = BarChart::new([10., 20., 30.])
+                    .band(|v: &f64| format!("{v}"))
+                    .value(|v| *v)
+                    .alignment(alignment)
+                    .padding_inner(0.)
+                    .padding_outer(0.);
+                let scale = chart.band_scale(bounds).unwrap();
+                // Three contiguous 30px bars. Keep the other coordinate inside the actual bar.
+                for (index, cross) in [(0, 1.), (0, 29.), (1, 31.), (1, 59.), (2, 61.), (2, 89.)] {
+                    let frame = chart.bar_frame(&chart.data[index], &scale, bounds).unwrap();
+                    let at = if alignment.is_horizontal() {
+                        point(px(frame.origin.x + frame.size.width / 2.), px(cross))
+                    } else {
+                        point(px(cross), px(frame.origin.y + frame.size.height / 2.))
+                    };
+                    let state = chart.tooltip_state(at, bounds, cx).expect("inside plot");
+                    assert_eq!(state.index, index, "{alignment:?} at {cross}");
+                }
+            }
+        });
     }
 
     /// A tooltip row shows its bar's color: a solid fill as is, a

@@ -286,3 +286,33 @@ fn unlocking_a_pane_lets_it_keep_its_share() {
     layout.lock_pane(pane, false, 1600., 800., 0.);
     assert_close(&widths(&layout, 800.), &[500., 300.]);
 }
+
+#[test]
+fn squeezed_fixed_pair_can_exchange_pixels_without_replacing_flexible_weights() {
+    let mut layout = sized([Size::Weight(1.), Size::Weight(1.)]);
+    layout.open("files:z", |_| true);
+    layout.split("files:z", PaneId(1), Edge::Right);
+    layout.lock_pane(PaneId(0), true, 1600., 800., 1.);
+    layout.lock_pane(PaneId(1), true, 1600., 800., 1.);
+    let original = layout.sizes(&[]).unwrap();
+    assert_eq!(&original[..2], &[Size::Fixed(799.), Size::Fixed(399.5)]);
+
+    // 1000 pixels including two divider seams, with nothing left for the
+    // third pane. Staying at the same x must preserve the old preferences.
+    layout.resize(&[], 0, 270., 400., 240.); // the two minima cannot fit
+    assert_eq!(layout.sizes(&[]).unwrap(), original);
+    layout.resize(&[], 0, 480., 700., 240.); // clamping would move left
+    assert_eq!(layout.sizes(&[]).unwrap(), original);
+    layout.resize(&[], 0, 465., 700., 240.); // clamping would overshoot
+    assert_eq!(layout.sizes(&[]).unwrap(), original);
+    let left = widths(&layout, 998.)[0];
+    layout.resize(&[], 0, left, 998., 240.);
+    assert_eq!(layout.sizes(&[]).unwrap(), original);
+    layout.resize(&[], 0, 400., 998., 240.);
+    assert_eq!(
+        layout.sizes(&[]).unwrap(),
+        vec![Size::Fixed(400.), Size::Fixed(598.), original[2]]
+    );
+    assert_close(&widths(&layout, 998.), &[400., 598., 0.]);
+    assert_close(&widths(&layout, 1598.), &[400., 598., 600.]);
+}

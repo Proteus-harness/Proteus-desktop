@@ -625,13 +625,13 @@ impl DeclarativeView {
                     lanes.update(cx, |lanes, cx| {
                         lanes.action.rebind(action);
                         lanes.set_columns(columns, cx);
-                        lanes.set_rows(rows.clone(), cx);
+                        lanes.set_rows(rows, cx);
                     });
                 } else {
                     let send = self.widget_action(action, cx);
                     let view = cx.weak_entity();
                     let lanes = cx.new(|cx| {
-                        let mut lanes = Lanes::new(rows.clone(), view, cx, send);
+                        let mut lanes = Lanes::new(rows, view, cx, send);
                         lanes.set_columns(columns, cx);
                         lanes
                     });
@@ -642,12 +642,12 @@ impl DeclarativeView {
                 if let Some(list) = self.fields.lists.get(id) {
                     list.update(cx, |list, cx| {
                         list.action.rebind(action);
-                        list.set_rows(rows.clone(), cx);
+                        list.set_rows(rows, cx);
                     });
                 } else {
                     let send = self.widget_action(action, cx);
                     let view = cx.weak_entity();
-                    let list = cx.new(|cx| List::new(rows.clone(), view, cx, send));
+                    let list = cx.new(|cx| List::new(rows, view, cx, send));
                     self.fields.lists.insert(id.clone(), list);
                 }
             }

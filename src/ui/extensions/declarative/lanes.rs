@@ -47,13 +47,14 @@ impl Lanes {
 }
 impl LaneRows {
     fn total(&self) -> f32 {
-        self.weights
+        let sum: f32 = self
+            .weights
             .iter()
             .zip(&self.visible)
             .filter(|(_, v)| **v)
             .map(|(w, _)| w)
-            .sum::<f32>()
-            .max(0.01)
+            .sum();
+        if sum > 0. { sum } else { 0.01 }
     }
     fn slot(&self, i: usize, cx: &App) -> Stateful<Div> {
         div()
@@ -67,8 +68,8 @@ impl LaneRows {
             .border_color(cx.theme().border.opacity(0.6))
             .overflow_hidden()
     }
-    fn graph(&self, row: &Row, cx: &App) -> Div {
-        let painted = Rc::new(row.clone());
+    fn graph(&self, row: &Rc<Row>, cx: &App) -> Div {
+        let painted = Rc::clone(row);
         let graph = canvas(
             |_, _, _| {},
             move |bounds, _, window, cx| {
@@ -127,7 +128,7 @@ impl Kind for LaneRows {
     fn measure(&mut self, rows: &[Rc<Row>]) {
         self.lanes = rows.iter().map(|r| r.width()).max().unwrap_or(1);
     }
-    fn draw(&self, row: &Row, index: usize, ring: bool, cx: &App) -> Stateful<Div> {
+    fn draw(&self, row: &Rc<Row>, index: usize, ring: bool, cx: &App) -> Stateful<Div> {
         let theme = cx.theme();
         let selected = theme.sidebar_accent_foreground;
         h_flex()
@@ -295,4 +296,24 @@ fn column_grip(owner: EntityId, index: usize, cx: &App) -> Div {
         .absolute()
         .top_0()
         .bottom_0()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LaneRows;
+
+    #[test]
+    fn visible_columns_fill_the_width_even_with_small_weights() {
+        let mut lanes = LaneRows {
+            weights: vec![0.001, 0.002, 1.],
+            visible: vec![true, true, false],
+            ..Default::default()
+        };
+        assert!((lanes.weights[0] / lanes.total() - 1. / 3.).abs() < 1e-6);
+        assert!((lanes.weights[1] / lanes.total() - 2. / 3.).abs() < 1e-6);
+
+        lanes.visible[0] = false;
+        assert_eq!(lanes.weights[1] / lanes.total(), 1.);
+        assert_eq!(LaneRows::default().total(), 0.01);
+    }
 }

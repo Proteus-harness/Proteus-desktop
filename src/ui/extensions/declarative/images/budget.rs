@@ -141,6 +141,19 @@ mod tests {
     }
 
     #[test]
+    fn physical_lengths_convert_absolute_units_and_reject_relative_lengths() {
+        for value in [
+            "96", "96px", "1in", "2.54cm", "25.4mm", "72pt", "6pc", "101.6Q",
+        ] {
+            let pixels = physical_length(value).unwrap();
+            assert!((pixels - 96.).abs() < 1e-10, "{value}: {pixels}");
+        }
+        for value in ["", "0", "-1px", "NaN", "inf", "100%", "1em", "1rem"] {
+            assert_eq!(physical_length(value), None, "{value}");
+        }
+    }
+
+    #[test]
     fn root_physical_size_then_viewbox_then_authored_ratio() {
         assert_eq!(
             intrinsic_aspect(r#"<svg width="2in" height="96px" viewBox="0 0 1 1"/>"#),

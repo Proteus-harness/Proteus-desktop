@@ -1,9 +1,11 @@
 //! Bounded display projection of the app-server protocol. No transcript cache.
 use super::{Event, Item, ItemKind, Model, Summary};
 use serde_json::{Value, json};
+use std::fmt::{self, Write as _};
 use std::path::PathBuf;
 
 pub(super) const MAX_TEXT: usize = 128 * 1024;
+const TRUNCATED: &str = "\n[… показаны первые 128 КиБ]";
 
 pub(super) fn text(value: &Value, key: &str) -> String {
     clipped(value.get(key).and_then(Value::as_str).unwrap_or_default())
@@ -16,7 +18,7 @@ pub(super) fn clipped(value: &str) -> String {
     }
     let mut result = value[..end].to_owned();
     if end < value.len() {
-        result.push_str("\n[… показаны первые 128 КиБ]");
+        result.push_str(TRUNCATED);
     }
     result
 }
@@ -48,11 +50,41 @@ fn joined(value: Option<&Value>) -> String {
     result
 }
 
+/// Keep the same compact JSON prefix as `clipped(&value.to_string())`, but
+/// stop the formatter as soon as the display limit is known to be exceeded.
+fn json_preview(value: &Value) -> (String, bool) {
+    struct Prefix(String);
+    impl fmt::Write for Prefix {
+        fn write_str(&mut self, chunk: &str) -> fmt::Result {
+            let left = MAX_TEXT - self.0.len();
+            if chunk.len() <= left {
+                self.0.push_str(chunk);
+                return Ok(());
+            }
+            self.0.push_str(&chunk[..chunk.floor_char_boundary(left)]);
+            Err(fmt::Error)
+        }
+    }
+    let mut prefix = Prefix(String::new());
+    let truncated = write!(&mut prefix, "{value}").is_err();
+    if truncated {
+        prefix.0.reserve_exact(TRUNCATED.len());
+        prefix.0.push_str(TRUNCATED);
+    }
+    (prefix.0, truncated)
+}
+
+/// Returned text is retained by the chat; discard spare formatter capacity.
+fn json_text(value: &Value) -> String {
+    let (mut text, _) = json_preview(value);
+    text.shrink_to_fit();
+    text
+}
+
 fn display_json(value: &Value) -> Value {
-    // Do not retain multi-megabyte tool arguments/results in a second mirror.
-    let encoded = value.to_string();
-    if encoded.len() > MAX_TEXT {
-        json!({"preview":clipped(&encoded), "truncated":true})
+    let (preview, truncated) = json_preview(value);
+    if truncated {
+        json!({"preview":preview, "truncated":true})
     } else {
         value.clone()
     }
@@ -140,20 +172,18 @@ pub fn item(
                 text(value, "tool")
             },
             input: display_json(&value["arguments"]),
-            output: clipped(
-                &value
-                    .get("result")
-                    .or_else(|| value.get("contentItems"))
-                    .or_else(|| value.get("error"))
-                    .filter(|v| !v.is_null())
-                    .map(Value::to_string)
-                    .unwrap_or_default(),
-            ),
+            output: value
+                .get("result")
+                .or_else(|| value.get("contentItems"))
+                .or_else(|| value.get("error"))
+                .filter(|v| !v.is_null())
+                .map(json_text)
+                .unwrap_or_default(),
         },
         "collabAgentToolCall" => ItemKind::Tool {
             name: text(value, "tool"),
             input: json!({"prompt":text(value,"prompt"),"receiverThreadIds":display_json(&value["receiverThreadIds"])}),
-            output: clipped(&value["agentsStates"].to_string()),
+            output: json_text(&value["agentsStates"]),
         },
         "webSearch" => ItemKind::Tool {
             name: "web_search".into(),
@@ -163,7 +193,7 @@ pub fn item(
         "functionCallOutput" => ItemKind::Tool {
             name: text(value, "name"),
             input: Value::Null,
-            output: clipped(&value["output"].to_string()),
+            output: json_text(&value["output"]),
         },
         _ => ItemKind::Other {
             name: name.into(),
@@ -345,6 +375,34 @@ mod tests {
             }
         );
     }
+    #[test]
+    fn bounded_json_matches_full_serialization_at_display_boundaries() {
+        for value in [
+            Value::Null,
+            json!({"n": -123.5, "s": "quote\" tab\t newline\n", "v": [true, null]}),
+            json!("x".repeat(MAX_TEXT - 3)), // one byte below, counting quotes
+            json!("x".repeat(MAX_TEXT - 2)),
+            json!("x".repeat(MAX_TEXT - 1)),
+            json!(format!("{}🦀tail", "x".repeat(MAX_TEXT - 3))),
+            json!(format!("{}\n", "x".repeat(MAX_TEXT - 2))),
+            json!({"rows": vec![json!({"value": "я 🦀"}); MAX_TEXT / 8]}),
+        ] {
+            let full = value.to_string();
+            let expected = clipped(&full);
+            let truncated = full.len() > MAX_TEXT;
+            assert_eq!(json_preview(&value), (expected.clone(), truncated));
+            assert_eq!(json_text(&value), expected);
+            assert_eq!(
+                display_json(&value),
+                if truncated {
+                    json!({"preview": expected, "truncated": true})
+                } else {
+                    value
+                }
+            );
+        }
+    }
+
     #[test]
     fn truncation_respects_utf8() {
         let s = "я".repeat(MAX_TEXT);

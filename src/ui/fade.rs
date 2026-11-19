@@ -193,6 +193,20 @@ fn metrics(window: &Window) -> Metrics {
     }
 }
 
+/// Same first matching glyph as `LineLayout::x_for_index`, for nondecreasing
+/// byte offsets. Once a glyph is before a query it cannot match a later one,
+/// even when glyphs are repeated or out of byte order within the shaped line.
+fn increasing_x(
+    glyphs: impl Iterator<Item = (usize, Pixels)>,
+    width: Pixels,
+) -> impl FnMut(usize) -> Pixels {
+    let mut glyphs = glyphs.peekable();
+    move |index| {
+        while glyphs.next_if(|(byte, _)| *byte < index).is_some() {}
+        glyphs.peek().map_or(width, |&(_, x)| x)
+    }
+}
+
 impl IntoElement for Faded {
     type Element = Self;
 
@@ -309,12 +323,14 @@ impl Element for Faded {
         if fade <= px(0.) {
             return None;
         }
+        let glyphs = line.runs.iter().flat_map(|run| &run.glyphs);
+        let mut x = increasing_x(glyphs.map(|g| (g.index, g.position.x)), line.width());
         if self.start {
             let shift = line.width() - room;
             let mut runs = Vec::new();
             for (at, letter) in text.char_indices() {
                 let end = at + letter.len_utf8();
-                let middle = (line.x_for_index(at) + line.x_for_index(end)) / 2. - shift;
+                let middle = (x(at) + x(end)) / 2. - shift;
                 let mut run = style.to_run(letter.len_utf8());
                 if middle >= fade {
                     run.len = text.len() - at;
@@ -336,7 +352,7 @@ impl Element for Faded {
         for (offset, letter) in text[start..].char_indices() {
             let at = start + offset;
             let end = at + letter.len_utf8();
-            let middle = (line.x_for_index(at) + line.x_for_index(end)) / 2.;
+            let middle = (x(at) + x(end)) / 2.;
             let mut run = style.to_run(letter.len_utf8());
             if middle >= room {
                 run.len = text.len() - at;
@@ -374,5 +390,25 @@ impl Element for Faded {
                 cx,
             );
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[::core::prelude::v1::test]
+    fn fade_positions_match_individual_lookups_in_glyph_order() {
+        // Repeated cluster and indices out of logical order.
+        let glyphs = [(0, 0.), (3, 4.), (3, 6.), (2, 7.), (7, 11.), (6, 12.)];
+        let width = px(15.);
+        let mut x = increasing_x(glyphs.iter().map(|&(i, x)| (i, px(x))), width);
+        for index in [0, 1, 1, 2, 3, 3, 4, 6, 7, 7, 8, 9] {
+            let expected = glyphs
+                .iter()
+                .find(|&&(byte, _)| byte >= index)
+                .map_or(width, |&(_, x)| px(x));
+            assert_eq!(x(index), expected);
+        }
     }
 }

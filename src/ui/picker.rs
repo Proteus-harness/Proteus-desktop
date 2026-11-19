@@ -254,6 +254,9 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
 
 fn matching<T>(options: &[Choice<T>], query: &str) -> Vec<usize> {
     let terms: Vec<_> = query.split_whitespace().collect();
+    if terms.is_empty() {
+        return (0..options.len()).collect();
+    }
     options
         .iter()
         .enumerate()

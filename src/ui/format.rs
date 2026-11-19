@@ -89,7 +89,7 @@ const PREVIEW_CHARS: usize = 2_000;
 pub fn editor_preview(chars: impl Iterator<Item = char>) -> Option<String> {
     let mut preview = String::new();
     let mut lines = 1;
-    for (count, ch) in chars.take(PREVIEW_CHARS + 1).enumerate() {
+    for (count, ch) in chars.enumerate() {
         if count == PREVIEW_CHARS || (ch == '\n' && lines == PREVIEW_LINES) {
             preview.truncate(preview.trim_end().len());
             return Some(preview);
@@ -161,7 +161,7 @@ mod tests {
     }
 
     #[test]
-    fn short_values_stay_editable_and_long_previews_are_utf8_bounded() {
+    fn values_at_the_preview_limits_stay_editable() {
         assert_eq!(editor_preview("one\ntwo".chars()), None);
         assert_eq!(
             editor_preview(["line"; PREVIEW_LINES].join("\n").chars()),
@@ -171,9 +171,10 @@ mod tests {
             editor_preview(["line"; PREVIEW_LINES + 1].join("\n").chars()),
             Some(["line"; PREVIEW_LINES].join("\n"))
         );
-        let text = "я".repeat(PREVIEW_CHARS + 100_000);
-        let preview = editor_preview(text.chars()).unwrap();
-        assert_eq!(preview.chars().count(), PREVIEW_CHARS);
+        assert_eq!(
+            editor_preview(std::iter::repeat_n('я', PREVIEW_CHARS)),
+            None
+        );
     }
 
     #[test]
@@ -184,9 +185,11 @@ mod tests {
             assert!(read <= PREVIEW_CHARS + 1, "read the hidden tail");
             Some('я')
         });
-        assert_eq!(
-            editor_preview(chars).unwrap().chars().count(),
-            PREVIEW_CHARS
+        assert!(
+            editor_preview(chars)
+                .unwrap()
+                .chars()
+                .eq(std::iter::repeat_n('я', PREVIEW_CHARS))
         );
         assert_eq!(read, PREVIEW_CHARS + 1);
         let mut read = 0;

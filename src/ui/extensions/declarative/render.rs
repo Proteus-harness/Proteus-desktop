@@ -783,9 +783,11 @@ fn table(columns: &[String], rows: &[Vec<String>], cx: &App) -> Div {
         .children(rows.iter().map(|row| line(row, false)))
 }
 
-/// Integers without a fraction, others with up to two digits.
+/// Compact bar labels; a positive value must not round all the way to a zero label.
 fn number(value: f64) -> String {
-    if value.fract() == 0. && value.abs() < 1e15 {
+    if value > 0. && value < 0.005 {
+        format!("{value:.2e}")
+    } else if value.fract() == 0. && value.abs() < 1e15 {
         format!("{value:.0}")
     } else {
         format!("{value:.2}")
@@ -807,5 +809,19 @@ pub(super) fn compact(node: &Node, cx: &App) -> Option<(String, Hsla)> {
         )),
         Node::Stack { children, .. } => children.first().and_then(|child| compact(child, cx)),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod bar_number_tests {
+    use super::number;
+
+    #[::core::prelude::v1::test]
+    fn small_positive_bars_remain_visible_in_their_labels() {
+        assert_eq!(number(0.001), "1.00e-3");
+        assert_eq!(number(0.004), "4.00e-3");
+        assert_eq!(number(0.), "0");
+        assert_eq!(number(0.005), "0.01");
+        assert_eq!(number(12.5), "12.50");
     }
 }

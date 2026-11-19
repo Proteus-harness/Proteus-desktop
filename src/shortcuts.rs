@@ -264,22 +264,23 @@ impl Shortcuts {
 
 const MODIFIERS: [&str; 5] = ["ctrl", "alt", "shift", "super", "fn"];
 
+/// Keep the minus key distinct from the separator in both bare and modified chords.
+fn split_chord(chord: &str) -> (&str, &str) {
+    match chord.strip_suffix("--") {
+        Some(head) => (head, "-"),
+        None if chord == "-" => ("", "-"),
+        None => chord.rsplit_once('-').unwrap_or(("", chord)),
+    }
+}
+
 /// Canonical chord text: lower case, modifiers in a fixed order, one key.
 pub fn normalize(chord: &str) -> Result<String> {
     let chord = chord.trim().to_lowercase();
-    // A trailing `-` is the minus key itself (`ctrl--`).
-    let (head, key) = match chord.strip_suffix("--") {
-        Some(head) => (head, "-".to_string()),
-        None if chord == "-" => ("", "-".to_string()),
-        None => match chord.rsplit_once('-') {
-            Some((head, key)) => (head, key.to_string()),
-            None => ("", chord.clone()),
-        },
-    };
+    let (head, key) = split_chord(&chord);
     if key.is_empty() || key.contains(' ') {
         bail!("shortcut `{chord}` has no key");
     }
-    if MODIFIERS.contains(&key.as_str()) {
+    if MODIFIERS.contains(&key) {
         bail!("shortcut `{chord}` has only modifiers");
     }
     let mut present = [false; MODIFIERS.len()];
@@ -297,16 +298,13 @@ pub fn normalize(chord: &str) -> Result<String> {
         .filter(|(_, on)| *on)
         .map(|(name, _)| *name)
         .collect();
-    parts.push(&key);
+    parts.push(key);
     Ok(parts.join("-"))
 }
 
 /// Human form of a chord: `Ctrl+Shift+E`.
 pub fn label(chord: &str) -> String {
-    let (head, key) = match chord.strip_suffix("--") {
-        Some(head) => (head, "-"),
-        None => chord.rsplit_once('-').unwrap_or(("", chord)),
-    };
+    let (head, key) = split_chord(chord);
     let mut parts: Vec<String> = head
         .split('-')
         .filter(|part| !part.is_empty())
@@ -358,6 +356,13 @@ mod tests {
         assert_eq!(label("ctrl-shift-e"), "Ctrl+Shift+E");
         assert_eq!(label("ctrl--"), "Ctrl+-");
         assert_eq!(label("ctrl-alt-left"), "Ctrl+Alt+←");
+    }
+
+    #[test]
+    fn saved_bare_minus_has_a_visible_label() {
+        let saved: Shortcuts = serde_json::from_str(r#"{"zoom_out":["-"]}"#).unwrap();
+        saved.validate().unwrap();
+        assert_eq!(label(&saved.chords(Command::ZoomOut)[0]), "-");
     }
 
     #[test]

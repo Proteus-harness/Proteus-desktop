@@ -25,7 +25,7 @@ pub(crate) fn background(
     cx: &App,
 ) -> Div {
     let theme = cx.theme();
-    let hover = theme.list_hover;
+    let hover = theme.tokens.list_hover;
     div()
         .absolute()
         .inset_0()
@@ -36,7 +36,7 @@ pub(crate) fn background(
                 .bottom(prefs::scaled(2.))
         })
         .rounded(theme.radius)
-        .when(selected, |s| s.bg(theme.sidebar_accent))
+        .when(selected, |s| s.bg(theme.tokens.sidebar_accent))
         .when(!selected && cursor, |s| s.bg(hover))
         .when(!selected, |s| s.group_hover(group, move |s| s.bg(hover)))
 }
@@ -92,7 +92,7 @@ pub(crate) fn menu_option(label: impl Into<SharedString>, selected: bool) -> Pop
                         .top_0()
                         .bottom_0()
                         .rounded(theme.radius)
-                        .bg(theme.sidebar_accent),
+                        .bg(theme.tokens.sidebar_accent),
                 )
             })
             .child(

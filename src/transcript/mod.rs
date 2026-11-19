@@ -154,13 +154,16 @@ impl Transcript {
     /// Insert a page, sharing identities with the live tail where they overlap.
     pub fn append_page(&mut self, messages: Vec<AppTranscriptMessage>, known: &Self) -> Change {
         let start = self.entries.len();
+        // As in a forward scan, the first live row wins for a duplicate identity.
+        let live: HashMap<_, _> = known
+            .entries
+            .iter()
+            .rev()
+            .filter_map(|entry| Some((identity_of(entry)?, entry)))
+            .collect();
         for message in messages {
             let mut entry = self.entry_from(message);
-            if let Some(old) = known
-                .entries
-                .iter()
-                .find(|old| identity_of(old).is_some() && identity_of(old) == identity_of(&entry))
-            {
+            if let Some(old) = identity_of(&entry).and_then(|id| live.get(&id)) {
                 entry.key = old.key;
                 entry.time = entry.time.or(old.time);
                 if entry.text == old.text {

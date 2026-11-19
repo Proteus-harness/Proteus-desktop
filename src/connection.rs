@@ -1,3 +1,4 @@
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -46,15 +47,16 @@ impl Drop for BackendGuard {
 
 fn spawn_backend(
     profile: Option<String>,
-    workspace: std::path::PathBuf,
+    workspace: PathBuf,
+    preferred: Option<PathBuf>,
 ) -> Result<(Api, BackendGuard)> {
     let (ready_tx, ready_rx) = mpsc::channel();
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
     let (exited_tx, exited) = async_channel::bounded(1);
     let thread = std::thread::Builder::new()
         .name("proteus-backend".into())
-        .spawn(
-            move || match Backend::launch(profile.as_deref(), &workspace) {
+        .spawn(move || {
+            match Backend::launch(profile.as_deref(), &workspace, preferred.as_deref()) {
                 Ok(mut backend) => {
                     let api = Api::new(&backend.origin, &backend.token);
                     if ready_tx.send(Ok(api)).is_err() {
@@ -72,8 +74,8 @@ fn spawn_backend(
                 Err(error) => {
                     let _ = ready_tx.send(Err(error));
                 }
-            },
-        )
+            }
+        })
         .context("spawn backend thread")?;
     let guard = BackendGuard {
         stop: Some(stop_tx),
@@ -87,6 +89,13 @@ fn spawn_backend(
 }
 
 pub fn connect(options: &LaunchOptions) -> Result<(Api, Option<BackendGuard>)> {
+    connect_with_preference(options, None)
+}
+
+pub(crate) fn connect_with_preference(
+    options: &LaunchOptions,
+    preferred: Option<&Path>,
+) -> Result<(Api, Option<BackendGuard>)> {
     match &options.target {
         Target::Attach { origin, token } => {
             let origin = proteus_client_common::normalize_local_origin(origin)
@@ -94,7 +103,11 @@ pub fn connect(options: &LaunchOptions) -> Result<(Api, Option<BackendGuard>)> {
             Ok((Api::new(&origin, token), None))
         }
         Target::Spawn { profile } => {
-            let (api, guard) = spawn_backend(profile.clone(), options.workspace.clone())?;
+            let (api, guard) = spawn_backend(
+                profile.clone(),
+                options.workspace.clone(),
+                preferred.map(Path::to_owned),
+            )?;
             Ok((api, Some(guard)))
         }
     }
