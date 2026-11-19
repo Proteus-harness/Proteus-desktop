@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context as _, Result, anyhow};
 use serde::Deserialize;
 
-const READY_TIMEOUT: Duration = Duration::from_secs(90);
+pub(crate) const READY_TIMEOUT: Duration = Duration::from_secs(90);
 const SETTLE_TIMEOUT: Duration = Duration::from_secs(2);
 const LOG_LINES: usize = 60;
 

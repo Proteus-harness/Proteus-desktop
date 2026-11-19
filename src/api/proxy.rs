@@ -6,7 +6,7 @@ pub(super) fn server_agent(origin: &str, inherited: Option<ureq::Proxy>) -> ureq
     server_agent_with_timeout(origin, inherited, Duration::from_secs(30))
 }
 
-fn server_agent_with_timeout(
+pub(super) fn server_agent_with_timeout(
     origin: &str,
     inherited: Option<ureq::Proxy>,
     timeout: Duration,
@@ -22,7 +22,7 @@ fn server_agent_with_timeout(
         .timeout_global(Some(timeout))
         .proxy(proxy)
         .build();
-    super::transport::agent(config, Duration::from_secs(45))
+    super::transport::agent(config, Duration::from_secs(45).max(timeout))
 }
 
 #[cfg(test)]
@@ -102,6 +102,66 @@ mod tests {
             done.send(()).unwrap();
             responder.join().unwrap();
         }
+    }
+
+    #[test]
+    fn cold_resume_can_outlast_the_ordinary_request_deadline() {
+        let server = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", server.local_addr().unwrap());
+        let responder = std::thread::spawn(move || {
+            let (mut socket, _) = server.accept().unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut reader = BufReader::new(socket.try_clone().unwrap());
+            let mut first = String::new();
+            reader.read_line(&mut first).unwrap();
+            assert_eq!(first, "POST /resume HTTP/1.1\r\n");
+            let mut size = 0;
+            loop {
+                let mut line = String::new();
+                assert_ne!(reader.read_line(&mut line).unwrap(), 0);
+                if line == "\r\n" {
+                    break;
+                }
+                if let Some((name, value)) = line.split_once(':')
+                    && name.eq_ignore_ascii_case("content-length")
+                {
+                    size = value.trim().parse().unwrap();
+                }
+            }
+            let mut body = vec![0; size];
+            reader.read_exact(&mut body).unwrap();
+            std::thread::sleep(Duration::from_millis(150));
+            let response = serde_json::json!({
+                "type": "response",
+                "id": "synthetic",
+                "ok": true,
+                "output": {
+                    "session_dir": "/saved/session",
+                    "workspace_path": "/workspace",
+                    "activity": {
+                        "status": "idle",
+                        "running_runs": 0,
+                        "running_run_ids": [],
+                        "pending_approvals": 0,
+                        "pending_user_inputs": 0
+                    }
+                },
+                "error": null
+            })
+            .to_string();
+            write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}", response.len()).unwrap();
+        });
+        let mut api = Api::new(&origin, "synthetic");
+        api.agent = super::server_agent_with_timeout(&origin, None, Duration::from_millis(50));
+        let opened = api.resume(std::path::Path::new("/saved/session")).unwrap();
+        responder.join().unwrap();
+        assert_eq!(opened.session_dir, std::path::Path::new("/saved/session"));
+        assert_eq!(
+            api.agent.config().timeouts().global,
+            Some(Duration::from_millis(50))
+        );
     }
 
     #[test]

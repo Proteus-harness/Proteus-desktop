@@ -95,7 +95,12 @@ impl Api {
             id: Some(request_id("resume")),
             session_dir: session_dir.to_path_buf(),
         };
-        self.command("/resume", None, &body)
+        let agent = proxy::server_agent_with_timeout(
+            &self.origin,
+            self.agent.config().proxy().cloned(),
+            crate::backend::READY_TIMEOUT,
+        );
+        self.command_using(&agent, "/resume", None, &body)
     }
 
     /// Opens a session with the settings of `source` in `workspace`; each
@@ -349,9 +354,18 @@ impl Api {
         session_dir: Option<&Path>,
         body: &B,
     ) -> Result<T> {
+        self.command_using(&self.agent, path, session_dir, body)
+    }
+
+    fn command_using<B: Serialize, T: DeserializeOwned>(
+        &self,
+        agent: &ureq::Agent,
+        path: &str,
+        session_dir: Option<&Path>,
+        body: &B,
+    ) -> Result<T> {
         let _trace = crate::startup_trace::span(path);
-        let mut request = self
-            .agent
+        let mut request = agent
             .post(format!("{}{path}", self.origin))
             .header("Authorization", format!("Bearer {}", self.token));
         if let Some(dir) = session_dir {
