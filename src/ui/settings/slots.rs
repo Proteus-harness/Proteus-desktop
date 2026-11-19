@@ -5,13 +5,27 @@ use std::path::Path;
 use gpui_kit::component::*;
 use gpui_kit::*;
 
-use super::widgets::{Tone, card, chip, hashed_id, item_row, mono, note, radio_card, row, section};
+use super::widgets::{
+    Tone, card, chip, disclosure, hashed_id, item_row, mono, nested, nested_group, note,
+    radio_card, row, section,
+};
 use super::{SettingsView, spot};
 use crate::settings::catalog::{
     CONTEXT_PROVIDER_SLOT, CONTEXT_SLOT, POLICY_SLOT, SESSION_STORAGE_SLOT, exports, find_slot,
     permission_description, selected_module,
 };
 use crate::ui::kit::{self, ButtonLabel as _};
+
+pub(super) const POLICY_RULES: &str = "policy-tool-rules";
+
+/// Implementation links and parameter search share the same disclosure path.
+pub(super) fn implementation_disclosures(slot: &str) -> Vec<String> {
+    if slot == POLICY_SLOT {
+        vec![POLICY_RULES.to_owned()]
+    } else {
+        Vec::new()
+    }
+}
 
 fn storage_title(id: &str) -> &str {
     match id {
@@ -29,12 +43,39 @@ impl SettingsView {
         let mut parts = Vec::new();
         if slot == POLICY_SLOT {
             parts.push(self.mode_section(cx));
+            parts.push(self.policy_rules(cx));
+            return parts;
         }
         parts.extend(self.implementation(slot, cx));
         if slot == CONTEXT_SLOT {
             parts.extend(self.providers_section(cx));
         }
         parts
+    }
+
+    fn policy_rules(&self, cx: &Context<Self>) -> AnyElement {
+        let view = cx.weak_entity();
+        let changed = self.draft.modules.get(POLICY_SLOT) != self.baseline.modules.get(POLICY_SLOT)
+            || self.draft.config.get(POLICY_SLOT) != self.baseline.config.get(POLICY_SLOT);
+        let header = disclosure(
+            "policy-tool-rules-toggle".into(),
+            self.is_open(POLICY_RULES),
+            "Правила инструментов",
+            changed,
+            move |cx| {
+                let _ = view.update(cx, |this, cx| this.toggle_open(POLICY_RULES, cx));
+            },
+            cx,
+        );
+        let body = self.reveal(POLICY_RULES, cx, || {
+            nested(
+                v_flex()
+                    .gap_4()
+                    .children(self.implementation(POLICY_SLOT, cx)),
+            )
+            .into_any_element()
+        });
+        nested_group(header, body, cx)
     }
 
     fn storage_page(&self, cx: &Context<Self>) -> Vec<AnyElement> {
@@ -96,7 +137,12 @@ impl SettingsView {
                 move |cx| {
                     let value = value.clone();
                     let _ = view.update(cx, |this, cx| {
-                        this.update_draft(cx, |draft| draft.mode = value)
+                        if this
+                            .snapshot()
+                            .is_some_and(|snapshot| snapshot.permission_modes.contains(&value))
+                        {
+                            this.update_draft(cx, |draft| draft.mode = value);
+                        }
                     });
                 },
                 cx,
@@ -106,7 +152,20 @@ impl SettingsView {
             "Режим прав по умолчанию",
             None,
             None,
-            v_flex().gap_2().children(cards),
+            v_flex()
+                .gap_2()
+                .children(
+                    (!snapshot.permission_modes.contains(&self.draft.mode)).then(|| {
+                        note(
+                            format!(
+                                "Сохранённый режим: {}. Можно оставить его или выбрать другой.",
+                                crate::settings::catalog::permission_title(&self.draft.mode)
+                            ),
+                            cx,
+                        )
+                    }),
+                )
+                .children(cards),
             cx,
         )
         .into_any_element()

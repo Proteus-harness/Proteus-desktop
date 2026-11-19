@@ -14,8 +14,8 @@ use super::SettingsView;
 use super::mcp_editors::McpForm;
 use super::widgets::{disclosure, hashed_id};
 use crate::settings::catalog::{
-    self, CONTEXT_PROVIDER_SLOT, CONTEXT_SLOT, HOOK_SLOT, MODEL_SLOT, PageId, TOOL_SLOT,
-    editable_field, editable_fields, module_info,
+    self, CONTEXT_PROVIDER_SLOT, CONTEXT_SLOT, HOOK_SLOT, MODEL_SLOT, POLICY_SLOT, PageId,
+    TOOL_SLOT, editable_field, editable_fields, module_info,
 };
 use crate::settings::{FieldKind, FieldPath, TextFormat, field_kind, format_value, parse_text};
 use crate::ui::kit::Frame as _;
@@ -225,6 +225,11 @@ impl SettingsView {
                 .iter()
                 .map(|module| module_key(MODEL_SLOT, &module.id))
                 .collect(),
+            PageId::Slot(slot)
+                if slot == POLICY_SLOT && !self.is_open(super::slots::POLICY_RULES) =>
+            {
+                Vec::new()
+            }
             PageId::Slot(slot) => catalog::selected_module(snapshot, &self.draft, slot)
                 .map(|module| module_key(slot, module))
                 .into_iter()

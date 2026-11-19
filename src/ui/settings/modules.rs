@@ -271,7 +271,9 @@ impl SettingsView {
         } else {
             spot::module(&export.slot, &export.id)
         };
-        let destination = Destination::new(page.clone()).spot(key);
+        let destination = Destination::new(page.clone())
+            .open(super::slots::implementation_disclosures(&export.slot))
+            .spot(key);
         trailing.push(self.settings_link(
             hashed_id("open-slot", &(&export.slot, &export.id)),
             format!("Открыть {}", page_title(Some(snapshot), &page)),

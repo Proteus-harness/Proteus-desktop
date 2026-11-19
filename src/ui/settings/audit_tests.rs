@@ -7,6 +7,7 @@ use crate::ui::workspace::Workspace;
 mod catalog_save;
 mod mode_edits;
 mod model_edits;
+mod policy_navigation;
 mod reload;
 
 fn snapshot(provider: &str) -> ConfigBuilderSnapshot {

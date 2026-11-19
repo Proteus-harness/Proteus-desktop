@@ -3,9 +3,20 @@
 
 use std::collections::BTreeSet;
 
-use proteus_contracts::domain::BehaviorModeDefinition;
+use proteus_contracts::app_protocol::config_builder::ConfigBuilderSnapshot;
+use proteus_contracts::domain::{BehaviorModeDefinition, PermissionMode};
 
 use super::Draft;
+
+/// Choices belong to the connected server. In particular, older servers
+/// advertise legacy `auto` and must never receive a new `full_access` choice.
+pub fn permission_choices(snapshot: &ConfigBuilderSnapshot) -> Vec<PermissionMode> {
+    snapshot
+        .permission_modes
+        .iter()
+        .filter_map(|value| serde_json::from_value(serde_json::Value::String(value.clone())).ok())
+        .collect()
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ModeText {

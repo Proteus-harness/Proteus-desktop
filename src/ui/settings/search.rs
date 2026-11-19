@@ -253,19 +253,21 @@ impl SettingsView {
                 continue;
             };
             let name = page_title(Some(snapshot), &page);
+            let open = super::slots::implementation_disclosures(slot);
             for module in find_slot(snapshot, slot)
                 .map(|info| info.modules.as_slice())
                 .unwrap_or_default()
             {
                 finder.add(
                     Hit::new(&module.id, format!("{name} · реализация"), page.clone())
+                        .open(open.clone())
                         .spot(spot::module(slot, &module.id)),
                     &[module.description.as_deref().unwrap_or_default()],
                 );
             }
             if let Some(module) = selected_module(snapshot, &self.draft, slot) {
                 let place = format!("{name} · {module}");
-                self.search_params(snapshot, finder, slot, module, &page, &place, &[]);
+                self.search_params(snapshot, finder, slot, module, &page, &place, &open);
             }
             if slot != CONTEXT_SLOT {
                 continue;

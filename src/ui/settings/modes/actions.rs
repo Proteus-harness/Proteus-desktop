@@ -15,6 +15,14 @@ impl SettingsView {
         cx: &mut Context<Self>,
     ) {
         if self.modes_writable()
+            && value.as_ref().is_none_or(|value| {
+                self.snapshot().is_some_and(|snapshot| {
+                    snapshot
+                        .permission_modes
+                        .iter()
+                        .any(|id| id == value.as_str())
+                })
+            })
             && let Some(mode) = self.draft.modes.get_mut(id)
         {
             mode.permission_mode = value;

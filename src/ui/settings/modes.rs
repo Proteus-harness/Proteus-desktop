@@ -278,12 +278,22 @@ impl SettingsView {
         for kind in [ModeList::Tools, ModeList::Hooks] {
             rows.extend(self.behavior_list(id, mode, kind, cx));
         }
-        let options = [
-            (None, "Как в конфиге"),
-            (Some(PermissionMode::Normal), "С подтверждением"),
-            (Some(PermissionMode::Auto), "Автоматически"),
-            (Some(PermissionMode::Plan), "Только чтение"),
-        ];
+        let options = std::iter::once(MenuOption {
+            checked: mode.permission_mode.is_none(),
+            label: "Как в конфиге".into(),
+            value: None,
+        })
+        .chain(
+            self.snapshot()
+                .into_iter()
+                .flat_map(modes::permission_choices)
+                .map(|value| MenuOption {
+                    checked: Some(value) == mode.permission_mode,
+                    label: permission_title(&value).into(),
+                    value: Some(value),
+                }),
+        )
+        .collect();
         let label = mode
             .permission_mode
             .as_ref()
@@ -293,18 +303,13 @@ impl SettingsView {
         rows.push(
             row(
                 "Разрешения",
-                None,
+                mode.permission_mode.as_ref().map(|value| {
+                    crate::settings::catalog::permission_description(value.as_str()).into()
+                }),
                 select_menu(
                     hashed_id("behavior-permission", &id),
                     label,
-                    options
-                        .into_iter()
-                        .map(|(value, label)| MenuOption {
-                            checked: value == mode.permission_mode,
-                            label: label.into(),
-                            value,
-                        })
-                        .collect(),
+                    options,
                     move |value, cx| {
                         let _ = view.update(cx, |this, cx| {
                             this.set_behavior_permission(&target, value, cx);
@@ -423,9 +428,5 @@ impl SettingsView {
     }
 }
 fn permission_title(mode: &PermissionMode) -> &'static str {
-    match mode {
-        PermissionMode::Normal => "С подтверждением",
-        PermissionMode::Auto => "Автоматически",
-        PermissionMode::Plan => "Только чтение",
-    }
+    crate::settings::catalog::permission_title(mode.as_str())
 }

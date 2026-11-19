@@ -8,6 +8,7 @@ fn mode_snapshot(instructions: Option<String>) -> ConfigBuilderSnapshot {
     ConfigBuilderSnapshot {
         writable: true,
         modes_writable: true,
+        permission_modes: vec!["normal".into(), "plan".into(), "full_access".into()],
         modes: [(
             "review".into(),
             BehaviorModeDefinition {
@@ -20,6 +21,39 @@ fn mode_snapshot(instructions: Option<String>) -> ConfigBuilderSnapshot {
         .into(),
         ..snapshot("initial")
     }
+}
+
+#[::core::prelude::v1::test]
+fn behavior_permission_actions_follow_server_choices_and_preserve_legacy_auto() {
+    let mut cx = context();
+    let (_, view) = view(&mut cx);
+    view.update(&mut cx, |view, cx| {
+        let mut current = mode_snapshot(None);
+        current.modes.get_mut("review").unwrap().permission_mode = Some(PermissionMode::Auto);
+        view.accept(current);
+        assert!(!view.dirty());
+        view.set_behavior_permission("review", Some(PermissionMode::Auto), cx);
+        assert!(!view.dirty());
+        view.set_behavior_permission("review", Some(PermissionMode::FullAccess), cx);
+        assert_eq!(
+            view.draft.modes["review"].permission_mode,
+            Some(PermissionMode::FullAccess)
+        );
+
+        let mut legacy = mode_snapshot(None);
+        legacy.permission_modes = vec!["plan".into(), "normal".into(), "auto".into()];
+        view.accept(legacy);
+        view.set_behavior_permission("review", Some(PermissionMode::FullAccess), cx);
+        assert!(
+            !view.dirty(),
+            "a stale new-server action cannot target an old server"
+        );
+        view.set_behavior_permission("review", Some(PermissionMode::Auto), cx);
+        assert_eq!(
+            view.draft.modes["review"].permission_mode,
+            Some(PermissionMode::Auto)
+        );
+    });
 }
 fn view(cx: &mut ::gpui::TestAppContext) -> (&mut ::gpui::VisualTestContext, Entity<SettingsView>) {
     let window = cx.add_empty_window();

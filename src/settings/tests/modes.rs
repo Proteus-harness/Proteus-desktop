@@ -23,6 +23,37 @@ fn snapshot() -> ConfigBuilderSnapshot {
 }
 
 #[test]
+fn permission_choices_use_the_server_catalogue_and_legacy_values_roundtrip() {
+    for values in [
+        vec!["normal", "plan", "full_access"],
+        vec!["plan", "normal", "auto"],
+    ] {
+        let mut snapshot = snapshot();
+        snapshot.permission_modes = values.iter().map(|value| (*value).into()).collect();
+        snapshot.permission_modes.push("unknown-future-mode".into());
+        assert_eq!(
+            modes::permission_choices(&snapshot)
+                .into_iter()
+                .map(PermissionMode::as_str)
+                .collect::<Vec<_>>(),
+            values
+        );
+        snapshot.permission_mode = "auto".into();
+        let baseline = Draft::from_snapshot(&snapshot);
+        let mut draft = baseline.clone();
+        draft.set_tool("unrelated", true);
+        assert!(draft.changes(&baseline).permission_mode.is_none());
+        draft.mode = "full_access".into();
+        let change = draft.changes(&baseline);
+        assert_eq!(change.permission_mode, Some(PermissionMode::FullAccess));
+        assert_eq!(
+            serde_json::to_value(change.permission_mode).unwrap(),
+            serde_json::json!("full_access")
+        );
+    }
+}
+
+#[test]
 fn mode_catalogue_roundtrip_crud_and_save_cas_do_not_touch_models_or_baseline_tools() {
     let snapshot = snapshot();
     let baseline = Draft::from_snapshot(&snapshot);
