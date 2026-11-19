@@ -2,11 +2,24 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+import tomllib
 
-from run import process_group, canonical_files, validate_canonical
+from run import process_group, canonical_files, validate_canonical, profile, storage_binary
 
 
 class ProcessGroups(unittest.TestCase):
+    def test_profile_selects_explicit_jsonl_storage_and_records_its_command(self):
+        core = Path('/portable/bin/proteus')
+        storage = storage_binary(core)
+        self.assertEqual(storage, Path('/portable/bin/proteus-session-storage-module'))
+        custom = Path('/custom path/storage-module')
+        self.assertEqual(storage_binary(core, custom), custom)
+        config = tomllib.loads(profile(Path('/portable/bin/proteus-reference-module'), custom))
+        self.assertEqual(config['modules']['session_storage'], 'jsonl')
+        component = config['components']['session-storage']
+        self.assertEqual(component['command'], str(custom))
+        self.assertEqual(component['exports']['session_storage'], {'jsonl': {}})
+
     def test_canonical_oracle_detects_added_deleted_and_modified_blobs(self):
         verify = Path(__file__).resolve().parents[3] / "build/verification"
         verify.mkdir(parents=True, exist_ok=True)
@@ -41,6 +54,7 @@ class ProcessGroups(unittest.TestCase):
         self.assertEqual(process_group({'exe': '/portable/share/extensions-old/bin/files'}, root), 'other')
         self.assertEqual(process_group({'exe': '/portable/bin/proteus'}, root), 'backend')
         self.assertEqual(process_group({'exe': '/portable/bin/proteus-reference-module'}, root), 'modules')
+        self.assertEqual(process_group({'exe': '/portable/bin/proteus-session-storage-module'}, root), 'modules')
 
 
 if __name__ == '__main__':

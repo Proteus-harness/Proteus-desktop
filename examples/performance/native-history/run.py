@@ -43,7 +43,11 @@ def save(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + '\n')
 
 
-def profile(module):
+def storage_binary(core, storage=None):
+    return (storage or core.with_name('proteus-session-storage-module')).resolve()
+
+
+def profile(module, storage):
     return f'''active_provider = "fake"
 [providers.fake]
 provider = "fake"
@@ -53,7 +57,12 @@ stream = true
 workflow = "coding.single_loop"
 context = "simple"
 policy = "allow_all"
+session_storage = "jsonl"
 hooks = []
+[components.session-storage]
+command = {json.dumps(str(storage))}
+transport.max_frame_bytes = 134217728
+[components.session-storage.exports.session_storage.jsonl]
 [components.model]
 command = {json.dumps(str(module))}
 [components.model.exports.model.fake]
@@ -100,7 +109,7 @@ def process_group(row, extensions):
     executable = path.name
     if executable == 'proteus':
         return 'backend'
-    if executable == 'proteus-reference-module':
+    if executable in ('proteus-reference-module', 'proteus-session-storage-module'):
         return 'modules'
     if path.is_relative_to(extensions) or executable.startswith('python') or executable == 'node' or row.get('name') == 'node':
         return 'extensions'
@@ -279,6 +288,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for flag in ('native', 'core', 'module', 'seeder', 'extensions', 'core-source', 'output'):
         parser.add_argument('--'+flag, type=Path, required=True)
+    parser.add_argument('--storage', type=Path,
+                        help='session storage module; defaults to proteus-session-storage-module beside --core')
     parser.add_argument('--messages', type=int, nargs='+', default=[5000, 50000])
     parser.add_argument('--repeats', type=int, default=3)
     parser.add_argument('--text-repeats', type=int, default=4)
@@ -294,6 +305,7 @@ def main():
     args = parser.parse_args()
     for name in ('native', 'core', 'module', 'seeder', 'extensions', 'core_source', 'output', 'bgui'):
         setattr(args, name, getattr(args, name).resolve())
+    args.storage = storage_binary(args.core, args.storage)
     assert args.repeats >= 1 and all(n > 0 for n in args.messages)
     assert args.interval >= .05 and args.idle >= 1 and args.settle >= 0
     assert os.environ.get('WAYLAND_DISPLAY'), 'launch through background-gui exec/run'
@@ -301,7 +313,7 @@ def main():
     args.output.mkdir(parents=True, exist_ok=False)
     save(args.output / 'manifest.json', dict(
         binaries={name: dict(path=str(getattr(args,name)), sha256=sha(getattr(args,name)))
-                  for name in ('native', 'core', 'module', 'seeder')},
+                  for name in ('native', 'core', 'module', 'storage', 'seeder')},
         harness_sources={str(path):sha(path) for path in (
             Path(__file__).resolve(), args.core_source/'examples/performance/common/proc_sampler.py',
             args.core_source/'examples/performance/history-scale/verify.py',
@@ -322,7 +334,7 @@ def main():
             configs = case / 'config/configs'
             configs.mkdir(parents=True)
             config = configs / 'bench.toml'
-            config.write_text(profile(args.module))
+            config.write_text(profile(args.module, args.storage))
             seed = subprocess.run([str(args.seeder), str(case/'config'), str(workspace),
                                    str(count), str(args.text_repeats)], capture_output=True, text=True, check=True)
             save(case / 'seed.json', json.loads(seed.stdout))
