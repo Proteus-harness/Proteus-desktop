@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{Chat, ComposerExtras, Session};
 use crate::api::Api;
+use crate::ui::kit::{self, ButtonLabel as _};
 use crate::ui::workspace::Workspace;
 
 const PREFIX: &str = "subagent:";
@@ -139,8 +140,9 @@ impl Chat {
         }
     }
 
-    pub(in crate::ui) fn readonly_reopened(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::ui) fn retry_failed_readonly_history(&mut self, cx: &mut Context<Self>) {
         if let Some(binding) = &mut self.readonly
+            && !matches!(binding.inflight, Some((_, true)))
             && binding.error.take().is_some()
         {
             binding.dirty = true;
@@ -363,21 +365,38 @@ impl Chat {
             }
             .into()
         });
+        let retry = (binding.error.is_some()
+            && binding.inflight.is_none()
+            && !self.history.request_pending()
+            && !self.history.archived())
+        .then(|| {
+            kit::button("readonly-history-retry")
+                .debug_selector(|| "readonly-history-retry".into())
+                .quiet(cx)
+                .small()
+                .faded_label("Повторить")
+                .on_click(cx.listener(|chat, _, _, cx| chat.retry_failed_readonly_history(cx)))
+        });
+        let caption = div()
+            .id("readonly-status-caption")
+            .flex_initial()
+            .max_w_full()
+            .min_w_0()
+            .text_color(if binding.error.is_some() {
+                cx.theme().muted_foreground
+            } else {
+                cx.theme().chat_secondary_foreground
+            })
+            .hover(|style| style.text_color(cx.theme().foreground))
+            .child(status);
         Some(
-            h_flex().px_4().py_2().gap_2().text_sm().child(
-                div()
-                    .id("readonly-status-caption")
-                    .flex_initial()
-                    .max_w_full()
-                    .min_w_0()
-                    .text_color(if binding.error.is_some() {
-                        cx.theme().muted_foreground
-                    } else {
-                        cx.theme().chat_secondary_foreground
-                    })
-                    .hover(|style| style.text_color(cx.theme().foreground))
-                    .child(status),
-            ),
+            h_flex()
+                .px_4()
+                .py_2()
+                .gap_2()
+                .text_sm()
+                .child(caption)
+                .children(retry),
         )
     }
 }
@@ -390,6 +409,9 @@ impl Binding {
         )
     }
 }
+
+#[cfg(test)]
+mod retry_tests;
 
 #[cfg(test)]
 mod tests {
@@ -547,7 +569,7 @@ mod tests {
                 let binding = chat.readonly.as_mut().unwrap();
                 binding.error = Some("synthetic read failure".into());
                 binding.dirty = false;
-                chat.readonly_reopened(cx);
+                chat.retry_failed_readonly_history(cx);
                 assert!(
                     chat.readonly.as_ref().unwrap().dirty,
                     "reopening a failed final history retries once without polling"

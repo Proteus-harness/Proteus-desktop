@@ -173,7 +173,7 @@ impl Workspace {
         if let Some(surface) = self.documents.get(id)
             && let Ok(chat) = surface.view.clone().downcast::<Chat>()
         {
-            chat.update(cx, |chat, cx| chat.readonly_reopened(cx));
+            chat.update(cx, |chat, cx| chat.retry_failed_readonly_history(cx));
         }
     }
 
