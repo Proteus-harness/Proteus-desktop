@@ -1,7 +1,7 @@
 use super::*;
 use std::{
     fs::{self, File},
-    io::{self, BufReader, BufWriter, Read, Write},
+    io::{self, BufRead, BufReader, BufWriter, Read, Write},
 };
 
 fn name(identity: &Hash) -> String {
@@ -161,30 +161,55 @@ pub(super) fn load(root: &Path, requested: Key, permit: Permit) -> io::Result<Op
     if keep == 0 {
         return Ok(None);
     }
-    let mut spans = Vec::with_capacity(count);
+    // Each retained span contains at least one row. Validate the whole file
+    // below, but don't reserve storage for spans beyond the proven prefix.
+    let mut spans = Vec::with_capacity(count.min(keep));
     let mut total = 0usize;
     let mut hash = Sha256::new();
-    for _ in 0..count {
-        let row_bytes = bytes::<8>(&mut file)?;
-        let pixel_bytes = bytes::<8>(&mut file)?;
-        let tag = bytes::<1>(&mut file)?;
-        hash.update(row_bytes);
-        hash.update(pixel_bytes);
-        hash.update(tag);
-        let span_rows = usize::try_from(u64::from_le_bytes(row_bytes)).map_err(|_| invalid())?;
-        let pixels = f64::from_le_bytes(pixel_bytes);
-        if span_rows == 0 || !pixels.is_finite() || pixels < 0. || tag[0] > 2 {
-            return Err(invalid());
+    // Decode wire records straight from the reader's buffer. Only a record
+    // straddling two buffer fills needs to be copied into a temporary array.
+    let mut left = count;
+    while left != 0 {
+        let available = match file.fill_buf() {
+            // Preserve read_exact's retry behavior at buffer boundaries.
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            result => result?,
+        };
+        let bytes_in_buffer = left.min(available.len() / SPAN_BYTES) * SPAN_BYTES;
+        let overlapping;
+        let batch = if bytes_in_buffer == 0 {
+            overlapping = bytes::<SPAN_BYTES>(&mut file)?;
+            overlapping.as_slice()
+        } else {
+            &available[..bytes_in_buffer]
+        };
+        hash.update(batch);
+        for record in batch.as_chunks::<SPAN_BYTES>().0 {
+            let (row_bytes, rest) = record.split_first_chunk::<8>().unwrap();
+            let (pixel_bytes, rest) = rest.split_first_chunk::<8>().unwrap();
+            let span_rows =
+                usize::try_from(u64::from_le_bytes(*row_bytes)).map_err(|_| invalid())?;
+            let pixels = f64::from_le_bytes(*pixel_bytes);
+            let tag = rest[0];
+            if span_rows == 0 || !pixels.is_finite() || pixels < 0. || tag > 2 {
+                return Err(invalid());
+            }
+            if total < keep {
+                let take = span_rows.min(keep - total);
+                spans.push(ColdSpan {
+                    rows: take,
+                    pixels: pixels * take as f64 / span_rows as f64,
+                    kind: tag,
+                });
+            }
+            total = total.checked_add(span_rows).ok_or_else(invalid)?;
         }
-        if total < keep {
-            let take = span_rows.min(keep - total);
-            spans.push(ColdSpan {
-                rows: take,
-                pixels: pixels * take as f64 / span_rows as f64,
-                kind: tag[0],
-            });
+        if bytes_in_buffer == 0 {
+            left -= 1;
+        } else {
+            file.consume(bytes_in_buffer);
+            left -= bytes_in_buffer / SPAN_BYTES;
         }
-        total = total.checked_add(span_rows).ok_or_else(invalid)?;
     }
     if total != rows || Hash::from(hash.finalize()) != expected {
         return Err(invalid());

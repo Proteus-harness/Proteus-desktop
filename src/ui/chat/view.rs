@@ -46,12 +46,11 @@ impl Render for Chat {
         });
         let running = self.session.connected && self.session.running();
         let scrollbar = self.scroller.read(cx).scrollbar();
-        let incomplete_rows = super::row_layout::row_context(
+        let row_context = super::row_layout::row_context(
             self.display_transcript().entries(),
             prefs::visual(cx).view.compact_tools,
             self.history.range(&self.session.transcript),
-        )
-        .incomplete_rows();
+        );
         v_flex()
             .id("chat")
             .relative()
@@ -78,7 +77,7 @@ impl Render for Chat {
                     .child(
                         ChatList::new("thread", self.scroller.clone(), renderer)
                             .scrollbar(false)
-                            .incomplete_rows(incomplete_rows)
+                            .row_context(row_context)
                             .footer(footer_state, move |window, cx| footer(thinking, window, cx))
                             .running(running),
                     )

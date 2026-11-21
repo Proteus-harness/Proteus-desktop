@@ -75,6 +75,45 @@ class SettingsMigrationTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('Restored 0', result.stdout)
 
+    def test_restore_keeps_destination_window_state_and_replaces_portable_preferences(self):
+        result = self.run_script('export')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        destination = self.target / '.config/dev.proteus.native/preferences.json'
+        destination.parent.mkdir(parents=True)
+        # A local path can share the exporter's prefix; it must not be relocated.
+        workspace = str(self.source / 'shared workspace')
+        state = {
+            'tabs': {'active': 'codex:local', 'roots': {'codex:local': {}}},
+            'tabs_workspace': {'workspace': workspace, 'profile': None},
+            'sessions': {'codex:local': {'title': 'Мой чат', 'pinned': True}},
+            'recent': [workspace],
+        }
+        original = json.dumps({'visual_configs': {}, **state}).encode()
+        destination.write_bytes(original)
+        preview = self.run_script('restore', self.archive, self.target, '--dry-run')
+        self.assertEqual(preview.returncode, 0, preview.stderr)
+        self.assertEqual(destination.read_bytes(), original)
+        result = self.run_script('restore', home=self.target)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        restored = json.loads(destination.read_bytes())
+        self.assertEqual({key: restored.get(key) for key in state}, state)
+        profile = str(self.target / '.config/Proteus-harness/configs/config.toml')
+        self.assertIn(profile, restored['visual_configs']['bindings'])
+        repeat = self.run_script('restore', home=self.target)
+        self.assertEqual(repeat.returncode, 0, repeat.stderr)
+        self.assertIn('Restored 0', repeat.stdout)
+
+    def test_invalid_local_preferences_abort_before_any_restore(self):
+        self.assertEqual(self.run_script('export').returncode, 0)
+        destination = self.target / '.config/dev.proteus.native/preferences.json'
+        destination.parent.mkdir(parents=True)
+        destination.write_bytes(b'null')
+        result = self.run_script('restore', home=self.target)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('preferences', result.stderr)
+        self.assertEqual(destination.read_bytes(), b'null')
+        self.assertFalse((self.target / '.config/Proteus-harness').exists())
+
     def test_upgrade_storage_preserves_an_existing_included_storage_selection(self):
         shared = self.agent / 'configs/fragments/storage.toml'
         shared.parent.mkdir()

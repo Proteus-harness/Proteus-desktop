@@ -6,14 +6,14 @@ use std::{collections::HashMap, rc::Rc};
 
 use gpui_kit::component::*;
 use gpui_kit::*;
-use proteus_contracts::app_protocol::config_builder::ConfigBuilderSnapshot;
-use proteus_contracts::domain::{ConfigField, ConfigSuggestions, ConfigValueSchema};
+use proteus_contracts::domain::{ConfigField, ConfigValueSchema};
 use serde_json::Value;
 
 use super::{SettingsView, editors::TextInput, fields::FieldSpec};
 use crate::settings::FieldPath;
 
 pub(super) mod editor;
+mod suggest;
 
 #[cfg(test)]
 mod tests;
@@ -32,71 +32,6 @@ pub(super) fn is_tag_field(field: &ConfigField) -> bool {
         },
         _ => false,
     }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-struct Suggestion {
-    value: String,
-    title: String,
-}
-
-fn suggestions(field: &ConfigField, snapshot: Option<&ConfigBuilderSnapshot>) -> Vec<Suggestion> {
-    let mut values = Vec::new();
-    let mut push = |value: &str, title: &str| {
-        if !values.iter().any(|item: &Suggestion| item.value == value) {
-            values.push(Suggestion {
-                value: value.into(),
-                title: title.into(),
-            });
-        }
-    };
-    if let ConfigValueSchema::Array { items } = &field.value
-        && let ConfigValueSchema::Enum { options } = items.as_ref()
-    {
-        for option in options {
-            if let Some(value) = option.value.as_str() {
-                push(value, &option.title);
-            }
-        }
-    }
-    // Defaults are module-owned known values too (e.g. builtin context
-    // sources that are handled inside the context module, not exports).
-    if let Some(values) = field.default.as_ref().and_then(Value::as_array) {
-        for value in values.iter().filter_map(Value::as_str) {
-            push(value, value);
-        }
-    }
-    if let Some(snapshot) = snapshot {
-        match &field.suggestions {
-            Some(ConfigSuggestions::Tools {}) => {
-                for tool in &snapshot.tools {
-                    push(&tool.name, &tool.name);
-                }
-            }
-            Some(ConfigSuggestions::Exports { slot }) => {
-                for module in snapshot
-                    .slots
-                    .iter()
-                    .flat_map(|slot| &slot.modules)
-                    .chain(snapshot.model_modules.iter())
-                    .chain(snapshot.hook_modules.iter())
-                    .filter(|module| &module.slot == slot)
-                {
-                    push(&module.id, &module.id);
-                }
-                for export in snapshot
-                    .plugins
-                    .iter()
-                    .flat_map(|plugin| &plugin.exports)
-                    .filter(|export| &export.slot == slot)
-                {
-                    push(&export.id, &export.id);
-                }
-            }
-            None => {}
-        }
-    }
-    values
 }
 
 fn array(value: Option<&Value>) -> Option<&[Value]> {

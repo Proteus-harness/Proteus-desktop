@@ -70,12 +70,20 @@ impl Workspace {
                             .entry(project)
                             .or_default()
                             .accept(cursor.as_deref(), page.next_cursor);
-                        for row in page.data {
-                            let row = crate::conversations::from_codex(&row);
-                            if this.deleting_sessions.contains(&row.key) {
-                                continue;
+                        // A short final page or a tiny catalog costs less to scan directly.
+                        if page.data.len() <= 8 || this.sessions.len() <= 32 {
+                            for row in page.data {
+                                let row = crate::conversations::from_codex(&row);
+                                if !this.deleting_sessions.contains(&row.key) {
+                                    crate::conversations::upsert_summary(&mut this.sessions, row);
+                                }
                             }
-                            crate::conversations::upsert_summary(&mut this.sessions, row);
+                        } else {
+                            crate::conversations::merge_codex_page(
+                                &mut this.sessions,
+                                &page.data,
+                                &this.deleting_sessions,
+                            );
                         }
                         this.sessions_arrived
                             .get_or_insert_with(std::time::Instant::now);

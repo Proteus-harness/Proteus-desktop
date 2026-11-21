@@ -55,12 +55,27 @@ impl TextRun {
 /// Original per-event effects remain observable even when layout work is reduced.
 pub(crate) struct TextRunOutcome {
     pub(crate) feedback_changed: bool,
-    changes: Vec<Change>,
+    changes: Changes,
+}
+
+enum Changes {
+    One(Change),
+    Batch(Vec<Change>),
+}
+
+impl Changes {
+    fn as_slice(&self) -> &[Change] {
+        match self {
+            Self::One(change) => std::slice::from_ref(change),
+            Self::Batch(changes) => changes,
+        }
+    }
 }
 
 impl TextRunOutcome {
     pub fn event_changes(&self) -> impl Iterator<Item = Change> + '_ {
         self.changes
+            .as_slice()
             .iter()
             .copied()
             .filter(|change| *change != Change::None)
@@ -68,7 +83,7 @@ impl TextRunOutcome {
 
     pub fn layout_changes(&self) -> impl Iterator<Item = Change> + '_ {
         // Creation must survive even if a later empty delta truncates the row.
-        let change = if self.changes.contains(&Change::Pushed) {
+        let change = if self.changes.as_slice().contains(&Change::Pushed) {
             Some(Change::Pushed)
         } else {
             self.event_changes().last()
@@ -115,7 +130,7 @@ impl Transcript {
     pub(crate) fn apply_text_run(&mut self, run: &TextRun) -> TextRunOutcome {
         let Some(first) = run.events.first().and_then(|event| delta(event)) else {
             return TextRunOutcome {
-                changes: Vec::new(),
+                changes: Changes::Batch(Vec::new()),
                 feedback_changed: false,
             };
         };
@@ -124,13 +139,13 @@ impl Transcript {
             let change = self.apply_runtime(first.envelope.thread_id, &first.envelope.event);
             self.stamp(change, first.envelope.timestamp_ms);
             return TextRunOutcome {
-                changes: vec![change],
+                changes: Changes::One(change),
                 feedback_changed: false,
             };
         }
         if !self.is_turn_thread(first.envelope.thread_id) {
             return TextRunOutcome {
-                changes: vec![Change::None; run.events.len()],
+                changes: Changes::Batch(vec![Change::None; run.events.len()]),
                 feedback_changed: false,
             };
         }
@@ -167,7 +182,7 @@ impl Transcript {
         }
         if !exists {
             return TextRunOutcome {
-                changes,
+                changes: Changes::Batch(changes),
                 feedback_changed: false,
             };
         }
@@ -197,7 +212,7 @@ impl Transcript {
             });
         }
         TextRunOutcome {
-            changes,
+            changes: Changes::Batch(changes),
             feedback_changed: false,
         }
     }

@@ -143,13 +143,13 @@ impl Session {
                 .as_ref()
                 .is_some_and(|tool| super::tool_row::is_running(&tool.status))
         });
-        let message_ids: Vec<_> = snapshot
-            .transcript
-            .iter()
-            .filter_map(|entry| entry.message_id)
-            .collect();
         self.feedback
-            .snapshot(&snapshot.execution, tools_running, &message_ids);
+            .snapshot(&snapshot.execution, tools_running, |id| {
+                snapshot
+                    .transcript
+                    .iter()
+                    .any(|entry| entry.message_id == Some(id))
+            });
         self.snapshot_identity = Some((snapshot.session_id, snapshot.stream_id));
         self.execution = snapshot.execution;
         self.root_thread = snapshot.root_thread_id;

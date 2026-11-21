@@ -200,6 +200,8 @@ impl SessionMarks {
             archived_count,
             ..Listing::default()
         };
+        // Keep the Vec in first-seen order: equal activity dates must stay stable.
+        let mut project_indices = HashMap::new();
         for root in roots {
             let row = rows[root].take().unwrap();
             if row.mark.archived {
@@ -208,23 +210,31 @@ impl SessionMarks {
                 listing.pinned.push(row);
             } else {
                 let path = row.summary.workspace_path.as_path();
-                if let Some(project) = listing
-                    .projects
-                    .iter_mut()
-                    .find(|project| project.path == path)
-                {
+                // Single-folder lists need no hash lookup for each following row.
+                if let Some(project) = listing.projects.last_mut().filter(|p| p.path == path) {
                     project.rows.push(row);
-                } else {
+                    continue;
+                }
+                let index = *project_indices.entry(path).or_insert_with(|| {
+                    let index = listing.projects.len();
                     listing.projects.push(Project {
                         path,
-                        rows: vec![row],
+                        rows: Vec::new(),
                     });
-                }
+                    index
+                });
+                listing.projects[index].rows.push(row);
             }
         }
-        listing
-            .projects
-            .sort_by_key(|project| std::cmp::Reverse(project.updated_at_ms()));
+        drop(project_indices);
+        let newest_first = |project: &Project<'_>| std::cmp::Reverse(project.updated_at_ms());
+        if listing.projects.len() <= 2 {
+            // At most one comparison, so a key cache would only add an allocation.
+            listing.projects.sort_by_key(newest_first);
+        } else {
+            // Computing a key walks the whole visible project tree.
+            listing.projects.sort_by_cached_key(newest_first);
+        }
         listing
     }
 }
@@ -243,24 +253,26 @@ pub struct Row<'a> {
 
 impl Row<'_> {
     pub fn contains(&self, dir: &ChatKey) -> bool {
-        let mut pending = vec![self];
-        while let Some(row) = pending.pop() {
+        let mut pending = Vec::new();
+        let mut row = self;
+        loop {
             if &row.summary.key == dir {
                 return true;
             }
-            pending.extend(&row.children);
+            // Continue along the next DFS edge directly. Only siblings that
+            // must wait need the stack; a leaf or a single-child chain is free.
+            if let Some((last, siblings)) = row.children.split_last() {
+                if !siblings.is_empty() {
+                    pending.extend(siblings);
+                }
+                row = last;
+            } else if let Some(next) = pending.pop() {
+                row = next;
+            } else {
+                break;
+            }
         }
         false
-    }
-
-    fn updated_at_ms(&self) -> u64 {
-        let mut latest = 0;
-        let mut pending = vec![self];
-        while let Some(row) = pending.pop() {
-            latest = latest.max(row.summary.updated_at_ms.unwrap_or(0));
-            pending.extend(&row.children);
-        }
-        latest
     }
 }
 
@@ -290,22 +302,27 @@ fn break_cycles(parents: &mut [Option<usize>]) {
         if colors[start] != 0 {
             continue;
         }
-        let mut path = Vec::new();
         let mut next = Some(start);
         while let Some(i) = next {
-            if colors[i] == 1 {
-                parents[i] = None;
-                break;
-            }
-            if colors[i] == 2 {
+            if colors[i] != 0 {
                 break;
             }
             colors[i] = 1;
-            path.push(i);
             next = parents[i];
         }
-        for i in path {
+        let cycle = next.filter(|&i| colors[i] == 1);
+        // Rewalk only this path's active nodes. Keep the links intact until
+        // they are all marked, including when the edge to cut is at start.
+        let mut next = Some(start);
+        while let Some(i) = next {
+            if colors[i] != 1 {
+                break;
+            }
             colors[i] = 2;
+            next = parents[i];
+        }
+        if let Some(i) = cycle {
+            parents[i] = None;
         }
     }
 }
@@ -319,7 +336,18 @@ pub struct Project<'a> {
 impl Project<'_> {
     /// When a session of the project last changed.
     fn updated_at_ms(&self) -> u64 {
-        self.rows.iter().map(Row::updated_at_ms).max().unwrap_or(0)
+        let mut latest = 0;
+        // Only descendants need a stack. Reuse it across roots in this project.
+        let mut pending = Vec::new();
+        for root in &self.rows {
+            latest = latest.max(root.summary.updated_at_ms.unwrap_or(0));
+            pending.extend(&root.children);
+            while let Some(row) = pending.pop() {
+                latest = latest.max(row.summary.updated_at_ms.unwrap_or(0));
+                pending.extend(&row.children);
+            }
+        }
+        latest
     }
 }
 
@@ -455,6 +483,52 @@ mod tests {
     }
 
     #[test]
+    fn project_recency_uses_visible_descendants_and_keeps_equal_keys_stable() {
+        let first = changed("/s/first", "/z", Some(5), Some("root"));
+        let second = changed("/s/second", "/m", Some(10), Some("root"));
+        let third = changed("/s/third", "/a", Some(10), Some("root"));
+        let mut child = changed("/s/child", "/elsewhere", Some(20), Some("child"));
+        child.parent = Some(first.key.clone());
+        let sessions = [first, second, third, child];
+        let marks = SessionMarks::default();
+        let projects = |search| {
+            marks
+                .arrange(&sessions, &view(false, search))
+                .projects
+                .into_iter()
+                .map(|project| project.path)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(projects(""), ["/z", "/m", "/a"].map(Path::new));
+        assert_eq!(projects("root"), ["/m", "/a", "/z"].map(Path::new));
+    }
+
+    #[test]
+    fn project_sort_uses_included_descendants_and_preserves_first_seen_ties() {
+        let mut child = changed("/s/child", "/elsewhere", Some(50), Some("child"));
+        child.parent = Some(key("/s/a1"));
+        let sessions = [
+            changed("/s/b", "/b", Some(50), Some("root")),
+            changed("/s/a1", "/a", None, Some("root")),
+            changed("/s/c", "/c", Some(30), Some("root")),
+            changed("/s/a2", "/a", Some(10), Some("root")),
+            child,
+        ];
+        let marks = SessionMarks::default();
+        let listing = marks.arrange(&sessions, &view(false, ""));
+        assert_eq!(shown(&listing), ["/s/b", "/s/a1", "/s/a2", "/s/c"].map(key));
+        assert_eq!(
+            dirs(&listing.projects[1].rows[0].children),
+            [key("/s/child")]
+        );
+        // Filtering out the newest descendant changes the project order.
+        assert_eq!(
+            shown(&marks.arrange(&sessions, &view(false, "root"))),
+            ["/s/b", "/s/c", "/s/a1", "/s/a2"].map(key)
+        );
+    }
+
+    #[test]
     fn search_matches_titles_and_reaches_the_archive() {
         let sessions = [
             changed("/s/a", "/w", Some(0), Some("Почини сборку релиза")),
@@ -508,6 +582,23 @@ mod tests {
         let root = &listing.projects[0].rows[0];
         assert_eq!(dirs(&root.children), [key("/s/2")]);
         assert_eq!(dirs(&root.children[0].children), [key("/s/3")]);
+    }
+
+    #[test]
+    fn contains_returns_to_siblings_after_a_deep_branch_miss() {
+        let sessions = [
+            linked(1, None, "root"),
+            linked(2, Some(1), "side"),
+            linked(3, Some(1), "chain"),
+            linked(4, Some(3), "child"),
+            linked(5, Some(4), "leaf"),
+        ];
+        let listing = SessionMarks::default().arrange(&sessions, &view(false, ""));
+        let root = &listing.projects[0].rows[0];
+        assert!(root.contains(&key("/s/5")));
+        assert!(root.contains(&key("/s/2")));
+        assert!(!root.contains(&key("/s/missing")));
+        assert!(!root.contains(&ChatKey::Codex("/s/5".into())));
     }
 
     #[test]
@@ -599,6 +690,38 @@ mod tests {
         let json = serde_json::to_value(&marks).unwrap();
         assert!(json.get("chat:/s/shared").is_some());
         assert!(json.get("codex:/s/shared").is_some());
+    }
+
+    #[test]
+    fn cycle_cut_keeps_the_same_edge_when_other_chains_join_it() {
+        let mut parents = [
+            Some(1),
+            Some(2),
+            Some(0), // the first walk returns to index 0
+            Some(2),
+            Some(3), // enter the same cycle from other components
+            Some(6),
+            Some(7),
+            Some(6), // a later walk starts outside a cycle
+            None,
+            Some(8),
+        ];
+        super::break_cycles(&mut parents);
+        assert_eq!(
+            parents,
+            [
+                None,
+                Some(2),
+                Some(0),
+                Some(2),
+                Some(3),
+                Some(6),
+                None,
+                Some(6),
+                None,
+                Some(8)
+            ]
+        );
     }
 }
 

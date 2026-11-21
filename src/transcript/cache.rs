@@ -55,13 +55,61 @@ fn value_bytes(value: &Value) -> usize {
         }
 }
 
+/// Keep the first matching old row and its first occurrence in the new view.
+fn first_overlap(old: &[Entry], new: &[Entry]) -> Option<(usize, usize)> {
+    let first = old.first()?;
+    if new.is_empty() {
+        return None;
+    }
+    let position = |row: &Entry| new.iter().position(|next| next.key == row.key);
+    if let Some(b) = position(first) {
+        return Some((0, b));
+    }
+
+    // Nearby overlap is usually cheaper to probe directly. Only switch to
+    // binary lookup once there is more work and key order has been verified.
+    const DIRECT_CHECKS: usize = 1024;
+    const MIN_ORDERED_ROWS: usize = 16;
+    let rest = &old[1..];
+    let direct = if new.len() >= MIN_ORDERED_ROWS {
+        (DIRECT_CHECKS / new.len()).max(4).min(rest.len())
+    } else {
+        rest.len()
+    };
+    let (prefix, tail) = rest.split_at(direct);
+    if let Some(hit) = prefix
+        .iter()
+        .enumerate()
+        .find_map(|(a, row)| position(row).map(|b| (a + 1, b)))
+    {
+        return Some(hit);
+    }
+    if tail.is_empty() {
+        return None;
+    }
+
+    let offset = direct + 1;
+    if new.is_sorted_by_key(|row| row.key) {
+        let lowest = new[0].key;
+        let highest = new[new.len() - 1].key;
+        tail.iter().enumerate().find_map(|(a, row)| {
+            if !(lowest..=highest).contains(&row.key) {
+                return None;
+            }
+            // A binary-search hit alone need not be the first duplicate.
+            let b = new.partition_point(|next| next.key < row.key);
+            (new[b].key == row.key).then_some((a + offset, b))
+        })
+    } else {
+        tail.iter()
+            .enumerate()
+            .find_map(|(a, row)| position(row).map(|b| (a + offset, b)))
+    }
+}
+
 /// Keep the common rows measured, so GPUI's logical anchor survives eviction.
 pub fn window_changes(old: &[Entry], new: &[Entry]) -> Vec<Change> {
-    let overlap = old.iter().enumerate().find_map(|(a, row)| {
-        new.iter()
-            .position(|next| next.key == row.key)
-            .map(|b| (a, b))
-    });
+    let overlap = first_overlap(old, new);
     let Some((a, b)) = overlap else {
         return vec![Change::Spliced {
             start: 0,
@@ -97,4 +145,63 @@ pub fn window_changes(old: &[Entry], new: &[Entry]) -> Vec<Change> {
         });
     }
     changes
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::transcript::Role;
+
+    fn rows(keys: impl IntoIterator<Item = u64>) -> Vec<Entry> {
+        keys.into_iter()
+            .map(|key| Entry {
+                key,
+                message_id: None,
+                role: Role::Assistant,
+                text: "".into(),
+                images: Vec::new(),
+                tool: None,
+                subagent: None,
+                streaming: false,
+                time: None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn unordered_overlap_prefers_old_order_then_first_new_duplicate() {
+        let old = rows(0..200);
+        let mut new = rows(1000..1200);
+        new[2].key = 75;
+        new[6].key = 65;
+        new[30].key = 65;
+        new[31].key = 66;
+        assert_eq!(first_overlap(&old, &new), Some((65, 6)));
+        assert_eq!(
+            window_changes(&old, &new),
+            [
+                Change::Spliced {
+                    start: 66,
+                    removed: 134,
+                    inserted: 0,
+                },
+                Change::Spliced {
+                    start: 0,
+                    removed: 65,
+                    inserted: 6,
+                },
+                Change::Spliced {
+                    start: 7,
+                    removed: 0,
+                    inserted: 193,
+                },
+            ]
+        );
+    }
+    #[test]
+    fn ordered_overlap_chooses_the_first_duplicate() {
+        let old = rows(0..200);
+        let new = rows([65, 65, 66].into_iter().chain(1000..1197));
+        assert_eq!(first_overlap(&old, &new), Some((65, 0)));
+    }
 }

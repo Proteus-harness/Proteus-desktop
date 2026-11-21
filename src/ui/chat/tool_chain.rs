@@ -8,11 +8,13 @@ use gpui_kit::*;
 use proteus_contracts::app_protocol::AppTranscriptTool;
 
 use super::Chat;
-use super::tool_row::{is_running, status_icon};
+use super::tool_row::status_icon;
 use crate::transcript::{affected_rows, tool_chain};
 use crate::ui::fade::faded;
 use crate::ui::kit::Pressable as _;
 use crate::ui::motion::{self, chevron};
+
+mod summary;
 
 impl Chat {
     pub(super) fn chain_open(&self, head: u64) -> bool {
@@ -96,23 +98,20 @@ fn trace_geometry(
     );
 }
 
-pub(super) fn render_chain_header(
+pub(super) fn render_chain_header<'a>(
     head: u64,
-    tools: &[&AppTranscriptTool],
+    tools: impl IntoIterator<Item = &'a AppTranscriptTool>,
     open: bool,
     connected: bool,
     cx: &mut Context<Chat>,
 ) -> AnyElement {
     let theme = cx.theme();
     let muted = theme.chat_secondary_foreground;
-    let mut labels: Vec<(&str, usize)> = Vec::new();
-    for tool in tools {
-        if let Some((_, count)) = labels.iter_mut().find(|(name, _)| *name == tool.name) {
-            *count += 1;
-        } else {
-            labels.push((&tool.name, 1));
-        }
-    }
+    let summary::Summary {
+        count,
+        status,
+        labels,
+    } = summary::summarize(tools);
     let weak = cx.entity().downgrade();
     h_flex()
         .id(ElementId::NamedInteger("tool-chain".into(), head))
@@ -120,12 +119,8 @@ pub(super) fn render_chain_header(
         .text_sm()
         .min_w_0()
         .chat_disclosure(cx)
-        .child(status_icon(chain_status(tools), connected, cx))
-        .child(
-            div()
-                .flex_none()
-                .child(format!("Инструменты · {}", tools.len())),
-        )
+        .child(status_icon(status, connected, cx))
+        .child(div().flex_none().child(format!("Инструменты · {}", count)))
         .child(
             h_flex()
                 .min_w_0()
@@ -157,25 +152,4 @@ pub(super) fn render_chain_header(
         ))
         .on_click(cx.listener(move |this, _, _, cx| this.toggle_chain(head, cx)))
         .into_any_element()
-}
-
-/// Running wins over waiting, waiting over failure, failure over an
-/// interrupted call, and that over success.
-fn chain_status(tools: &[&AppTranscriptTool]) -> &'static str {
-    let has = |wanted: &[&str]| {
-        tools
-            .iter()
-            .any(|tool| wanted.contains(&tool.status.as_str()))
-    };
-    if tools.iter().any(|tool| is_running(&tool.status)) {
-        "running"
-    } else if has(&["waiting_approval"]) {
-        "waiting_approval"
-    } else if has(&["failed", "denied"]) {
-        "failed"
-    } else if tools.iter().any(|tool| tool.status != "done") {
-        "interrupted"
-    } else {
-        "done"
-    }
 }

@@ -467,6 +467,78 @@ fn scrollbar_seek_loads_only_one_page_around_the_requested_message() {
 }
 
 #[test]
+fn distant_seek_windows_never_alias_other_rows() {
+    let (mut history, mut live) = fixture();
+    let replacement = |removed, inserted| {
+        vec![Change::Spliced {
+            start: 0,
+            removed,
+            inserted,
+        }]
+    };
+    let mut edits = Vec::new();
+    for row in [500, 100] {
+        history.seek = Some(ScrollTarget { row, fraction: 0.5 });
+        let requested = history.seek_cursor().unwrap();
+        let (changes, target) = history
+            .accept_seek(&live, &requested, page(row - 25, row + 25))
+            .unwrap();
+        assert_eq!(target.row, row);
+        edits.push(changes);
+    }
+    live.push_user(None, "live during seek", vec![]);
+    edits.push(history.latest(&live));
+    assert_eq!(
+        edits,
+        [
+            replacement(50, 50),
+            replacement(50, 50),
+            replacement(50, 51)
+        ]
+    );
+}
+
+#[test]
+fn paging_forward_from_seek_preserves_only_real_live_overlap() {
+    let (mut history, live) = fixture();
+    history.seek = Some(ScrollTarget {
+        row: 920,
+        fraction: 0.,
+    });
+    let requested = history.seek_cursor().unwrap();
+    history
+        .accept_seek(&live, &requested, page(895, 945))
+        .unwrap();
+
+    let requested = history.request(Direction::Newer, &live).unwrap();
+    history
+        .accept_page(&live, Direction::Newer, &requested, page(945, 995), 0..1)
+        .unwrap();
+    let archive = history.displayed(&live).entries();
+    let keys: std::collections::HashSet<_> = archive.iter().map(|row| row.key).collect();
+    assert_eq!(keys.len(), archive.len());
+    for (row, known) in archive[55..].iter().zip(live.entries()) {
+        assert_eq!(row.message_id, known.message_id);
+        assert_eq!(row.key, known.key);
+    }
+    assert_eq!(
+        history.latest(&live),
+        [
+            Change::Spliced {
+                start: 0,
+                removed: 55,
+                inserted: 0
+            },
+            Change::Spliced {
+                start: 45,
+                removed: 0,
+                inserted: 5
+            }
+        ]
+    );
+}
+
+#[test]
 fn in_flight_seek_can_satisfy_a_newer_pointer_position_only_inside_its_page() {
     let (mut history, live) = fixture();
     history.seek = Some(super::ScrollTarget {

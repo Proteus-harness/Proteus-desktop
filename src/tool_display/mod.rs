@@ -76,16 +76,15 @@ pub fn headline(name: &str, args: &Value) -> Headline {
             };
         }
     }
-    if name == UPDATE_PLAN {
-        let steps = plan_steps(args);
-        if !steps.is_empty() {
-            return Headline {
-                label,
-                subject: Some(plan_summary(&steps)),
-                stats: None,
-                subject_key: None,
-            };
-        }
+    if name == UPDATE_PLAN
+        && let Some(subject) = plan_summary(args)
+    {
+        return Headline {
+            label,
+            subject: Some(subject),
+            stats: None,
+            subject_key: None,
+        };
     }
     let key = match known {
         Some("") => None,
@@ -180,12 +179,11 @@ pub struct PlanStep {
     pub status: StepStatus,
 }
 
-pub fn plan_steps(args: &Value) -> Vec<PlanStep> {
-    let Some(steps) = args.get("plan").and_then(Value::as_array) else {
-        return Vec::new();
-    };
-    steps
-        .iter()
+fn plan_entries(args: &Value) -> impl Iterator<Item = (&str, StepStatus)> {
+    args.get("plan")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
         .filter_map(|entry| {
             let step = entry.get("step").and_then(Value::as_str)?;
             let status = match entry.get("status").and_then(Value::as_str)? {
@@ -193,28 +191,48 @@ pub fn plan_steps(args: &Value) -> Vec<PlanStep> {
                 "in_progress" => StepStatus::InProgress,
                 _ => StepStatus::Pending,
             };
-            Some(PlanStep {
-                step: step.to_owned(),
-                status,
-            })
+            Some((step, status))
+        })
+}
+
+pub fn plan_steps(args: &Value) -> Vec<PlanStep> {
+    plan_entries(args)
+        .map(|(step, status)| PlanStep {
+            step: step.to_owned(),
+            status,
         })
         .collect()
 }
 
-fn plan_summary(steps: &[PlanStep]) -> String {
-    let completed = steps
-        .iter()
-        .filter(|step| step.status == StepStatus::Completed)
-        .count();
-    let current = steps
-        .iter()
-        .find(|step| step.status == StepStatus::InProgress)
-        .map(|step| format!(" · {}", step.step))
-        .unwrap_or_default();
-    limit(
-        format!("{completed}/{}{current}", steps.len()),
-        SUBJECT_LIMIT,
-    )
+fn plan_summary(args: &Value) -> Option<String> {
+    let mut count = 0usize;
+    let mut completed = 0usize;
+    let mut current = None;
+    for (step, status) in plan_entries(args) {
+        count += 1;
+        match status {
+            StepStatus::Completed => completed += 1,
+            StepStatus::InProgress if current.is_none() => current = Some(step),
+            _ => {}
+        }
+    }
+    if count == 0 {
+        return None;
+    }
+
+    let mut summary = format!("{completed}/{count}");
+    if let Some(step) = current {
+        summary.push_str(" · ");
+        // The caption is limited in Unicode scalars; never copy the
+        // unshown suffix of a large step into an intermediate string.
+        let remaining = SUBJECT_LIMIT.saturating_sub(summary.chars().count());
+        let end = step
+            .char_indices()
+            .nth(remaining)
+            .map_or(step.len(), |(i, _)| i);
+        summary.push_str(&step[..end]);
+    }
+    Some(summary)
 }
 
 fn patch_subject(files: &[PatchFile]) -> String {
@@ -249,12 +267,12 @@ fn generic_subject_key(args: &Value) -> Option<String> {
 
 fn subject_text(key: &str, value: &Value) -> Option<String> {
     let text = match value {
-        Value::String(text) => single_line(text)?,
+        Value::String(text) => return single_line(text, SUBJECT_LIMIT),
         Value::Array(items) => {
             let parts = items.iter().filter_map(Value::as_str).collect::<Vec<_>>();
             match parts.as_slice() {
                 [] => return None,
-                [only] => single_line(only)?,
+                [only] => return single_line(only, SUBJECT_LIMIT),
                 [first, rest @ ..] if key.ends_with('s') => format!("{first} +{}", rest.len()),
                 _ => parts.join(" "),
             }
@@ -267,22 +285,53 @@ fn subject_text(key: &str, value: &Value) -> Option<String> {
 
 /// Several lines become one, joined by `↵`; the row fades out what does
 /// not fit.
-fn single_line(text: &str) -> Option<String> {
-    let line = text
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ↵ ");
-    (!line.is_empty()).then_some(line)
+fn single_line(text: &str, max_chars: usize) -> Option<String> {
+    const SEPARATOR: &str = " ↵ ";
+    let mut remaining = max_chars;
+    let mut lines = text.lines().map(str::trim).filter(|line| !line.is_empty());
+    let first = take_chars(lines.next()?, &mut remaining);
+    if remaining == 0 {
+        return Some(first.to_owned());
+    }
+    let Some(next) = lines.next() else {
+        return Some(first.to_owned());
+    };
+    // The bounded input size estimates a starting capacity. Leave room for
+    // two separators so a short multiline caption need not grow repeatedly.
+    let capacity = first.len().max(text.len().min(max_chars)) + 2 * SEPARATOR.len();
+    let mut result = String::with_capacity(capacity);
+    result.push_str(first);
+    for line in std::iter::once(next).chain(lines) {
+        let separator = take_chars(SEPARATOR, &mut remaining);
+        let line = take_chars(line, &mut remaining);
+        result.reserve(separator.len() + line.len());
+        result.push_str(separator);
+        result.push_str(line);
+        if remaining == 0 {
+            break;
+        }
+    }
+    Some(result)
+}
+
+/// Borrow at most the remaining scalar budget and advance that budget.
+fn take_chars<'a>(text: &'a str, remaining: &mut usize) -> &'a str {
+    if text.len() <= *remaining {
+        *remaining -= text.chars().count();
+        return text;
+    }
+    for (at, _) in text.char_indices() {
+        if *remaining == 0 {
+            return &text[..at];
+        }
+        *remaining -= 1;
+    }
+    text
 }
 
 fn arg_preview(value: &Value) -> String {
     match value {
-        Value::String(text) => match single_line(text) {
-            Some(line) => limit(line, ARG_LIMIT),
-            None => String::new(),
-        },
+        Value::String(text) => single_line(text, ARG_LIMIT).unwrap_or_default(),
         Value::Array(items) => format!("[{}]", items.len()),
         Value::Object(map) => format!("{{{}}}", map.len()),
         other => other.to_string(),

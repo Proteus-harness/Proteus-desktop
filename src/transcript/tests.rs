@@ -357,3 +357,65 @@ fn canonical_user_date_overrides_the_optimistic_send_time() {
     transcript.reset(vec![accepted]);
     assert_eq!(transcript.entries()[0].time, Some(17));
 }
+
+#[test]
+fn snapshot_takes_the_last_duplicate_only_once_and_matches_the_message_role() {
+    let mut transcript = Transcript::default();
+    let id = Uuid::from_u128(1);
+    let first = message("assistant", Some(id), "duplicate");
+    let mut last = first.clone();
+    last.timestamp_ms = Some(23);
+    let mut role_peer = message("user", Some(id), "previous");
+    role_peer.timestamp_ms = Some(43);
+    transcript.reset(vec![first.clone(), last, role_peer.clone()]);
+    let old = transcript.entries().to_vec();
+
+    role_peer.text = "changed".into();
+    role_peer.timestamp_ms = None;
+    assert_eq!(
+        transcript.reset(vec![first.clone(), first, role_peer]),
+        Change::Spliced {
+            start: 0,
+            removed: 3,
+            inserted: 3,
+        }
+    );
+    let rows = transcript.entries();
+    assert_eq!(rows[0].key, old[1].key);
+    assert_eq!(rows[0].time, Some(23));
+    assert!(Arc::ptr_eq(&rows[0].text, &old[1].text));
+    assert_eq!(rows[1].key, 5);
+    assert_eq!(rows[1].time, None);
+    assert!(!Arc::ptr_eq(&rows[1].text, &old[1].text));
+    assert_eq!(rows[2].key, old[2].key);
+    assert_eq!(rows[2].time, Some(43));
+    assert_eq!(rows[2].text.as_ref(), "changed");
+    assert!(!Arc::ptr_eq(&rows[2].text, &old[2].text));
+}
+
+#[test]
+fn snapshot_matches_anonymous_text_in_place_and_preserves_local_date_on_acceptance() {
+    let mut transcript = Transcript::default();
+    let notice = message("unknown", None, "notice");
+    transcript.reset(vec![notice.clone()]);
+    let sent = transcript.push_user(None, "sent", vec![]);
+    transcript.stamp(sent, 42);
+    let old = transcript.entries().to_vec();
+    let user = message("user", Some(Uuid::from_u128(2)), "sent");
+
+    assert_eq!(
+        transcript.reset(vec![notice, user]),
+        Change::Spliced {
+            start: 1,
+            removed: 1,
+            inserted: 1,
+        }
+    );
+    let rows = transcript.entries();
+    assert_eq!(rows[0].role, Role::System);
+    assert_eq!(rows[0].key, old[0].key);
+    assert!(Arc::ptr_eq(&rows[0].text, &old[0].text));
+    assert_eq!(rows[1].time, Some(42));
+    assert_ne!(rows[1].key, old[1].key);
+    assert!(!Arc::ptr_eq(&rows[1].text, &old[1].text));
+}

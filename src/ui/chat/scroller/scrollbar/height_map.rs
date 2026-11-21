@@ -313,6 +313,16 @@ impl HeightMap {
             .map(|span| span.height())
     }
 
+    /// Seek once for a contiguous window. The first span may start before it.
+    pub fn estimates_from(&self, row: usize) -> impl Iterator<Item = f64> + '_ {
+        let mut cursor = self.tree.cursor::<Position>(());
+        cursor.seek(&Row(row), Bias::Right);
+        let mut skip = row - cursor.start().rows;
+        cursor.flat_map(move |span| {
+            std::iter::repeat_n(span.height(), span.rows - std::mem::take(&mut skip))
+        })
+    }
+
     /// Locate a global row without materializing its message or widget.
     /// Zero-height runs have no pixel interval and are skipped to the right.
     pub fn target(&self, pixel: f64) -> Option<(usize, f64)> {

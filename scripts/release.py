@@ -135,6 +135,7 @@ def source_archive(source, destination):
             run(["git", "archive", "--format=tar", f"--prefix={name}/", "-o", snapshot, "HEAD"], path)
             with tarfile.open(snapshot) as archive:
                 archive.extractall(exported, filter="data")
+            snapshot.unlink()
         with tarfile.open(destination, "w:gz") as archive:
             archive.add(exported, arcname="sources")
 

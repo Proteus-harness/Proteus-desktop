@@ -312,10 +312,10 @@ impl Geometry {
                 self.prefix.push(0.);
                 let mut height = 0.;
                 self.resident_delta = 0.;
-                for (ix, value) in self.heights.iter().enumerate() {
-                    let estimate = map
-                        .estimate(range.start + ix)
-                        .unwrap_or(f64::from(f32::from(self.estimate)));
+                let estimates = map
+                    .estimates_from(range.start)
+                    .chain(std::iter::repeat(f64::from(f32::from(self.estimate))));
+                for (value, estimate) in self.heights.iter().zip(estimates) {
                     let value = value
                         .map(|height| f64::from(f32::from(height)))
                         .unwrap_or(estimate);

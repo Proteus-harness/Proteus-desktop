@@ -43,6 +43,20 @@ pub(super) struct DockState {
 }
 
 impl DockState {
+    fn sync_rendered<'a>(&mut self, rendered: impl Iterator<Item = &'a ActivityId> + Clone) {
+        // A stale selection still needs the normal fallback, even when the
+        // rendered list has not changed.
+        if self.live.iter().eq(rendered.clone())
+            && self
+                .selected
+                .as_ref()
+                .is_none_or(|id| self.live.contains(id))
+        {
+            return;
+        }
+        self.sync(rendered.cloned().collect());
+    }
+
     /// An arriving request opens without replacing the answer being edited.
     /// Explicitly collapsing an existing request remains retained.
     fn sync(&mut self, live: Vec<ActivityId>) {
@@ -173,7 +187,7 @@ impl Chat {
             }
         }
         self.activity_dock
-            .sync(activities.iter().map(|item| item.id.clone()).collect());
+            .sync_rendered(activities.iter().map(|item| &item.id));
         self.animate_dock_change(old, cx);
         // Auto-open is decided after Chat's normal animation driver.
         motion::drive(window, cx);
@@ -438,5 +452,27 @@ mod tests {
         assert!(state.present(false, true));
         state.sync(vec![approval("pending")]);
         assert!(state.present(false, false));
+    }
+
+    #[::core::prelude::v1::test]
+    fn unchanged_render_keeps_collapsed_requests_but_repairs_a_stale_selection() {
+        let mut state = DockState::default();
+        let rendered = [approval("approval"), extension("present")];
+        state.sync_rendered(rendered.iter());
+        state.toggle(approval("approval"));
+        state.sync_rendered(rendered.iter());
+        assert_eq!(state.selected(), None);
+        assert_eq!(state.pending_target(), Some(approval("approval")));
+
+        state.toggle(extension("vanished"));
+        state.sync_rendered(rendered.iter());
+        assert_eq!(state.selected(), Some(&approval("approval")));
+
+        let only_extension = &rendered[1..];
+        state.sync_rendered(only_extension.iter());
+        state.toggle(question("vanished"));
+        state.sync_rendered(only_extension.iter());
+        assert_eq!(state.selected(), None);
+        assert_eq!(state.pending_target(), None);
     }
 }

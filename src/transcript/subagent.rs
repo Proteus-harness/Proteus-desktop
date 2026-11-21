@@ -1,5 +1,6 @@
 //! Only reserved, typed Core metadata may turn a tool result into a child link.
 use proteus_contracts::app_protocol::{AppSubagentSession, AppTranscriptTool};
+use serde::Deserialize;
 
 /// The live overlay is the single visual entry while it exists. A conflicting
 /// durable reference is not silently deduplicated into some other child.
@@ -88,8 +89,7 @@ pub fn task_session(tool: &AppTranscriptTool) -> Option<AppSubagentSession> {
     if !is_task(tool) {
         return None;
     }
-    let session: AppSubagentSession =
-        serde_json::from_value(tool.metadata.get("subagent_session")?.clone()).ok()?;
+    let session = AppSubagentSession::deserialize(tool.metadata.get("subagent_session")?).ok()?;
     session.session_dir.is_absolute().then_some(session)
 }
 
@@ -126,6 +126,33 @@ mod tests {
             Some("/saved/exact-child")
         );
         tool.metadata["subagent_session"]["session_dir"] = json!("relative/guess");
+        assert!(task_session(&tool).is_none());
+    }
+
+    #[test]
+    fn typed_child_link_still_rejects_malformed_metadata() {
+        let session = AppSubagentSession {
+            session_id: uuid::Uuid::from_u128(1),
+            session_dir: std::env::current_dir().unwrap().join("synthetic-child"),
+        };
+        let mut tool = AppTranscriptTool {
+            terminal: None,
+            call_id: "call".into(),
+            name: "task".into(),
+            args: json!({}),
+            effective_args: None,
+            status: "done".into(),
+            result: None,
+            metadata: json!({"tool": "task", "child_thread_id": "child", "subagent_session": session}),
+        };
+        assert_eq!(task_session(&tool), Some(session));
+        tool.metadata["subagent_session"]["extra"] = json!({"ignored": false});
+        assert!(task_session(&tool).is_none());
+        tool.metadata["subagent_session"]
+            .as_object_mut()
+            .unwrap()
+            .remove("extra");
+        tool.metadata["subagent_session"]["session_id"] = json!("not-a-uuid");
         assert!(task_session(&tool).is_none());
     }
 

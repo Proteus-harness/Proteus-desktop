@@ -74,6 +74,14 @@ impl Transcript {
         &self.entries
     }
 
+    /// Independent rows in windows of this transcript share one key space.
+    pub(crate) fn empty_window(&self) -> Self {
+        Self {
+            next_key: Arc::clone(&self.next_key),
+            ..Self::default()
+        }
+    }
+
     /// Replace the transcript with a server snapshot. Rows that did not change
     /// keep their key and text allocation, so the change is reported as a
     /// splice from the first differing row instead of a full reset.
@@ -88,28 +96,38 @@ impl Transcript {
             .collect();
         let mut entries = Vec::with_capacity(messages.len());
         for (index, message) in messages.into_iter().enumerate() {
-            let mut entry = self.entry_from(message);
-            let reused = match identity_of(&entry) {
-                Some(id) => previous.remove(&id),
+            let role = role_of(&message.role);
+            let reused = match identity(
+                message.message_id,
+                role,
+                message.tool.as_ref(),
+                message.subagent.as_ref(),
+            ) {
+                Some(id) => previous.remove(&id).map(|(key, text, time)| {
+                    // Compare with the owned wire text before allocating another Arc.
+                    let shared = (text.as_ref() == message.text).then_some(text);
+                    (key, shared, time)
+                }),
                 // Rows without identity are matched by position and content.
                 None => old
                     .get(index)
                     .filter(|before| {
                         identity_of(before).is_none()
-                            && before.role == entry.role
-                            && before.text == entry.text
+                            && before.role == role
+                            && before.text.as_ref() == message.text
                     })
-                    .map(|before| (before.key, before.text.clone(), before.time)),
+                    .map(|before| (before.key, Some(before.text.clone()), before.time)),
             };
-            if let Some((key, text, time)) = reused {
+            let entry = if let Some((key, shared, time)) = reused {
+                let mut entry = self.entry_from_with_text(message, role, shared);
                 entry.key = key;
                 entry.time = entry.time.or(time);
-                if text == entry.text {
-                    entry.text = text;
-                }
+                entry
             } else {
+                let mut entry = self.entry_from_with_text(message, role, None);
                 entry.time = entry.time.or_else(|| local_time_of(&old, &entry));
-            }
+                entry
+            };
             entries.push(entry);
         }
         let start = old
@@ -503,17 +521,21 @@ impl Transcript {
     }
 
     fn entry_from(&mut self, message: AppTranscriptMessage) -> Entry {
-        let role = match message.role.as_str() {
-            "user" => Role::User,
-            "assistant" => Role::Assistant,
-            "reasoning" => Role::Reasoning,
-            _ => Role::System,
-        };
+        let role = role_of(&message.role);
+        self.entry_from_with_text(message, role, None)
+    }
+
+    fn entry_from_with_text(
+        &mut self,
+        message: AppTranscriptMessage,
+        role: Role,
+        shared_text: Option<Arc<str>>,
+    ) -> Entry {
         Entry {
             key: self.allocate_key(),
             message_id: message.message_id,
             role,
-            text: message.text.into(),
+            text: shared_text.unwrap_or_else(|| message.text.into()),
             images: message.images,
             tool: message.tool,
             subagent: message.subagent,
@@ -530,17 +552,37 @@ enum Identity {
     Subagent(String),
 }
 
-fn identity_of(entry: &Entry) -> Option<Identity> {
-    if let Some(id) = entry.message_id {
-        return Some(Identity::Message(id, entry.role));
+fn role_of(role: &str) -> Role {
+    match role {
+        "user" => Role::User,
+        "assistant" => Role::Assistant,
+        "reasoning" => Role::Reasoning,
+        _ => Role::System,
     }
-    if let Some(tool) = &entry.tool {
+}
+
+fn identity_of(entry: &Entry) -> Option<Identity> {
+    identity(
+        entry.message_id,
+        entry.role,
+        entry.tool.as_ref(),
+        entry.subagent.as_ref(),
+    )
+}
+
+fn identity(
+    message_id: Option<MessageId>,
+    role: Role,
+    tool: Option<&AppTranscriptTool>,
+    subagent: Option<&AppTranscriptSubagent>,
+) -> Option<Identity> {
+    if let Some(id) = message_id {
+        return Some(Identity::Message(id, role));
+    }
+    if let Some(tool) = tool {
         return Some(Identity::Tool(tool.call_id.clone()));
     }
-    entry
-        .subagent
-        .as_ref()
-        .map(|subagent| Identity::Subagent(subagent.child_thread_id.clone()))
+    subagent.map(|subagent| Identity::Subagent(subagent.child_thread_id.clone()))
 }
 
 /// Time of a row pushed locally, before the server gave it an identity:

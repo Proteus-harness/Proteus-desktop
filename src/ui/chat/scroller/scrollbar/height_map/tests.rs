@@ -277,3 +277,27 @@ fn the_last_approximate_row_and_facts_exceeding_the_aggregate_can_change_extent(
     map.set(1, 90.);
     assert_eq!(map.total_height(), 240.);
 }
+
+#[test]
+fn window_estimates_match_point_queries_across_span_boundaries() {
+    fn check(map: &HeightMap) {
+        for start in 0..=map.total_rows() + 1 {
+            let expected: Vec<_> = (start..map.total_rows())
+                .map(|row| map.estimate(row).unwrap())
+                .collect();
+            assert_eq!(map.estimates_from(start).collect::<Vec<_>>(), expected);
+        }
+    }
+    let mut map = HeightMap::new(0, 80.);
+    check(&map);
+    map.resize(32);
+    map.set(3, 0.);
+    map.set(4, 0.);
+    map.set(7, 140.);
+    map.invalidate(7..8);
+    map.set(19, 33.);
+    map.set(22, 123.);
+    check(&map);
+    assert!(map.compact(16..32, 3));
+    check(&map);
+}

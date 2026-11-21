@@ -112,13 +112,12 @@ impl TabLayout {
     }
 
     pub fn pane(&self, id: PaneId) -> Option<&Pane> {
-        self.panes().into_iter().find(|pane| pane.id == id)
+        self.root.find_pane(&|pane| pane.id == id)
     }
 
     pub fn pane_of(&self, tab: &str) -> Option<PaneId> {
-        self.panes()
-            .into_iter()
-            .find(|pane| pane.has(tab))
+        self.root
+            .find_pane(&|pane| pane.has(tab))
             .map(|pane| pane.id)
     }
 
@@ -127,7 +126,7 @@ impl TabLayout {
     }
 
     pub fn is_pinned(&self, tab: &str) -> bool {
-        self.panes().into_iter().any(|pane| pane.is_pinned(tab))
+        self.root.find_pane(&|pane| pane.is_pinned(tab)).is_some()
     }
 
     pub fn active(&self, pane: PaneId) -> Option<&str> {

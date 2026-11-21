@@ -12,14 +12,13 @@ pub(super) fn text(value: &Value, key: &str) -> String {
 }
 
 pub(super) fn clipped(value: &str) -> String {
-    let mut end = value.len().min(MAX_TEXT);
-    while !value.is_char_boundary(end) {
-        end -= 1;
+    if value.len() <= MAX_TEXT {
+        return value.to_owned();
     }
-    let mut result = value[..end].to_owned();
-    if end < value.len() {
-        result.push_str(TRUNCATED);
-    }
+    let end = value.floor_char_boundary(MAX_TEXT);
+    let mut result = String::with_capacity(end + TRUNCATED.len());
+    result.push_str(&value[..end]);
+    result.push_str(TRUNCATED);
     result
 }
 
@@ -131,7 +130,7 @@ pub fn summary(value: &Value) -> Option<Summary> {
 
 pub fn item(
     value: &Value,
-    turn_id: &str,
+    turn_id: impl Into<String>,
     completed: bool,
     timestamp_ms: Option<i64>,
 ) -> Option<Item> {
@@ -220,7 +219,7 @@ pub fn notification(method: &str, params: &Value) -> Option<Event> {
     Some(match method {
         "item/started" | "item/completed" => Event::ItemUpsert(item(
             &params["item"],
-            &turn_id(),
+            turn_id(),
             method.ends_with("completed"),
             params
                 .get(if method.ends_with("completed") {
@@ -400,6 +399,29 @@ mod tests {
                     value
                 }
             );
+        }
+    }
+
+    #[test]
+    fn upsert_keeps_the_same_bounded_turn_id_and_started_or_completed_stamp() {
+        let turn = format!("{}🦀 tail", "a".repeat(MAX_TEXT - 2));
+        let message = json!({
+            "turnId": turn,
+            "startedAtMs": 12,
+            "completedAtMs": 34,
+            "item": {"id": "synthetic", "type": "agentMessage", "text": "visible"}
+        });
+        let expected = format!("{}{}", "a".repeat(MAX_TEXT - 2), TRUNCATED);
+        for (method, time, status) in [
+            ("item/started", 12, "inProgress"),
+            ("item/completed", 34, "completed"),
+        ] {
+            let Some(Event::ItemUpsert(item)) = notification(method, &message) else {
+                panic!("expected projected item");
+            };
+            assert_eq!(item.turn_id, expected);
+            assert_eq!(item.timestamp_ms, Some(time));
+            assert_eq!(item.status, status);
         }
     }
 

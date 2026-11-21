@@ -243,10 +243,7 @@ impl Transcript {
 
     pub(crate) fn external_prepend(&mut self, items: Vec<Item>) -> Change {
         let old_count = self.entries.len();
-        let mut prefix = Transcript {
-            next_key: self.next_key.clone(),
-            ..Default::default()
-        };
+        let mut prefix = self.empty_window();
         for item in items {
             let identity = (item.turn_id.clone(), item.id.clone());
             if self.external_index(&identity).is_none() {

@@ -1,9 +1,14 @@
 //! Codex history keeps only a bounded window. Cursor metadata contains no text.
 use super::super::history::Direction;
 use super::*;
+use crate::transcript::Entry;
 
 const ROWS: usize = 200;
 const BYTES: usize = 8 * 1024 * 1024;
+
+fn retained_bytes(entries: &[Entry]) -> usize {
+    entries.iter().map(Entry::retained_bytes).sum()
+}
 
 impl Chat {
     pub(in crate::ui::chat) fn pause_codex_before_eviction(
@@ -201,15 +206,9 @@ impl Chat {
                             let inserted = archive.entries().len() - before;
                             visible = visible.start + inserted..visible.end + inserted;
                         }
-                        while binding.page_rows.len() > 1
-                            && (archive.entries().len() > ROWS
-                                || archive
-                                    .entries()
-                                    .iter()
-                                    .map(|row| row.retained_bytes())
-                                    .sum::<usize>()
-                                    > BYTES)
-                        {
+                        let mut retained = None;
+                        while binding.page_rows.len() > 1 {
+                            let entries = archive.entries();
                             let (count, range) = match direction {
                                 Direction::Older => {
                                     let count = *binding.page_rows.back().unwrap();
@@ -223,8 +222,49 @@ impl Chat {
                                     (count, 0..count)
                                 }
                             };
+                            // The row limit takes precedence. Once accounting
+                            // starts, rows only leave the window by whole pages.
+                            let counted = if entries.len() > ROWS {
+                                None
+                            } else {
+                                let (total, edge) = match retained {
+                                    Some(total) => (total, None),
+                                    None if binding.page_rows.len() == 2 => {
+                                        (retained_bytes(entries), None)
+                                    }
+                                    None => {
+                                        // Count the first evictee during the
+                                        // initial scan, not again after a breach.
+                                        let split = match direction {
+                                            Direction::Older => range.start,
+                                            Direction::Newer => range.end,
+                                        };
+                                        let (left, right) = entries.split_at(split);
+                                        let left = retained_bytes(left);
+                                        let right = retained_bytes(right);
+                                        let edge = match direction {
+                                            Direction::Older => right,
+                                            Direction::Newer => left,
+                                        };
+                                        (left + right, Some(edge))
+                                    }
+                                };
+                                if total <= BYTES {
+                                    break;
+                                }
+                                Some((total, edge))
+                            };
                             if range.start < visible.end && range.end > visible.start {
                                 break;
+                            }
+                            if binding.page_rows.len() > 2 {
+                                retained = counted.map(|(total, edge)| {
+                                    // Plain usize sums wrap in release. Modular
+                                    // subtraction gives the same survivor sum.
+                                    total.wrapping_sub(edge.unwrap_or_else(|| {
+                                        retained_bytes(&entries[range.clone()])
+                                    }))
+                                });
                             }
                             changes.push(archive.remove(range));
                             match direction {

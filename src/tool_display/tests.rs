@@ -29,6 +29,34 @@ fn known_tools_name_the_action_and_its_subject() {
 }
 
 #[test]
+fn string_previews_clip_normalized_text_at_scalar_boundaries() {
+    let prefix = "я🦀".repeat(149);
+    let tail = "\r\n\n\u{2002}  \r\n  🦀 done  \r\nignored";
+    let cmd = format!(" \t{prefix}{tail}");
+    let args = json!({"cmd": cmd, "note": format!("{}\n ⛳ remaining", "а".repeat(159))});
+    let subject = headline("exec_command", &args).subject.unwrap();
+    assert_eq!(subject, format!("{prefix} ↵"));
+    assert_eq!(subject.chars().count(), 300);
+    assert_eq!(
+        headline("external", &args).subject.as_deref(),
+        Some(subject.as_str())
+    );
+    assert_eq!(
+        other_args(&args, Some("cmd")),
+        vec![("note".to_owned(), format!("{} ", "а".repeat(159)))]
+    );
+    let singleton = json!({"paths":[false, cmd, null]});
+    assert_eq!(
+        headline("read_many_files", &singleton).subject,
+        Some(subject)
+    );
+    assert_eq!(
+        headline("exec_command", &json!({"cmd":"\r\n\u{2002}\t "})).subject,
+        None
+    );
+}
+
+#[test]
 fn unknown_tools_keep_their_name_and_find_a_conventional_subject() {
     let hover = headline("lsp_hover", &json!({"line": 3, "file_path": "src/lib.rs"}));
     assert_eq!(hover.label, "lsp_hover");
@@ -204,6 +232,55 @@ fn plans_summarize_progress() {
         Some("1/3 · Write")
     );
     assert_eq!(plan_steps(&args)[2].status, StepStatus::Pending);
+}
+
+#[test]
+fn plan_preview_counts_only_visible_steps_and_clips_the_first_active_step() {
+    let long = "🦀я".repeat(300);
+    let args = json!({"plan": [
+        null,
+        {"step": null, "status": "completed"},
+        {"step": 42},
+        {"step": "no status"},
+        {"step": "null status", "status": null},
+        {"step": "numeric status", "status": 3},
+        {"step": "done", "status": "completed"},
+        {"step": long, "status": "in_progress"},
+        {"step": "later", "status": "in_progress"},
+        {"step": "unknown", "status": "wrong"}
+    ]});
+    let preview = headline(UPDATE_PLAN, &args).subject.unwrap();
+    let original = format!("1/4 · {long}");
+    assert_eq!(preview, original.chars().take(300).collect::<String>());
+    let expanded = plan_steps(&args);
+    assert_eq!(expanded.len(), 4);
+    assert_eq!(expanded[1].step, long);
+    assert_eq!(expanded[3].status, StepStatus::Pending);
+    for args in [json!({}), json!(null), json!({"plan": [null, {"step": 0}]})] {
+        assert_eq!(headline(UPDATE_PLAN, &args).subject, None);
+        assert!(plan_steps(&args).is_empty());
+    }
+
+    let args = json!({"plan": [
+        {"step": "", "status": "in_progress"},
+        {"step": "not first", "status": "in_progress"},
+    ]});
+    assert_eq!(
+        headline(UPDATE_PLAN, &args).subject.as_deref(),
+        Some("0/2 · ")
+    );
+
+    for n in [0, 293, 294, 295, 296, 300] {
+        let step = format!(" \n{} ", "я".repeat(n));
+        let args = json!({"plan": [{"step": step, "status": "in_progress"}]});
+        assert_eq!(
+            headline(UPDATE_PLAN, &args).subject.unwrap(),
+            format!("0/1 · {step}")
+                .chars()
+                .take(300)
+                .collect::<String>()
+        );
+    }
 }
 
 #[test]

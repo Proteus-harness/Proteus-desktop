@@ -1,7 +1,7 @@
 //! Summary-only conversations shared by driver-specific transports and UI.
 //! A Codex thread is never represented as a fabricated Core directory or UUID.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use proteus_contracts::app_protocol::{AppSessionActivity, AppSessionSummary};
@@ -69,33 +69,76 @@ pub fn upsert_summary(summaries: &mut Vec<ConversationSummary>, summary: Convers
     }
 }
 
+/// Merge a nonempty Codex list page, retaining the same row positions as successive
+/// single upserts. Index only the incoming opaque IDs, not the entire catalog.
+pub fn merge_codex_page(
+    summaries: &mut Vec<ConversationSummary>,
+    page: &[crate::agents::codex::Summary],
+    deleting: &HashSet<ChatKey>,
+) {
+    let mut pending: HashMap<_, _> = page.iter().map(|row| (row.id.as_str(), row)).collect();
+    for row in summaries.iter_mut() {
+        if let ChatKey::Codex(id) = &row.key
+            && let Some(update) = pending.remove(id.as_str())
+        {
+            if !deleting.contains(&row.key) {
+                *row = from_codex(update);
+            }
+            if pending.is_empty() {
+                return;
+            }
+        }
+    }
+    // A repeated new ID appends at its first occurrence, with its last value.
+    for item in page {
+        if let Some(update) = pending.remove(item.id.as_str()) {
+            let row = from_codex(update);
+            if !deleting.contains(&row.key) {
+                summaries.push(row);
+            }
+        }
+    }
+}
+
 /// Resolve parent UUIDs while the driver's complete summary catalog is present.
 /// Missing parents remain accessible roots; no transcript is needed.
 pub fn from_proteus(sessions: Vec<AppSessionSummary>) -> Vec<ConversationSummary> {
-    let keys: HashMap<_, _> = sessions
-        .iter()
-        .map(|summary| {
-            (
-                summary.session_id,
-                ChatKey::Proteus(summary.session_dir.clone()),
-            )
+    let mut children = Vec::new();
+    let mut rows: Vec<_> = sessions
+        .into_iter()
+        .enumerate()
+        .map(|(index, summary)| {
+            if let Some(parent) = summary.parent_session_id {
+                children.push((index, parent));
+            }
+            ConversationSummary {
+                key: ChatKey::Proteus(summary.session_dir),
+                proteus_session_id: Some(summary.session_id),
+                parent: None,
+                workspace_path: summary.workspace_path,
+                message_count: summary.message_count,
+                updated_at_ms: summary.updated_at_ms,
+                preview: summary.preview,
+                activity: summary.activity,
+            }
         })
         .collect();
-    sessions
-        .into_iter()
-        .map(|summary| ConversationSummary {
-            key: ChatKey::Proteus(summary.session_dir),
-            proteus_session_id: Some(summary.session_id),
-            parent: summary
-                .parent_session_id
-                .and_then(|id| keys.get(&id).cloned()),
-            workspace_path: summary.workspace_path,
-            message_count: summary.message_count,
-            updated_at_ms: summary.updated_at_ms,
-            preview: summary.preview,
-            activity: summary.activity,
-        })
-        .collect()
+    if !children.is_empty() {
+        // Index positions, not owned copies of every directory. Only a
+        // resolved child needs a second owned copy of its parent's key.
+        let mut positions = HashMap::with_capacity(rows.len());
+        for (index, row) in rows.iter().enumerate() {
+            if let Some(id) = row.proteus_session_id {
+                positions.insert(id, index);
+            }
+        }
+        for (child, id) in children {
+            if let Some(&parent) = positions.get(&id) {
+                rows[child].parent = Some(rows[parent].key.clone());
+            }
+        }
+    }
+    rows
 }
 
 /// Explicit native Codex choices, kept separate from server configuration.
@@ -194,6 +237,48 @@ mod tests {
     }
 
     #[test]
+    fn codex_page_matches_single_upserts_across_drivers_repeats_and_deletions() {
+        let item = |id: &str, title: &str| crate::agents::codex::Summary {
+            id: id.into(),
+            title: title.into(),
+            ..Default::default()
+        };
+        let mut core = from_codex(&item("shared", "not a Codex row"));
+        core.key = ChatKey::Proteus("shared".into());
+        let mut rows = vec![
+            core,
+            from_codex(&item("old", "before")),
+            from_codex(&item("deleting", "leave untouched")),
+            from_codex(&item("old", "second existing occurrence")),
+        ];
+        rows.extend((0..64).map(|i| from_codex(&item(&format!("other:{i}"), "unchanged"))));
+        let mut expected = rows.clone();
+        let deleting = ["deleting", "deleted-new"]
+            .map(|id| ChatKey::Codex(id.into()))
+            .into_iter()
+            .collect::<HashSet<_>>();
+        let page = [
+            item("new", "first"),
+            item("old", "updated"),
+            item("shared", "distinct driver"),
+            item("deleting", "stale"),
+            item("old", "latest"),
+            item("new", "latest"),
+            item("deleted-new", "stale"),
+            item("another", "arrived later"),
+            item("new", "final value"),
+        ];
+        for item in &page {
+            let row = from_codex(item);
+            if !deleting.contains(&row.key) {
+                upsert_summary(&mut expected, row);
+            }
+        }
+        merge_codex_page(&mut rows, &page, &deleting);
+        assert_eq!(rows, expected);
+    }
+
+    #[test]
     fn parent_uuid_is_resolved_to_the_real_driver_key_and_missing_parent_stays_accessible() {
         let summary = |id: u128, parent: Option<u128>| {
             let mut summary = AppSessionSummary::new(
@@ -218,6 +303,42 @@ mod tests {
         assert_eq!(rows[0].message_count, 3);
         assert_eq!(rows[0].workspace_path, PathBuf::from("/workspace"));
     }
+    #[test]
+    fn parent_links_use_the_last_matching_directory_without_reordering_rows() {
+        let input = [
+            (1, None),
+            (2, Some(1)),
+            (3, Some(9)),
+            (1, Some(1)),
+            (4, Some(1)),
+        ];
+        let summaries = input
+            .into_iter()
+            .enumerate()
+            .map(|(row, (id, parent))| {
+                let mut summary = AppSessionSummary::new(
+                    format!("/session/{row}").into(),
+                    SessionId::from_u128(id),
+                    "/workspace".into(),
+                    row,
+                    None,
+                    None,
+                );
+                summary.parent_session_id = parent.map(SessionId::from_u128);
+                summary
+            })
+            .collect();
+        let rows = from_proteus(summaries);
+        for (i, (row, (_, parent))) in rows.iter().zip(input).enumerate() {
+            assert_eq!(row.key, ChatKey::Proteus(format!("/session/{i}").into()));
+            assert_eq!(row.message_count, i);
+            assert_eq!(
+                row.parent.as_ref(),
+                (parent == Some(1)).then_some(&rows[3].key)
+            );
+        }
+    }
+
     fn models() -> Vec<crate::agents::codex::Model> {
         ["server-model", "chosen-model"]
             .into_iter()

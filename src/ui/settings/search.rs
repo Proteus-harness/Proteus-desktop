@@ -70,16 +70,21 @@ impl Finder {
 
     fn add(&mut self, hit: Hit, texts: &[&str]) {
         let title = hit.title.to_lowercase();
-        let rest = texts.join("\n").to_lowercase();
-        if !self
-            .terms
-            .iter()
-            .all(|term| title.contains(term.as_str()) || rest.contains(term.as_str()))
-        {
+        // Description and keyword text are needed only when a term misses
+        // the title. When there is just one field, fold it without joining.
+        let mut rest = None;
+        if self.terms.iter().any(|term| {
+            !title.contains(term.as_str())
+                && !rest
+                    .get_or_insert_with(|| match texts {
+                        [only] => only.to_lowercase(),
+                        _ => texts.join("\n").to_lowercase(),
+                    })
+                    .contains(term.as_str())
+        }) {
             return;
         }
-        let in_title = self.terms.iter().all(|term| title.contains(term.as_str()));
-        let rank = if !in_title {
+        let rank = if rest.is_some() {
             3
         } else if title
             .split_whitespace()
@@ -521,6 +526,34 @@ mod tests {
         assert_eq!(hits.len(), LIMIT);
         assert_eq!(hits[0].title, "Шрифт чата");
         assert_eq!(hits[1].title, "Шрифт чата 0");
+    }
+
+    #[::core::prelude::v1::test]
+    fn multi_term_search_preserves_title_rank_and_fallback_highlights() {
+        let mut finder = Finder::new("  ШРИФТ   чата ");
+        for (title, fields, id) in [
+            ("Режим", &["ШРИФТ темы", "Шрифт ЧАТА"][..], "description"),
+            ("Шрифт", &["Ответы чата"][..], "one field"),
+            ("Тема", &["Шрифт темы", "ЧАТА"][..], "split fields"),
+            ("Размер чата: шрифт", &["Не влияет"][..], "title"),
+            ("Шрифт чата", &[][..], "exact"),
+            ("Шрифт интерфейса", &["Шрифт темы"][..], "miss"),
+        ] {
+            finder.add(
+                Hit::new(title, id, PageId::Chat).spot(format!("field:{id}")),
+                fields,
+            );
+        }
+        let hits = finder.finish();
+        assert_eq!(
+            hits.iter()
+                .map(|hit| hit.place.as_str())
+                .collect::<Vec<_>>(),
+            ["exact", "title", "description", "one field", "split fields"]
+        );
+        for hit in hits {
+            assert_eq!(hit.target.spot, Some(format!("field:{}", hit.place)));
+        }
     }
 
     #[::core::prelude::v1::test]

@@ -119,24 +119,14 @@ pub(crate) fn spawn(launch: Launch) -> Result<Lifecycle, Error> {
             .name("codex-reader".into())
             .spawn(move || {
                 let mut reader = BufReader::new(stdout);
-                loop {
-                    match read_frame(&mut reader, state.limits.max_line_bytes) {
-                        Ok(Some(bytes)) => {
-                            if let Err(error) = state.receive(&bytes) {
-                                state.fail(error);
-                                break;
-                            }
-                        }
-                        Ok(None) => {
-                            state.fail(Error::Disconnected("stdout closed".into()));
-                            break;
-                        }
-                        Err(error) => {
-                            state.fail(error);
-                            break;
-                        }
-                    }
-                }
+                let result = read_frames(&mut reader, state.limits.max_line_bytes, |bytes| {
+                    state.receive(bytes)
+                });
+                state.fail(
+                    result
+                        .err()
+                        .unwrap_or_else(|| Error::Disconnected("stdout closed".into())),
+                );
             })
             .map_err(|error| Error::Io(error.to_string()))?,
     );
@@ -317,30 +307,43 @@ fn disconnected() -> Error {
     Error::Disconnected("transport closed".into())
 }
 
-/// `read_line`/`read_until` can allocate without limit before finding a newline.
-fn read_frame(reader: &mut impl BufRead, limit: usize) -> Result<Option<Vec<u8>>, Error> {
-    let mut output = Vec::new();
+/// Dispatch complete buffered lines in place; only fragmented lines need scratch.
+/// Check the line limit before copying or delivering either form.
+fn read_frames(
+    reader: &mut impl BufRead,
+    limit: usize,
+    mut receive: impl FnMut(&[u8]) -> Result<(), Error>,
+) -> Result<(), Error> {
+    let mut partial = Vec::new();
     loop {
         let available = reader
             .fill_buf()
             .map_err(|error| Error::Io(error.to_string()))?;
         if available.is_empty() {
-            return if output.is_empty() {
-                Ok(None)
+            return if partial.is_empty() {
+                Ok(())
             } else {
                 Err(Error::Protocol("incomplete JSONL frame".into()))
             };
         }
         let newline = available.iter().position(|byte| *byte == b'\n');
-        let used = newline.map_or(available.len(), |index| index + 1);
         let content = newline.unwrap_or(available.len());
-        if output.len().saturating_add(content) > limit {
+        if partial.len().saturating_add(content) > limit {
             return Err(Error::Protocol("incoming frame exceeds byte limit".into()));
         }
-        output.extend_from_slice(&available[..content]);
-        reader.consume(used);
         if newline.is_some() {
-            return Ok(Some(output));
+            if partial.is_empty() {
+                receive(&available[..content])?;
+            } else {
+                partial.extend_from_slice(&available[..content]);
+                receive(&partial)?;
+                // Do not retain a large previous line while the peer is idle.
+                partial = Vec::new();
+            }
+            reader.consume(content + 1);
+        } else {
+            partial.extend_from_slice(available);
+            reader.consume(content);
         }
     }
 }
@@ -348,13 +351,43 @@ fn read_frame(reader: &mut impl BufRead, limit: usize) -> Result<Option<Vec<u8>>
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
-    fn reader_limits_before_unbounded_allocation() {
-        assert!(read_frame(&mut &b"12345\n"[..], 4).is_err());
-        assert_eq!(
-            read_frame(&mut &b"1234\nrest"[..], 4).unwrap(),
-            Some(b"1234".to_vec())
-        );
-        assert!(read_frame(&mut &b"{}"[..], 4).is_err());
+    fn reader_delivers_only_complete_frames_within_limit() {
+        for capacity in [1, 3, 5, 16] {
+            for (suffix, expected) in [
+                ("", Ok(())),
+                ("{}", Err(Error::Protocol("incomplete JSONL frame".into()))),
+                (
+                    "12345\n",
+                    Err(Error::Protocol("incoming frame exceeds byte limit".into())),
+                ),
+            ] {
+                let input = format!("1234\n\n{suffix}");
+                let mut reader = BufReader::with_capacity(capacity, input.as_bytes());
+                let mut delivered = Vec::new();
+                let result = read_frames(&mut reader, 4, |line| {
+                    delivered.push(line.to_vec());
+                    Ok(())
+                });
+                assert_eq!(result, expected);
+                assert_eq!(delivered, [b"1234".as_slice(), b""]);
+            }
+        }
+    }
+
+    #[test]
+    fn receiver_error_stops_dispatch() {
+        for capacity in [1, 16] {
+            let mut reader = BufReader::with_capacity(capacity, &b"bad\nnext\n"[..]);
+            let mut calls = 0;
+            let result = read_frames(&mut reader, 4, |line| {
+                assert_eq!(line, b"bad");
+                calls += 1;
+                Err(Error::Overloaded)
+            });
+            assert_eq!(result, Err(Error::Overloaded));
+            assert_eq!(calls, 1);
+        }
     }
 }

@@ -12,7 +12,7 @@ use proteus_contracts::app_protocol::config_builder::ConfigBuilderSnapshot;
 use proteus_contracts::domain::ConfigField;
 use serde_json::Value;
 
-use super::{Edit, added_value, item_ids, suggestions, tag_label};
+use super::{Edit, added_value, item_ids, suggest, tag_label};
 use crate::ui::context::RightClickMenu as _;
 use crate::ui::kit::ButtonLabel as _;
 use crate::ui::settings::widgets::hashed_id;
@@ -111,30 +111,17 @@ pub(in crate::ui::settings) fn render(
                         }),
                 ),
         );
-        let query = query.to_lowercase();
-        let choices = suggestions(&spec.field, snapshot);
-        let filtered = choices
-            .iter()
-            .filter(|item| {
-                !spec
-                    .values
-                    .iter()
-                    .any(|value| value.as_str() == Some(&item.value))
-                    && (query.is_empty()
-                        || item.value.to_lowercase().contains(&query)
-                        || item.title.to_lowercase().contains(&query))
-            })
-            .collect::<Vec<_>>();
+        let filtered = suggest::visible(&spec.field, snapshot, &spec.values, &query);
         if !filtered.is_empty() {
             body = body.child(
                 h_flex()
                     .flex_wrap()
                     .gap_1()
-                    .children(filtered.iter().take(8).map(|item| {
+                    .children(filtered.into_iter().map(|item| {
                         let add = spec.clone();
-                        let value = item.value.clone();
-                        kit::button(hashed_id("tag-suggestion", &(&spec.key, &item.value)))
-                            .faded_label(item.title.clone())
+                        let value = item.value;
+                        kit::button(hashed_id("tag-suggestion", &(&spec.key, &value)))
+                            .faded_label(item.title)
                             .quiet(cx)
                             .xsmall()
                             .on_click(move |_, window, cx| {

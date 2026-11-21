@@ -372,7 +372,7 @@ impl History {
         {
             return None;
         }
-        let mut transcript = Transcript::default();
+        let mut transcript = live.empty_window();
         transcript.reset(page.messages);
         let changes = window_changes(self.displayed(live).entries(), transcript.entries());
         self.archive = Some(HistoryWindow {

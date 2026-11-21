@@ -176,6 +176,62 @@ fn corrupt_truncated_and_oversized_cache_cannot_restore_data() {
 }
 
 #[test]
+fn a_short_prefix_keeps_a_partial_span_but_still_checks_the_discarded_suffix() {
+    let fixture = Fixture::new();
+    let pool = pool();
+    let mut original = key("session");
+    original.prefix = 1000;
+    let mut spans = vec![ColdSpan {
+        rows: 3,
+        pixels: 255.,
+        kind: 2,
+    }];
+    spans.extend((3..original.prefix).map(|row| ColdSpan {
+        rows: 1,
+        pixels: row as f64 + 80.,
+        kind: 1,
+    }));
+    assert!(
+        disk::save(
+            &fixture.0,
+            &Snapshot::new(original.clone(), spans, reserve(&pool).unwrap()),
+            MAX_DISK_BYTES,
+            MAX_FILES,
+        )
+        .unwrap()
+    );
+    let mut requested = original.clone();
+    requested.revision = hash("revision-2");
+    requested.base = Some((original.revision, 2));
+    let loaded = disk::load(&fixture.0, requested.clone(), reserve(&pool).unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(loaded.key.prefix, 2);
+    assert_eq!(
+        loaded.spans,
+        [ColdSpan {
+            rows: 2,
+            pixels: 170.,
+            kind: 2
+        }]
+    );
+    // Update a valid tag in the discarded suffix. It can only be rejected by
+    // hashing all records, not by the retained prefix or a tag-range check.
+    let path = std::fs::read_dir(&fixture.0)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let mut bytes = std::fs::read(&path).unwrap();
+    *bytes.last_mut().unwrap() = 2;
+    std::fs::write(path, bytes).unwrap();
+    assert!(disk::load(&fixture.0, requested, reserve(&pool).unwrap()).is_err());
+    drop(loaded);
+    assert_eq!(pool.load(Ordering::Relaxed), 0);
+}
+
+#[test]
 fn immediate_reopen_reads_the_pending_latest_snapshot_before_debounce() {
     let fixture = Fixture::new();
     let store = Store::start(fixture.0.clone(), None).unwrap();

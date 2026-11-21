@@ -6,6 +6,7 @@ mod parse;
 mod tests;
 
 use serde::Deserialize;
+use std::collections::HashMap;
 
 /// File information supplied alongside a patch, including files for which
 /// the server cannot return text (binary, over the size limit, unavailable).
@@ -106,12 +107,34 @@ impl File {
     }
 }
 
-/// Parse the original patch once. Supplemental metadata also keeps files
-/// without a textual diff visible as ordinary file cards.
-pub fn parse(patch: &str, info: &[FileInfo]) -> Vec<File> {
-    let mut files = parse::files(patch);
+fn merge_metadata(files: &mut Vec<File>, info: &[FileInfo]) {
+    // Short metadata lists are cheaper to scan than to index. For larger
+    // lists, borrow keys from the input instead of cloning parsed paths.
+    let mut by_path = (info.len() > 128).then(HashMap::new);
+    if let Some(index) = &mut by_path
+        && !files.is_empty()
+    {
+        for meta in info {
+            index.insert(meta.path.as_str(), None);
+        }
+        for (at, file) in files.iter().enumerate() {
+            if let Some(slot) = index.get_mut(file.path.as_str()) {
+                // Multiple blocks may share a path. Update the first one.
+                slot.get_or_insert(at);
+            }
+        }
+    }
     for meta in info {
-        if let Some(file) = files.iter_mut().find(|file| file.path == meta.path) {
+        let existing = if let Some(index) = &mut by_path {
+            let at = index
+                .entry(meta.path.as_str())
+                .or_default()
+                .get_or_insert(files.len());
+            files.get_mut(*at)
+        } else {
+            files.iter_mut().find(|file| file.path == meta.path)
+        };
+        if let Some(file) = existing {
             if !meta.status.is_empty() {
                 file.status.clone_from(&meta.status);
             }
@@ -132,6 +155,13 @@ pub fn parse(patch: &str, info: &[FileInfo]) -> Vec<File> {
             files.push(file);
         }
     }
+}
+
+/// Parse the original patch once. Supplemental metadata also keeps files
+/// without a textual diff visible as ordinary file cards.
+pub fn parse(patch: &str, info: &[FileInfo]) -> Vec<File> {
+    let mut files = parse::files(patch);
+    merge_metadata(&mut files, info);
     for file in &mut files {
         file.finish();
     }
@@ -140,38 +170,35 @@ pub fn parse(patch: &str, info: &[FileInfo]) -> Vec<File> {
 
 fn pairs(lines: &[Line]) -> Vec<Pair> {
     let mut result = Vec::new();
-    let mut at = 0;
-    while at < lines.len() {
-        match lines[at].kind {
-            Kind::Context => {
-                result.push(Pair::Lines(Some(at), Some(at)));
-                at += 1;
-            }
-            Kind::Hunk => {
-                at += 1;
-            }
-            Kind::Note => {
-                result.push(Pair::Full(at));
-                at += 1;
-            }
-            Kind::Added | Kind::Removed => {
-                let mut old = Vec::new();
-                let mut new = Vec::new();
-                while at < lines.len() && matches!(lines[at].kind, Kind::Added | Kind::Removed) {
-                    match lines[at].kind {
-                        Kind::Added => new.push(at),
-                        _ => old.push(at),
-                    }
-                    at += 1;
+    // In one change run the nth removal pairs with the nth addition, even
+    // when the two kinds are interleaved. Fill either side in output order.
+    let (mut old, mut new) = (0, 0);
+    for (at, line) in lines.iter().enumerate() {
+        match line.kind {
+            Kind::Removed => {
+                if let Some(Pair::Lines(left, _)) = result.get_mut(old) {
+                    *left = Some(at);
+                } else {
+                    result.push(Pair::Lines(Some(at), None));
                 }
-                for index in 0..old.len().max(new.len()) {
-                    result.push(Pair::Lines(
-                        old.get(index).copied(),
-                        new.get(index).copied(),
-                    ));
-                }
+                old += 1;
+                continue;
             }
+            Kind::Added => {
+                if let Some(Pair::Lines(_, right)) = result.get_mut(new) {
+                    *right = Some(at);
+                } else {
+                    result.push(Pair::Lines(None, Some(at)));
+                }
+                new += 1;
+                continue;
+            }
+            Kind::Context => result.push(Pair::Lines(Some(at), Some(at))),
+            Kind::Note => result.push(Pair::Full(at)),
+            Kind::Hunk => {}
         }
+        old = result.len();
+        new = old;
     }
     result
 }

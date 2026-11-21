@@ -44,7 +44,7 @@ impl TabLayout {
         let Some(split) = self.root.split_at_mut(parent) else {
             return;
         };
-        let lengths = extents(&split.children, total);
+        let lengths: Vec<_> = extents(&split.children, total).collect();
         if locked {
             split.children[ix].size = Size::Fixed(lengths[ix].max(1.));
             // Someone has to take the rest: when no neighbour shares it, the
@@ -162,7 +162,7 @@ fn room(node: &Node, path: &[usize], rect: Rect, gap: f32) -> Option<f32> {
     let Some((&ix, rest)) = path.split_first() else {
         return Some(total);
     };
-    let lengths = extents(&split.children, total);
+    let lengths: Vec<_> = extents(&split.children, total).collect();
     let offset: f32 = lengths[..ix].iter().map(|len| len + gap).sum();
     let part = match split.axis {
         Axis::Row => Rect {

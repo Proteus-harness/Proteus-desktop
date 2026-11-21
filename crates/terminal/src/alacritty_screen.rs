@@ -35,26 +35,31 @@ where
         } else {
             1
         };
-        let mut text = String::new();
-        text.push(if cell.flags.contains(Flags::HIDDEN) {
-            ' '
-        } else {
-            cell.c
-        });
-        if let Some(extra) = cell.zerowidth() {
-            text.extend(extra);
-        }
+        let append_cell = |text: &mut String| {
+            text.push(if cell.flags.contains(Flags::HIDDEN) {
+                ' '
+            } else {
+                cell.c
+            });
+            if let Some(extra) = cell.zerowidth() {
+                text.extend(extra);
+            }
+        };
         match row.last_mut() {
             Some(run) if run.style == style && run.column + run.width == point.column.0 => {
-                run.text.push_str(&text);
+                append_cell(&mut run.text);
                 run.width += width;
             }
-            _ => row.push(Run {
-                column: point.column.0,
-                width,
-                text,
-                style,
-            }),
+            _ => {
+                let mut text = String::new();
+                append_cell(&mut text);
+                row.push(Run {
+                    column: point.column.0,
+                    width,
+                    text,
+                    style,
+                });
+            }
         }
     }
     for row in &mut rows {
@@ -215,6 +220,38 @@ mod tests {
         );
         assert_eq!(style.foreground, [9, 9, 9]);
         assert_eq!(style.background, Some([1, 1, 1]));
+    }
+
+    #[test]
+    fn merged_cells_preserve_glyphs_widths_and_styled_spaces() {
+        use alacritty_terminal::event::VoidListener;
+        use alacritty_terminal::vte::ansi::Processor;
+
+        let mut term = Term::new(Default::default(), &crate::Grid::new(18, 2), VoidListener);
+        let mut parser: Processor = Processor::new();
+        parser.advance(
+            &mut term,
+            "a界e\u{301}\x1b[8mX\x1b[0m!\x1b[4m \x1b[0m  ".as_bytes(),
+        );
+        let screen = snapshot(
+            &term,
+            Base {
+                foreground: [200; 3],
+                background: [0; 3],
+            },
+        );
+        let runs = &screen.rows[0];
+        assert_eq!(runs.len(), 2);
+        assert_eq!(
+            (runs[0].column, runs[0].width, runs[0].text.as_str()),
+            (0, 6, "a界e\u{301} !")
+        );
+        assert_eq!(
+            (runs[1].column, runs[1].width, runs[1].text.as_str()),
+            (6, 1, " ")
+        );
+        assert!(runs[1].style.underline);
+        assert_eq!(screen.cursor, Some((0, 9)));
     }
 
     #[test]

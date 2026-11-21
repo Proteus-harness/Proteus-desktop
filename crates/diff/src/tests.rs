@@ -107,6 +107,33 @@ fn binary_oversized_and_empty_files_remain_visible() {
 }
 
 #[test]
+fn repeated_metadata_keeps_first_card_and_note_but_last_nonempty_status() {
+    let patch = "diff --git a/a b/a\ndiff --git a/a b/a\n";
+    let meta = |path: &str, status: &str, message: Option<&str>| FileInfo {
+        path: path.into(),
+        status: status.into(),
+        message: message.map(str::to_owned),
+    };
+    for extra in [0, 256] {
+        let mut info = vec![meta("a", "added", Some("first")), meta("z", "", None)];
+        info.extend((0..extra).map(|i| meta(&format!("other-{i}"), "", None)));
+        info.extend([
+            meta("z", "conflict", Some("second")),
+            meta("a", "modified", Some("ignored")),
+            meta("a", "", None),
+        ]);
+        let files = parse(patch, &info);
+        assert_eq!(files.len(), 3 + extra);
+        assert_eq!(files[0].status, "modified");
+        assert_eq!(files[0].lines[0].text, "first");
+        assert!(files[1].status.is_empty());
+        assert_eq!(files[2].path, "z");
+        assert_eq!(files[2].status, "conflict");
+        assert_eq!(files[2].lines[0].text, "second");
+    }
+}
+
+#[test]
 fn metadata_merges_without_duplicating_files() {
     let files = parse(
         "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-x\n+y\n",
@@ -250,5 +277,25 @@ HcmV?d00001
             .map(|l| l.text.as_str())
             .collect::<Vec<_>>(),
         ["Двоичный файл", "-- ", "2.52.0"]
+    );
+}
+
+#[test]
+fn interleaved_edits_pair_in_order_without_crossing_run_boundaries() {
+    let patch =
+        "*** Update File: a\n+a\n+b\n-x\n+c\n-y\n context\n-old\n@@ next\n+new\nnotice\n-other\n";
+    let file = &parse(patch, &[])[0];
+    assert_eq!(
+        file.pairs,
+        [
+            Pair::Lines(Some(2), Some(0)),
+            Pair::Lines(Some(4), Some(1)),
+            Pair::Lines(None, Some(3)),
+            Pair::Lines(Some(5), Some(5)),
+            Pair::Lines(Some(6), None),
+            Pair::Lines(None, Some(8)),
+            Pair::Full(9),
+            Pair::Lines(Some(10), None),
+        ]
     );
 }

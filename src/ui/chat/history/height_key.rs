@@ -4,11 +4,13 @@ use crate::ui::chat::{
     scroller::{HeightCacheKey, height_hash},
 };
 use proteus_contracts::app_protocol::AppTranscriptCursor;
+use sha2::{Digest, Sha256};
+use uuid::Uuid;
 
 pub(super) fn key(session: &Session, cursor: &AppTranscriptCursor) -> Option<HeightCacheKey> {
     let id = session.durable_id()?;
     Some(HeightCacheKey {
-        identity: height_hash(format!("{}:{id}", session.key.tab_id())),
+        identity: identity_hash(&session.key.tab_id(), id),
         revision: height_hash(&cursor.revision),
         layout: [0; 32],
         // The cursor owns the archived prefix; its last row also depends on
@@ -22,6 +24,33 @@ pub(super) fn key(session: &Session, cursor: &AppTranscriptCursor) -> Option<Hei
             )
         }),
     })
+}
+
+/// Hash the existing persisted preimage without joining it on the heap.
+fn identity_hash(tab_id: &str, id: Uuid) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    let mut uuid = [0; uuid::fmt::Hyphenated::LENGTH];
+    hash.update(tab_id.as_bytes());
+    hash.update(b":");
+    hash.update(id.hyphenated().encode_lower(&mut uuid).as_bytes());
+    hash.finalize().into()
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::*;
+
+    #[test]
+    fn geometry_identity_keeps_the_legacy_formatted_preimage() {
+        for tab_id in ["chat:/synthetic/ё", "codex:opaque:child", "", "chat:\n"] {
+            for id in [Uuid::nil(), Uuid::max(), Uuid::from_u128(0xabcdef)] {
+                assert_eq!(
+                    identity_hash(tab_id, id),
+                    height_hash(format!("{tab_id}:{id}"))
+                );
+            }
+        }
+    }
 }
 
 #[cfg(test)]

@@ -92,6 +92,17 @@ impl Node {
         }
     }
 
+    /// The first matching pane in reading order, without collecting the rest.
+    pub(super) fn find_pane(&self, matches: &impl Fn(&Pane) -> bool) -> Option<&Pane> {
+        match self {
+            Node::Pane(pane) => matches(pane).then_some(pane),
+            Node::Split(split) => split
+                .children
+                .iter()
+                .find_map(|child| child.node.find_pane(matches)),
+        }
+    }
+
     pub(super) fn pane_mut(&mut self, id: PaneId) -> Option<&mut Pane> {
         match self {
             Node::Pane(pane) => (pane.id == id).then_some(pane),

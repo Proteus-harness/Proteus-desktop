@@ -132,7 +132,7 @@ fn compare_partition(base: Option<&str>, events: &[Box<AppServerEvent>], mask: u
         }
         let expected_changes = apply_oracle(&mut expected, &events[start..end]);
         let outcome = actual.apply_text_run(&run(&events[start..end]));
-        assert_eq!(outcome.changes, expected_changes);
+        assert_eq!(outcome.changes.as_slice(), expected_changes);
         assert_eq!(
             outcome.event_changes().collect::<Vec<_>>(),
             expected_changes
@@ -150,6 +150,36 @@ fn compare_partition(base: Option<&str>, events: &[Box<AppServerEvent>], mask: u
         assert_transcript(&actual, &expected);
         start = end;
     }
+}
+
+#[test]
+fn a_run_reduced_to_one_event_keeps_its_effect_and_timestamp() {
+    let mut transcript = fixture(None);
+    let mut text_run = run(&[event(0, "old", 11), event(usize::MAX, "é", 12)]);
+    let mut include = [false, true].into_iter();
+    text_run.retain(|_| include.next().unwrap());
+
+    let outcome = transcript.apply_text_run(&text_run);
+    assert_eq!(
+        outcome.event_changes().collect::<Vec<_>>(),
+        [Change::Pushed]
+    );
+    assert_eq!(
+        outcome.layout_changes().collect::<Vec<_>>(),
+        [Change::Pushed]
+    );
+    assert!(outcome.shown());
+    let entry = transcript.entries.last().unwrap();
+    assert_eq!(&*entry.text, "é");
+    assert_eq!(entry.time, Some(12));
+
+    text_run.retain(|_| false);
+    let mut outcome = transcript.apply_text_run(&text_run);
+    assert_eq!(outcome.event_changes().next(), None);
+    assert_eq!(outcome.layout_changes().next(), None);
+    assert!(!outcome.shown());
+    outcome.feedback_changed = true;
+    assert!(outcome.shown());
 }
 
 #[test]
@@ -213,7 +243,7 @@ fn first_nonempty_stamp_key_and_final_empty_row_survive_coalescing() {
     let mut expected = fixture(None);
     let changes = apply_oracle(&mut expected, &events);
     let outcome = actual.apply_text_run(&run(&events));
-    assert_eq!(outcome.changes, changes);
+    assert_eq!(outcome.changes.as_slice(), changes);
     assert_eq!(changes, [Change::None, Change::Pushed, Change::Updated(1)]);
     assert_transcript(&actual, &expected);
     assert_eq!(actual.entries.len(), 2);
@@ -248,7 +278,7 @@ fn empty_noop_reopens_existing_row_without_stamping_or_stopping_other_rows() {
     let events = [event(2, "", 11), event(2, "", 12)];
     let changes = apply_oracle(&mut expected, &events);
     let outcome = actual.apply_text_run(&run(&events));
-    assert_eq!(outcome.changes, changes);
+    assert_eq!(outcome.changes.as_slice(), changes);
     assert_transcript(&actual, &expected);
     assert_eq!(actual.entries[1].time, None);
     assert!(actual.entries[0].streaming);
@@ -296,7 +326,7 @@ fn reverse_identity_lookup_preserves_nonassistant_metadata() {
     let events = [event(6, "replacement", 11), event(0, "", 12)];
     let changes = apply_oracle(&mut expected, &events);
     let outcome = actual.apply_text_run(&run(&events));
-    assert_eq!(outcome.changes, changes);
+    assert_eq!(outcome.changes.as_slice(), changes);
     assert_eq!(changes, [Change::Updated(1), Change::Updated(1)]);
     assert_transcript(&actual, &expected);
     assert_eq!(actual.entries[2].role, Role::User);
@@ -318,7 +348,7 @@ fn foreign_root_run_is_ignored_without_consuming_identity_or_work() {
     }
     let changes = apply_oracle(&mut expected, &events);
     let outcome = actual.apply_text_run(&run(&events));
-    assert_eq!(outcome.changes, changes);
+    assert_eq!(outcome.changes.as_slice(), changes);
     assert_transcript(&actual, &expected);
     assert!(!outcome.shown());
     assert_eq!(actual.take_text_work(), TextWork::default());
@@ -335,7 +365,7 @@ fn work_budget_for_adjacent_appends() {
     let mut expected = fixture(Some(&base));
     let changes = apply_oracle(&mut expected, &events);
     let outcome = actual.apply_text_run(&run(&events));
-    assert_eq!(outcome.changes, changes);
+    assert_eq!(outcome.changes.as_slice(), changes);
     assert_transcript(&actual, &expected);
     let old = expected.take_text_work();
     assert_eq!(old.delta_lookups, 64);
@@ -364,7 +394,7 @@ fn all_empty_absent_run_preserves_rows_keys_and_zero_delta_row_replacements() {
     ];
     let changes = apply_oracle(&mut expected, &events);
     let outcome = actual.apply_text_run(&run(&events));
-    assert_eq!(outcome.changes, changes);
+    assert_eq!(outcome.changes.as_slice(), changes);
     assert_transcript(&actual, &expected);
     assert_eq!(actual.entries.len(), 1);
     assert!(actual.entries[0].streaming);
@@ -392,7 +422,7 @@ fn singleton_runs_preserve_real_reducer_state_and_logical_work() {
                     let events = [item];
                     let changes = apply_oracle(&mut expected, &events);
                     let outcome = actual.apply_text_run(&run(&events));
-                    assert_eq!(outcome.changes, changes);
+                    assert_eq!(outcome.changes.as_slice(), changes);
                     assert_transcript(&actual, &expected);
                     assert_eq!(actual.take_text_work(), expected.take_text_work());
                     assert_eq!(

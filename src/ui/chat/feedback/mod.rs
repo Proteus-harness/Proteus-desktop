@@ -119,12 +119,13 @@ impl Feedback {
 
     /// A reconnect snapshot is an authoritative handoff even when the user
     /// row has already left its bounded live tail. Correlate by the request's
-    /// run id, never by an old identical message's text.
+    /// run id, never by an old identical message's text. Only look up a
+    /// transcript message when its ID is known and the run did not match.
     pub fn snapshot(
         &mut self,
         execution: &AppExecutionState,
         tools_running: bool,
-        message_ids: &[MessageId],
+        mut has_message: impl FnMut(MessageId) -> bool,
     ) {
         for send in &mut self.sends {
             if execution
@@ -132,7 +133,7 @@ impl Feedback {
                 .iter()
                 .chain(&execution.last)
                 .any(|run| run.run_id == send.id)
-                || send.message_id.is_some_and(|id| message_ids.contains(&id))
+                || send.message_id.is_some_and(&mut has_message)
             {
                 send.observed = true;
             }

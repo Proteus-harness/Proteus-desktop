@@ -75,16 +75,46 @@ fn reconnect_uses_run_or_queued_message_identity() {
     let mut feedback = Feedback::default();
     feedback.begin("one".into(), "same".into(), &[], &[]);
     feedback.complete("one", true, None);
-    feedback.snapshot(&running("other"), false, &[]);
+    feedback.snapshot(&running("other"), false, |_| false);
     assert_eq!(feedback.visible_sends().count(), 1);
-    feedback.snapshot(&running("one"), false, &[]);
+    feedback.snapshot(&running("one"), false, |_| false);
     assert_eq!(feedback.visible_sends().count(), 0);
 
     let message_id = new_message_id();
     feedback.begin("queued".into(), "same".into(), &[], &[]);
     feedback.complete("queued", true, Some(message_id));
-    feedback.snapshot(&AppExecutionState::default(), false, &[message_id]);
+    feedback.snapshot(&AppExecutionState::default(), false, |id| id == message_id);
     assert_eq!(feedback.visible_sends().count(), 0);
+}
+
+#[test]
+fn reconnect_looks_up_only_known_send_ids_not_already_matched_by_run() {
+    let already_matched = new_message_id();
+    let in_transcript = new_message_id();
+    let missing = new_message_id();
+    let mut feedback = Feedback::default();
+    for (id, message_id) in [
+        ("run", Some(already_matched)),
+        ("other", Some(in_transcript)),
+        ("absent", Some(missing)),
+        ("not-yet-accepted", None),
+    ] {
+        feedback.begin(id.into(), "same".into(), &[], &[]);
+        if let Some(message_id) = message_id {
+            feedback.complete(id, true, Some(message_id));
+        }
+    }
+    let mut looked_up = Vec::new();
+    feedback.snapshot(&running("run"), false, |id| {
+        looked_up.push(id);
+        id == in_transcript
+    });
+    assert_eq!(looked_up, [in_transcript, missing]);
+    let visible: Vec<_> = feedback
+        .visible_sends()
+        .map(|send| send.id.as_str())
+        .collect();
+    assert_eq!(visible, ["absent", "not-yet-accepted"]);
 }
 
 #[test]

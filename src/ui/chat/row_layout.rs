@@ -22,11 +22,8 @@ impl RowContext {
         }
     }
 
-    pub(super) fn incomplete_rows(self) -> Vec<Range<usize>> {
-        [self.leading, self.trailing, self.footer]
-            .into_iter()
-            .filter(|rows| !rows.is_empty())
-            .collect()
+    pub(super) fn is_complete(&self, row: usize) -> bool {
+        self.missing(row).is_none()
     }
 }
 
@@ -100,4 +97,23 @@ pub(super) fn row_layout(entries: &[Entry], change: Change) -> Option<RowLayout>
         fresh_key,
         chain,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn layout_measurements_are_incomplete_only_inside_each_clipped_range() {
+        let context = RowContext {
+            leading: 0..3,
+            trailing: 7..9,
+            footer: 5..7,
+        };
+        let complete: Vec<_> = (0..=9).filter(|&row| context.is_complete(row)).collect();
+        assert_eq!(complete, [3, 4, 9]);
+        assert_eq!(context.missing(1), Some(Direction::Older));
+        assert_eq!(context.missing(5), Some(Direction::Newer));
+        assert_eq!(context.missing(7), Some(Direction::Newer));
+    }
 }

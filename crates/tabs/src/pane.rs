@@ -44,7 +44,7 @@ impl Pane {
     }
 
     pub fn is_pinned(&self, id: &str) -> bool {
-        self.position(id).is_some_and(|ix| ix < self.pinned)
+        self.tabs.iter().take(self.pinned).any(|tab| tab == id)
     }
 
     pub fn show(&mut self, id: &str) {

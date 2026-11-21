@@ -211,28 +211,28 @@ fn resolve_space_root(
     spaces: &tabs::ChatSpaces,
     key: &ChatKey,
 ) -> String {
+    if let Some(root) = chat_root(summaries, key) {
+        return root.tab_id();
+    }
     let id = key.tab_id();
-    chat_root(summaries, key)
-        .map(|root| root.tab_id())
-        .or_else(|| spaces.owner_of_chat(&id).map(str::to_owned))
-        .unwrap_or(id)
+    spaces.owner_of_chat(&id).map(str::to_owned).unwrap_or(id)
 }
 
 /// Use raw server ancestry, independent of sidebar pin/archive grouping.
 /// Cycles have a stable fallback and never spin while drawing the sidebar.
-fn chat_root(summaries: &[ConversationSummary], key: &ChatKey) -> Option<ChatKey> {
+fn chat_root<'a>(summaries: &'a [ConversationSummary], key: &'a ChatKey) -> Option<&'a ChatKey> {
     let mut current = summaries.iter().find(|row| &row.key == key)?;
     let mut seen = HashSet::new();
     while let Some(parent) = &current.parent {
-        if !seen.insert(current.key.clone()) {
-            return Some(key.clone());
+        if !seen.insert(&current.key) {
+            return Some(key);
         }
         let Some(row) = summaries.iter().find(|row| &row.key == parent) else {
-            return Some(parent.clone());
+            return Some(parent);
         };
         current = row;
     }
-    Some(current.key.clone())
+    Some(&current.key)
 }
 
 #[cfg(test)]
@@ -261,14 +261,14 @@ mod tests {
         ];
         assert_eq!(
             chat_root(&rows, &ChatKey::Codex("nested".into())),
-            Some(ChatKey::Codex("root".into()))
+            Some(&ChatKey::Codex("root".into()))
         );
         assert_eq!(
             chat_root(
                 &[row("child", Some("outside"))],
                 &ChatKey::Codex("child".into())
             ),
-            Some(ChatKey::Codex("outside".into()))
+            Some(&ChatKey::Codex("outside".into()))
         );
         assert_eq!(chat_root(&rows, &ChatKey::Codex("unlisted".into())), None);
     }
@@ -278,7 +278,7 @@ mod tests {
         let rows = [row("a", Some("b")), row("b", Some("a"))];
         assert_eq!(
             chat_root(&rows, &ChatKey::Codex("a".into())),
-            Some(ChatKey::Codex("a".into()))
+            Some(&ChatKey::Codex("a".into()))
         );
     }
 
@@ -303,6 +303,31 @@ mod tests {
         assert_eq!(
             resolve_space_root(&[], &spaces, &ChatKey::Codex("child".into())),
             "codex:a"
+        );
+    }
+
+    #[cfg(unix)]
+    #[::core::prelude::v1::test]
+    fn space_root_preserves_the_returned_path_spelling() {
+        let requested = ChatKey::Proteus("/synthetic//session/".into());
+        let key = ChatKey::Proteus("/synthetic/session".into());
+        let rows = [ConversationSummary {
+            key: key.clone(),
+            ..row("unused", None)
+        }];
+        assert_eq!(requested, key);
+        assert_eq!(
+            resolve_space_root(&rows, &tabs::ChatSpaces::default(), &requested),
+            "chat:/synthetic/session"
+        );
+        let circular = [ConversationSummary {
+            key: key.clone(),
+            parent: Some(key),
+            ..row("unused", None)
+        }];
+        assert_eq!(
+            resolve_space_root(&circular, &tabs::ChatSpaces::default(), &requested),
+            "chat:/synthetic//session/"
         );
     }
 }

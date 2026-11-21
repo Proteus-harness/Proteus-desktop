@@ -239,12 +239,11 @@ impl Chat {
             }
             (Role::System, Some(tool), _) => match &chain {
                 Some(chain) if ix == chain.start => {
-                    let tools: Vec<_> = entries[chain.clone()]
+                    let tools = entries[chain.clone()]
                         .iter()
-                        .filter_map(|entry| entry.tool.as_ref())
-                        .collect();
+                        .filter_map(|entry| entry.tool.as_ref());
                     let header =
-                        render_chain_header(key, &tools, chain_open, self.session.connected, cx);
+                        render_chain_header(key, tools, chain_open, self.session.connected, cx);
                     let calls = if chain_moving {
                         let run = self.render_run(chain.clone(), frame_at, cx);
                         motion::reveal_at(

@@ -176,7 +176,21 @@ def read_archive(path):
     return manifest, files
 
 
-def relocate(data, suffix, mappings):
+def preserve_window_state(preferences, destination):
+    """Archive preferences are portable; the destination owns its window state."""
+    try:
+        current = json.loads(read_settings(destination)) if destination.exists() else {}
+    except (json.JSONDecodeError, UnicodeDecodeError) as error:
+        raise ValueError(f'Cannot preserve window state from {destination}: invalid JSON') from error
+    if not isinstance(preferences, dict) or not isinstance(current, dict):
+        raise ValueError(f'Expected a JSON object for Desktop preferences: {destination}')
+    for key in WINDOW_STATE:
+        preferences.pop(key, None)
+    # Keep the original local values (including paths), in stable file order.
+    preferences.update((key, value) for key, value in current.items() if key in WINDOW_STATE)
+
+
+def relocate(data, suffix, mappings, *, preferences_at=None):
     def path_value(value):
         for source, destination in mappings:
             if value == source or value.startswith(source + '/'):
@@ -195,7 +209,10 @@ def relocate(data, suffix, mappings):
     value = structured(data, suffix)
     reject_credentials(value, 'archive')
     if suffix == '.json':
-        return (json.dumps(visit(value), ensure_ascii=False, indent=2) + '\n').encode()
+        value = visit(value)
+        if preferences_at is not None:
+            preserve_window_state(value, preferences_at)
+        return (json.dumps(value, ensure_ascii=False, indent=2) + '\n').encode()
 
     def literal(match):
         token = match.group()
@@ -286,7 +303,10 @@ def restore_archive(args):
         parts = PurePosixPath(name).parts
         destination = locations[parts[1]].joinpath(*parts[2:])
         regular_path(destination)
-        data_by_path[destination] = relocate(data, destination.suffix, mappings)
+        preferences_at = destination if name == 'files/desktop/preferences.json' else None
+        data_by_path[destination] = relocate(
+            data, destination.suffix, mappings, preferences_at=preferences_at,
+        )
     for path in data_by_path:
         if is_named_profile(path, locations['agent']):
             data_by_path[path] = with_session_storage(path, data_by_path, home)

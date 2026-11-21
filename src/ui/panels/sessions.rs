@@ -21,10 +21,11 @@ use crate::ui::tip::Tip as _;
 use crate::ui::workspace::Workspace;
 use crate::ui::{motion, prefs};
 
+mod project_rows;
+use project_rows::PROJECT_ROWS;
+
 /// How long after the list arrives its rows still enter one by one.
 const ENTRANCE: Duration = Duration::from_millis(600);
-/// Chats a project folder shows before "show more".
-const PROJECT_ROWS: usize = 5;
 /// Motion key of the archived chats.
 const ARCHIVE: &str = "sessions-archive";
 
@@ -103,28 +104,15 @@ impl Workspace {
                 items.extend(header.take());
                 &mut items
             };
-            let short = |ix: usize, row: &Row| {
-                ix < PROJECT_ROWS || current.as_ref().is_some_and(|dir| row.contains(dir))
-            };
-            let (first, rest): (Vec<_>, Vec<_>) = project
-                .rows
-                .iter()
-                .enumerate()
-                .partition(|(ix, row)| short(*ix, row));
-            let first: Vec<&Row> = first.into_iter().map(|(_, row)| row).collect();
-            let rest: Vec<&Row> = rest.into_iter().map(|(_, row)| row).collect();
-            if all && !more_moving {
-                let every: Vec<&Row> = project.rows.iter().collect();
-                rows(&every, true, target, slot);
-            } else {
-                rows(&first, true, target, slot);
-            }
+            let (hidden, rest) =
+                project_rows::visit(&project.rows, current.as_ref(), all, more_moving, |row| {
+                    rows(std::slice::from_ref(&row), true, target, slot)
+                });
             let has_more = self
                 .codex_catalogs
                 .get(project.path)
                 .is_some_and(|cursor| cursor.has_more());
             if !searching && (project.rows.len() > PROJECT_ROWS || has_more) {
-                let hidden = if all { 0 } else { rest.len() };
                 let button = self
                     .render_more(gi, project.path, hidden, all, cx)
                     .into_any_element();

@@ -19,6 +19,7 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use super::row_layout::RowContext;
 use crate::ui::floor::TailFloor;
 use crate::ui::motion;
 
@@ -632,7 +633,7 @@ pub(super) struct ChatList {
     id: ElementId,
     state: Entity<ChatScroller>,
     render_row: RenderRow,
-    incomplete_rows: Vec<Range<usize>>,
+    row_context: RowContext,
     footer: Option<(FooterState, RenderFooter)>,
     running: bool,
     scrollbar: bool,
@@ -648,7 +649,7 @@ impl ChatList {
             id: id.into(),
             state,
             render_row: Box::new(render_row),
-            incomplete_rows: Vec::new(),
+            row_context: RowContext::default(),
             footer: None,
             running: false,
             scrollbar: true,
@@ -664,8 +665,8 @@ impl ChatList {
         self
     }
 
-    pub(super) fn incomplete_rows(mut self, rows: Vec<Range<usize>>) -> Self {
-        self.incomplete_rows = rows;
+    pub(super) fn row_context(mut self, context: RowContext) -> Self {
+        self.row_context = context;
         self
     }
 
@@ -734,7 +735,7 @@ impl RenderOnce for ChatList {
         let mut render_row = self.render_row;
         let measured_footer = self.state.clone();
         let measured_rows = scrollbar.clone();
-        let incomplete_rows = self.incomplete_rows;
+        let row_context = self.row_context;
         let rows = list(list_state.clone(), move |ix, window, cx| {
             if ix == tail_row {
                 // keep_end runs immediately before native list prepaint.
@@ -764,7 +765,7 @@ impl RenderOnce for ChatList {
             measured_rows.measure_chat_row(
                 ix,
                 div().w_full().min_w_0().child(render_row(ix, window, cx)),
-                !incomplete_rows.iter().any(|rows| rows.contains(&ix)),
+                row_context.is_complete(ix),
             )
         })
         .size_full()

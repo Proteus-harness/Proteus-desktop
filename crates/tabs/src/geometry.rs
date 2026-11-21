@@ -174,7 +174,7 @@ impl TabLayout {
         if index + 1 >= split.children.len() {
             return;
         }
-        let mut lengths = extents(&split.children, total);
+        let mut lengths: Vec<_> = extents(&split.children, total).collect();
         let start: f32 = lengths[..index].iter().sum();
         let before = lengths[index];
         let requested = at - (start + before);

@@ -38,7 +38,7 @@ impl Size {
 /// Lengths of `children` along a split `total` pixels long: fixed children
 /// get their pixels, shrunk together when they do not fit, and weighted
 /// ones share the rest.
-pub(super) fn extents(children: &[Child], total: f32) -> Vec<f32> {
+pub(super) fn extents(children: &[Child], total: f32) -> impl ExactSizeIterator<Item = f32> {
     let fixed: f32 = children
         .iter()
         .map(|child| match child.size {
@@ -53,13 +53,10 @@ pub(super) fn extents(children: &[Child], total: f32) -> Vec<f32> {
     };
     let rest = (total - fixed).max(0.);
     let weights: f32 = children.iter().map(|child| child.size.weight()).sum();
-    children
-        .iter()
-        .map(|child| match child.size {
-            Size::Fixed(px) => px * scale,
-            Size::Weight(weight) => rest * weight / weights,
-        })
-        .collect()
+    children.iter().map(move |child| match child.size {
+        Size::Fixed(px) => px * scale,
+        Size::Weight(weight) => rest * weight / weights,
+    })
 }
 
 /// Gives children the lengths `lengths`: fixed children among `changed`
@@ -137,7 +134,7 @@ pub(super) fn hand_over<T>(entries: &mut [(Size, Option<T>)]) {
 pub(super) fn merge(outer: Size, inner: Vec<Child>) -> impl Iterator<Item = Child> {
     let weights: f32 = inner.iter().map(|child| child.size.weight()).sum();
     let lengths = match outer {
-        Size::Fixed(px) => extents(&inner, px),
+        Size::Fixed(px) => extents(&inner, px).collect(),
         Size::Weight(_) => Vec::new(),
     };
     inner.into_iter().enumerate().map(move |(ix, child)| {

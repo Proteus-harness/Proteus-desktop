@@ -1,7 +1,7 @@
 use super::*;
 use crate::ui::settings::SettingsContext;
 use proteus_contracts::app_protocol::config_builder::{
-    ConfigBuilderPlugin, ConfigBuilderPluginExport, ConfigBuilderTool,
+    ConfigBuilderPlugin, ConfigBuilderPluginExport, ConfigBuilderSnapshot, ConfigBuilderTool,
 };
 use serde_json::json;
 
@@ -233,7 +233,7 @@ fn suggestions_are_schema_owned_and_never_rewrite_unknown_saved_values() {
         ..Default::default()
     };
     let values = |field: &ConfigField| {
-        suggestions(field, Some(&snapshot))
+        suggest::visible(field, Some(&snapshot), &[], "")
             .into_iter()
             .map(|item| item.value)
             .collect::<Vec<_>>()
