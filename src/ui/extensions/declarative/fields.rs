@@ -310,6 +310,7 @@ impl DeclarativeView {
                         label: option.label.clone().into(),
                         value: option.value.clone(),
                         selected: option.selected,
+                        group: option.group.clone().map(Into::into),
                     })
                     .collect();
                 let (this, action) = (cx.weak_entity(), action.clone());

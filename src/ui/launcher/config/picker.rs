@@ -191,6 +191,7 @@ fn choices(files: &[catalog::ConfigFile]) -> Vec<Choice<catalog::ConfigFile>> {
             label: format!("{} {} {}", file.display_name(), file.name, file.relative).into(),
             value: file.clone(),
             selected: file.current,
+            group: None,
         })
         .collect()
 }

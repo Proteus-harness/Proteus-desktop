@@ -432,7 +432,7 @@ fn reads_panel_strips_lists_and_tab_counts() {
 #[test]
 fn picker_keeps_arbitrary_values_but_rejects_ambiguous_selection() {
     let root = json!({"type":"picker", "id":"models", "action":"choose", "title":"Model", "back_action":"back", "options":[
-        {"label":"Обычная", "value":{"provider":"local","model":"a"}, "selected":true},
+        {"label":"Обычная", "value":{"provider":"local","model":"a"}, "selected":true, "group":"Local"},
         {"label":"Быстрая", "value":42, "selected":false}
     ]});
     assert!(
@@ -440,7 +440,8 @@ fn picker_keeps_arbitrary_values_but_rejects_ambiguous_selection() {
     );
     assert!(matches!(
         parse(root.clone()).unwrap(),
-        Node::Picker { search: true, .. }
+        Node::Picker { search: true, options, .. }
+            if options[0].group.as_deref() == Some("Local") && options[1].group.is_none()
     ));
     let mut compact = root.clone();
     compact["search"] = json!(false);

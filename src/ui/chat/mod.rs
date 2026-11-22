@@ -502,6 +502,18 @@ impl Chat {
         job: impl FnOnce(&Api) -> anyhow::Result<R> + Send + 'static,
         done: impl FnOnce(&mut Self, R, &mut Context<Self>) + 'static,
     ) {
+        self.call_result(cx, job, move |this, result, cx| match result {
+            Ok(value) => done(this, value, cx),
+            Err(error) => this.show_notice(format!("{error:#}"), cx),
+        });
+    }
+
+    fn call_result<R: Send + 'static>(
+        &mut self,
+        cx: &mut Context<Self>,
+        job: impl FnOnce(&Api) -> anyhow::Result<R> + Send + 'static,
+        done: impl FnOnce(&mut Self, anyhow::Result<R>, &mut Context<Self>) + 'static,
+    ) {
         // Read-only documents deliberately cannot run session commands. Their
         // history/images use explicit read APIs outside this command helper.
         if self.readonly.is_some() {
@@ -521,10 +533,7 @@ impl Chat {
             handle
                 .update(cx, |_, _, cx| {
                     this.update(cx, |this, cx| {
-                        match result {
-                            Ok(value) => done(this, value, cx),
-                            Err(error) => this.show_notice(format!("{error:#}"), cx),
-                        }
+                        done(this, result, cx);
                         cx.notify();
                     })
                     .ok();

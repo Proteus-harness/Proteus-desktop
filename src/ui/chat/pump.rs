@@ -2,7 +2,7 @@
 //! the chat.
 
 use gpui_kit::*;
-use proteus_contracts::app_protocol::AppServerEvent;
+use proteus_contracts::app_protocol::{AppExecutionState, AppRun, AppRunStatus, AppServerEvent};
 use proteus_contracts::domain::Event as RuntimeEvent;
 
 use super::context_usage::ContextUsage;
@@ -15,6 +15,29 @@ use crate::transcript::Change;
 #[cfg(test)]
 #[path = "pump/tests.rs"]
 mod tests;
+
+fn settled_error(before: &AppExecutionState, after: &AppExecutionState) -> Option<String> {
+    let AppRun {
+        run_id,
+        status,
+        error,
+        ..
+    } = after.last.as_ref()?;
+    if after.active.is_some()
+        || !before
+            .active
+            .as_ref()
+            .is_some_and(|active| active.run_id == *run_id)
+    {
+        return None;
+    }
+    let fallback = match status {
+        AppRunStatus::Error => "Выполнение завершилось с ошибкой",
+        AppRunStatus::Timeout => "Истекло время выполнения",
+        _ => return None,
+    };
+    Some(error.clone().unwrap_or_else(|| fallback.into()))
+}
 
 /// Streams the session into the chat until the chat is dropped; dropping
 /// the task closes the channel, which stops the stream thread.
@@ -120,12 +143,17 @@ impl Chat {
             _ => true,
         };
         let refresh_context = matches!(&event, AppServerEvent::SessionSnapshot { .. });
+        let execution_changed =
+            refresh_context || matches!(&event, AppServerEvent::ExecutionUpdated { .. });
         let mut shown = true;
         let mut display_changes = None;
         let change = match event {
             AppServerEvent::SessionSnapshot { snapshot } => {
                 crate::startup_trace::first("chat.snapshot.applied");
                 let settled = session.snapshot_settles_run(&snapshot);
+                let error = settled
+                    .then(|| settled_error(&session.execution, &snapshot.execution))
+                    .flatten();
                 let cancelled = self.history.request_pending();
                 let (change, display) = session.apply_snapshot(*snapshot, &mut self.history);
                 if cancelled {
@@ -135,16 +163,23 @@ impl Chat {
                 if settled {
                     cx.emit(ChatEvent::RunSettled);
                 }
+                if let Some(error) = error {
+                    self.show_error(error, cx);
+                }
                 display_changes = Some(display);
                 change
             }
             AppServerEvent::ExecutionUpdated { execution } => {
                 let settled = session.running() && execution.active.is_none();
+                let error = settled_error(&session.execution, &execution);
                 session.feedback.execution(&execution);
                 session.execution = execution;
                 if settled {
                     self.load_context(cx);
                     cx.emit(ChatEvent::RunSettled);
+                }
+                if let Some(error) = error {
+                    self.show_error(error, cx);
                 }
                 Change::None
             }
@@ -180,6 +215,11 @@ impl Chat {
                     .transcript
                     .apply_runtime(envelope.thread_id, &envelope.event);
                 session.transcript.stamp(change, envelope.timestamp_ms);
+                if session.root_thread == Some(envelope.thread_id)
+                    && let RuntimeEvent::Error { message } = envelope.event
+                {
+                    self.show_error(message, cx);
+                }
                 change
             }
             AppServerEvent::UserMessageSubmitted { text, images } => {
@@ -219,7 +259,7 @@ impl Chat {
             }
             AppServerEvent::Error { message } => {
                 session.feedback.fail_activity();
-                self.show_notice(message, cx);
+                self.show_error(message, cx);
                 Change::None
             }
             AppServerEvent::ProfileReloadStatus { error: Some(error) } => {
@@ -233,6 +273,9 @@ impl Chat {
             }
             _ => Change::None,
         };
+        if execution_changed {
+            self.sync_cancel_notice(cx);
+        }
         shown |= !matches!(change, Change::None);
         if let Some(changes) = display_changes {
             self.apply_history_changes(changes, cx);

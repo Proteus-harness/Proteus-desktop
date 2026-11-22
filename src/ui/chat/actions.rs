@@ -1,6 +1,7 @@
 //! Server calls of a chat: sending, stopping, answers and session config.
 
 use gpui_kit::*;
+use proteus_contracts::app_protocol::AppRunStatus;
 use proteus_contracts::app_protocol::config::ConfigSummary;
 use proteus_contracts::app_protocol::http::SendRequest;
 use proteus_contracts::contracts::{ApprovalCacheScope, UserInputRequest, UserInputResponse};
@@ -145,8 +146,10 @@ impl Chat {
                     request.images = images
                         .into_iter()
                         .map(|image| image.encode())
-                        .collect::<anyhow::Result<_>>()?;
+                        .collect::<anyhow::Result<_>>()
+                        .map_err(|error| format!("Не удалось подготовить вложения: {error:#}"))?;
                     api.send(&request)
+                        .map_err(|error| format!("Core не подтвердил приём сообщения.\n{error:#}"))
                 })
                 .await;
             let Ok(owner) = this.read_with(cx, |this, _| this.window_handle) else {
@@ -181,7 +184,7 @@ impl Chat {
                         } else {
                             this.saved_drafts.push(SavedDraft::new(draft_text, draft));
                         }
-                        this.show_notice(format!("Не отправлено: {error:#}"), cx);
+                        this.show_error(error, cx);
                         cx.notify();
                     })
                 })
@@ -199,7 +202,23 @@ impl Chat {
             return;
         };
         let (dir, run_id) = (self.session.dir.clone(), run.run_id.clone());
-        self.call(cx, move |api| api.cancel(&dir, &run_id), |_, _, _| {});
+        let expected = run_id.clone();
+        self.call_result(
+            cx,
+            move |api| api.cancel(&dir, &run_id),
+            move |this, result, cx| {
+                if let Err(error) = result
+                    && this.session.execution.active.as_ref().is_some_and(|run| {
+                        run.run_id == expected && run.status == AppRunStatus::Running
+                    })
+                {
+                    this.show_error(
+                        format!("Core не подтвердил запрос на остановку.\n{error:#}"),
+                        cx,
+                    );
+                }
+            },
+        );
     }
 
     /// Answers an approval; `cache` lets the server repeat a yes without

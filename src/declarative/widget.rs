@@ -289,7 +289,7 @@ pub enum Node {
         title: Option<String>,
         #[serde(default)]
         back_action: Option<String>,
-        options: Vec<super::graph::Choice>,
+        options: Vec<PickerChoice>,
         action: String,
         #[serde(default = "search_placeholder")]
         placeholder: String,
@@ -543,6 +543,16 @@ pub struct SortableItem {
     pub label: String,
     #[serde(default)]
     pub children: Vec<Node>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct PickerChoice {
+    pub label: String,
+    pub value: Value,
+    pub selected: bool,
+    #[serde(default)]
+    pub group: Option<String>,
 }
 
 /// Decode the original required array, then share its row storage with the native tree.

@@ -136,11 +136,13 @@ fn choices(
         label: inherited.to_owned().into(),
         value: None,
         selected: current.is_none(),
+        group: None,
     });
     options.extend(families.iter().map(|family| Choice {
         label: family.clone(),
         value: Some(family.clone()),
         selected: current == Some(family.as_ref()),
+        group: None,
     }));
     if let Some(current) = current
         && !families.iter().any(|family| family.as_ref() == current)
@@ -150,6 +152,7 @@ fn choices(
             label: family.clone(),
             value: Some(family),
             selected: true,
+            group: None,
         });
     }
     options

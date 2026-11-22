@@ -1,6 +1,7 @@
 // Адаптировано из Zed: crates/picker/src/picker.rs (query, selection and reveal-selected scrolling)
+// and crates/agent_ui/src/language_model_selector.rs (group headings).
 //! A searchable, virtualized single-choice control. Callers supply labels and
-//! values; keyboard navigation, filtering, focus and selection belong here.
+//! values and may group adjacent choices; headings never become choices.
 
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::*;
@@ -19,6 +20,19 @@ pub(super) struct Choice<T> {
     pub label: SharedString,
     pub value: T,
     pub selected: bool,
+    pub group: Option<SharedString>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct MatchedChoice {
+    option: usize,
+    row: usize,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Row {
+    Heading(SharedString),
+    Choice(usize),
 }
 
 type Pick<T> = Rc<dyn Fn(T, &mut Window, &mut App)>;
@@ -32,7 +46,8 @@ pub(super) struct Picker<T: Clone + PartialEq + 'static> {
     back: Option<Back>,
     list_focus: FocusHandle,
     options: Vec<Choice<T>>,
-    matches: Vec<usize>,
+    matches: Vec<MatchedChoice>,
+    rows: Vec<Row>,
     cursor: usize,
     empty: SharedString,
     placeholder: SharedString,
@@ -67,6 +82,7 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
             list_focus: cx.focus_handle(),
             options,
             matches: Vec::new(),
+            rows: Vec::new(),
             cursor: 0,
             empty,
             placeholder,
@@ -180,28 +196,39 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
     fn current(&self) -> Option<&Choice<T>> {
         self.matches
             .get(self.cursor)
-            .and_then(|i| self.options.get(*i))
+            .map(|item| &self.options[item.option])
+    }
+
+    fn reveal_cursor(&self) {
+        if let Some(item) = self.matches.get(self.cursor) {
+            // Start at the first heading when the first choice is selected.
+            let row = if self.cursor == 0 { 0 } else { item.row };
+            self.scroll.scroll_to_item(row, ScrollStrategy::Nearest);
+        }
     }
 
     fn filter(&mut self, keep: Option<T>, cx: &mut Context<Self>) {
         let query = self.search.read(cx).value().trim().to_lowercase();
-        self.matches = matching(&self.options, &query);
+        (self.matches, self.rows) = matching(&self.options, &query);
         self.cursor = keep
             .as_ref()
             .and_then(|value| {
                 self.matches
                     .iter()
-                    .position(|i| &self.options[*i].value == value)
+                    .position(|item| &self.options[item.option].value == value)
             })
             .or_else(|| {
                 query
                     .is_empty()
-                    .then(|| self.matches.iter().position(|i| self.options[*i].selected))
+                    .then(|| {
+                        self.matches
+                            .iter()
+                            .position(|item| self.options[item.option].selected)
+                    })
                     .flatten()
             })
             .unwrap_or(0);
-        self.scroll
-            .scroll_to_item(self.cursor, ScrollStrategy::Nearest);
+        self.reveal_cursor();
         cx.notify();
     }
 
@@ -223,14 +250,20 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
         match event.keystroke.key.as_str() {
             "up" | "down" | "pageup" | "pagedown" if !self.matches.is_empty() => {
                 let count = self.matches.len();
+                let row = self.matches[self.cursor].row;
                 self.cursor = match event.keystroke.key.as_str() {
                     "up" => (self.cursor + count - 1) % count,
                     "down" => (self.cursor + 1) % count,
-                    "pageup" => self.cursor.saturating_sub(VISIBLE),
-                    _ => (self.cursor + VISIBLE).min(count - 1),
+                    "pageup" => self
+                        .matches
+                        .partition_point(|item| item.row < row.saturating_sub(VISIBLE)),
+                    _ => {
+                        self.matches
+                            .partition_point(|item| item.row <= row + VISIBLE)
+                            - 1
+                    }
                 };
-                self.scroll
-                    .scroll_to_item(self.cursor, ScrollStrategy::Nearest);
+                self.reveal_cursor();
                 cx.notify();
             }
             // Search and Back are real header buttons: their focused Enter
@@ -252,24 +285,41 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
     }
 }
 
-fn matching<T>(options: &[Choice<T>], query: &str) -> Vec<usize> {
+fn matching<T>(options: &[Choice<T>], query: &str) -> (Vec<MatchedChoice>, Vec<Row>) {
     let terms: Vec<_> = query.split_whitespace().collect();
-    if terms.is_empty() {
-        return (0..options.len()).collect();
-    }
-    options
-        .iter()
-        .enumerate()
-        .filter_map(|(i, option)| {
+    let mut matches = Vec::new();
+    let mut rows = Vec::new();
+    let mut previous_group = None;
+    for (index, option) in options.iter().enumerate() {
+        let group = option
+            .group
+            .as_ref()
+            .filter(|group| !group.trim().is_empty());
+        if !terms.is_empty() {
             let label = option.label.to_lowercase();
-            terms.iter().all(|term| label.contains(term)).then_some(i)
-        })
-        .collect()
+            let heading = group.map(|group| group.to_lowercase());
+            if !terms.iter().all(|term| {
+                label.contains(term) || heading.as_ref().is_some_and(|group| group.contains(term))
+            }) {
+                continue;
+            }
+        }
+        if group != previous_group
+            && let Some(group) = group
+        {
+            rows.push(Row::Heading(group.clone()));
+        }
+        previous_group = group;
+        let row = rows.len();
+        rows.push(Row::Choice(matches.len()));
+        matches.push(MatchedChoice { option: index, row });
+    }
+    (matches, rows)
 }
 
 impl<T: Clone + PartialEq + 'static> Render for Picker<T> {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let count = self.matches.len();
+        let count = self.rows.len();
         let focused = self.contains_focused(window, cx);
         let rows = uniform_list(
             "picker-rows",
@@ -277,8 +327,29 @@ impl<T: Clone + PartialEq + 'static> Render for Picker<T> {
             cx.processor(move |this, range: std::ops::Range<usize>, window, cx| {
                 range
                     .map(|row| {
-                        let option = &this.options[this.matches[row]];
-                        let cursor = row == this.cursor;
+                        let index = match &this.rows[row] {
+                            Row::Heading(title) => {
+                                return h_flex()
+                                    .id(("picker-heading", row))
+                                    .role(Role::Heading)
+                                    .aria_label(title.clone())
+                                    .w_full()
+                                    .min_w_0()
+                                    .h(prefs::scaled(ROW))
+                                    .px_2()
+                                    .items_center()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .when(row > 0, |header| {
+                                        header.border_t_1().border_color(cx.theme().border)
+                                    })
+                                    .child(fade::caption("caption", title.clone()))
+                                    .into_any_element();
+                            }
+                            Row::Choice(index) => *index,
+                        };
+                        let option = &this.options[this.matches[index].option];
+                        let cursor = index == this.cursor;
                         let value = option.value.clone();
                         let label = match &this.render_label {
                             Some(render) => render(option, window, cx),
@@ -316,7 +387,7 @@ impl<T: Clone + PartialEq + 'static> Render for Picker<T> {
                                 row.child(selection::focus(cx))
                             })
                             .on_click(cx.listener(move |this, _, window, cx| {
-                                this.cursor = row;
+                                this.cursor = index;
                                 cx.notify();
                                 (this.pick)(value.clone(), window, cx);
                             }))
@@ -406,11 +477,55 @@ mod tests {
                 label: label.into(),
                 value,
                 selected: value == 1,
+                group: None,
             })
             .collect();
-        assert_eq!(matching(&options, "openai обыч"), vec![0]);
-        assert_eq!(matching(&options, "обычная"), vec![0, 1]);
-        assert!(matching(&options, "none").is_empty());
-        assert_eq!(matching(&options, ""), vec![0, 1, 2]);
+        let indices = |query| {
+            matching(&options, query)
+                .0
+                .into_iter()
+                .map(|choice| choice.option)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(indices("openai обыч"), vec![0]);
+        assert_eq!(indices("обычная"), vec![0, 1]);
+        assert!(indices("none").is_empty());
+        assert_eq!(indices(""), vec![0, 1, 2]);
+    }
+
+    #[::core::prelude::v1::test]
+    fn provider_queries_keep_matching_sections_and_only_options_are_selectable() {
+        let options = [
+            ("OpenAI", "Astra"),
+            ("OpenAI", "Sol"),
+            ("OpenCode Go", "DeepSeek Flash"),
+            ("OpenCode Go", "Astra"),
+        ]
+        .map(|(group, label)| Choice {
+            label: label.into(),
+            value: (group, label),
+            selected: false,
+            group: Some(group.into()),
+        });
+        let (choices, rows) = matching(&options, "astra");
+        assert_eq!(
+            rows,
+            [
+                Row::Heading("OpenAI".into()),
+                Row::Choice(0),
+                Row::Heading("OpenCode Go".into()),
+                Row::Choice(1),
+            ],
+        );
+        assert_eq!(
+            choices,
+            [
+                MatchedChoice { option: 0, row: 1 },
+                MatchedChoice { option: 3, row: 3 },
+            ],
+        );
+        let (choices, rows) = matching(&options, "opencode flash");
+        assert_eq!(choices, [MatchedChoice { option: 2, row: 1 }]);
+        assert_eq!(rows, [Row::Heading("OpenCode Go".into()), Row::Choice(0)]);
     }
 }
