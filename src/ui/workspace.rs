@@ -175,7 +175,6 @@ impl Workspace {
         } else {
             super::prefs::current(cx).spaces_for(&workspace_path, &options.target)
         };
-        let saved = spaces.clone();
         let windows = WindowGroup::new(&workspace_path, &options.target);
         let mut workspace = Self::empty(
             workspace_path.clone(),
@@ -198,6 +197,12 @@ impl Workspace {
             });
             None
         } else {
+            // Only an unprepared startup needs its own layout snapshot.
+            let saved = if prepared.is_none() {
+                workspace.spaces.clone()
+            } else {
+                ChatSpaces::default()
+            };
             Some(cx.spawn_in(window, async move |this, cx| {
                 let result = if let Some(prepared) = prepared {
                     prepared

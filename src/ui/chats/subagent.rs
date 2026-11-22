@@ -222,7 +222,7 @@ impl Workspace {
 
     pub(in crate::ui) fn document_visible(&self, id: &str, entity: EntityId) -> bool {
         self.settings.is_none()
-            && self.layout.visible().any(|visible| visible == id)
+            && self.layout.is_visible(id)
             && self
                 .documents
                 .get(id)

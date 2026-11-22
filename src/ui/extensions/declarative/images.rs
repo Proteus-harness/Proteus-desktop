@@ -13,12 +13,12 @@ use std::sync::Arc;
 
 use gpui_kit::*;
 
-use crate::declarative::widget::Node;
+use crate::declarative::widget::{Node, SvgSource};
 use crate::ui::render_image::Bitmap;
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct Key {
-    source: Arc<str>,
+    source: SvgSource,
     size: budget::RasterSize,
 }
 
@@ -35,7 +35,7 @@ type Failures = RefCell<HashMap<Key, String>>;
 
 #[derive(Default)]
 pub(super) struct Images {
-    parsed: HashMap<Arc<str>, Asset>,
+    parsed: HashMap<SvgSource, Asset>,
     // A key's owner expires on source/DPI replacement, even if an old Canvas
     // survives until the next frame. Such a Canvas cannot revive stale work.
     owners: RefCell<HashMap<Key, Arc<()>>>,
@@ -59,7 +59,7 @@ impl Images {
                     match renderer.parse_svg(source.as_bytes()) {
                         Ok(svg) => {
                             self.parsed.insert(
-                                Arc::from(source.as_str()),
+                                source.clone(),
                                 Asset {
                                     svg: Arc::new(svg),
                                     aspect: budget::intrinsic_aspect(source),
@@ -72,13 +72,13 @@ impl Images {
             }
         });
         self.parsed
-            .retain(|source, _| used.contains(source.as_ref()));
+            .retain(|source, _| used.contains(source.as_str()));
         self.owners
             .get_mut()
-            .retain(|key, _| used.contains(key.source.as_ref()));
+            .retain(|key, _| used.contains(key.source.as_str()));
         self.failures
             .borrow_mut()
-            .retain(|key, _| used.contains(key.source.as_ref()));
+            .retain(|key, _| used.contains(key.source.as_str()));
         RASTERS.with(|cache| cache.borrow_mut().prune());
     }
 
@@ -355,7 +355,7 @@ mod tests {
         let renderer = SvgRenderer::new(Arc::new(()));
         let children: Vec<_> = (0..20)
             .map(|index| Node::Svg {
-                source: format!(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><title>large-root-{index}</title><rect width="10" height="10" fill="red"/></svg>"#),
+                source: format!(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><title>large-root-{index}</title><rect width="10" height="10" fill="red"/></svg>"#).into(),
                 width: 1024.,
                 height: 1024.,
                 baseline: None,

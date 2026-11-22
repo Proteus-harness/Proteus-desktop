@@ -14,6 +14,51 @@ use std::sync::Arc;
 const MAX_DEPTH: usize = 32;
 const MAX_NODES: usize = 5_000;
 
+/// Owned wire text shared with the native image keys. Constructing the handle
+/// moves the decoded String, so preparing an SVG need not copy its contents.
+#[derive(Clone, Deserialize, PartialEq, Eq, Hash)]
+#[serde(from = "String")]
+pub struct SvgSource(std::sync::Arc<String>);
+
+impl From<String> for SvgSource {
+    fn from(source: String) -> Self {
+        Self(std::sync::Arc::new(source))
+    }
+}
+
+#[cfg(test)]
+impl From<&str> for SvgSource {
+    fn from(source: &str) -> Self {
+        source.to_owned().into()
+    }
+}
+
+impl SvgSource {
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl std::borrow::Borrow<str> for SvgSource {
+    fn borrow(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl std::ops::Deref for SvgSource {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl std::fmt::Debug for SvgSource {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self.as_str(), formatter)
+    }
+}
+
 /// A settings action, not a second widget or an implicit host-side default.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -206,7 +251,7 @@ pub enum Node {
     },
     /// Self-contained color SVG, rendered as a native cached image.
     Svg {
-        source: String,
+        source: SvgSource,
         width: f32,
         height: f32,
         /// Alphabetic baseline measured from the SVG's top edge.

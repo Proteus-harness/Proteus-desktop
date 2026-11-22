@@ -354,7 +354,7 @@ mod tests {
 
 pub(super) fn next_document(
     command: &str,
-    layout: &crate::tabs::TabLayout,
+    max_tab_suffix: impl FnOnce(&str) -> Option<u32>,
     cx: &App,
 ) -> Option<String> {
     let manifest = ordered(cx).into_iter().find(|manifest| {
@@ -365,13 +365,7 @@ pub(super) fn next_document(
                 .is_some_and(|document| document.command == Some(command))
     })?;
     let prefix = format!("{}:", manifest.id);
-    let last = layout
-        .panes()
-        .iter()
-        .flat_map(|pane| &pane.tabs)
-        .filter_map(|tab| tab.strip_prefix(&prefix)?.parse::<u32>().ok())
-        .max()
-        .unwrap_or(0);
+    let last = max_tab_suffix(&prefix).unwrap_or(0);
     Some(format!("{prefix}{}", last + 1))
 }
 impl DocumentSurface {

@@ -161,14 +161,15 @@ impl WindowGroup {
         }
     }
 
-    pub(in crate::ui) fn all_tabs(&self) -> TabLayout {
-        let mut all = TabLayout::default();
-        if let Some(spaces) = self.0.borrow().saved_layout() {
-            for id in spaces.all_tabs() {
-                all.open(id, |_| false);
-            }
-        }
-        all
+    /// The largest numeric tab suffix across saved spaces in every window.
+    pub(in crate::ui) fn max_tab_suffix(&self, prefix: &str) -> Option<u32> {
+        self.0
+            .borrow()
+            .windows
+            .iter()
+            .flat_map(|(_, spaces)| spaces.all_tabs())
+            .filter_map(|tab| tab.strip_prefix(prefix)?.parse::<u32>().ok())
+            .max()
     }
 
     pub(super) fn watch_backend(

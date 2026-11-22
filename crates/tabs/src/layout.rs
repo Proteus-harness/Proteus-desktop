@@ -147,6 +147,20 @@ impl TabLayout {
             .filter_map(|pane| pane.active.as_deref())
     }
 
+    /// Whether the tab is active in any pane, without collecting the panes.
+    pub fn is_visible(&self, id: &str) -> bool {
+        fn is_active(node: &Node, id: &str) -> bool {
+            match node {
+                Node::Pane(pane) => pane.active.as_deref() == Some(id),
+                Node::Split(split) => split
+                    .children
+                    .iter()
+                    .any(|child| is_active(&child.node, id)),
+            }
+        }
+        is_active(&self.root, id)
+    }
+
     /// Whether moving `tab` to an edge of `pane` changes anything and is
     /// allowed: a pane cannot be split off its only tab, a locked pane not
     /// at all.

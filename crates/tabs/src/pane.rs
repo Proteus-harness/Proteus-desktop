@@ -49,9 +49,20 @@ impl Pane {
 
     pub fn show(&mut self, id: &str) {
         if self.has(id) {
-            self.history.retain(|tab| tab != id);
-            self.history.push(id.to_string());
-            self.active = Some(id.to_string());
+            let mut visited = None;
+            self.history.retain_mut(|tab| {
+                if tab.as_str() != id {
+                    return true;
+                }
+                if visited.is_none() {
+                    visited = Some(std::mem::take(tab));
+                }
+                false
+            });
+            self.history.push(visited.unwrap_or_else(|| id.to_owned()));
+            if self.active.as_deref() != Some(id) {
+                self.active = Some(id.to_owned());
+            }
         }
     }
 

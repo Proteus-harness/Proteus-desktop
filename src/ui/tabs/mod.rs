@@ -104,8 +104,11 @@ impl Workspace {
         if !self.begin_navigation(cx) {
             return;
         }
-        let Some(id) = extensions::next_document("terminal.new", &self.windows.all_tabs(), cx)
-        else {
+        let Some(id) = extensions::next_document(
+            "terminal.new",
+            |prefix| self.windows.max_tab_suffix(prefix),
+            cx,
+        ) else {
             return;
         };
         if self.ensure_document(&id, window, cx).is_none() {
