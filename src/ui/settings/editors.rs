@@ -225,10 +225,11 @@ impl SettingsView {
                 .iter()
                 .map(|module| module_key(MODEL_SLOT, &module.id))
                 .collect(),
-            PageId::Slot(slot)
-                if slot == POLICY_SLOT && !self.is_open(super::slots::POLICY_RULES) =>
-            {
-                Vec::new()
+            PageId::Modes if self.is_open(super::slots::POLICY_RULES) => {
+                catalog::selected_module(snapshot, &self.draft, POLICY_SLOT)
+                    .map(|module| module_key(POLICY_SLOT, module))
+                    .into_iter()
+                    .collect()
             }
             PageId::Slot(slot) => catalog::selected_module(snapshot, &self.draft, slot)
                 .map(|module| module_key(slot, module))

@@ -1,5 +1,5 @@
-//! Sliders for visual sizes. Settings width commits on release so its own
-//! controls stay under the pointer while the value is being chosen.
+//! Sliders for visual sizes. A change that moves its own slider commits on
+//! release so the track stays under the pointer while the value is chosen.
 
 #[cfg(test)]
 mod tests;
@@ -10,11 +10,12 @@ use gpui_kit::*;
 
 use super::SettingsView;
 use crate::preferences::{
-    CHAT_TEXT, CHAT_WIDTH, Preference, Preferences, SETTINGS_WIDTH, SURFACE_RADIUS,
+    CHAT_TEXT, CHAT_WIDTH, INTERFACE_TEXT, Preference, Preferences, SETTINGS_WIDTH, SURFACE_RADIUS,
 };
 use crate::ui::prefs;
 
 pub(super) struct SizeSliders {
+    pub interface_text: Entity<SliderState>,
     pub chat_text: Entity<SliderState>,
     pub chat_width: Entity<SliderState>,
     pub settings_width: Entity<SliderState>,
@@ -24,6 +25,13 @@ pub(super) struct SizeSliders {
 impl SizeSliders {
     pub fn new(window: &mut Window, cx: &mut Context<SettingsView>) -> (Self, Vec<Subscription>) {
         let view = prefs::visual(cx).view;
+        let interface_text = cx.new(|_| {
+            SliderState::new()
+                .max(f32::from(*INTERFACE_TEXT.end()))
+                .min(f32::from(*INTERFACE_TEXT.start()))
+                .step(1.)
+                .default_value(f32::from(view.interface_text))
+        });
         let chat_text = cx.new(|_| {
             SliderState::new()
                 .max(f32::from(*CHAT_TEXT.end()))
@@ -53,6 +61,9 @@ impl SizeSliders {
                 .default_value(f32::from(view.settings_width))
         });
         let subscriptions = vec![
+            follow_on_release(&interface_text, window, cx, |prefs, value| {
+                prefs.view.interface_text = value
+            }),
             follow(&chat_text, window, cx, |prefs, value| {
                 prefs.view.chat_text = value
             }),
@@ -62,10 +73,13 @@ impl SizeSliders {
             follow(&surface_radius, window, cx, |prefs, value| {
                 prefs.view.surface_radius = value
             }),
-            follow_settings_width(&settings_width, window, cx),
+            follow_on_release(&settings_width, window, cx, |prefs, value| {
+                prefs.view.settings_width = value
+            }),
         ];
         (
             Self {
+                interface_text,
                 chat_text,
                 chat_width,
                 surface_radius,
@@ -77,6 +91,7 @@ impl SizeSliders {
     pub fn synchronize(&self, window: &mut Window, cx: &mut Context<SettingsView>) {
         let view = prefs::visual(cx).view;
         for (state, value) in [
+            (&self.interface_text, view.interface_text),
             (&self.chat_text, view.chat_text),
             (&self.chat_width, view.chat_width),
             (&self.surface_radius, view.surface_radius),
@@ -92,6 +107,7 @@ impl SizeSliders {
     pub fn reset(&self, field: Preference, window: &mut Window, cx: &mut Context<SettingsView>) {
         let defaults = crate::preferences::ViewPreferences::default();
         let (state, value) = match field {
+            Preference::InterfaceText => (&self.interface_text, defaults.interface_text),
             Preference::SurfaceRadius => (&self.surface_radius, defaults.surface_radius),
             Preference::ChatText => (&self.chat_text, defaults.chat_text),
             Preference::ChatWidth => (&self.chat_width, defaults.chat_width),
@@ -118,18 +134,18 @@ fn follow(
     })
 }
 
-/// Resizing Settings also moves this slider, so only its readout and thumb
-/// preview the pending value. Track clicks and accessibility steps release
-/// immediately; a drag applies and persists once the pointer is released.
-fn follow_settings_width<V: 'static>(
+/// Only the readout and thumb preview the pending value. Track clicks and
+/// accessibility steps release immediately.
+fn follow_on_release<V: 'static>(
     slider: &Entity<SliderState>,
     window: &mut Window,
     cx: &mut Context<V>,
+    apply: fn(&mut Preferences, u16),
 ) -> Subscription {
     cx.subscribe_in(slider, window, move |_, _, event: &SliderEvent, _, cx| {
         if let SliderEvent::Release(value) = event {
             let value = value.end().round() as u16;
-            prefs::update_settings(cx, |prefs| prefs.view.settings_width = value);
+            prefs::update_settings(cx, |prefs| apply(prefs, value));
         }
         cx.notify();
     })

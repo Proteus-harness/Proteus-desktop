@@ -67,6 +67,9 @@ use uuid::Uuid;
 
 pub(crate) mod a11y;
 mod prompts;
+mod text_edge_fade;
+
+use self::text_edge_fade::TextEdgeFade;
 
 pub use a11y::A11ySubtreeBuilder;
 
@@ -1271,6 +1274,7 @@ pub struct Window {
     pub(crate) rendered_entity_stack: Vec<EntityId>,
     pub(crate) element_offset_stack: Vec<Point<Pixels>>,
     pub(crate) element_opacity: f32,
+    text_edge_fade: Option<TextEdgeFade>,
     pub(crate) content_mask_stack: Vec<ContentMask<Pixels>>,
     pub(crate) requested_autoscroll: Option<Bounds<Pixels>>,
     /// The [`TextInputConfiguration`] most recently forwarded to the platform
@@ -2186,6 +2190,7 @@ impl Window {
             element_offset_stack: Vec::new(),
             content_mask_stack: Vec::new(),
             element_opacity: 1.0,
+            text_edge_fade: None,
             requested_autoscroll: None,
             last_text_input_configuration: None,
             focused_text_input: None,
@@ -4859,7 +4864,7 @@ impl Window {
     ) {
         self.invalidator.debug_assert_paint();
         let underline = self.underline(origin, width, style);
-        self.next_frame.scene.insert_primitive(underline);
+        self.paint_text_primitive(underline);
     }
 
     /// Paint a strikethrough into the scene for the next frame at the current z-index.
@@ -4881,7 +4886,7 @@ impl Window {
         };
         let opacity = self.element_opacity();
 
-        self.next_frame.scene.insert_primitive(Underline {
+        self.paint_text_primitive(Underline {
             order: 0,
             pad: 0,
             bounds,
@@ -4944,7 +4949,7 @@ impl Window {
             let content_mask = self.snapped_content_mask();
 
             if subpixel_rendering {
-                self.next_frame.scene.insert_primitive(SubpixelSprite {
+                self.paint_text_primitive(SubpixelSprite {
                     order: 0,
                     pad: 0,
                     bounds,
@@ -4954,7 +4959,7 @@ impl Window {
                     transformation: TransformationMatrix::unit(),
                 });
             } else {
-                self.next_frame.scene.insert_primitive(MonochromeSprite {
+                self.paint_text_primitive(MonochromeSprite {
                     order: 0,
                     pad: 0,
                     bounds,
@@ -5035,7 +5040,7 @@ impl Window {
             let content_mask = self.snapped_content_mask();
             let opacity = self.element_opacity();
 
-            self.next_frame.scene.insert_primitive(PolychromeSprite {
+            self.paint_text_primitive(PolychromeSprite {
                 order: 0,
                 pad: 0,
                 grayscale: false.into(),

@@ -16,9 +16,9 @@ use super::tools::pack_key;
 use crate::settings::FieldPath;
 use crate::settings::addons;
 use crate::settings::catalog::{
-    CONTEXT_PROVIDER_SLOT, CONTEXT_SLOT, HOOK_SLOT, MODEL_SLOT, PageId, TOOL_SLOT, agent_pages,
+    CONTEXT_PROVIDER_SLOT, CONTEXT_SLOT, HOOK_SLOT, MODEL_SLOT, POLICY_SLOT, PageId, TOOL_SLOT,
     editable_field, exports, find_slot, missing_tools, module_info, page_description, page_title,
-    selected_module,
+    selected_module, slot_pages,
 };
 use crate::shortcuts::Command;
 use crate::ui::extensions;
@@ -117,20 +117,21 @@ fn page_words(page: &PageId) -> &'static str {
         }
         PageId::Providers => "подключение провайдер авторизация ключ API",
         PageId::Models => "модель effort reasoning набор имя preset субагент наследование",
-        PageId::Modes => "режим поведения инструкции разрешения tools hooks наследование",
+        PageId::Modes => {
+            "режим поведения инструкции разрешения tools hooks policy политика права наследование"
+        }
         PageId::Slot(slot) if slot == crate::settings::catalog::SESSION_STORAGE_SLOT => {
             "session_storage session storage история чатов хранилище jsonl sqlite"
         }
         PageId::Slot(slot) if slot == "workflow" => "слот рабочий цикл",
         PageId::Slot(slot) if slot == "context" => "слот контекст",
-        PageId::Slot(slot) if slot == "policy" => "слот разрешения политика",
         PageId::Tools => "инструменты",
         PageId::Hooks => "обработчики хуки",
         PageId::Modules => "модули компоненты плагины",
         PageId::Mcp => "серверы",
         PageId::Skills => "навыки",
         PageId::Packages => "пакеты плагины",
-        PageId::History => "история изменения",
+        PageId::History => "history история правок изменения",
         _ => "",
     }
 }
@@ -189,7 +190,7 @@ impl SettingsView {
             finder.add(
                 Hit::new(
                     mode.title.as_deref().unwrap_or(name),
-                    "Режимы",
+                    page_title(Some(snapshot), &PageId::Modes),
                     PageId::Modes,
                 )
                 .open(vec![key.clone()])
@@ -199,7 +200,7 @@ impl SettingsView {
         }
         for (name, model) in &self.draft.models {
             finder.add(
-                Hit::new(name, "Модели · именованный набор", PageId::Models)
+                Hit::new(name, "Модели · имена моделей", PageId::Models)
                     .open(vec![super::models::model_key(name)])
                     .spot(spot::model(name)),
                 &[
@@ -253,9 +254,11 @@ impl SettingsView {
                 &[],
             );
         }
-        for page in agent_pages(Some(snapshot)) {
-            let PageId::Slot(slot) = &page else {
-                continue;
+        for page in slot_pages(Some(snapshot)) {
+            let slot = match &page {
+                PageId::Modes => POLICY_SLOT,
+                PageId::Slot(slot) => slot.as_str(),
+                _ => continue,
             };
             let name = page_title(Some(snapshot), &page);
             let open = super::slots::implementation_disclosures(slot);

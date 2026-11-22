@@ -146,6 +146,11 @@ const INTERFACE_FONT: RowText = text(
         "Установленный шрифт для панелей, меню и настроек. Очистите выбор, чтобы использовать шрифт темы.",
     ),
 );
+const INTERFACE_TEXT: RowText = text(
+    Preference::InterfaceText,
+    "Размер шрифта интерфейса",
+    Some("Базовый размер текста при масштабе 100%. Кнопки и поля подстраиваются под шрифт."),
+);
 const CHAT_FONT: RowText = text(
     Preference::ChatFont,
     "Ответы агента",
@@ -182,11 +187,12 @@ const NOTIFICATIONS_ROW: RowText = text(
     Some("Когда окно в фоне: агент закончил, ждёт подтверждения или ответа."),
 );
 
-pub(super) const APPEARANCE_ROWS: [&RowText; 12] = [
+pub(super) const APPEARANCE_ROWS: [&RowText; 13] = [
     &THEME,
     &DARK_PALETTE,
     &LIGHT_PALETTE,
     &INTERFACE_FONT,
+    &INTERFACE_TEXT,
     &SCALE,
     &SURFACE_RADIUS,
     &SETTINGS_WIDTH,
@@ -254,7 +260,10 @@ impl SettingsView {
                 cx,
             )
             .minimum_control_width(match field {
-                Preference::SurfaceRadius | Preference::ChatText | Preference::ChatWidth => 120.,
+                Preference::SurfaceRadius
+                | Preference::InterfaceText
+                | Preference::ChatText
+                | Preference::ChatWidth => 120.,
                 Preference::InterfaceFont | Preference::ChatFont => 64.,
                 _ => 36.,
             }),
@@ -300,6 +309,11 @@ impl SettingsView {
         let typography = [
             self.text_row(&INTERFACE_FONT, self.fonts.interface(), cx)
                 .into_any_element(),
+            self.text_row(
+                &INTERFACE_TEXT,
+                slider(&self.sizes.interface_text, "px", cx),
+                cx,
+            ),
             self.text_row(
                 &SCALE,
                 choice("pref-scale", &SCALES, current.view.scale, |prefs, value| {

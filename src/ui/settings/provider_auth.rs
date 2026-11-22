@@ -184,7 +184,7 @@ impl SettingsView {
         };
         let action = kit::button(hashed_id("provider-auth", &id))
             .faded_label(label)
-            .quiet(cx)
+            .settings_control(cx)
             .xsmall()
             .disabled(changed)
             .on_click(cx.listener(move |this, _, _, cx| this.sign_in_provider(&id, cx)));

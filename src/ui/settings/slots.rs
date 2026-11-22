@@ -41,11 +41,6 @@ impl SettingsView {
             return self.storage_page(cx);
         }
         let mut parts = Vec::new();
-        if slot == POLICY_SLOT {
-            parts.push(self.mode_section(cx));
-            parts.push(self.policy_rules(cx));
-            return parts;
-        }
         parts.extend(self.implementation(slot, cx));
         if slot == CONTEXT_SLOT {
             parts.extend(self.providers_section(cx));
@@ -53,7 +48,7 @@ impl SettingsView {
         parts
     }
 
-    fn policy_rules(&self, cx: &Context<Self>) -> AnyElement {
+    pub(super) fn policy_rules(&self, cx: &Context<Self>) -> AnyElement {
         let view = cx.weak_entity();
         let changed = self.draft.modules.get(POLICY_SLOT) != self.baseline.modules.get(POLICY_SLOT)
             || self.draft.config.get(POLICY_SLOT) != self.baseline.config.get(POLICY_SLOT);
@@ -120,7 +115,7 @@ impl SettingsView {
         ]
     }
 
-    fn mode_section(&self, cx: &Context<Self>) -> AnyElement {
+    pub(super) fn mode_section(&self, cx: &Context<Self>) -> AnyElement {
         let Some(snapshot) = self.snapshot() else {
             return div().into_any_element();
         };

@@ -39,48 +39,58 @@ impl SettingsView {
             chip(
                 self.draft
                     .model
-                    .clone()
+                    .as_deref()
+                    .map(|name| self.model_label(name))
                     .unwrap_or_else(|| "Собственная конфигурация".into()),
                 Tone::Muted,
                 cx,
             )
             .into_any_element()
         };
-        parts.push(
-            section(
-                "Основной агент",
-                Some(
-                    "Выбор в конфиге. В отдельном чате можно выбрать другую модель и effort."
-                        .into(),
-                ),
-                None,
-                card(
-                    [row("Модель", None, root, false, cx).into_any_element()],
-                    cx,
-                ),
+        parts.push(card(
+            [row(
+                "Модель основного агента",
+                Some("Для отдельного чата можно выбрать другую модель.".into()),
+                root,
+                false,
                 cx,
             )
-            .into_any_element(),
-        );
+            .into_any_element()],
+            cx,
+        ));
         let presets: Vec<_> = self
             .draft
             .models
             .iter()
             .map(|(name, model)| self.model_preset(name, model, snapshot.models_writable, cx))
             .collect();
-        let mut body = v_flex().gap_3().children(presets);
+        let mut body = v_flex().children(presets);
         if self.draft.models.is_empty() {
-            body = body.child(note("Именованных моделей нет. Создайте набор, чтобы ссылаться на него из агента или субагента.", cx));
+            body = body.child(note("Добавьте имя для модели, которую хотите выбрать.", cx));
         }
         if snapshot.models_writable {
-            body = body.child(self.new_model_row(cx));
+            body = body.child(div().mt_2().child(self.new_model_row(cx)));
         } else {
             body = body.child(note("Эти модели редактируются в исходном конфиге.", cx));
         }
-        parts.push(section("Именованные модели", Some("Одно имя хранит подключение, модель и параметры рассуждения. Его можно использовать в нескольких местах конфига.".into()), None, body, cx).into_any_element());
+        parts.push(section("Имена моделей", None, None, body, cx).into_any_element());
         if !snapshot.model_roles.is_empty() {
-            parts.push(section("Модели субагентов", Some("Режим «Наследовать» использует текущую модель родителя вместе с effort и остальными параметрами.".into()), None,
-                card(snapshot.model_roles.iter().map(|role| self.model_role_row(role, cx)), cx), cx).into_any_element());
+            parts.push(
+                section(
+                    "Модели субагентов",
+                    None,
+                    None,
+                    card(
+                        snapshot
+                            .model_roles
+                            .iter()
+                            .map(|role| self.model_role_row(role, cx)),
+                        cx,
+                    ),
+                    cx,
+                )
+                .into_any_element(),
+            );
         }
         let problems = model_problems(&self.draft, snapshot);
         if !problems.is_empty() {
@@ -106,7 +116,7 @@ impl SettingsView {
             .snapshot()
             .is_none_or(|snapshot| snapshot.model_modules.is_empty());
         let add = kit::button("model-preset-add")
-            .faded_label("Добавить модель")
+            .faded_label("Добавить имя")
             .small()
             .disabled(problem.is_some() || no_connection)
             .on_click(cx.listener(|this, _, window, cx| this.add_model_preset(window, cx)));
@@ -222,7 +232,7 @@ impl SettingsView {
                         .min_w_0()
                         .child(crate::ui::fade::faded(format!(
                             "{} · {}",
-                            model.provider, model.model
+                            model.model, model.provider
                         ))),
                 ),
             changed,
@@ -396,6 +406,17 @@ impl SettingsView {
         card(rows, cx)
     }
 
+    fn model_label(&self, name: &str) -> String {
+        self.draft
+            .models
+            .get(name)
+            .filter(|preset| !preset.model.is_empty() && preset.model != name)
+            .map_or_else(
+                || name.to_owned(),
+                |preset| format!("{name} · {}", preset.model),
+            )
+    }
+
     fn model_choice(
         &self,
         id: &str,
@@ -413,12 +434,13 @@ impl SettingsView {
             });
         }
         options.extend(self.draft.models.keys().map(|name| MenuOption {
-            label: name.clone().into(),
+            label: self.model_label(name).into(),
             value: Some(name.clone()),
             checked: selected.as_ref() == Some(name),
         }));
         let label = selected
-            .clone()
+            .as_deref()
+            .map(|name| self.model_label(name))
             .unwrap_or_else(|| inherited.unwrap_or("Не выбрана").into());
         let view = cx.weak_entity();
         select_menu(
@@ -452,7 +474,8 @@ impl SettingsView {
         } else {
             chip(
                 role.model
-                    .clone()
+                    .as_deref()
+                    .map(|name| self.model_label(name))
                     .unwrap_or_else(|| "Собственная конфигурация".into()),
                 Tone::Muted,
                 cx,

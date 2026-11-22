@@ -1,7 +1,7 @@
 //! One-line labels that run out of room fade out at the end instead of
-//! breaking off with an ellipsis. The fade lowers the alpha of the last
-//! visible letters, so it suits any background, hovered or selected. A label
-//! whose end matters more, such as a folder path, is cut at its start.
+//! breaking off with an ellipsis. The fade lowers the alpha toward the
+//! clipped edge, independently of the background. A label whose end
+//! matters more, such as a folder path, is cut at its start.
 
 use std::{cell::Cell, rc::Rc};
 
@@ -193,18 +193,11 @@ fn metrics(window: &Window) -> Metrics {
     }
 }
 
-/// Same first matching glyph as `LineLayout::x_for_index`, for nondecreasing
-/// byte offsets. Once a glyph is before a query it cannot match a later one,
-/// even when glyphs are repeated or out of byte order within the shaped line.
-fn increasing_x(
-    glyphs: impl Iterator<Item = (usize, Pixels)>,
-    width: Pixels,
-) -> impl FnMut(usize) -> Pixels {
-    let mut glyphs = glyphs.peekable();
-    move |index| {
-        while glyphs.next_if(|(byte, _)| *byte < index).is_some() {}
-        glyphs.peek().map_or(width, |&(_, x)| x)
-    }
+pub(in crate::ui) struct PaintedLine {
+    line: ShapedLine,
+    line_height: Pixels,
+    shift: Pixels,
+    fade_width: Option<Pixels>,
 }
 
 impl IntoElement for Faded {
@@ -217,8 +210,7 @@ impl IntoElement for Faded {
 
 impl Element for Faded {
     type RequestLayoutState = ();
-    /// The shaped line, its height and how far it is shifted left.
-    type PrepaintState = Option<(ShapedLine, Pixels, Pixels)>;
+    type PrepaintState = Option<PaintedLine>;
 
     fn id(&self) -> Option<ElementId> {
         None
@@ -287,7 +279,12 @@ impl Element for Faded {
             report.set(clipped);
         }
         if !clipped {
-            return Some((line, line_height, px(0.)));
+            return Some(PaintedLine {
+                line,
+                line_height,
+                shift: px(0.),
+                fade_width: None,
+            });
         }
         let ellipsis = cx
             .try_global::<crate::ui::prefs::WindowVisualPreferences>()
@@ -317,54 +314,28 @@ impl Element for Faded {
                 &[style.to_run(clipped.len())],
                 None,
             );
-            return Some((line, line_height, px(0.)));
+            return Some(PaintedLine {
+                line,
+                line_height,
+                shift: px(0.),
+                fade_width: None,
+            });
         }
         let fade = (font_size * FADE).min(room * 0.25);
         if fade <= px(0.) {
             return None;
         }
-        let glyphs = line.runs.iter().flat_map(|run| &run.glyphs);
-        let mut x = increasing_x(glyphs.map(|g| (g.index, g.position.x)), line.width());
-        if self.start {
-            let shift = line.width() - room;
-            let mut runs = Vec::new();
-            for (at, letter) in text.char_indices() {
-                let end = at + letter.len_utf8();
-                let middle = (x(at) + x(end)) / 2. - shift;
-                let mut run = style.to_run(letter.len_utf8());
-                if middle >= fade {
-                    run.len = text.len() - at;
-                    runs.push(run);
-                    break;
-                }
-                run.color = run.color.opacity((middle / fade).max(0.));
-                runs.push(run);
-            }
-            let line = system.shape_line(text.clone(), font_size, &runs, None);
-            return Some((line, line_height, shift));
-        }
-        let start = line.index_for_x(room - fade).unwrap_or(0);
-        let start = text.floor_char_boundary(start);
-        let mut runs = Vec::new();
-        if start > 0 {
-            runs.push(style.to_run(start));
-        }
-        for (offset, letter) in text[start..].char_indices() {
-            let at = start + offset;
-            let end = at + letter.len_utf8();
-            let middle = (x(at) + x(end)) / 2.;
-            let mut run = style.to_run(letter.len_utf8());
-            if middle >= room {
-                run.len = text.len() - at;
-                run.color = run.color.opacity(0.);
-                runs.push(run);
-                break;
-            }
-            run.color = run.color.opacity((room - middle) / fade);
-            runs.push(run);
-        }
-        let line = system.shape_line(text.clone(), font_size, &runs, None);
-        Some((line, line_height, px(0.)))
+        let shift = if self.start {
+            line.width() - room
+        } else {
+            px(0.)
+        };
+        Some(PaintedLine {
+            line,
+            line_height,
+            shift,
+            fade_width: Some(fade),
+        })
     }
 
     fn paint(
@@ -377,38 +348,36 @@ impl Element for Faded {
         window: &mut Window,
         cx: &mut App,
     ) {
-        let Some((line, line_height, shift)) = prepaint.take() else {
+        let Some(PaintedLine {
+            line,
+            line_height,
+            shift,
+            fade_width,
+        }) = prepaint.take()
+        else {
             return;
         };
         window.with_content_mask(Some(ContentMask { bounds }), |window| {
-            let _ = line.paint(
-                bounds.origin - point(shift, px(0.)),
-                line_height,
-                TextAlign::Left,
-                None,
-                window,
-                cx,
-            );
+            let mut paint_line = |window: &mut Window| {
+                let _ = line.paint(
+                    bounds.origin - point(shift, px(0.)),
+                    line_height,
+                    TextAlign::Left,
+                    None,
+                    window,
+                    cx,
+                );
+            };
+            if let Some(fade_width) = fade_width {
+                let (transparent, opaque) = if self.start {
+                    (bounds.left(), bounds.left() + fade_width)
+                } else {
+                    (bounds.right(), bounds.right() - fade_width)
+                };
+                window.with_text_edge_fade(transparent, opaque, paint_line);
+            } else {
+                paint_line(window);
+            }
         });
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[::core::prelude::v1::test]
-    fn fade_positions_match_individual_lookups_in_glyph_order() {
-        // Repeated cluster and indices out of logical order.
-        let glyphs = [(0, 0.), (3, 4.), (3, 6.), (2, 7.), (7, 11.), (6, 12.)];
-        let width = px(15.);
-        let mut x = increasing_x(glyphs.iter().map(|&(i, x)| (i, px(x))), width);
-        for index in [0, 1, 1, 2, 3, 3, 4, 6, 7, 7, 8, 9] {
-            let expected = glyphs
-                .iter()
-                .find(|&&(byte, _)| byte >= index)
-                .map_or(width, |&(_, x)| px(x));
-            assert_eq!(x(index), expected);
-        }
     }
 }

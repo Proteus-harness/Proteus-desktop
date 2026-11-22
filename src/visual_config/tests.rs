@@ -86,12 +86,14 @@ fn applying_visual_defaults_does_not_change_device_or_agent_metadata() {
     let mut expected = serde_json::to_value(&preferences).unwrap();
     let mut visual = VisualConfig::from_preferences(&preferences);
     visual.theme = ThemePreference::Light;
+    visual.view.interface_text = 20;
     visual.view.chat_width = 900;
     visual.view.settings_width = 1000;
     visual.extensions.set_enabled("quota", false);
     visual.apply_to_preferences(&mut preferences);
     // Only these independently selected presentation values changed.
     expected["theme"] = json!("light");
+    expected["view"]["interface_text"] = json!(20);
     expected["view"]["chat_width"] = json!(900);
     expected["view"]["settings_width"] = json!(1000);
     expected["extensions"]["disabled"] = json!(["analysis", "quota"]);

@@ -1,6 +1,6 @@
 // Адаптировано из Zed: crates/settings_ui/src/settings_ui.rs (render_nav).
-//! Settings navigation: the catalog, agent pages, client pages, then a page
-//! for every enabled extension.
+//! Settings navigation groups: Core slots, connections, profile, client,
+//! then the pages of enabled extensions.
 
 use crate::ui::kit::ButtonLabel as _;
 use std::collections::HashSet;
@@ -15,8 +15,8 @@ use proteus_contracts::app_protocol::config_builder::ConfigBuilderSnapshot;
 use super::widgets::changed_dot;
 use super::{SettingsEvent, SettingsView};
 use crate::settings::catalog::{
-    CLIENT_PAGES, CONNECTION_PAGES, PageId, SESSION_STORAGE_SLOT, agent_pages, area_page,
-    page_description, page_title,
+    CLIENT_PAGES, CONNECTION_PAGES, PROFILE_PAGES, PageId, SESSION_STORAGE_SLOT, area_page,
+    page_description, page_title, slot_pages,
 };
 use crate::shortcuts::Command;
 use crate::ui::extensions;
@@ -33,11 +33,10 @@ pub(super) fn page_icon(page: &PageId) -> Icon {
     match page {
         PageId::Providers => Icon::new(Lucide::Server),
         PageId::Models => Icon::new(Lucide::Brain),
-        PageId::Modes => Icon::new(Lucide::SlidersHorizontal),
+        PageId::Modes => Icon::new(Lucide::Shield),
         PageId::Slot(slot) => match slot.as_str() {
             "workflow" => Icon::new(Lucide::Workflow),
             "context" => Icon::new(Lucide::Layers),
-            "policy" => Icon::new(Lucide::Shield),
             SESSION_STORAGE_SLOT => Icon::new(Lucide::Database),
             _ => Icon::new(Lucide::Puzzle),
         },
@@ -63,6 +62,7 @@ pub(super) fn page_icon(page: &PageId) -> Icon {
 /// Title of a page in the navigation; extensions are named by their manifests.
 pub(super) fn nav_title(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId) -> String {
     match page {
+        PageId::Modes => "Policy".into(),
         PageId::Extension(id) => {
             extensions::find(id).map_or_else(|| id.clone(), |manifest| manifest.title.to_string())
         }
@@ -71,10 +71,6 @@ pub(super) fn nav_title(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId)
 }
 
 impl SettingsView {
-    fn agent_page_list(&self) -> Vec<PageId> {
-        agent_pages(self.snapshot())
-    }
-
     /// Enabled extensions in the user's order, plus the open page of a
     /// switched off one so it does not vanish under the pointer.
     fn extension_page_list(&self, cx: &App) -> Vec<PageId> {
@@ -90,9 +86,9 @@ impl SettingsView {
 
     /// Every page of the navigation in its order.
     pub(super) fn page_list(&self, cx: &App) -> Vec<PageId> {
-        let mut pages = vec![PageId::Catalog];
-        pages.extend(self.agent_page_list());
+        let mut pages = slot_pages(self.snapshot());
         pages.extend(CONNECTION_PAGES.iter().cloned());
+        pages.extend(PROFILE_PAGES.iter().cloned());
         pages.extend(CLIENT_PAGES.iter().cloned());
         pages.extend(self.extension_page_list(cx));
         pages
@@ -136,7 +132,7 @@ impl SettingsView {
             }));
         let theme = cx.theme();
         let snapshot = self.snapshot();
-        let agent = self.agent_page_list();
+        let slots = slot_pages(snapshot);
         let installed = self.extension_page_list(cx);
         let changed: HashSet<PageId> = self
             .draft
@@ -270,11 +266,12 @@ impl SettingsView {
                     .px_2()
                     .pb_3()
                     .gap_0p5()
-                    .child(div().pt_2().child(item(PageId::Catalog, cx)))
                     .child(heading("Proteus"))
-                    .children(agent.into_iter().map(|page| item(page, cx)))
+                    .children(slots.into_iter().map(|page| item(page, cx)))
                     .child(heading("Подключения"))
                     .children(CONNECTION_PAGES.iter().cloned().map(|page| item(page, cx)))
+                    .child(heading("Профиль"))
+                    .children(PROFILE_PAGES.iter().cloned().map(|page| item(page, cx)))
                     .child(heading("Клиент"))
                     .children(CLIENT_PAGES.iter().cloned().map(|page| item(page, cx)))
                     .when(!installed.is_empty(), |list| {
@@ -301,7 +298,6 @@ impl SettingsView {
                     .border_t_1()
                     .border_color(theme.transparent)
                     .text_xs()
-                    .child(div().text_color(theme.muted_foreground).child("Профиль"))
                     .child(
                         div()
                             .font_family(theme.mono_font_family.clone())

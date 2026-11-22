@@ -45,6 +45,17 @@ pub(in crate::ui::settings) fn render(
     snapshot: Option<&ConfigBuilderSnapshot>,
     cx: &App,
 ) -> AnyElement {
+    let Some(input) = &spec.input else {
+        return v_flex()
+            .gap_2()
+            .items_start()
+            .children(
+                spec.values
+                    .iter()
+                    .map(|value| tag_pill(tag_label(value), cx)),
+            )
+            .into_any_element();
+    };
     let ids = Rc::new(item_ids(&spec.values));
     let rows = spec
         .values
@@ -82,54 +93,51 @@ pub(in crate::ui::settings) fn render(
         },
     )
     .separated()
+    .drag_on_move()
     .revision(spec.revision);
     let mut body = v_flex().w_full().gap_2().child(list);
-    if let Some(input) = &spec.input {
-        let query = input.read(cx).value();
-        let add = spec.clone();
+    let query = input.read(cx).value();
+    let add = spec.clone();
+    let add_input = input.clone();
+    body = body.child(
+        h_flex()
+            .gap_2()
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .child(kit::input(input).small().w_full()),
+            )
+            .child(
+                kit::button(hashed_id("tag-add", &spec.key))
+                    .label("Добавить")
+                    .small()
+                    .disabled(query.is_empty())
+                    .on_click(move |_, window, cx| {
+                        if let Some(value) = added_value(&add.field, &add_input.read(cx).value()) {
+                            add.edit(Edit::Add(value), window, cx);
+                        }
+                    }),
+            ),
+    );
+    let filtered = suggest::visible(&spec.field, snapshot, &spec.values, &query);
+    if !filtered.is_empty() {
         body = body.child(
             h_flex()
-                .gap_2()
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .child(kit::input(input).small().w_full()),
-                )
-                .child(
-                    kit::button(hashed_id("tag-add", &spec.key))
-                        .label("Добавить")
-                        .small()
-                        .disabled(query.is_empty())
+                .flex_wrap()
+                .gap_1()
+                .children(filtered.into_iter().map(|item| {
+                    let add = spec.clone();
+                    let value = item.value;
+                    kit::button(hashed_id("tag-suggestion", &(&spec.key, &value)))
+                        .faded_label(item.title)
+                        .settings_control(cx)
+                        .xsmall()
                         .on_click(move |_, window, cx| {
-                            let Some(input) = &add.input else {
-                                return;
-                            };
-                            if let Some(value) = added_value(&add.field, &input.read(cx).value()) {
-                                add.edit(Edit::Add(value), window, cx);
-                            }
-                        }),
-                ),
+                            add.edit(Edit::Add(Value::String(value.clone())), window, cx)
+                        })
+                })),
         );
-        let filtered = suggest::visible(&spec.field, snapshot, &spec.values, &query);
-        if !filtered.is_empty() {
-            body = body.child(
-                h_flex()
-                    .flex_wrap()
-                    .gap_1()
-                    .children(filtered.into_iter().map(|item| {
-                        let add = spec.clone();
-                        let value = item.value;
-                        kit::button(hashed_id("tag-suggestion", &(&spec.key, &value)))
-                            .faded_label(item.title)
-                            .quiet(cx)
-                            .xsmall()
-                            .on_click(move |_, window, cx| {
-                                add.edit(Edit::Add(Value::String(value.clone())), window, cx)
-                            })
-                    })),
-            );
-        }
     }
     body.into_any_element()
 }
@@ -150,15 +158,19 @@ fn tag_row(spec: &Rc<TagEditor>, index: usize, cx: &App) -> AnyElement {
 }
 
 fn tag_pill(label: String, cx: &App) -> Div {
-    h_flex().py_0p5().cursor_grab().child(
+    let theme = cx.theme();
+    h_flex().min_w_0().max_w_full().child(
         h_flex()
             .min_w_0()
             .max_w_full()
             .px_2()
-            .rounded(cx.theme().radius)
-            .bg(cx.theme().input_background())
+            .py_0p5()
+            .rounded(theme.radius)
+            .border_1()
+            .border_color(theme.border)
+            .bg(theme.input_background())
             .text_sm()
-            .text_color(cx.theme().foreground)
+            .text_color(theme.foreground)
             .child(div().min_w_0().child(faded(label))),
     )
 }

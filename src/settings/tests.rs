@@ -12,8 +12,9 @@ use super::addons::{
     mcp_servers, missing_skills, normalized, package_contents, package_state, tool_server,
 };
 use super::catalog::{
-    CLIENT_PAGES, CONNECTION_PAGES, CONTEXT_PROVIDER_SLOT, PackState, PageId, agent_pages,
-    area_page, missing_tools, module_info, pack_summary, page_title, plural, slot_page, tool_pack,
+    CLIENT_PAGES, CONNECTION_PAGES, CONTEXT_PROVIDER_SLOT, HOOK_SLOT, MODEL_SLOT, POLICY_SLOT,
+    PROFILE_PAGES, PackState, PageId, TOOL_SLOT, area_page, missing_tools, module_info,
+    pack_summary, page_title, plural, slot_page, slot_pages, tool_pack,
 };
 use super::draft::Area;
 use super::history::describe_changes;
@@ -181,6 +182,10 @@ fn pages_cover_known_slots_and_append_unknown_ones() {
             ),
             slot("later", 9, Vec::new()),
             slot("earlier", 7, Vec::new()),
+            slot(POLICY_SLOT, 8, Vec::new()),
+            slot(MODEL_SLOT, 4, Vec::new()),
+            slot(HOOK_SLOT, 6, Vec::new()),
+            slot(TOOL_SLOT, 5, Vec::new()),
             slot(
                 "session_storage",
                 10,
@@ -189,36 +194,33 @@ fn pages_cover_known_slots_and_append_unknown_ones() {
         ],
         ..ConfigBuilderSnapshot::default()
     };
-    let pages = agent_pages(Some(&snapshot));
-    let slot_pages: Vec<&str> = pages
-        .iter()
-        .filter_map(|page| match page {
-            PageId::Slot(slot) => Some(slot.as_str()),
-            _ => None,
-        })
-        .collect();
+    let pages = slot_pages(Some(&snapshot));
     assert_eq!(
-        slot_pages,
+        pages,
         [
-            "workflow",
-            "context",
-            "policy",
-            "session_storage",
-            "earlier",
-            "later"
+            PageId::Slot("workflow".into()),
+            PageId::Slot("context".into()),
+            PageId::Modes,
+            PageId::Hooks,
+            PageId::Slot("session_storage".into()),
+            PageId::Slot("earlier".into()),
+            PageId::Slot("later".into()),
         ]
     );
     for page in [
         PageId::Providers,
         PageId::Models,
-        PageId::Modes,
         PageId::Tools,
-        PageId::Hooks,
+        PageId::Catalog,
     ] {
-        assert!(pages.contains(&page));
+        assert!(CONNECTION_PAGES.contains(&page));
     }
     assert!(CONNECTION_PAGES.iter().all(|page| !pages.contains(page)));
-    assert!(CLIENT_PAGES.contains(&PageId::Configurations));
+    assert!(PROFILE_PAGES.contains(&PageId::Configurations));
+    assert!(PROFILE_PAGES.contains(&PageId::History));
+    assert!(CLIENT_PAGES.contains(&PageId::Appearance));
+    assert_eq!(slot_page(POLICY_SLOT), PageId::Modes);
+    assert_eq!(area_page(&Area::Mode), PageId::Modes);
     assert!(!PageId::Configurations.is_agent());
     assert!(!pages.contains(&PageId::Configurations));
     assert_eq!(
@@ -233,7 +235,7 @@ fn pages_cover_known_slots_and_append_unknown_ones() {
         page_title(Some(&snapshot), &slot_page("session_storage")),
         "Session Storage"
     );
-    let during_load = agent_pages(None);
+    let during_load = slot_pages(None);
     assert!(during_load.contains(&slot_page("session_storage")));
     assert!(pages.starts_with(&during_load));
     assert!(

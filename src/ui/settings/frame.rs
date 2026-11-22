@@ -354,9 +354,10 @@ impl SettingsView {
 /// All settings pages share the same responsive content width, including
 /// extension-owned pages that provide their own title and scroll container.
 fn page_column(cx: &App) -> Div {
-    v_flex().w_full().min_w_0().max_w(prefs::scaled(f32::from(
-        prefs::visual(cx).view.settings_width,
-    )))
+    v_flex()
+        .w_full()
+        .min_w_0()
+        .max_w(prefs::zoomed(prefs::visual(cx).view.settings_width, cx))
 }
 
 fn centered(content: impl IntoElement) -> AnyElement {

@@ -15,7 +15,8 @@ use proteus_contracts::domain::{
 use serde_json::Value;
 
 use super::widgets::{
-    Fit, MenuOption, Tone, card, chip, disclosure, field_row, hashed_id, note, row, select_menu,
+    Fit, MenuOption, Tone, card, chip, disclosure, field_row, hashed_id, note, row, section,
+    select_menu,
 };
 use super::{
     SettingsView,
@@ -98,7 +99,11 @@ impl SettingsView {
                     }),
                 ));
         }
-        vec![body.into_any_element()]
+        vec![
+            self.mode_section(cx),
+            self.policy_rules(cx),
+            section("Именованные режимы", None, None, body, cx).into_any_element(),
+        ]
     }
 
     fn behavior_card(

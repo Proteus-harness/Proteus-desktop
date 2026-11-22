@@ -50,7 +50,7 @@ impl SettingsView {
                 .max_w_full();
             let to_models = kit::button(super::widgets::hashed_id("provider-models", &module.id))
                 .faded_label("Модели")
-                .quiet(cx)
+                .settings_control(cx)
                 .xsmall()
                 .on_click(cx.listener(|this, _, window, cx| {
                     this.go_to(&spot::Destination::new(PageId::Models), window, cx)
@@ -67,7 +67,7 @@ impl SettingsView {
             let id = module.id.clone();
             let remove = kit::button(super::widgets::hashed_id("provider-remove", &module.id))
                 .faded_label("Удалить")
-                .quiet(cx)
+                .settings_control(cx)
                 .xsmall()
                 .disabled(
                     !users.is_empty() || !self.catalog_idle() || self.profile_blocked().is_some(),

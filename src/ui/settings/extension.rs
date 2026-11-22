@@ -134,7 +134,7 @@ impl SettingsView {
             let toggle = disclosure(
                 hashed_id("extension-preview-toggle", &key),
                 open,
-                "Пример",
+                "Предпросмотр",
                 false,
                 move |cx| {
                     let _ = target.update(cx, |this, cx| this.toggle_open(&toggle_key, cx));

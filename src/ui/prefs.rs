@@ -26,16 +26,22 @@ use gpui_kit::*;
 
 use crate::preferences::{self, MotionPreference, Preferences, ThemePreference};
 
-const BASE_FONT: f32 = 16.;
+const BASE_FONT: f32 = preferences::DEFAULT_INTERFACE_TEXT as f32;
 const BASE_MONO_FONT: f32 = 13.;
-/// Interface scale: 1.0 at 100%.
+/// Scale of rem-based interface geometry, including the base font size.
 pub fn scale(cx: &App) -> f32 {
-    visual(cx).view.scale_factor()
+    let view = visual(cx).view;
+    view.scale_factor() * f32::from(view.interface_text) / BASE_FONT
 }
 
-/// A length given in px at 100% scale; follows the interface scale.
+/// A length in px at default appearance; follows the base font size and zoom.
 pub fn scaled(value: f32) -> Rems {
     rems(value / BASE_FONT)
+}
+
+/// An explicit size in px at 100% zoom, independent of the interface font.
+pub fn zoomed(value: u16, cx: &App) -> Pixels {
+    px(f32::from(value) * visual(cx).view.scale_factor())
 }
 
 /// A laid out length in the units of [`scaled`].
@@ -44,8 +50,8 @@ pub fn unscaled(length: Pixels, window: &Window) -> f32 {
 }
 
 /// Text size of chat messages and the composer.
-pub fn chat_text(cx: &App) -> Rems {
-    scaled(f32::from(visual(cx).view.chat_text))
+pub fn chat_text(cx: &App) -> Pixels {
+    zoomed(visual(cx).view.chat_text, cx)
 }
 
 /// Agent prose and tool labels; code retains the theme's mono.
@@ -59,8 +65,8 @@ pub fn user_chat_font(cx: &App) -> SharedString {
 }
 
 /// Widest conversation column.
-pub fn chat_width(cx: &App) -> Rems {
-    scaled(f32::from(visual(cx).view.chat_width))
+pub fn chat_width(cx: &App) -> Pixels {
+    zoomed(visual(cx).view.chat_width, cx)
 }
 
 pub struct ClientPreferences {
@@ -254,6 +260,7 @@ impl Effects {
                 || previous.themes != value.themes
                 || previous.fonts.interface != value.fonts.interface,
             sizes: previous.view.scale != value.view.scale
+                || previous.view.interface_text != value.view.interface_text
                 || previous.view.surface_radius != value.view.surface_radius,
             shortcuts: previous.shortcuts != value.shortcuts,
             motion: previous.motion != value.motion,
@@ -292,21 +299,23 @@ fn apply(value: &Preferences, effects: Effects, cx: &mut App) {
         }
         super::theme::project_interactions(cx);
     }
-    // The root sets the window's rem from the theme font size, so this
-    // scales every rem-based size of the interface.
-    // Corners follow the same scale.
+    // Keep rem-based controls proportional to their labels. Explicit
+    // appearance sizes such as the corner radius follow zoom alone.
     if effects.sizes || effects.theme {
         let scale = value.view.scale_factor();
         let theme = Theme::global(cx);
+        let font_size = px(f32::from(value.view.interface_text) * scale);
+        let mono_font_size = px(BASE_MONO_FONT * scale);
         let surface_radius = px(f32::from(value.view.surface_radius) * scale);
         let control_radius = surface_radius / 2.;
-        if theme.font_size != px(BASE_FONT * scale)
+        if theme.font_size != font_size
+            || theme.mono_font_size != mono_font_size
             || theme.radius != control_radius
             || theme.radius_lg != surface_radius
         {
             Theme::update(cx, |theme| {
-                theme.font_size = px(BASE_FONT * scale);
-                theme.mono_font_size = px(BASE_MONO_FONT * scale);
+                theme.font_size = font_size;
+                theme.mono_font_size = mono_font_size;
                 theme.radius = control_radius;
                 theme.radius_lg = surface_radius;
             });
@@ -378,6 +387,7 @@ mod tests {
             Box::new(|p| p.fonts.chat = Some("Fixture Chat".into())),
             Box::new(|p| p.fonts.user_chat = Some("Fixture User".into())),
             Box::new(|p| p.view.scale = 125),
+            Box::new(|p| p.view.interface_text = 18),
             Box::new(|p| p.view.surface_radius = 4),
             Box::new(|p| p.view.chat_text = 20),
             Box::new(|p| p.motion = MotionPreference::Off),
@@ -398,6 +408,9 @@ mod tests {
         after.fonts.interface = Some("Fixture UI".into());
         assert!(Effects::between(&before, &after).theme);
         after.view.scale = 125;
+        assert!(Effects::between(&before, &after).sizes);
+        after.view.scale = before.view.scale;
+        after.view.interface_text = 18;
         assert!(Effects::between(&before, &after).sizes);
         after.motion = MotionPreference::Off;
         assert!(Effects::between(&before, &after).motion);

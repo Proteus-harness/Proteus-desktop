@@ -27,6 +27,8 @@ fn native_windows_keep_independent_visual_values_and_theme_projections() {
         update_visual(cx, |config| {
             config.theme = crate::preferences::ThemePreference::Dark;
             config.view.scale = 125;
+            config.view.interface_text = 20;
+            config.view.chat_text = 18;
             config.view.settings_width = 1000;
             config.extensions.set_enabled("plan", false);
             config.package_visual_settings.insert(
@@ -47,10 +49,16 @@ fn native_windows_keep_independent_visual_values_and_theme_projections() {
     app.run_until_parked();
     first.update(|_, cx| {
         assert_eq!(visual(cx).view.scale, 125);
+        assert_eq!(settings(cx).view.interface_text, 20);
+        assert_eq!(chat_text(cx), px(22.5));
+        assert_eq!(chat_width(cx), px(1025.));
+        assert_eq!(zoomed(visual(cx).view.settings_width, cx), px(1250.));
         assert_eq!(visual(cx).view.settings_width, 1000);
         assert_eq!(settings(cx).view.settings_width, 1000);
         assert_eq!(Theme::global(cx).mode, ThemeMode::Dark);
-        assert_eq!(Theme::global(cx).font_size, px(20.));
+        assert_eq!(Theme::global(cx).font_size, px(25.));
+        assert_eq!(Theme::global(cx).mono_font_size, px(16.25));
+        assert_eq!(Theme::global(cx).radius_lg, px(20.));
         assert!(!visual(cx).extensions.is_enabled("plan"));
         assert_eq!(
             visual(cx).package_visual_settings["plan"]["visibility"],
@@ -69,6 +77,10 @@ fn native_windows_keep_independent_visual_values_and_theme_projections() {
         let old_window_values = serde_json::Map::new();
         assert!(update_package_visual("plan", first_revision, old_window_values, cx).is_err());
         assert_eq!(visual(cx).view.scale, 90);
+        assert_eq!(
+            settings(cx).view.interface_text,
+            crate::preferences::DEFAULT_INTERFACE_TEXT
+        );
         assert_eq!(visual(cx).view.settings_width, 600);
         assert_eq!(settings(cx).view.settings_width, 600);
         assert_eq!(Theme::global(cx).mode, ThemeMode::Light);

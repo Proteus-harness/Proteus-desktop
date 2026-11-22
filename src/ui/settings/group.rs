@@ -227,11 +227,12 @@ impl SettingsView {
         });
         let content = self.reveal(&key, cx, || {
             let rows = self.field_rows(fields, |key| path.child(key), value, &scope, cx);
-            v_flex().pl_3().children(rows).into_any_element()
+            v_flex().children(rows).into_any_element()
         });
-        v_flex()
-            .child(self.spotted(&super::spot::field(path), header, cx))
-            .children(content)
-            .into_any_element()
+        nested_group(
+            self.spotted(&super::spot::field(path), header, cx),
+            content,
+            cx,
+        )
     }
 }

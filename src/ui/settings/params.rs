@@ -78,7 +78,7 @@ impl SettingsView {
         let file = snapshot.target_path.clone().map(|path| {
             kit::button(hashed_id("params-file", &(slot, module)))
                 .faded_label("Файл профиля")
-                .quiet(cx)
+                .settings_control(cx)
                 .xsmall()
                 .hint(
                     &format!("Открыть [module_config.{slot}.{module}] в {path}"),
@@ -122,7 +122,7 @@ impl SettingsView {
                 };
                 kit::button(id)
                     .faded_label(if json { "Форма" } else { "JSON" })
-                    .quiet(cx)
+                    .settings_control(cx)
                     .xsmall()
                     .disabled(json && self.json_error(&slot, &module))
                     .hint(

@@ -42,7 +42,7 @@ fn policy_rules_start_closed_and_search_unfolds_the_implementation_and_form_or_j
                     ..Default::default()
                 });
                 view.accept(snapshot);
-                view.page = PageId::Slot(POLICY_SLOT.into());
+                view.page = PageId::Modes;
                 view.prepare_editors(window, cx);
                 assert!(!view.is_open(slots::POLICY_RULES));
                 assert!(
@@ -73,6 +73,7 @@ fn policy_rules_start_closed_and_search_unfolds_the_implementation_and_form_or_j
                         .find(|hit| hit.target.spot.as_deref() == Some(anchor.as_str()))
                         .expect("search must index hidden rules");
                     assert!(hit.target.open.iter().any(|key| key == slots::POLICY_RULES));
+                    assert_eq!(hit.target.page, PageId::Modes);
                     view.go_to(&hit.target, window, cx);
                     assert!(view.is_open(slots::POLICY_RULES));
                     view.prepare_editors(window, cx);

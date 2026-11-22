@@ -194,6 +194,7 @@ pub enum Preference {
     DarkPalette,
     LightPalette,
     InterfaceFont,
+    InterfaceText,
     Scale,
     SurfaceRadius,
     Motion,
@@ -219,6 +220,9 @@ impl Preference {
             Self::DarkPalette => prefs.themes.dark == DEFAULT_DARK_THEME,
             Self::LightPalette => prefs.themes.light == DEFAULT_LIGHT_THEME,
             Self::InterfaceFont => prefs.fonts.interface.is_none(),
+            Self::InterfaceText => {
+                prefs.view.interface_text == ViewPreferences::default().interface_text
+            }
             Self::Scale => prefs.view.scale == ViewPreferences::default().scale,
             Self::SurfaceRadius => {
                 prefs.view.surface_radius == ViewPreferences::default().surface_radius
@@ -250,6 +254,9 @@ impl Preference {
             Self::DarkPalette => prefs.themes.dark = DEFAULT_DARK_THEME.into(),
             Self::LightPalette => prefs.themes.light = DEFAULT_LIGHT_THEME.into(),
             Self::InterfaceFont => prefs.fonts.interface = None,
+            Self::InterfaceText => {
+                prefs.view.interface_text = ViewPreferences::default().interface_text
+            }
             Self::Scale => prefs.view.scale = ViewPreferences::default().scale,
             Self::SurfaceRadius => {
                 prefs.view.surface_radius = ViewPreferences::default().surface_radius
@@ -308,6 +315,9 @@ impl FontPreferences {
 
 /// Interface scale steps in percent, for the menu and Ctrl+=/Ctrl+-.
 pub const SCALES: [u16; 9] = [75, 80, 90, 100, 110, 125, 150, 175, 200];
+/// Base size of interface text and its surrounding controls, px at 100%.
+pub const INTERFACE_TEXT: RangeInclusive<u16> = 12..=22;
+pub const DEFAULT_INTERFACE_TEXT: u16 = 16;
 /// Text size of chat messages and the composer, px at 100%.
 pub const CHAT_TEXT: RangeInclusive<u16> = 12..=22;
 /// Widest conversation column, px at 100%.
@@ -323,6 +333,7 @@ pub const SURFACE_RADIUS: RangeInclusive<u16> = 0..=32;
 pub struct ViewPreferences {
     /// Interface scale in percent, one of [`SCALES`].
     pub scale: u16,
+    pub interface_text: u16,
     pub chat_text: u16,
     pub chat_width: u16,
     pub settings_width: u16,
@@ -338,6 +349,7 @@ impl Default for ViewPreferences {
     fn default() -> Self {
         Self {
             scale: 100,
+            interface_text: DEFAULT_INTERFACE_TEXT,
             chat_text: 16,
             chat_width: 820,
             settings_width: 720,
@@ -370,6 +382,12 @@ impl ViewPreferences {
     pub(crate) fn validate(&self) -> Result<()> {
         if !SCALES.contains(&self.scale) {
             return Err(anyhow!("scale {} is not one of {SCALES:?}", self.scale));
+        }
+        if !INTERFACE_TEXT.contains(&self.interface_text) {
+            return Err(anyhow!(
+                "interface_text {} is outside {INTERFACE_TEXT:?}",
+                self.interface_text
+            ));
         }
         if !CHAT_TEXT.contains(&self.chat_text) {
             return Err(anyhow!(
@@ -925,6 +943,8 @@ mod tests {
             r#"{"hints":{"shortcut":0}}"#,
             r#"{"hints":{"unknown":true}}"#,
             r#"{"hints":"off","view":{"scale":13}}"#,
+            r#"{"view":{"interface_text":11}}"#,
+            r#"{"view":{"interface_text":23}}"#,
             r#"{"hints":"full","unknown":true}"#,
         ] {
             assert!(super::parse(source, path).is_err(), "{source}");
@@ -941,6 +961,7 @@ mod tests {
             (DarkPalette, "/themes/dark", json!("Custom dark")),
             (LightPalette, "/themes/light", json!("Custom light")),
             (InterfaceFont, "/fonts/interface", json!("Interface")),
+            (InterfaceText, "/view/interface_text", json!(20)),
             (Scale, "/view/scale", json!(150)),
             (SurfaceRadius, "/view/surface_radius", json!(4)),
             (Motion, "/motion", json!("off")),
@@ -995,6 +1016,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(legacy.fonts, super::FontPreferences::default());
+        assert_eq!(legacy.view.interface_text, super::DEFAULT_INTERFACE_TEXT);
         assert_eq!(legacy.view.chat_text, 18);
 
         let mut value = Preferences::default();

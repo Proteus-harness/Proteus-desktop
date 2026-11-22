@@ -41,7 +41,9 @@ fn settings_width_previews_without_moving_the_track_and_applies_on_release() {
                 .step(10.)
                 .default_value(720.)
         });
-        let subscription = follow_settings_width(&state, window, cx);
+        let subscription = follow_on_release(&state, window, cx, |prefs, value| {
+            prefs.view.settings_width = value
+        });
         WidthControl {
             state,
             _subscription: subscription,

@@ -1,5 +1,5 @@
 // Адаптировано из Zed: crates/workspace/src/pane.rs (handle_tab_drop and dragged tab geometry)
-//! Whole-row hold-and-drag sorting. Settings and process widgets supply
+//! Whole-row drag sorting. Settings and process widgets supply
 //! identities and contents; gesture, preview, insertion geometry and motion
 //! are shared. Data changes only on a successful drop inside the same list.
 
@@ -58,6 +58,7 @@ pub(crate) struct List {
     moved: Move,
     revision: Option<u64>,
     separated: bool,
+    drag_on_move: bool,
 }
 
 impl List {
@@ -72,6 +73,7 @@ impl List {
             moved: Rc::new(moved),
             revision: None,
             separated: false,
+            drag_on_move: false,
         }
     }
 
@@ -84,6 +86,13 @@ impl List {
     /// instead of an inset rule. Animation and drop geometry use the same gap.
     pub fn separated(mut self) -> Self {
         self.separated = true;
+        self
+    }
+
+    /// Compact items can start moving at the native pointer threshold.
+    /// Rows with other actions keep their hold gesture.
+    pub fn drag_on_move(mut self) -> Self {
+        self.drag_on_move = true;
         self
     }
 }
@@ -108,6 +117,7 @@ struct State {
     armed: bool,
     timer: Option<Task<()>>,
     active: Option<SharedString>,
+    active_hold: Option<Hold>,
     before: Option<SharedString>,
     over: bool,
     motion: Arrangement,
@@ -224,6 +234,7 @@ impl RenderOnce for List {
         if state.read(cx).active.is_some() && !cx.has_active_drag() {
             state.update(cx, |state, _| {
                 state.active = None;
+                state.active_hold = None;
                 state.over = false;
                 state.release();
             });
@@ -250,17 +261,18 @@ impl RenderOnce for List {
                 state.pending = None;
             }
         });
-        let missing = state
+        let stale = state
             .read(cx)
-            .active
+            .active_hold
             .as_ref()
-            .is_some_and(|id| !ids.contains(id));
-        if missing {
+            .is_some_and(|hold| !hold.retained(&ids, self.revision));
+        if stale {
             if drag::current(cx).is_some_and(|source| source.starts_with(&format!("{key}:"))) {
                 cx.stop_active_drag(window);
             }
             state.update(cx, |state, _| {
                 state.active = None;
+                state.active_hold = None;
                 state.over = false;
                 state.release();
             });
@@ -270,6 +282,7 @@ impl RenderOnce for List {
             .pressed
             .clone()
             .filter(|_| state.read(cx).armed);
+        let drag_on_move = self.drag_on_move;
         let children = self
             .rows
             .into_iter()
@@ -305,7 +318,9 @@ impl RenderOnce for List {
                 };
                 div()
                     .id(ElementId::Name(row.id))
-                    .w_full()
+                    .when(!drag_on_move, |row| row.w_full())
+                    .min_w_0()
+                    .max_w_full()
                     .flex_none()
                     .relative()
                     .track_focus(&focus)
@@ -350,7 +365,7 @@ impl RenderOnce for List {
                         },
                     )
                     .when(index > 0 && !self.separated, |row| row.row_rule(cx))
-                    .when(armed, |row| row.cursor_grab())
+                    .when(armed || drag_on_move, |row| row.cursor_grab())
                     .when(active, |row| row.opacity(drag::SOURCE_OPACITY))
                     .on_mouse_down(MouseButton::Left, move |event, window, cx| {
                         if event.click_count != 1
@@ -381,7 +396,11 @@ impl RenderOnce for List {
                             ));
                             state.pressed = Some(id.clone());
                             state.press_epoch = epoch;
+                            state.armed = drag_on_move;
                         });
+                        if drag_on_move {
+                            return;
+                        }
                         let weak = press.downgrade();
                         let task = window.spawn(cx, async move |cx| {
                             cx.background_executor().timer(motion::HOLD).await;
@@ -402,28 +421,38 @@ impl RenderOnce for List {
                     // Establish native pending-mousedown state before the hold
                     // timer adds on_drag. Ordinary child clicks still bubble.
                     .on_click(|_, _, _| {})
-                    .when(armed, |row| {
+                    .when(armed || drag_on_move, |row| {
                         let start = state.clone();
                         row.on_drag(data, move |data, native_offset, window, cx| {
                             let mut data = data.clone();
-                            start.update(cx, |state, _| {
-                                if let Some(hold) = &state.hold {
-                                    data.preview_shift = hold.preview_shift(native_offset);
+                            let epoch = drag::cancel_epoch(cx);
+                            let started = start.update(cx, |state, _| {
+                                if state.stale_drag_listener(Some(&data.id), epoch) {
+                                    return false;
                                 }
-                                if let Some((_, bounds)) =
-                                    state.rows.iter().find(|(id, _)| *id == data.id)
-                                {
-                                    data.width = bounds.size.width;
-                                    data.height = bounds.size.height;
-                                }
+                                let hold = state.hold.take().unwrap();
+                                data.preview_shift = hold.preview_shift(native_offset);
+                                data.width = hold.bounds.size.width;
+                                data.height = hold.bounds.size.height;
                                 state.release();
                                 state.active = Some(data.id.clone());
-                                state.over = true;
+                                state.active_hold = Some(hold);
+                                let position = window.mouse_position();
+                                state.over = state.bounds.contains(&position);
                                 // The first move starts native dragging before
                                 // on_drag_move can run for this payload.
-                                state.before = state.insertion_before(window.mouse_position());
+                                state.before = state.insertion_before(position);
+                                true
                             });
-                            drag::start(format!("{}:{}", data.list, data.id), cx);
+                            if started {
+                                drag::start(format!("{}:{}", data.list, data.id), cx);
+                            } else {
+                                // A pending native down can outlive the list's
+                                // accepted press (for example after Escape).
+                                window.defer(cx, |window, cx| {
+                                    cx.stop_active_drag(window);
+                                });
+                            }
                             window.refresh();
                             cx.new(|_| data)
                         })
@@ -443,7 +472,7 @@ impl RenderOnce for List {
                     return;
                 }
                 hover.update(cx, |state, _| {
-                    let over = event.bounds.contains(&event.event.position);
+                    let over = state.bounds.contains(&event.event.position);
                     let before = state.insertion_before(event.event.position);
                     if state.over != over || state.before != before {
                         state.over = over;
@@ -460,6 +489,7 @@ impl RenderOnce for List {
                 moved: self.moved,
                 revision: self.revision,
                 installed_drag,
+                compact: drag_on_move,
                 gap: if self.separated {
                     super::prefs::scaled(8.).to_pixels(window.rem_size())
                 } else {
@@ -477,6 +507,7 @@ struct Arrange {
     moved: Move,
     revision: Option<u64>,
     installed_drag: Option<SharedString>,
+    compact: bool,
     gap: Pixels,
 }
 
@@ -513,6 +544,9 @@ impl Element for Arrange {
         style.flex_direction = FlexDirection::Column;
         style.size.width = relative(1.).into();
         style.flex_shrink = 0.;
+        if self.compact {
+            style.align_items = Some(AlignItems::Start);
+        }
         style.gap.height = self.gap.into();
         (window.request_layout(style, children.clone(), cx), children)
     }
@@ -533,8 +567,9 @@ impl Element for Arrange {
             .collect();
         let now = Instant::now();
         let animate = motion::moves(cx) && !cx.reduce_motion();
+        let viewport = bounds.intersect(&window.content_mask().bounds);
         let positions = self.state.update(cx, |state, _| {
-            state.bounds = bounds;
+            state.bounds = viewport;
             state.rows = raw.clone();
             if state.hold.as_ref().is_some_and(|hold| {
                 state
@@ -615,6 +650,7 @@ impl Element for Arrange {
                 }
                 if ours {
                     state.active = None;
+                    state.active_hold = None;
                     state.over = false;
                 }
             });

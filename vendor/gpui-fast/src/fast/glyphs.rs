@@ -225,7 +225,7 @@ impl Window {
             };
 
             if subpixel_rendering {
-                self.next_frame.scene.insert_primitive(SubpixelSprite {
+                self.paint_text_primitive(SubpixelSprite {
                     order: 0,
                     pad: 0,
                     bounds,
@@ -235,7 +235,7 @@ impl Window {
                     transformation: TransformationMatrix::unit(),
                 });
             } else {
-                self.next_frame.scene.insert_primitive(MonochromeSprite {
+                self.paint_text_primitive(MonochromeSprite {
                     order: 0,
                     pad: 0,
                     bounds,

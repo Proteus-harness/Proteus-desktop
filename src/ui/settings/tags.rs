@@ -1,6 +1,6 @@
 // Адаптировано из Zed: crates/ui/src/components/chip.rs (compact labels).
 //! Ordered string arrays. The schema owns suggestions; they do not normalize
-//! existing values. Reordering uses the shared native hold-and-drag list.
+//! existing values. Reordering uses the shared native drag list.
 
 use std::{collections::HashMap, rc::Rc};
 
@@ -123,6 +123,9 @@ impl SettingsView {
         edit: Edit,
         cx: &mut Context<Self>,
     ) -> bool {
+        if !self.snapshot().is_some_and(|snapshot| snapshot.writable) {
+            return false;
+        }
         let current = self.draft.value(path).or(field.default.as_ref());
         let Some(current) = array(current).filter(|current| *current == expected) else {
             return false;
@@ -182,6 +185,7 @@ impl SettingsView {
                     .editors
                     .fields
                     .get(&spec.path)
+                    .filter(|_| self.snapshot().is_some_and(|snapshot| snapshot.writable))
                     .and_then(|field| match &field.input {
                         TextInput::Line(input) => Some(input.clone()),
                         _ => None,

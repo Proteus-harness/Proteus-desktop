@@ -19,8 +19,17 @@ pub const CONTEXT_PROVIDER_SLOT: &str = "context_provider";
 pub const POLICY_SLOT: &str = "policy";
 pub const SESSION_STORAGE_SLOT: &str = "session_storage";
 
-/// Select-one slots with their own page, in navigation order.
-const SLOT_PAGES: [&str; 4] = ["workflow", CONTEXT_SLOT, POLICY_SLOT, SESSION_STORAGE_SLOT];
+/// Select-one slots accounted for by the fixed page list.
+const KNOWN_SLOTS: [&str; 8] = [
+    "workflow",
+    CONTEXT_SLOT,
+    CONTEXT_PROVIDER_SLOT,
+    MODEL_SLOT,
+    POLICY_SLOT,
+    HOOK_SLOT,
+    TOOL_SLOT,
+    SESSION_STORAGE_SLOT,
+];
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum PageId {
@@ -103,23 +112,22 @@ pub fn slot_title(snapshot: &ConfigBuilderSnapshot, slot: &str) -> String {
         .unwrap_or_else(|| slot.to_string())
 }
 
-/// Agent pages by what the part does: the known slots, then unknown
-/// select-one slots.
-pub fn agent_pages(snapshot: Option<&ConfigBuilderSnapshot>) -> Vec<PageId> {
-    let mut pages = vec![PageId::Providers, PageId::Models, PageId::Modes];
-    pages.extend(
-        ["workflow", "context"]
-            .into_iter()
-            .map(|slot| PageId::Slot(slot.to_string())),
-    );
-    pages.push(PageId::Tools);
-    pages.push(PageId::Slot(POLICY_SLOT.to_string()));
-    pages.push(PageId::Hooks);
-    pages.push(slot_page(SESSION_STORAGE_SLOT));
+/// Core slots shown in the Proteus group. Model has its own pages with the
+/// connections. An unrecognized Core slot gets its own page.
+pub fn slot_pages(snapshot: Option<&ConfigBuilderSnapshot>) -> Vec<PageId> {
+    let mut pages = [
+        "workflow",
+        CONTEXT_SLOT,
+        POLICY_SLOT,
+        HOOK_SLOT,
+        SESSION_STORAGE_SLOT,
+    ]
+    .map(slot_page)
+    .to_vec();
     let mut unknown: Vec<&ConfigBuilderSlot> = snapshot
         .into_iter()
         .flat_map(|snapshot| &snapshot.slots)
-        .filter(|slot| !SLOT_PAGES.contains(&slot.id.as_str()))
+        .filter(|slot| !KNOWN_SLOTS.contains(&slot.id.as_str()))
         .collect();
     unknown.sort_by_key(|slot| slot.order);
     pages.extend(
@@ -130,17 +138,20 @@ pub fn agent_pages(snapshot: Option<&ConfigBuilderSnapshot>) -> Vec<PageId> {
     pages
 }
 
-/// Agent pages by where the parts come from, then the profile history.
-pub const CONNECTION_PAGES: [PageId; 5] = [
+pub const CONNECTION_PAGES: [PageId; 8] = [
+    PageId::Providers,
+    PageId::Models,
     PageId::Modules,
+    PageId::Tools,
     PageId::Mcp,
     PageId::Skills,
     PageId::Packages,
-    PageId::History,
+    PageId::Catalog,
 ];
 
-pub const CLIENT_PAGES: [PageId; 5] = [
-    PageId::Configurations,
+pub const PROFILE_PAGES: [PageId; 2] = [PageId::Configurations, PageId::History];
+
+pub const CLIENT_PAGES: [PageId; 4] = [
     PageId::Appearance,
     PageId::Chat,
     PageId::Shortcuts,
@@ -151,7 +162,7 @@ pub fn page_title(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId) -> St
     match page {
         PageId::Providers => "Провайдеры".into(),
         PageId::Models => "Модели".into(),
-        PageId::Modes => "Режимы".into(),
+        PageId::Modes => "Режимы и разрешения".into(),
         PageId::Slot(slot) => match snapshot {
             Some(snapshot) => slot_title(snapshot, slot),
             None => slot_text(slot)
@@ -165,7 +176,7 @@ pub fn page_title(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId) -> St
         PageId::Mcp => "MCP".into(),
         PageId::Skills => "Skills".into(),
         PageId::Packages => "Packages".into(),
-        PageId::History => "History".into(),
+        PageId::History => "История настроек".into(),
         PageId::Configurations => "Конфигурации".into(),
         PageId::Appearance => "Внешний вид".into(),
         PageId::Chat => "Чат".into(),
@@ -179,14 +190,12 @@ pub fn page_title(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId) -> St
 pub fn page_description(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId) -> String {
     let text = match page {
         PageId::Modes => {
-            "Варианты инструкций, инструментов, hooks и разрешений для отдельного чата."
+            "Правила инструментов и доступ по умолчанию. Именованные режимы могут задавать свои инструкции, инструменты, hooks и разрешения для чата."
         }
         PageId::Providers => {
             "Подключения и авторизация. Одно подключение может использоваться несколькими именованными моделями."
         }
-        PageId::Models => {
-            "Именованные наборы модели и effort, выбор основного агента и наследование моделей субагентами."
-        }
+        PageId::Models => "",
         PageId::Slot(slot) => {
             return slot_text(slot)
                 .map(|(_, text)| text.to_string())
@@ -233,6 +242,7 @@ pub fn slot_page(slot: &str) -> PageId {
         MODEL_SLOT => PageId::Providers,
         HOOK_SLOT => PageId::Hooks,
         TOOL_SLOT => PageId::Tools,
+        POLICY_SLOT => PageId::Modes,
         // Providers are listed with the context module that reads them.
         CONTEXT_PROVIDER_SLOT => PageId::Slot(CONTEXT_SLOT.to_string()),
         _ => PageId::Slot(slot.to_string()),
@@ -244,7 +254,7 @@ pub fn area_page(area: &Area) -> PageId {
     match area {
         Area::Models => PageId::Models,
         Area::Modes => PageId::Modes,
-        Area::Mode => PageId::Slot(POLICY_SLOT.to_string()),
+        Area::Mode => PageId::Modes,
         Area::Tools => PageId::Tools,
         Area::Hooks => PageId::Hooks,
         Area::Mcp => PageId::Mcp,
