@@ -1,5 +1,5 @@
-//! Presets, source role references and history move together, independently
-//! from provider configuration and transient per-chat model choices.
+//! Presets and source role references are independent from provider
+//! configuration and transient per-chat model choices.
 use super::super::{
     Draft,
     models::{ModelText, model_problems, set_model_text},
@@ -9,7 +9,7 @@ use crate::settings::{
     draft::Area,
 };
 use proteus_contracts::app_protocol::config_builder::{
-    ConfigBuilderModelPreset, ConfigBuilderModelRole, ConfigBuilderSnapshot, ConfigBuilderState,
+    ConfigBuilderModelPreset, ConfigBuilderModelRole, ConfigBuilderSnapshot,
 };
 use std::collections::BTreeMap;
 
@@ -23,6 +23,7 @@ fn preset(model: &str) -> ConfigBuilderModelPreset {
 }
 fn snapshot() -> ConfigBuilderSnapshot {
     ConfigBuilderSnapshot {
+        writable: true,
         model: Some("main".into()),
         models_writable: true,
         model_writable: true,
@@ -101,33 +102,8 @@ fn model_presets_and_role_choices_are_independent_minimal_draft_changes() {
         .role_models
         .insert("review".into(), Some("cheap".into()));
     assert!(!draft.is_dirty(&baseline));
-}
-
-#[test]
-fn history_restores_preset_definitions_choices_and_explicit_root_clear() {
-    let snapshot = snapshot();
-    let baseline = Draft::from_snapshot(&snapshot);
-    let state = ConfigBuilderState {
-        model: None,
-        models: [("cheap".into(), preset("previous-model"))]
-            .into_iter()
-            .collect(),
-        role_models: [
-            ("explore".into(), Some("cheap".into())),
-            ("review".into(), None),
-        ]
-        .into_iter()
-        .collect(),
-        ..Default::default()
-    };
-    let restored = Draft::from_revision(&snapshot, &state);
-    assert_eq!(restored.models, state.models);
-    assert_eq!(restored.role_models, state.role_models);
-    let request = restored.changes(&baseline);
-    assert_eq!(request.model, Some(None));
-    assert_eq!(request.models, Some(state.models));
-    assert_eq!(request.role_models, Some(state.role_models));
-    assert!(model_problems(&restored, &snapshot).is_empty());
+    draft.model = None;
+    assert_eq!(draft.changes(&baseline).model, Some(None));
 }
 
 #[test]
@@ -164,60 +140,48 @@ fn removing_referenced_models_and_invalid_budget_are_not_silently_accepted() {
 }
 
 #[test]
-fn history_does_not_restore_foreign_catalog_or_readonly_model_selection() {
+fn editing_a_role_keeps_the_main_model_when_both_share_a_definition() {
+    use super::super::models::ModelTarget;
     let mut snapshot = snapshot();
-    snapshot.model_writable = false;
-    snapshot.models_writable = false;
+    snapshot.model_roles[1].model = snapshot.model.clone();
+    snapshot
+        .models
+        .insert("model-role-review".into(), preset("unrelated"));
     let baseline = Draft::from_snapshot(&snapshot);
-    let state = ConfigBuilderState {
-        model: Some("outdated".into()),
-        models: [("outdated".into(), preset("foreign-old-definition"))]
-            .into_iter()
-            .collect(),
-        role_models: baseline.role_models.clone(),
-        permission_mode: "plan".into(),
-        ..Default::default()
-    };
-    let restored = Draft::from_revision(&snapshot, &state);
-    assert_eq!(restored.model, snapshot.model);
-    assert_eq!(restored.models, snapshot.models);
-    let request = restored.changes(&baseline);
-    assert!(request.model.is_none());
-    assert!(request.models.is_none());
+    let mut draft = baseline.clone();
+    let review = ModelTarget::Role("review".into());
+    let original = review.configured(&baseline).unwrap().clone();
+    let mut choice = original.clone();
+    choice.model = "review-only".into();
+    choice.reasoning.summary = true;
+    review.set_model(&mut draft, &baseline, &snapshot, Some(choice.clone()));
+    assert_eq!(ModelTarget::Root.configured(&draft), Some(&original));
+    assert_eq!(review.configured(&draft), Some(&choice));
     assert_eq!(
-        serde_json::to_value(request.permission_mode).unwrap(),
-        serde_json::json!("plan")
+        draft.models["model-role-review"],
+        baseline.models["model-role-review"]
     );
-    assert!(model_problems(&restored, &snapshot).is_empty());
+    assert!(draft.changes(&baseline).model.is_none());
+    assert!(draft.changes(&baseline).role_models.is_some());
+
+    review.set_model(&mut draft, &baseline, &snapshot, Some(original));
+    assert_eq!(draft, baseline);
 }
 
 #[test]
-fn history_keeps_connections_added_after_revision_but_restores_existing_config() {
-    use serde_json::json;
-    let mut snapshot = snapshot();
-    snapshot.module_config.insert(
-        "model".into(),
-        BTreeMap::from([
-            ("old".into(), json!({"changed":true})),
-            (
-                "new".into(),
-                json!({"implementation":"openai","api_key":"synthetic"}),
-            ),
-        ]),
-    );
-    let state = ConfigBuilderState {
-        model_connections: vec!["old".into()],
-        models: snapshot.models.clone(),
-        model: snapshot.model.clone(),
-        ..Default::default()
-    };
-    let draft = Draft::from_revision(&snapshot, &state);
-    assert_eq!(draft.config["model"]["old"], json!({}));
-    assert_eq!(
-        draft.config["model"]["new"],
-        snapshot.module_config["model"]["new"]
-    );
-    // Historical source structure does not invent deleted roles or erase new ones.
-    assert_eq!(draft.role_models["review"], Some("cheap".into()));
-    assert_eq!(draft.role_models["explore"], None);
+fn inheriting_a_model_discards_only_an_uncommitted_role_definition() {
+    use super::super::models::ModelTarget;
+    let snapshot = snapshot();
+    let baseline = Draft::from_snapshot(&snapshot);
+    let mut draft = baseline.clone();
+    let role = ModelTarget::Role("explore".into());
+    role.set_model(&mut draft, &baseline, &snapshot, Some(preset("new-model")));
+    assert_eq!(role.configured(&draft).unwrap().model, "new-model");
+    role.set_model(&mut draft, &baseline, &snapshot, None);
+    assert_eq!(draft, baseline);
+
+    let existing_role = ModelTarget::Role("review".into());
+    existing_role.set_model(&mut draft, &baseline, &snapshot, None);
+    assert!(existing_role.configured(&draft).is_none());
+    assert_eq!(draft.models, baseline.models);
 }

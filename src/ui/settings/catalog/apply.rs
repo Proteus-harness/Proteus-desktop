@@ -330,7 +330,6 @@ impl SettingsView {
                 self.accept_catalog_save(snapshot, submitted_revision, change);
                 self.load_addons(cx);
                 self.refresh_catalog_inventory(cx);
-                self.refresh_history(cx);
                 self.catalog_message(Ok(done));
                 cx.emit(SettingsEvent::Saved);
             }

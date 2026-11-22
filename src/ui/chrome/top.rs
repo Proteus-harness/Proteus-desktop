@@ -1,6 +1,5 @@
 //! The bar above the tabs: the logo menu and extension icons at both ends,
-//! drawn inside the window's own title bar. Navigation context links the
-//! active project and chat to their documents without another folder selector.
+//! drawn inside the window's own title bar.
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
@@ -42,9 +41,9 @@ impl Workspace {
                 logo_menu(None, ready.then_some(workspace)),
                 cx,
             ))
-            .when(ready, |left| left.child(self.render_navigation_context(cx)))
             .when(ready, |left| {
-                left.children(self.render_badge_strip(BadgePlace::HeaderStart, cx))
+                left.children(self.render_root_chat_button(cx))
+                    .children(self.render_badge_strip(BadgePlace::HeaderStart, cx))
             });
         let right = h_flex().gap_1().items_center().when(ready, |right| {
             right.children(self.render_badge_strip(BadgePlace::HeaderEnd, cx))

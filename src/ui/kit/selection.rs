@@ -26,7 +26,6 @@ pub(crate) trait SelectionCopyMenu:
                     }),
             )
         })
-        .at_pointer()
     }
 }
 

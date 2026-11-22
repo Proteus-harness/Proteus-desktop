@@ -5,7 +5,6 @@ use std::time::Instant;
 
 use super::Chat;
 use super::scroller::{ChatList, FooterState};
-use crate::ui::kit::SelectionCopyMenu as _;
 use crate::ui::{motion, prefs};
 
 impl Render for Chat {
@@ -69,10 +68,8 @@ impl Render for Chat {
             .child(motion::fade_in_if(
                 div()
                     .relative()
-                    // The selection menu owns the parent's flex slot. Its
-                    // block trigger must explicitly fill that slot, or the
-                    // percentage-height ChatList collapses to zero height.
-                    .size_full()
+                    .w_full()
+                    .flex_1()
                     .min_h_0()
                     .child(
                         ChatList::new("thread", self.scroller.clone(), renderer)
@@ -81,10 +78,7 @@ impl Render for Chat {
                             .footer(footer_state, move |window, cx| footer(thinking, window, cx))
                             .running(running),
                     )
-                    .children(self.render_notice(cx))
-                    .selection_copy_menu()
-                    .flex_1()
-                    .min_h_0(),
+                    .children(self.render_notice(cx)),
                 "thread-enter",
                 true,
             ))

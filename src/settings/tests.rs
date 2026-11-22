@@ -2,8 +2,8 @@ use std::path::Path;
 
 use proteus_contracts::app_protocol::addons::AppAddonsSnapshot;
 use proteus_contracts::app_protocol::config_builder::{
-    ConfigBuilderModule, ConfigBuilderModuleSelection, ConfigBuilderPlugin, ConfigBuilderSlot,
-    ConfigBuilderSnapshot, ConfigBuilderState, ConfigBuilderTool, ConfigBuilderToolPack,
+    ConfigBuilderModule, ConfigBuilderPlugin, ConfigBuilderSlot, ConfigBuilderSnapshot,
+    ConfigBuilderTool, ConfigBuilderToolPack,
 };
 use proteus_contracts::domain::{ConfigField, ConfigValueSchema, ModuleConfigSchema};
 use serde_json::json;
@@ -17,7 +17,6 @@ use super::catalog::{
     pack_summary, page_title, plural, slot_page, slot_pages, tool_pack,
 };
 use super::draft::Area;
-use super::history::describe_changes;
 use super::{Draft, FieldKind, FieldPath, TextFormat, field_kind, format_value, parse_text};
 
 mod connections;
@@ -217,7 +216,6 @@ fn pages_cover_known_slots_and_append_unknown_ones() {
     }
     assert!(CONNECTION_PAGES.iter().all(|page| !pages.contains(page)));
     assert!(PROFILE_PAGES.contains(&PageId::Configurations));
-    assert!(PROFILE_PAGES.contains(&PageId::History));
     assert!(CLIENT_PAGES.contains(&PageId::Appearance));
     assert_eq!(slot_page(POLICY_SLOT), PageId::Modes);
     assert_eq!(area_page(&Area::Mode), PageId::Modes);
@@ -263,55 +261,6 @@ fn hook_enable_disable_preserves_order_and_areas_follow_edits() {
     assert_eq!(
         draft.areas(&baseline),
         [Area::Tools, Area::Hooks, Area::Slot("model".into())]
-    );
-}
-
-#[test]
-fn revision_restores_old_state_and_describes_it() {
-    let snapshot = ConfigBuilderSnapshot {
-        active_modules: vec![ConfigBuilderModuleSelection {
-            slot: "context".into(),
-            id: "repo".into(),
-        }],
-        module_config: [(
-            "context".to_string(),
-            [("repo".to_string(), json!({"limit": 5}))]
-                .into_iter()
-                .collect(),
-        )]
-        .into_iter()
-        .collect(),
-        tools_enabled: vec!["grep".into(), "shell".into()],
-        permission_mode: "auto".into(),
-        ..ConfigBuilderSnapshot::default()
-    };
-    let state = ConfigBuilderState {
-        active_modules: vec![ConfigBuilderModuleSelection {
-            slot: "context".into(),
-            id: "simple".into(),
-        }],
-        tools_enabled: vec!["grep".into()],
-        permission_mode: "normal".into(),
-        ..ConfigBuilderState::default()
-    };
-    let saved = Draft::from_snapshot(&snapshot);
-    let restored = Draft::from_revision(&snapshot, &state);
-    assert_eq!(restored.module_config("context", "repo"), Some(&json!({})));
-    let request = restored.changes(&saved);
-    assert_eq!(
-        request
-            .module_config
-            .get("context")
-            .and_then(|slot| slot.get("repo")),
-        Some(&json!({}))
-    );
-    assert_eq!(
-        describe_changes(&snapshot, &restored, &saved),
-        [
-            "permission_mode: normal → auto",
-            "Tools: + shell",
-            "Context: simple → repo; параметры: limit",
-        ]
     );
 }
 
@@ -401,10 +350,6 @@ fn addon_switches_stay_sets_and_mark_their_pages() {
     assert_eq!(
         draft.areas(&baseline),
         [Area::Mcp, Area::Skills, Area::Packages]
-    );
-    assert_eq!(
-        describe_changes(&ConfigBuilderSnapshot::default(), &baseline, &draft),
-        ["Skills: − c", "MCP: − team:x, + db", "Packages: − pkg"]
     );
 }
 

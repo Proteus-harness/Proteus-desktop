@@ -547,6 +547,7 @@ impl Render for DiffView {
                 content
             })
             .selection_copy_menu()
+            .at_pointer()
             .w_full()
             .when(!embedded, |view| view.h_full())
     }

@@ -405,6 +405,7 @@ impl SettingsView {
             };
             let view = cx.weak_entity();
             let target = id.to_owned();
+            let revision = self.tag_revision();
             rows.push(
                 div()
                     .px_4()
@@ -415,10 +416,13 @@ impl SettingsView {
                             values: values.iter().cloned().map(Value::String).collect(),
                             field,
                             input,
-                            revision: self.profile_revision.rotate_left(32) ^ self.edit_revision,
+                            revision,
                             apply: Rc::new(move |expected, edit, cx| {
                                 view.update(cx, |this, cx| {
-                                    this.apply_behavior_tag_edit(&target, kind, expected, edit, cx)
+                                    this.tag_revision() == revision
+                                        && this.apply_behavior_tag_edit(
+                                            &target, kind, expected, edit, cx,
+                                        )
                                 })
                                 .unwrap_or(false)
                             }),

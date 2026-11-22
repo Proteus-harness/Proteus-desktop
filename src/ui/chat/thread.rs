@@ -16,7 +16,7 @@ use super::tool_row::{render_tool, status_icon};
 use super::{Chat, ChatEvent};
 use crate::transcript::{Entry, Role};
 use crate::ui::fade::{caption, faded};
-use crate::ui::kit::Pressable as _;
+use crate::ui::kit::{Pressable as _, SelectionCopyMenu as _};
 use crate::ui::motion::{self, fade_in_if};
 use crate::ui::{format, prefs};
 
@@ -289,6 +289,17 @@ impl Chat {
             }
             (Role::System, None, None) => render_note(entry, cx),
         };
+        let body = if entry.role == Role::User {
+            body
+        } else {
+            div()
+                .id(row_id("message-copy", key))
+                .w_full()
+                .child(body)
+                .selection_copy_menu()
+                .w_full()
+                .into_any_element()
+        };
         if !missing.is_empty() {
             self.fetch_images(missing, image_edge, cx);
         }
@@ -495,7 +506,7 @@ fn render_user(
         .when(has_text, |row| {
             row.child(
                 v_flex()
-                    .max_w(relative(0.85))
+                    .id(row_id("message-copy", entry.key))
                     .px_3()
                     .py_2()
                     .gap_1()
@@ -507,7 +518,9 @@ fn render_user(
                             .font_family(prefs::user_chat_font(cx))
                             .text_size(prefs::chat_text(cx))
                             .child(reply_element(entry.key, reply)),
-                    ),
+                    )
+                    .selection_copy_menu()
+                    .max_w(relative(0.85)),
             )
         })
         .into_any_element()

@@ -110,25 +110,3 @@ fn mode_text_undo_preserves_omitted_or_explicit_empty_and_unknown_ordered_lists(
         assert!(!modes::problems(&draft).is_empty());
     }
 }
-
-#[test]
-fn history_restores_owned_modes_but_never_replaces_external_catalogue() {
-    let mut snapshot = snapshot();
-    let mut state = ConfigBuilderState::default();
-    state.permission_mode = "normal".into();
-    state
-        .modes
-        .insert("old".into(), BehaviorModeDefinition::default());
-    let restored = Draft::from_revision(&snapshot, &state);
-    assert_eq!(restored.modes, state.modes);
-    assert!(
-        describe_changes(&snapshot, &Draft::from_snapshot(&snapshot), &restored)
-            .iter()
-            .any(|line| line.starts_with("Режимы:"))
-    );
-    snapshot.modes_writable = false;
-    assert_eq!(
-        Draft::from_revision(&snapshot, &state).modes,
-        snapshot.modes
-    );
-}

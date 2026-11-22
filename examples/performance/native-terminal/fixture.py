@@ -41,7 +41,7 @@ class TerminalFixture(base.Fixture):
 
     def handle(self, h, method):
         parsed = urlsplit(h.path)
-        routes = {"/addons", "/config/builder", "/config/history", "/model/quota",
+        routes = {"/addons", "/config/builder", "/model/quota",
                   "/history/tool-state", "/sessions/current"}
         if parsed.path not in routes:
             return super().handle(h, method)
@@ -64,8 +64,6 @@ class TerminalFixture(base.Fixture):
                       "catalogs": [], "mcp_servers": [], "plugins": []}
         elif parsed.path == "/config/builder":
             output = builder()
-        elif parsed.path == "/config/history":
-            output = {"revisions": []}
         elif parsed.path == "/model/quota":
             output = None
         elif parsed.path == "/history/tool-state":

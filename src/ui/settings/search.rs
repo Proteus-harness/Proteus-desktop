@@ -20,6 +20,7 @@ use crate::settings::catalog::{
     editable_field, exports, find_slot, missing_tools, module_info, page_description, page_title,
     selected_module, slot_pages,
 };
+use crate::settings::models::{ModelTarget, ModelText};
 use crate::shortcuts::Command;
 use crate::ui::extensions;
 
@@ -131,7 +132,6 @@ fn page_words(page: &PageId) -> &'static str {
         PageId::Mcp => "серверы",
         PageId::Skills => "навыки",
         PageId::Packages => "пакеты плагины",
-        PageId::History => "history история правок изменения",
         _ => "",
     }
 }
@@ -198,44 +198,44 @@ impl SettingsView {
                 &[name, mode.instructions.as_deref().unwrap_or("")],
             );
         }
-        for (name, model) in &self.draft.models {
+        let model_targets = std::iter::once((ModelTarget::Root, "Основной агент", "")).chain(
+            snapshot.model_roles.iter().map(|role| {
+                (
+                    ModelTarget::Role(role.name.clone()),
+                    role.name.as_str(),
+                    role.description.as_str(),
+                )
+            }),
+        );
+        for (target, title, description) in model_targets {
+            let key = super::models::model_target_spot(&target);
+            let place = format!("Модели · {title}");
+            let hit = |title: &str| {
+                let hit = Hit::new(title, place.clone(), PageId::Models).spot(key.clone());
+                if target == ModelTarget::Root {
+                    hit
+                } else {
+                    hit.open(vec![key.clone()])
+                }
+            };
+            let model = target.configured(&self.draft);
             finder.add(
-                Hit::new(name, "Модели · имена моделей", PageId::Models)
-                    .open(vec![super::models::model_key(name)])
-                    .spot(spot::model(name)),
-                &[
-                    &model.model,
-                    &model.provider,
-                    model.reasoning.effort.as_deref().unwrap_or(""),
-                ],
+                hit(title),
+                &[description, model.map_or("", |model| &model.model)],
             );
-            for title in [
-                "ID модели",
-                "Effort",
-                "Бюджет рассуждения",
-                "Потоковый ответ",
-                "Сводка рассуждений",
-                "Доступные уровни effort",
-            ] {
-                finder.add(
-                    Hit::new(title, format!("Модели · {name}"), PageId::Models)
-                        .open(vec![super::models::model_key(name)])
-                        .spot(spot::model(name)),
-                    &[name, &model.model],
-                );
+            finder.add(
+                hit("Подключение"),
+                &[title, model.map_or("", |model| &model.provider)],
+            );
+            if let Some(model) = model {
+                for field in ModelText::ALL {
+                    finder.add(hit(field.title()), &[title, &model.model]);
+                }
+                for field in ["Потоковый ответ", "Сводка рассуждений"]
+                {
+                    finder.add(hit(field), &[title, &model.model]);
+                }
             }
-        }
-        for role in &snapshot.model_roles {
-            finder.add(
-                Hit::new(&role.name, "Модели · субагент", PageId::Models)
-                    .spot(spot::model_role(&role.name)),
-                &[
-                    &role.description,
-                    role.model
-                        .as_deref()
-                        .unwrap_or("наследовать модель родителя"),
-                ],
-            );
         }
         for module in &snapshot.model_modules {
             finder.add(

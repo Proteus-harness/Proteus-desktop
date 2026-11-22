@@ -2,7 +2,10 @@
 use super::super::editors::TextInput;
 use super::super::{LoadState, SettingsContext};
 use super::*;
-use crate::settings::{FieldPath, models::ModelText};
+use crate::settings::{
+    FieldPath,
+    models::{ModelTarget, ModelText},
+};
 use proteus_contracts::app_protocol::config_builder::{
     ConfigBuilderModelPreset, ConfigBuilderModule, ConfigBuilderSnapshot,
 };
@@ -79,9 +82,8 @@ fn registration_ack_preserves_external_connections_and_newer_invalid_editor() {
             };
             view.accept(initial.clone());
             view.page = PageId::Models;
-            view.open.insert(super::super::models::model_key("main"));
             view.prepare_editors(window, cx);
-            let model_key = ("main".into(), ModelText::Model);
+            let model_key = (ModelTarget::Root, ModelText::Model);
             let old_model_entity = view.editors.models.fields[&model_key].state.entity_id();
             view.page = PageId::Providers;
             view.prepare_editors(window, cx);
@@ -148,7 +150,7 @@ fn registration_ack_preserves_external_connections_and_newer_invalid_editor() {
             view.prepare_editors(window, cx);
             let model = &view.editors.models.fields[&model_key].state;
             assert_ne!(model.entity_id(), old_model_entity);
-            assert_eq!(model.read(cx).value().as_ref(), "updated-id");
+            assert_eq!(model.read(cx).value().as_ref(), "external-id");
             view.page = PageId::Providers;
             view.prepare_editors(window, cx);
             let TextInput::Line(route_input) = &view.editors.fields[&route].input else {
@@ -343,6 +345,8 @@ fn registration_keeps_format_only_json_and_model_buffers_and_cancels_refresh_on_
                 writable: true,
                 models_writable: true,
                 permission_mode: "normal".into(),
+                model: Some("main".into()),
+                model_writable: true,
                 models: BTreeMap::from([("main".into(), model)]),
                 module_config: BTreeMap::from([(
                     "model".into(),
@@ -350,21 +354,20 @@ fn registration_keeps_format_only_json_and_model_buffers_and_cancels_refresh_on_
                 )]),
                 ..Default::default()
             });
-            view.open.insert(super::super::models::model_key("main"));
             view.prepare_model_editors(window, cx);
             view.ensure_json("model", "raw", window, cx);
             let previous = view.baseline.clone();
             let submitted = view.edit_revision;
-            let budget_key = ("main".into(), ModelText::Budget);
+            let budget_key = (ModelTarget::Root, ModelText::Budget);
             let budget = view.editors.models.fields[&budget_key].state.clone();
             budget.update(cx, |input, cx| input.set_value("0008", window, cx));
-            view.model_text_changed("main", ModelText::Budget, "0008", cx);
+            view.model_text_changed(&ModelTarget::Root, ModelText::Budget, "0008", cx);
             let key = ("model".into(), "raw".into());
             let json = view.editors.json[&key].input.clone();
             json.update(cx, |input, cx| input.set_value("{  \"a\": 1 }", window, cx));
             view.json_changed(&key, "{  \"a\": 1 }", cx);
             assert!(!view.dirty(), "These are only raw formatting edits");
-            let model_key = ("main".into(), ModelText::Model);
+            let model_key = (ModelTarget::Root, ModelText::Model);
             let model_input = view.editors.models.fields[&model_key].state.clone();
             let mut accepted = view.snapshot().unwrap().clone();
             accepted.models.get_mut("main").unwrap().model = "remote-id".into();
@@ -383,7 +386,7 @@ fn registration_keeps_format_only_json_and_model_buffers_and_cancels_refresh_on_
             // Input can arrive after the ACK has marked this control but before
             // next-frame prepare. That edit cancels the pending refresh.
             model_input.update(cx, |input, cx| input.set_value("local-id", window, cx));
-            view.model_text_changed("main", ModelText::Model, "local-id", cx);
+            view.model_text_changed(&ModelTarget::Root, ModelText::Model, "local-id", cx);
             view.prepare_model_editors(window, cx);
             view.ensure_json("model", "raw", window, cx);
             assert_eq!(

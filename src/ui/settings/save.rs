@@ -71,7 +71,6 @@ impl SettingsView {
                     Ok(snapshot) => {
                         this.accept_save(snapshot, submitted_revision);
                         this.load_addons(cx);
-                        this.refresh_history(cx);
                         let text = if this.dirty() {
                             "Сохранено · более новые изменения ещё не сохранены"
                         } else {

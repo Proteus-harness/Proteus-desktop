@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use proteus_contracts::app_protocol::addons::AppAddonsUpdate;
 use proteus_contracts::app_protocol::config_builder::{
-    ConfigBuilderModelPreset, ConfigBuilderSnapshot, ConfigBuilderState,
+    ConfigBuilderModelPreset, ConfigBuilderSnapshot,
 };
 use proteus_contracts::app_protocol::http::SetConfigBuilderRequest;
 use proteus_contracts::domain::BehaviorModeDefinition;
@@ -204,54 +204,6 @@ impl Draft {
             .entry(slot.to_string())
             .or_default()
             .insert(module.to_string(), Value::Object(value));
-    }
-
-    /// Draft that would bring the profile back to a replaced history state.
-    /// The builder cannot clear a slot selection, so slots missing from the
-    /// old state keep their current module; modules configured now but absent
-    /// from the old state get an explicit empty object.
-    pub fn from_revision(snapshot: &ConfigBuilderSnapshot, state: &ConfigBuilderState) -> Self {
-        let mut draft = Self::from_snapshot(snapshot);
-        for selection in &state.active_modules {
-            draft
-                .modules
-                .insert(selection.slot.clone(), selection.id.clone());
-        }
-        let mut config = state.module_config.clone();
-        for (slot, modules) in &snapshot.module_config {
-            let target = config.entry(slot.clone()).or_default();
-            for (module, value) in modules {
-                target.entry(module.clone()).or_insert_with(|| {
-                    if slot == "model" && !state.model_connections.contains(module) {
-                        // Installing a component is not undone by settings
-                        // history. Its required seed must stay usable.
-                        value.clone()
-                    } else {
-                        Value::Object(Map::new())
-                    }
-                });
-            }
-        }
-        draft.config = config;
-        draft.hooks = state.hooks.clone();
-        draft.tools = state.tools_enabled.iter().cloned().collect();
-        if snapshot.model_writable {
-            draft.model = state.model.clone();
-        }
-        if snapshot.models_writable {
-            draft.models = state.models.clone();
-        }
-        if snapshot.modes_writable {
-            draft.modes = state.modes.clone();
-        }
-        for (name, choice) in &mut draft.role_models {
-            if let Some(saved) = state.role_models.get(name) {
-                *choice = saved.clone();
-            }
-        }
-        draft.mode = state.permission_mode.clone();
-        draft.addons = super::addons::normalized(state.addon_settings.clone());
-        draft
     }
 
     /// Profile areas that differ from `baseline`, in a stable order.

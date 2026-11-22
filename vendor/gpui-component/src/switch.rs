@@ -208,11 +208,8 @@ impl RenderOnce for Switch {
             _ => px(16.),
         };
         let inset = px(2.);
-        let radius = if cx.theme().radius >= px(4.) {
-            bg_height
-        } else {
-            cx.theme().radius
-        };
+        let track_radius = cx.theme().radius.clamp(px(0.), bg_height / 2.);
+        let thumb_radius = (track_radius - inset).max(px(0.));
 
         // The thumb's position is geometry, not a semantic state style: a
         // `checked` style setting `left` outranks the instance style by the
@@ -264,7 +261,7 @@ impl RenderOnce for Switch {
                         .w(bg_width)
                         .h(bg_height)
                         .flex_shrink_0()
-                        .rounded(radius)
+                        .rounded(track_radius)
                         .flex()
                         .items_center()
                         // The thumb inset is a 1px border plus 1px padding,
@@ -295,7 +292,7 @@ impl RenderOnce for Switch {
                         .child(
                             // Switch Toggle
                             SwitchThumb::new(checked)
-                                .rounded(radius)
+                                .rounded(thumb_radius)
                                 .size(bar_width)
                                 .left(thumb_x)
                                 .bg(toggle_bg),

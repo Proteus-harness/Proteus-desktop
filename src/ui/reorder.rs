@@ -1,7 +1,7 @@
 // Адаптировано из Zed: crates/workspace/src/pane.rs (handle_tab_drop and dragged tab geometry)
 //! Whole-row drag sorting. Settings and process widgets supply
 //! identities and contents; gesture, preview, insertion geometry and motion
-//! are shared. Data changes only on a successful drop inside the same list.
+//! are shared. A drop can reorder the source list or use its explicit removal target.
 
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -11,11 +11,15 @@ use std::time::Instant;
 
 mod geometry;
 mod hold;
+mod removal;
 #[cfg(test)]
 mod tests;
 pub(crate) use geometry::move_before;
 use geometry::{Arrangement, Pending, keyboard_target, preview_order};
 use hold::Hold;
+use removal::{Removal, RemovalTarget};
+#[cfg(test)]
+pub(crate) use tests::ObservedBounds;
 
 use super::kit::RowRule as _;
 use super::{drag, fade, motion};
@@ -59,6 +63,7 @@ pub(crate) struct List {
     revision: Option<u64>,
     separated: bool,
     drag_on_move: bool,
+    removal: Option<Removal>,
 }
 
 impl List {
@@ -74,6 +79,7 @@ impl List {
             revision: None,
             separated: false,
             drag_on_move: false,
+            removal: None,
         }
     }
 
@@ -93,6 +99,19 @@ impl List {
     /// Rows with other actions keep their hold gesture.
     pub fn drag_on_move(mut self) -> Self {
         self.drag_on_move = true;
+        self
+    }
+
+    /// Offer an explicit removal target during drag and Delete on focused rows.
+    pub fn remove_on_drop(
+        mut self,
+        label: impl Into<SharedString>,
+        apply: impl Fn(SharedString, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.removal = Some(Removal {
+            label: label.into(),
+            apply: Rc::new(apply),
+        });
         self
     }
 }
@@ -243,7 +262,7 @@ impl RenderOnce for List {
         {
             state.update(cx, |state, _| state.release());
         }
-        let key: SharedString = format!("reorder:{:?}", self.id).into();
+        let key: SharedString = format!("reorder:{:?}", state.entity_id()).into();
         let ids: Vec<_> = self.rows.iter().map(|row| row.id.clone()).collect();
         state.update(cx, |state, _| {
             if state
@@ -307,6 +326,8 @@ impl RenderOnce for List {
                 let (keys, key_id, moved) = (state.clone(), row.id.clone(), self.moved.clone());
                 let (press, id) = (state.clone(), row.id.clone());
                 let revision = self.revision;
+                let remove = self.removal.as_ref().map(|removal| removal.apply.clone());
+                let label = row.label.clone();
                 let data = Dragged {
                     list: key.clone(),
                     id: row.id.clone(),
@@ -324,18 +345,29 @@ impl RenderOnce for List {
                     .flex_none()
                     .relative()
                     .track_focus(&focus)
+                    .when(remove.is_some(), |row| {
+                        row.aria_label(label).aria_keyshortcuts("Delete")
+                    })
                     .when(focused && super::kit::keyboard(), |row| {
                         row.child(super::selection::focus(cx))
                     })
                     .on_key_down(
                         move |event: &KeyDownEvent, window: &mut Window, cx: &mut App| {
+                            if !focus.is_focused(window) {
+                                return;
+                            }
                             let mods = event.keystroke.modifiers;
-                            if !focus.is_focused(window)
-                                || !mods.control
-                                || !mods.shift
-                                || mods.alt
-                                || mods.platform
+                            if !mods.modified()
+                                && event.keystroke.key == "delete"
+                                && let Some(remove) = &remove
                             {
+                                if keys.read(cx).pending.is_none() && !cx.has_active_drag() {
+                                    remove(key_id.clone(), window, cx);
+                                }
+                                cx.stop_propagation();
+                                return;
+                            }
+                            if !mods.control || !mods.shift || mods.alt || mods.platform {
                                 return;
                             }
                             let down = match event.keystroke.key.as_str() {
@@ -463,10 +495,18 @@ impl RenderOnce for List {
             .collect();
         let hover = state.clone();
         let hover_key = key.clone();
+        let removal = self
+            .removal
+            .filter(|_| state.read(cx).active.is_some())
+            .map(RemovalTarget::new);
+        let target = removal
+            .as_ref()
+            .map(|target| target.render(key.clone(), cx));
 
         div()
             .id(self.id)
             .w_full()
+            .when(removal.is_some(), |list| list.flex().flex_col())
             .on_drag_move::<Dragged>(move |event, window, cx| {
                 if event.drag(cx).list != hover_key {
                     return;
@@ -490,12 +530,14 @@ impl RenderOnce for List {
                 revision: self.revision,
                 installed_drag,
                 compact: drag_on_move,
+                removal,
                 gap: if self.separated {
                     super::prefs::scaled(8.).to_pixels(window.rem_size())
                 } else {
                     px(0.)
                 },
             })
+            .children(target)
     }
 }
 
@@ -508,6 +550,7 @@ struct Arrange {
     revision: Option<u64>,
     installed_drag: Option<SharedString>,
     compact: bool,
+    removal: Option<RemovalTarget>,
     gap: Pixels,
 }
 
@@ -623,6 +666,7 @@ impl Element for Arrange {
         let moved = self.moved.clone();
         let key = self.key.clone();
         let revision = self.revision;
+        let removal = self.removal.clone();
         window.on_mouse_event(move |event: &MouseUpEvent, phase, window, cx| {
             if phase != DispatchPhase::Capture || event.button != MouseButton::Left {
                 return;
@@ -630,6 +674,9 @@ impl Element for Arrange {
             let ours =
                 drag::current(cx).is_some_and(|source| source.starts_with(&format!("{key}:")));
             let dropped = ours && release.read(cx).bounds.contains(&event.position);
+            let removal = removal
+                .as_ref()
+                .filter(|target| ours && target.contains(event.position, window));
             let active = release.read(cx).active.clone();
             // A platform may coalesce movement straight into mouse-up. The
             // release position remains authoritative even without another move.
@@ -637,7 +684,10 @@ impl Element for Arrange {
             let armed = release.read(cx).armed;
             release.update(cx, |state, _| {
                 state.release();
-                if dropped && let Some(id) = &active {
+                if removal.is_none()
+                    && dropped
+                    && let Some(id) = &active
+                {
                     let source: Vec<_> = state.rows.iter().map(|(id, _)| id.clone()).collect();
                     let order = preview_order(&source, Some(id), before.as_ref());
                     if source != order {
@@ -656,8 +706,12 @@ impl Element for Arrange {
             });
             if ours {
                 cx.stop_active_drag(window);
-                if dropped && let Some(id) = active {
-                    moved(id, before, window, cx);
+                if let Some(id) = active {
+                    if let Some(target) = removal {
+                        (target.apply)(id, window, cx);
+                    } else if dropped {
+                        moved(id, before, window, cx);
+                    }
                 }
                 // A drag release must never also click its source child.
                 cx.stop_propagation();

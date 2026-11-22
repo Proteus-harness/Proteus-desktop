@@ -46,7 +46,6 @@ pub enum PageId {
     Skills,
     /// Agent Plugins packages.
     Packages,
-    History,
     Configurations,
     Appearance,
     Chat,
@@ -149,7 +148,7 @@ pub const CONNECTION_PAGES: [PageId; 8] = [
     PageId::Catalog,
 ];
 
-pub const PROFILE_PAGES: [PageId; 2] = [PageId::Configurations, PageId::History];
+pub const PROFILE_PAGES: [PageId; 1] = [PageId::Configurations];
 
 pub const CLIENT_PAGES: [PageId; 4] = [
     PageId::Appearance,
@@ -176,7 +175,6 @@ pub fn page_title(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId) -> St
         PageId::Mcp => "MCP".into(),
         PageId::Skills => "Skills".into(),
         PageId::Packages => "Packages".into(),
-        PageId::History => "История настроек".into(),
         PageId::Configurations => "Конфигурации".into(),
         PageId::Appearance => "Внешний вид".into(),
         PageId::Chat => "Чат".into(),
@@ -220,9 +218,6 @@ pub fn page_description(snapshot: Option<&ConfigBuilderSnapshot>, page: &PageId)
         }
         PageId::Packages => {
             "Пакеты Agent Plugins приносят skills и MCP-серверы. Выключение пакета выключает всё, что он даёт."
-        }
-        PageId::History => {
-            "Каждое сохранение настроек агента запоминает состояние профиля, которое оно заменило. «Вернуть как было» загружает это состояние в черновик: проверьте изменения внизу и сохраните. Откат тоже попадает в историю."
         }
         PageId::Configurations => {
             "Выбор файлов агента и оформления Desktop, default и привязки для этого окна."

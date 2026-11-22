@@ -32,7 +32,6 @@ mod provider_auth;
 mod provider_creation;
 mod providers;
 mod reveal;
-mod revisions;
 mod save;
 mod search;
 mod shortcuts;
@@ -53,7 +52,7 @@ use std::time::Duration;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::*;
 use gpui_kit::*;
-use proteus_contracts::app_protocol::config_builder::{ConfigBuilderSnapshot, ConfigHistory};
+use proteus_contracts::app_protocol::config_builder::ConfigBuilderSnapshot;
 
 use crate::ui::kit::WorkspaceSurface as _;
 
@@ -78,13 +77,6 @@ enum LoadState {
     Loading,
     Failed(SharedString),
     Ready(Box<ConfigBuilderSnapshot>),
-}
-
-enum HistoryState {
-    Idle,
-    Loading,
-    Loaded(ConfigHistory),
-    Failed(SharedString),
 }
 
 struct Feedback {
@@ -124,7 +116,6 @@ pub struct SettingsView {
     search: Entity<InputState>,
     query: String,
     spot: Option<spot::Spot>,
-    history: HistoryState,
     tool_search: Entity<InputState>,
     tool_query: String,
     sizes: sizes::SizeSliders,
@@ -231,7 +222,6 @@ impl SettingsView {
             search,
             query: String::new(),
             spot: None,
-            history: HistoryState::Idle,
             tool_search,
             tool_query: String::new(),
             sizes,
@@ -269,7 +259,6 @@ impl SettingsView {
         let profile_revision = self.profile_revision;
         let edit_revision = self.edit_revision;
         self.load_addons(cx);
-        self.refresh_history(cx);
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
@@ -365,19 +354,13 @@ impl SettingsView {
         cx.notify();
     }
 
-    /// Replaces the draft from outside the controls, so every editor is
-    /// rebuilt from the new values.
-    fn replace_draft(&mut self, draft: Draft, cx: &mut Context<Self>) {
+    fn discard(&mut self, cx: &mut Context<Self>) {
         self.catalog_conflict = None;
-        self.draft = draft;
+        self.draft = self.baseline.clone();
         self.edit_revision = self.edit_revision.wrapping_add(1);
         self.forget_editors();
         self.clear_feedback();
         cx.notify();
-    }
-
-    fn discard(&mut self, cx: &mut Context<Self>) {
-        self.replace_draft(self.baseline.clone(), cx);
     }
 
     fn forget_editors(&mut self) {
@@ -417,9 +400,6 @@ impl SettingsView {
         if page == PageId::Catalog {
             self.open_catalogs(cx);
             window.focus(&self.catalogs.focus, cx);
-        }
-        if page == PageId::History && matches!(self.history, HistoryState::Idle) {
-            self.load_history(cx);
         }
         self.set_page(page, cx);
         if matches!(self.page, PageId::Extension(_)) || (self.page != PageId::Catalog && !keep_nav)
@@ -492,40 +472,6 @@ impl SettingsView {
                 .ok();
             })
         });
-    }
-
-    /// Reads the history again on its page, or on the next visit.
-    fn refresh_history(&mut self, cx: &mut Context<Self>) {
-        if self.page == PageId::History {
-            self.load_history(cx);
-        } else {
-            self.history = HistoryState::Idle;
-        }
-    }
-
-    /// Loaded entries stay shown while a newer list is read.
-    fn load_history(&mut self, cx: &mut Context<Self>) {
-        let Some(context::Profile { api, dir }) = self.context.profile.clone() else {
-            return;
-        };
-        if !matches!(self.history, HistoryState::Loaded(_)) {
-            self.history = HistoryState::Loading;
-        }
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move { api.config_history(&dir) })
-                .await;
-            this.update(cx, |this, cx| {
-                this.history = match result {
-                    Ok(history) => HistoryState::Loaded(history),
-                    Err(error) => HistoryState::Failed(format!("{error:#}").into()),
-                };
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
     }
 }
 

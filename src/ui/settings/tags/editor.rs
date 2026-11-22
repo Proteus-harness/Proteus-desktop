@@ -4,9 +4,11 @@
 
 use std::rc::Rc;
 
+use gpui_kit::accesskit::Role;
 use gpui_kit::component::input::InputState;
 use gpui_kit::component::menu::PopupMenuItem;
 use gpui_kit::component::*;
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use proteus_contracts::app_protocol::config_builder::ConfigBuilderSnapshot;
 use proteus_contracts::domain::ConfigField;
@@ -14,9 +16,9 @@ use serde_json::Value;
 
 use super::{Edit, added_value, item_ids, suggest, tag_label};
 use crate::ui::context::RightClickMenu as _;
-use crate::ui::kit::ButtonLabel as _;
+use crate::ui::kit::{ButtonLabel as _, Frame as _};
 use crate::ui::settings::widgets::hashed_id;
-use crate::ui::{fade::faded, kit, reorder};
+use crate::ui::{drag, fade::faded, kit, reorder};
 
 pub(in crate::ui::settings) type Apply = Rc<dyn Fn(&[Value], Edit, &mut App) -> bool>;
 
@@ -25,18 +27,37 @@ pub(in crate::ui::settings) struct TagEditor {
     pub values: Vec<Value>,
     pub field: ConfigField,
     pub input: Option<Entity<InputState>>,
-    pub revision: u64,
+    pub revision: (u64, u64),
     pub apply: Apply,
 }
 
 impl TagEditor {
     fn edit(&self, edit: Edit, window: &mut Window, cx: &mut App) {
-        let added = matches!(edit, Edit::Add(_));
+        let added = matches!(edit, Edit::Add(_) | Edit::AddSuggestion(_));
         if (self.apply)(&self.values, edit, cx) && added {
             if let Some(input) = &self.input {
                 input.update(cx, |input, cx| input.set_value("", window, cx));
             }
         }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct SuggestionScope {
+    input: EntityId,
+    revision: (u64, u64),
+}
+
+struct SuggestionDrag {
+    scope: SuggestionScope,
+    value: String,
+}
+
+struct SuggestionPreview(String);
+
+impl Render for SuggestionPreview {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        drag::lifted(tag_pill(self.0.clone(), cx), cx)
     }
 }
 
@@ -69,6 +90,7 @@ pub(in crate::ui::settings) fn render(
         .collect();
     let move_spec = spec.clone();
     let move_ids = ids.clone();
+    let remove_spec = spec.clone();
     let list = reorder::List::new(
         hashed_id("tags-order", &spec.key),
         rows,
@@ -94,9 +116,64 @@ pub(in crate::ui::settings) fn render(
     )
     .separated()
     .drag_on_move()
-    .revision(spec.revision);
-    let mut body = v_flex().w_full().gap_2().child(list);
+    .revision(spec.revision.0.rotate_left(32) ^ spec.revision.1)
+    .remove_on_drop(
+        "Отпустите здесь, чтобы удалить",
+        move |id, window, cx| {
+            if let Some(index) = ids.iter().position(|candidate| candidate == &id) {
+                remove_spec.edit(Edit::Remove(index), window, cx);
+            }
+        },
+    );
     let query = input.read(cx).value();
+    let filtered = suggest::visible(&spec.field, snapshot, &spec.values, &query);
+    let scope = SuggestionScope {
+        input: input.entity_id(),
+        revision: spec.revision,
+    };
+    let drop_spec = spec.clone();
+    let theme = cx.theme();
+    let empty_target = spec.values.is_empty() && !filtered.is_empty();
+    let drop_list = v_flex()
+        .id(hashed_id("tag-list-drop", &spec.key))
+        .w_full()
+        .frame(cx)
+        .when(empty_target, |list| {
+            let label = "Перетащите сюда, чтобы добавить";
+            list.role(Role::Region)
+                .aria_label(label)
+                .border_dashed()
+                .border_color(theme.border)
+                .child(
+                    h_flex()
+                        .min_h_8()
+                        .px_2()
+                        .text_sm()
+                        .text_color(theme.muted_foreground)
+                        .child(label),
+                )
+        })
+        .drag_over::<SuggestionDrag>(move |style, suggestion, _, cx| {
+            if suggestion.scope == scope {
+                style
+                    .border_color(cx.theme().drag_border)
+                    .bg(cx.theme().drop_target)
+            } else {
+                style
+            }
+        })
+        .on_drop(move |suggestion: &SuggestionDrag, window, cx| {
+            if suggestion.scope == scope {
+                drop_spec.edit(Edit::AddSuggestion(suggestion.value.clone()), window, cx);
+            }
+        })
+        .child(list);
+    #[cfg(test)]
+    let drop_list = drop_list.on_prepaint(reorder::ObservedBounds::capture(format!(
+        "tag-list-drop:{}",
+        spec.key
+    )));
+    let mut body = v_flex().w_full().gap_2().child(drop_list);
     let add = spec.clone();
     let add_input = input.clone();
     body = body.child(
@@ -120,41 +197,74 @@ pub(in crate::ui::settings) fn render(
                     }),
             ),
     );
-    let filtered = suggest::visible(&spec.field, snapshot, &spec.values, &query);
     if !filtered.is_empty() {
         body = body.child(
-            h_flex()
-                .flex_wrap()
-                .gap_1()
-                .children(filtered.into_iter().map(|item| {
-                    let add = spec.clone();
-                    let value = item.value;
-                    kit::button(hashed_id("tag-suggestion", &(&spec.key, &value)))
-                        .faded_label(item.title)
-                        .settings_control(cx)
-                        .xsmall()
-                        .on_click(move |_, window, cx| {
-                            add.edit(Edit::Add(Value::String(value.clone())), window, cx)
-                        })
-                })),
+            h_flex().flex_wrap().gap_1().children(
+                filtered
+                    .into_iter()
+                    .map(|item| suggestion(&spec, item, scope, cx)),
+            ),
         );
     }
     body.into_any_element()
 }
 
+fn suggestion(
+    spec: &Rc<TagEditor>,
+    item: suggest::Suggestion,
+    scope: SuggestionScope,
+    cx: &App,
+) -> impl IntoElement + use<> {
+    let add = spec.clone();
+    let value = item.value.clone();
+    let title = item.title.clone();
+    let source = format!("tag-suggestion:{:?}:{value:?}", scope.input);
+    #[cfg(test)]
+    let bounds_key = format!("tag-suggestion:{}:{value}", spec.key);
+    let mut button = kit::button(hashed_id("tag-suggestion", &(&spec.key, &value)))
+        .faded_label(item.title)
+        .settings_control(cx)
+        .xsmall()
+        .cursor_grab()
+        .when(drag::is_source(&source, cx), |button| {
+            button.opacity(drag::SOURCE_OPACITY)
+        })
+        .on_click(move |_, window, cx| {
+            add.edit(Edit::AddSuggestion(value.clone()), window, cx);
+        });
+    button.interactivity().on_drag(
+        SuggestionDrag {
+            scope,
+            value: item.value,
+        },
+        move |_, _, _, cx| {
+            drag::start(source.clone(), cx);
+            cx.new(|_| SuggestionPreview(title.clone()))
+        },
+    );
+    #[cfg(test)]
+    let button = button.on_prepaint(reorder::ObservedBounds::capture(bounds_key));
+    button
+}
+
 fn tag_row(spec: &Rc<TagEditor>, index: usize, cx: &App) -> AnyElement {
     let remove = spec.clone();
-    tag_pill(tag_label(&spec.values[index]), cx)
-        .id(hashed_id("tag", &(&spec.key, index)))
-        .right_click_menu(move |menu, _, _| {
-            let remove = remove.clone();
-            menu.item(
-                PopupMenuItem::new("Удалить").on_click(move |_, window, cx| {
-                    remove.edit(Edit::Remove(index), window, cx);
-                }),
-            )
-        })
-        .into_any_element()
+    let row =
+        tag_pill(tag_label(&spec.values[index]), cx).id(hashed_id("tag", &(&spec.key, index)));
+    #[cfg(test)]
+    let row = row.on_prepaint(reorder::ObservedBounds::capture(format!(
+        "tag-row:{}:{index}",
+        spec.key
+    )));
+    row.right_click_menu(move |menu, _, _| {
+        let remove = remove.clone();
+        menu.item(
+            PopupMenuItem::new("Удалить").on_click(move |_, window, cx| {
+                remove.edit(Edit::Remove(index), window, cx);
+            }),
+        )
+    })
+    .into_any_element()
 }
 
 fn tag_pill(label: String, cx: &App) -> Div {

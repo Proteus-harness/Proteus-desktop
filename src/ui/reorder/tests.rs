@@ -1,6 +1,34 @@
 //! Native event coverage for holding, dragging and dropping ordered rows.
 use super::*;
 use ::gpui::{TestAppContext, VisualTestContext};
+use std::cell::RefCell;
+
+/// Observe real control geometry in release-profile test runs as well.
+#[derive(Default)]
+pub(crate) struct ObservedBounds(RefCell<HashMap<String, Bounds<Pixels>>>);
+
+impl Global for ObservedBounds {}
+
+impl ObservedBounds {
+    pub fn record(key: &str, bounds: Bounds<Pixels>, cx: &App) {
+        if let Some(observed) = cx.try_global::<Self>() {
+            observed.0.borrow_mut().insert(key.to_owned(), bounds);
+        }
+    }
+
+    pub fn capture(key: String) -> impl FnOnce(Bounds<Pixels>, &mut Window, &mut App) {
+        move |bounds, _, cx| Self::record(&key, bounds, cx)
+    }
+
+    pub fn center(key: &str, cx: &App) -> Point<Pixels> {
+        cx.global::<Self>()
+            .0
+            .borrow()
+            .get(key)
+            .unwrap_or_else(|| panic!("missing layout bounds for {key}"))
+            .center()
+    }
+}
 
 struct OrderedRows {
     rows: Vec<SharedString>,

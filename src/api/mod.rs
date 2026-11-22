@@ -6,7 +6,7 @@ use std::time::Duration;
 use anyhow::{Result, anyhow, bail};
 use proteus_contracts::app_protocol::addons::AppAddonsSnapshot;
 use proteus_contracts::app_protocol::config::ConfigSummary;
-use proteus_contracts::app_protocol::config_builder::{ConfigBuilderSnapshot, ConfigHistory};
+use proteus_contracts::app_protocol::config_builder::ConfigBuilderSnapshot;
 use proteus_contracts::app_protocol::http::{
     ApprovalRequest, CancelRequest, DeleteQueuedMessageRequest, DeleteSessionRequest,
     NewSessionRequest, ResumeSessionRequest, SendRequest, SessionOpened, SetConfigBuilderRequest,
@@ -262,10 +262,6 @@ impl Api {
             .into_with_config()
             .limit(proteus_contracts::domain::MAX_IMAGE_BYTES as u64)
             .read_to_vec()?)
-    }
-
-    pub fn config_history(&self, session_dir: &Path) -> Result<ConfigHistory> {
-        self.get("/config/history", Some(session_dir))
     }
 
     /// Persists profile changes; the server answers with the fresh snapshot

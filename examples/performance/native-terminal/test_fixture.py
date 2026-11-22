@@ -52,12 +52,12 @@ class FixtureTests(unittest.TestCase):
         value["addon_settings"]["addons"]["disabled_skills"].append("mutated")
         self.assertEqual(builder()["addon_settings"], addon_settings())
 
-    def test_addons_history_and_startup_reads(self):
+    def test_addons_tool_state_and_startup_reads(self):
         with self.request("/addons") as response:
             value = json.load(response)
         self.assertEqual(value, {"reload_error": None, "writable": False, "settings": addon_settings(),
                                 "catalogs": [], "mcp_servers": [], "plugins": []})
-        expected = {"/config/history": {"revisions": []}, "/model/quota": None,
+        expected = {"/model/quota": None,
                     "/sessions/current": self.fixture.session_summaries()}
         for endpoint, value in expected.items():
             with self.subTest(endpoint=endpoint), self.request(endpoint) as response:
@@ -143,7 +143,7 @@ child = subprocess.Popen([sys.executable, "-c", "import signal,time; signal.sign
 (root / "control/child-pid").write_text(str(child.pid))
 client = build_opener(ProxyHandler({}))
 query = "?" + urlencode({"session_dir": str(root / "session")})
-for endpoint in ("/config/builder", "/addons", "/config/history"):
+for endpoint in ("/config/builder", "/addons"):
     with client.open(Request(origin + endpoint + query, headers={"Authorization": "Bearer " + token}), timeout=5) as response:
         json.load(response)
 with client.open(Request(origin + "/events" + query, headers={"Authorization": "Bearer " + token}), timeout=5) as stream:

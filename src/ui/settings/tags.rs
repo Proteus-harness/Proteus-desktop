@@ -69,6 +69,7 @@ fn item_ids(values: &[Value]) -> Vec<SharedString> {
 #[derive(Clone, Debug)]
 pub(super) enum Edit {
     Add(Value),
+    AddSuggestion(String),
     Remove(usize),
     MoveBefore { from: usize, before: Option<usize> },
 }
@@ -76,7 +77,14 @@ pub(super) enum Edit {
 pub(super) fn edited(values: &[Value], edit: Edit) -> Option<Vec<Value>> {
     let mut next = values.to_vec();
     match edit {
-        Edit::Add(value) => next.push(value),
+        Edit::Add(value) if value.is_string() => next.push(value),
+        Edit::AddSuggestion(value)
+            if !values
+                .iter()
+                .any(|item| item.as_str() == Some(value.as_str())) =>
+        {
+            next.push(Value::String(value));
+        }
         Edit::Remove(index) if index < next.len() => {
             next.remove(index);
         }
@@ -115,6 +123,10 @@ fn added_value(field: &ConfigField, text: &str) -> Option<Value> {
 }
 
 impl SettingsView {
+    pub(super) fn tag_revision(&self) -> (u64, u64) {
+        (self.profile_revision, self.edit_revision)
+    }
+
     fn apply_tag_edit(
         &mut self,
         path: &FieldPath,
@@ -123,7 +135,7 @@ impl SettingsView {
         edit: Edit,
         cx: &mut Context<Self>,
     ) -> bool {
-        if !self.snapshot().is_some_and(|snapshot| snapshot.writable) {
+        if !is_tag_field(field) || !self.snapshot().is_some_and(|snapshot| snapshot.writable) {
             return false;
         }
         let current = self.draft.value(path).or(field.default.as_ref());
@@ -176,6 +188,7 @@ impl SettingsView {
         let path = spec.path.clone();
         let field = spec.field.clone();
         let view = spec.view.clone();
+        let revision = self.tag_revision();
         editor::render(
             Rc::new(editor::TagEditor {
                 key: format!("schema:{path:?}"),
@@ -190,10 +203,11 @@ impl SettingsView {
                         TextInput::Line(input) => Some(input.clone()),
                         _ => None,
                     }),
-                revision: self.profile_revision.rotate_left(32) ^ self.edit_revision,
+                revision,
                 apply: Rc::new(move |expected, edit, cx| {
                     view.update(cx, |this, cx| {
-                        this.apply_tag_edit(&path, &field, expected, edit, cx)
+                        this.tag_revision() == revision
+                            && this.apply_tag_edit(&path, &field, expected, edit, cx)
                     })
                     .unwrap_or(false)
                 }),

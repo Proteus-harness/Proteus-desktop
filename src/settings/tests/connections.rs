@@ -2,14 +2,12 @@
 
 use std::path::{Path, PathBuf};
 
-use proteus_contracts::app_protocol::config_builder::ConfigBuilderSnapshot;
 use proteus_contracts::domain::{ToolSafety, mcp_protocol_version};
 use serde_json::json;
 
 use super::addons_snapshot;
 use crate::settings::Draft;
 use crate::settings::draft::Area;
-use crate::settings::history::describe_changes;
 use crate::settings::mcp::{McpProblem, McpText, mcp_problems, mcp_text};
 
 /// Profile with the server `db` switched off.
@@ -151,10 +149,6 @@ fn new_server_is_checked_before_saving_and_parses_its_fields() {
     assert_eq!(server.protocol_version, mcp_protocol_version());
 
     assert_eq!(draft.areas(&baseline), [Area::Mcp]);
-    assert_eq!(
-        describe_changes(&ConfigBuilderSnapshot::default(), &baseline, &draft),
-        ["MCP: добавлен files"]
-    );
     draft.remove_mcp(0);
     assert!(draft.addons.addons.disabled_mcp_servers.is_empty());
     assert_eq!(draft.addons.mcp_servers.len(), 1);

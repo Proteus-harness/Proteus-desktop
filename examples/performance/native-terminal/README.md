@@ -3,7 +3,7 @@
 Постоянный функциональный стенд для **готового** Desktop и готового пакета
 Terminal. Cargo, Core, модели, настоящие чаты и пользовательский профиль не
 используются. HTTP/SSE взят из MIT-стенда `../native-stream`; здесь добавлены
-строгие scoped endpoints `/addons`, `/config/builder`, `/config/history` с
+строгие scoped endpoints `/addons` и `/config/builder` с
 полными DTO закреплённого `proteus-contracts`. Это пустой read-only профиль
 агента; настройки клиентских расширений остаются рабочими и локальными.
 Неизвестный endpoint, неправильная сессия или неожиданная запись завершают

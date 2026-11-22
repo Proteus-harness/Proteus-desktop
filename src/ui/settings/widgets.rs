@@ -444,17 +444,6 @@ pub(super) fn select_menu<T: Clone + 'static>(
     .into_any_element()
 }
 
-/// Small muted line, skipped when the text is blank.
-pub(super) fn hint_text(text: impl Into<String>, cx: &App) -> Option<Div> {
-    let text = text.into();
-    (!text.trim().is_empty()).then(|| {
-        div()
-            .text_xs()
-            .text_color(cx.theme().muted_foreground)
-            .child(text)
-    })
-}
-
 // Адаптировано из Zed: crates/settings_ui/src/settings_ui.rs (SubPageLink).
 // The same text action opens a settings destination or its local instructions.
 pub(super) fn settings_action(

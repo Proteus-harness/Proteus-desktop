@@ -1,6 +1,6 @@
 //! Exercise the retained form handler across a delayed Save response.
 use super::*;
-use crate::settings::models::ModelText;
+use crate::settings::models::{ModelTarget, ModelText};
 
 #[::core::prelude::v1::test]
 fn model_form_retains_invalid_late_budget_text_until_it_is_reverted() {
@@ -20,26 +20,24 @@ fn model_form_retains_invalid_late_budget_text_until_it_is_reverted() {
         view.update(cx, |view, cx| {
             view.accept(snapshot("initial"));
             view.page = PageId::Models;
-            view.open
-                .insert(crate::ui::settings::models::model_key("initial"));
             view.prepare_model_editors(window, cx);
-            view.model_text_changed("initial", ModelText::Model, "submitted-id", cx);
+            view.model_text_changed(&ModelTarget::Root, ModelText::Model, "submitted-id", cx);
             let submitted_revision = view.edit_revision;
-            let entity = view.editors.models.fields[&("initial".into(), ModelText::Budget)]
+            let entity = view.editors.models.fields[&(ModelTarget::Root, ModelText::Budget)]
                 .state
                 .entity_id();
-            view.model_text_changed("initial", ModelText::Budget, "invalid", cx);
+            view.model_text_changed(&ModelTarget::Root, ModelText::Budget, "invalid", cx);
             assert!(view.dirty());
             assert!(!view.can_save());
             let mut saved = snapshot("initial");
             saved.models.get_mut("initial").unwrap().model = "submitted-id".into();
             view.accept_save(saved, submitted_revision);
-            let field = &view.editors.models.fields[&("initial".into(), ModelText::Budget)];
+            let field = &view.editors.models.fields[&(ModelTarget::Root, ModelText::Budget)];
             assert_eq!(field.state.entity_id(), entity);
             assert!(field.error.is_some());
             assert!(!view.can_save());
             assert_eq!(view.draft.models["initial"].reasoning.budget_tokens, None);
-            view.model_text_changed("initial", ModelText::Budget, "", cx);
+            view.model_text_changed(&ModelTarget::Root, ModelText::Budget, "", cx);
             assert!(!view.dirty());
             assert!(!view.has_errors());
             assert_eq!(view.draft, view.baseline);
@@ -72,8 +70,6 @@ fn model_effort_list_undo_restores_exact_source_values_without_reverting_other_f
                     efforts.into_iter().map(str::to_owned).collect();
                 view.accept(saved);
                 view.page = PageId::Models;
-                view.open
-                    .insert(crate::ui::settings::models::model_key("initial"));
                 view.prepare_model_editors(window, cx);
                 assert_eq!(
                     view.draft, view.baseline,
@@ -83,20 +79,20 @@ fn model_effort_list_undo_restores_exact_source_values_without_reverting_other_f
                     &view.baseline.models["initial"],
                     ModelText::Efforts,
                 );
-                view.model_text_changed("initial", ModelText::Model, "local-model", cx);
-                view.model_text_changed("initial", ModelText::Efforts, "low, medium", cx);
+                view.model_text_changed(&ModelTarget::Root, ModelText::Model, "local-model", cx);
+                view.model_text_changed(&ModelTarget::Root, ModelText::Efforts, "low, medium", cx);
                 assert_ne!(
                     view.draft.models["initial"].reasoning_efforts,
                     view.baseline.models["initial"].reasoning_efforts
                 );
-                view.model_text_changed("initial", ModelText::Efforts, &displayed, cx);
+                view.model_text_changed(&ModelTarget::Root, ModelText::Efforts, &displayed, cx);
                 assert_eq!(
                     view.draft.models["initial"].reasoning_efforts,
                     view.baseline.models["initial"].reasoning_efforts
                 );
                 assert_eq!(view.draft.models["initial"].model, "local-model");
                 assert!(view.dirty());
-                view.model_text_changed("initial", ModelText::Model, "test", cx);
+                view.model_text_changed(&ModelTarget::Root, ModelText::Model, "test", cx);
                 assert!(!view.dirty());
                 assert!(view.draft.changes(&view.baseline).models.is_none());
             })

@@ -465,6 +465,7 @@ impl Render for FormattedText {
                     .into_any_element(),
             })
             .selection_copy_menu()
+            .at_pointer()
             .w_full()
     }
 }
