@@ -33,6 +33,7 @@ impl Remote {
         let tty = target.terminal.tty;
         let mut view = Self {
             target,
+            target_id: Default::default(),
             api,
             workspace,
             focus,
@@ -148,14 +149,10 @@ impl Render for Remote {
         .absolute()
         .size_full();
         let screen = self.display.as_ref().map(|display| {
-            let mut screen = display.snapshot(Base {
+            display.snapshot(Base {
                 foreground: cells::rgb_bytes(foreground),
                 background: cells::rgb_bytes(background),
-            });
-            if self.process_finished {
-                screen.cursor = None;
-            }
-            screen
+            })
         });
         let state = if self.finished {
             self.exit_code.map_or_else(
@@ -217,7 +214,18 @@ impl Render for Remote {
             }))
             .child(probe)
             .children(screen.as_ref().map(|screen| {
-                cells::screen(screen, cell, foreground, self.focus.is_focused(window))
+                let cursor = if self.process_finished {
+                    None
+                } else {
+                    screen.cursor
+                };
+                cells::screen(
+                    screen,
+                    cell,
+                    foreground,
+                    self.focus.is_focused(window),
+                    cursor,
+                )
             }));
         v_flex()
             .size_full()

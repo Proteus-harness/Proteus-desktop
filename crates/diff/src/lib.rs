@@ -58,7 +58,25 @@ pub struct File {
     pub added: usize,
     pub removed: usize,
     /// Exactly the input block, including Git metadata and newline markers.
-    pub patch: String,
+    pub patch: FilePatch,
+}
+
+/// Raw clipboard text for this file, independently owned from its parsed lines.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FilePatch(Option<std::sync::Arc<String>>);
+
+impl FilePatch {
+    fn new(text: String) -> Self {
+        Self((!text.is_empty()).then(|| std::sync::Arc::new(text)))
+    }
+
+    pub fn as_str(&self) -> &str {
+        self.0.as_deref().map_or("", String::as_str)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_none()
+    }
 }
 
 impl File {

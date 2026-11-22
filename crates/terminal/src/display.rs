@@ -34,7 +34,7 @@ pub struct SpawnedDisplay {
 }
 
 struct View {
-    screen: Screen,
+    screen: Arc<Screen>,
     base: Base,
     grid: Grid,
     scroll: i32,
@@ -112,12 +112,12 @@ impl Display {
         let grid = Grid::new(grid.columns, grid.rows);
         let shared = Arc::new(Shared {
             view: Mutex::new(View {
-                screen: Screen {
+                screen: Arc::new(Screen {
                     columns: grid.columns,
                     rows: vec![vec![]; grid.rows],
                     cursor: None,
                     scrolled: 0,
-                },
+                }),
                 base: BASE,
                 grid,
                 scroll: 0,
@@ -266,10 +266,10 @@ impl Display {
         self.shared.frame_credit.store(true, Ordering::Release);
         self.wake();
     }
-    pub fn snapshot(&self, base: Base) -> Screen {
+    pub fn snapshot(&self, base: Base) -> Arc<Screen> {
         let mut view = self.shared.view.lock().unwrap();
         view.base = base;
-        let screen = view.screen.clone();
+        let screen = Arc::clone(&view.screen);
         drop(view);
         self.shared.frame_credit.store(true, Ordering::Release);
         self.wake();
@@ -334,7 +334,7 @@ fn run(
             && last_frame.elapsed() >= FRAME_TIME
             && shared.frame_credit.swap(false, Ordering::AcqRel)
         {
-            let screen = engine.snapshot(base)?;
+            let screen = Arc::new(engine.snapshot(base)?);
             shared.view.lock().unwrap().screen = screen;
             let _ = redraw.try_send(());
             last_frame = Instant::now();

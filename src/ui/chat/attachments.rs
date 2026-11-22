@@ -17,10 +17,17 @@ use crate::ui::{kit, prefs};
 
 const THUMB: f32 = 56.;
 
-/// An image of the draft with the bytes its preview decodes.
+/// One immutable raw image for the preview, failed draft and send worker.
+#[derive(Clone)]
 pub(super) struct Attachment {
-    image: ImageAttachment,
+    name: String,
     preview: Arc<Image>,
+}
+
+impl Attachment {
+    pub(super) fn encode(self) -> anyhow::Result<ImageAttachment> {
+        ImageAttachment::from_bytes(self.name, &self.preview.bytes)
+    }
 }
 
 #[derive(Default)]
@@ -37,8 +44,12 @@ impl Attachments {
         self.items.len()
     }
 
-    pub fn images(&self) -> Vec<ImageAttachment> {
-        self.items.iter().map(|item| item.image.clone()).collect()
+    pub(super) fn images(&self) -> Vec<Attachment> {
+        self.items.clone()
+    }
+
+    pub(super) fn image_names(&self) -> Vec<String> {
+        self.items.iter().map(|item| item.name.clone()).collect()
     }
 
     fn budget(&self) -> Budget {
@@ -62,9 +73,12 @@ impl Attachments {
     }
 
     fn add_prepared(&mut self, prepared: Prepared) -> Result<(), String> {
-        let Prepared { image, bytes } = prepared;
-        let name = &image.name;
-        let format = ImageFormat::from_mime_type(&image.mime_type)
+        let Prepared {
+            name,
+            mime_type,
+            bytes,
+        } = prepared;
+        let format = ImageFormat::from_mime_type(mime_type)
             .ok_or_else(|| format!("{name}: поддерживаются PNG, JPEG, WebP и GIF"))?;
         if self.items.len() >= MAX_INPUT_IMAGES {
             return Err(format!(
@@ -76,7 +90,7 @@ impl Attachments {
             return Err(format!("{name}: изображения сообщения вместе больше 5 МиБ"));
         }
         self.items.push(Attachment {
-            image,
+            name,
             preview: Arc::new(Image::from_bytes(format, bytes)),
         });
         Ok(())
@@ -242,7 +256,7 @@ impl Chat {
                     .relative()
                     .size(prefs::scaled(THUMB))
                     .frame(cx)
-                    .tip_text(item.image.name.clone())
+                    .tip_text(item.name.clone())
                     .child(
                         img(item.preview.clone())
                             .size_full()
@@ -309,7 +323,11 @@ mod tests {
             .add("fits.png".into(), png(MAX_IMAGE_BYTES - 48))
             .unwrap();
 
-        let images = draft.images();
+        let images: Vec<_> = draft
+            .images()
+            .into_iter()
+            .map(|image| image.encode().unwrap())
+            .collect();
         assert_eq!(images.len(), MAX_INPUT_IMAGES);
         assert_eq!(images[0].mime_type, "image/png");
     }

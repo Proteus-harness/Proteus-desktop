@@ -10,6 +10,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::HashMap;
 use std::ops::Range;
+use std::sync::Arc;
 
 /// How rows are indented and joined.
 #[derive(Clone, Copy, PartialEq)]
@@ -20,7 +21,7 @@ pub(super) struct Layout {
 }
 
 pub(super) struct Tree {
-    pub rows: Vec<Row>,
+    pub rows: Arc<Vec<Row>>,
     pub layout: Layout,
     pub(super) cursor: usize,
     focus: FocusHandle,
@@ -54,7 +55,7 @@ struct Span {
 
 impl Tree {
     pub fn new(
-        rows: Vec<Row>,
+        rows: Arc<Vec<Row>>,
         layout: Layout,
         natural: bool,
         view: WeakEntity<super::view::DeclarativeView>,
@@ -79,8 +80,9 @@ impl Tree {
         tree
     }
 
-    pub fn set_rows(&mut self, rows: Vec<Row>, layout: Layout, cx: &mut Context<Self>) {
-        if self.rows == rows && self.layout == layout {
+    pub fn set_rows(&mut self, rows: Arc<Vec<Row>>, layout: Layout, cx: &mut Context<Self>) {
+        // Equal payloads keep the current snapshot, including menu value representation.
+        if self.rows.as_slice() == rows.as_slice() && self.layout == layout {
             return;
         }
         self.layout = layout;
@@ -110,7 +112,7 @@ impl Tree {
         let prefix = self
             .rows
             .iter()
-            .zip(&rows)
+            .zip(rows.iter())
             .take_while(|(a, b)| same(a, b))
             .count();
         let suffix = self.rows[prefix..]
@@ -463,7 +465,7 @@ mod navigation_tests {
             };
             let tree = cx.new(|cx| {
                 Tree::new(
-                    vec![row("staged"), row("unstaged")],
+                    Arc::new(vec![row("staged"), row("unstaged")]),
                     Layout {
                         indent: 16.,
                         chevrons: true,

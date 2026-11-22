@@ -23,7 +23,7 @@ pub(super) enum Part {
 
 struct Reply {
     text: Arc<str>,
-    languages: Vec<(String, &'static str)>,
+    languages: Vec<(&'static str, &'static str)>,
     renderer: Option<&'static str>,
     media_type: String,
     part: Part,
@@ -64,7 +64,7 @@ impl Replies {
         let (part, changes, resize) = if let Some(extension) = renderer {
             let payload = Content {
                 language: media_type.into(),
-                source: text.to_string(),
+                source: text.into(),
                 context: serde_json::Value::Null,
                 source_revision: Some(0),
             };

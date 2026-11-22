@@ -180,13 +180,21 @@ impl Transcript {
             .filter_map(|entry| Some((identity_of(entry)?, entry)))
             .collect();
         for message in messages {
-            let mut entry = self.entry_from(message);
-            if let Some(old) = identity_of(&entry).and_then(|id| live.get(&id)) {
+            let role = role_of(&message.role);
+            let old = identity(
+                message.message_id,
+                role,
+                message.tool.as_ref(),
+                message.subagent.as_ref(),
+            )
+            .and_then(|id| live.get(&id).copied());
+            let shared = old
+                .filter(|old| old.text.as_ref() == message.text)
+                .map(|old| Arc::clone(&old.text));
+            let mut entry = self.entry_from_with_text(message, role, shared);
+            if let Some(old) = old {
                 entry.key = old.key;
                 entry.time = entry.time.or(old.time);
-                if entry.text == old.text {
-                    entry.text = old.text.clone();
-                }
             }
             self.entries.push(entry);
         }
@@ -668,6 +676,8 @@ fn same_tool(a: &AppTranscriptTool, b: &AppTranscriptTool) -> bool {
 mod cache;
 mod chains;
 mod external;
+#[cfg(test)]
+mod page_reuse_tests;
 mod reasoning;
 #[cfg(test)]
 mod reasoning_tests;

@@ -6,7 +6,7 @@
 use std::collections::HashSet;
 
 use proteus_contracts::app_protocol::{AppExecutionState, AppQueuedUserMessage, AppRunStatus};
-use proteus_contracts::domain::{Event, ImageAttachment, ImageRef, MessageId};
+use proteus_contracts::domain::{Event, ImageRef, MessageId};
 
 #[derive(Default)]
 pub(super) struct Feedback {
@@ -35,17 +35,34 @@ enum Phase {
 }
 
 impl Feedback {
-    pub fn begin(
+    // Exercise the same receipt path from the existing wire-oriented tests.
+    #[cfg(test)]
+    fn begin(
         &mut self,
         id: String,
         text: String,
-        images: &[ImageAttachment],
+        images: &[proteus_contracts::domain::ImageAttachment],
+        queued: &[AppQueuedUserMessage],
+    ) {
+        self.begin_with_names(
+            id,
+            text,
+            images.iter().map(|image| image.name.clone()).collect(),
+            queued,
+        );
+    }
+
+    pub fn begin_with_names(
+        &mut self,
+        id: String,
+        text: String,
+        images: Vec<String>,
         queued: &[AppQueuedUserMessage],
     ) {
         self.sends.push(PendingSend {
             id,
             text,
-            images: images.iter().map(|image| image.name.clone()).collect(),
+            images,
             accepted: false,
             observed: false,
             message_id: None,

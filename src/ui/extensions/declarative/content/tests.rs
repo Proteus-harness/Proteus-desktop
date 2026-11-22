@@ -13,17 +13,17 @@ fn current(revision: Option<u64>) -> Content {
 #[test]
 fn unchanged_borrowed_source_keeps_the_current_snapshot_and_revision() {
     let current = current(Some(7));
-    let source_pointer = current.source.as_ptr();
+    let source_pointer = current.source.as_str().as_ptr();
     assert!(
         updated_content(
             &current,
             &current.language,
-            &current.source,
+            current.source.as_str(),
             current.context.clone(),
         )
         .is_none()
     );
-    assert_eq!(current.source.as_ptr(), source_pointer);
+    assert_eq!(current.source.as_str().as_ptr(), source_pointer);
     assert_eq!(current.source_revision, Some(7));
 }
 
@@ -34,11 +34,14 @@ fn changed_source_is_owned_once_then_shared_without_a_payload_clone() {
     let next = updated_content(&current, "fixture", &source, current.context.clone()).unwrap();
     let runtime = std::sync::Arc::clone(&next);
     assert!(std::sync::Arc::ptr_eq(&next, &runtime));
-    assert_eq!(next.source.as_ptr(), runtime.source.as_ptr());
-    assert_eq!(next.source, source);
+    assert_eq!(
+        next.source.as_str().as_ptr(),
+        runtime.source.as_str().as_ptr()
+    );
+    assert_eq!(next.source.as_str(), source);
     assert_eq!(next.source_revision, Some(8));
     assert_eq!(next.context, current.context);
-    assert_eq!(current.source, "original source\n");
+    assert_eq!(current.source.as_str(), "original source\n");
     assert_eq!(
         serde_json::to_value(next.as_ref()).unwrap(),
         json!({
@@ -53,14 +56,25 @@ fn changed_source_is_owned_once_then_shared_without_a_payload_clone() {
 #[test]
 fn language_and_context_changes_still_advance_the_revision() {
     let current = current(Some(7));
-    let language =
-        updated_content(&current, "other", &current.source, current.context.clone()).unwrap();
+    let language = updated_content(
+        &current,
+        "other",
+        current.source.as_str(),
+        current.context.clone(),
+    )
+    .unwrap();
     assert_eq!(language.source_revision, Some(8));
     assert_eq!(language.language, "other");
     assert_eq!(language.source, current.source);
 
     let context = json!({"languages": ["fixture", "new"], "custom": {"preserve": true}});
-    let next = updated_content(&current, "fixture", &current.source, context.clone()).unwrap();
+    let next = updated_content(
+        &current,
+        "fixture",
+        current.source.as_str(),
+        context.clone(),
+    )
+    .unwrap();
     assert_eq!(next.source_revision, Some(8));
     assert_eq!(next.context, context);
     assert_eq!(next.source, current.source);
@@ -72,8 +86,33 @@ fn absent_and_wrapping_revisions_keep_existing_semantics() {
         let current = current(before);
         let next = updated_content(&current, "fixture", "", current.context.clone()).unwrap();
         assert_eq!(next.source_revision, after);
-        assert!(next.source.is_empty());
+        assert!(next.source.as_str().is_empty());
     }
+}
+
+#[test]
+fn reply_source_shares_text_across_themed_payload_clones() {
+    let current = current(Some(4));
+    let text: std::sync::Arc<str> = std::sync::Arc::from("shared reply 🦀");
+    let next = updated_content(&current, "fixture", &text, current.context.clone()).unwrap();
+    let mut themed = next.as_ref().clone();
+    themed.context["theme"] = json!({"dark": true});
+    assert_eq!(next.source.as_str().as_ptr(), text.as_ptr());
+    assert_eq!(themed.source.as_str().as_ptr(), text.as_ptr());
+    assert!(themed.source == super::ContentSource::from(text.as_ref()));
+    assert_eq!(
+        serde_json::to_value(&themed).unwrap()["source"],
+        text.as_ref()
+    );
+    assert_eq!(themed.source_revision, Some(5));
+    let equal = std::sync::Arc::<str>::from(text.as_ref());
+    assert!(!std::sync::Arc::ptr_eq(&text, &equal));
+    assert!(updated_content(&next, "fixture", &equal, next.context.clone()).is_none());
+    let contextual = updated_content(&next, "fixture", &text, json!({"variant": 2})).unwrap();
+    assert_eq!(contextual.source_revision, Some(6));
+    assert_eq!(contextual.source.as_str().as_ptr(), text.as_ptr());
+
+    assert!(updated_content(&next, "fixture", text.as_ref(), next.context.clone()).is_none());
 }
 
 #[::core::prelude::v1::test]
@@ -149,7 +188,7 @@ fn native_rich_text_prepares_behind_fallback_and_keeps_ready_replacements_visibl
             view.show(
                 Node::RichText {
                     id: id.into(),
-                    html: html.into(),
+                    html: std::sync::Arc::new(html.into()),
                     inlines: vec![],
                 },
                 0,

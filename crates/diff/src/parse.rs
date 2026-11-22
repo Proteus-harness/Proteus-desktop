@@ -1,7 +1,8 @@
-use super::{File, Kind, Line};
+use super::{File, FilePatch, Kind, Line};
 
 pub(super) fn files(patch: &str) -> Vec<File> {
-    let mut files = Vec::new();
+    let mut files: Vec<File> = Vec::new();
+    let mut block = String::new();
     let (mut old, mut new) = (None, None);
     let (mut hunk, mut envelope) = (false, false);
     let mut remaining = None;
@@ -25,10 +26,8 @@ pub(super) fn files(patch: &str) -> Vec<File> {
             && (files.is_empty()
                 || matches!(binary, BinaryPart::Header)
                 || hunk
-                || files.last().is_some_and(|file: &File| {
-                    file.patch.starts_with("--- ")
-                        && file.patch.lines().any(|line| line.starts_with("+++ "))
-                }));
+                || (block.starts_with("--- ")
+                    && block.lines().any(|line| line.starts_with("+++ "))));
         let start = if plain_header {
             let old_path = path(&line[4..]);
             let mut file = File::default();
@@ -63,8 +62,11 @@ pub(super) fn files(patch: &str) -> Vec<File> {
                 })
             })
         };
-        if let Some(mut file) = start {
-            file.patch.push_str(raw);
+        if let Some(file) = start {
+            if let Some(previous) = files.last_mut() {
+                previous.patch = FilePatch::new(std::mem::take(&mut block));
+            }
+            block.push_str(raw);
             new = (file.status == "added").then_some(1);
             old = None;
             hunk = envelope;
@@ -80,7 +82,7 @@ pub(super) fn files(patch: &str) -> Vec<File> {
             files.push(File::default());
         }
         let file = files.last_mut().expect("a file was started");
-        file.patch.push_str(raw);
+        block.push_str(raw);
         if binary.hide(line) {
             continue;
         }
@@ -171,6 +173,9 @@ pub(super) fn files(patch: &str) -> Vec<File> {
         } else if !(line.starts_with("index ") || line.starts_with("similarity index ")) {
             file.note(line);
         }
+    }
+    if let Some(last) = files.last_mut() {
+        last.patch = FilePatch::new(block);
     }
     for file in &mut files {
         if file.old_path.as_ref() == Some(&file.path) {

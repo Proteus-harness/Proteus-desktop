@@ -108,7 +108,14 @@ impl TabLayout {
     }
 
     pub fn pane_count(&self) -> usize {
-        self.panes().len()
+        fn count(node: &Node) -> usize {
+            match node {
+                Node::Pane(_) => 1,
+                Node::Split(split) => split.children.iter().map(|child| count(&child.node)).sum(),
+            }
+        }
+
+        count(&self.root)
     }
 
     pub fn pane(&self, id: PaneId) -> Option<&Pane> {

@@ -16,7 +16,11 @@ use crate::{
 use gpui_kit::*;
 use proteus_contracts::contracts::ToolTerminalRef;
 use serde::{Deserialize, Serialize};
-use std::{cell::Cell, path::PathBuf, rc::Rc};
+use std::{
+    cell::{Cell, OnceCell},
+    path::PathBuf,
+    rc::Rc,
+};
 
 const PREFIX: &str = "agent-terminal:";
 
@@ -43,6 +47,7 @@ impl Target {
 
 pub(super) struct Remote {
     target: Target,
+    target_id: OnceCell<String>,
     api: Api,
     workspace: WeakEntity<Workspace>,
     focus: FocusHandle,
@@ -157,13 +162,17 @@ impl Workspace {
 }
 
 impl Remote {
+    fn target_id(&self) -> &str {
+        self.target_id.get_or_init(|| self.target.id())
+    }
+
     fn current(&self, entity: EntityId, cx: &App) -> bool {
         self.workspace.upgrade().is_some_and(|workspace| {
             let workspace = workspace.read(cx);
             workspace
                 .api()
                 .is_some_and(|api| api.connection_id() == self.api.connection_id())
-                && workspace.document_current(&self.target.id(), entity)
+                && workspace.document_current(self.target_id(), entity)
         })
     }
     fn visible(&self, entity: EntityId, cx: &App) -> bool {
@@ -172,7 +181,7 @@ impl Remote {
             workspace
                 .api()
                 .is_some_and(|api| api.connection_id() == self.api.connection_id())
-                && workspace.document_visible(&self.target.id(), entity)
+                && workspace.document_visible(self.target_id(), entity)
         })
     }
 }

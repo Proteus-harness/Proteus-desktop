@@ -49,6 +49,7 @@ pub(in crate::ui) fn screen(
     cell: Size<Pixels>,
     foreground: Hsla,
     focused: bool,
+    cursor: Option<(usize, usize)>,
 ) -> Div {
     let rows = screen.rows.iter().enumerate().map(|(index, runs)| {
         div()
@@ -59,7 +60,7 @@ pub(in crate::ui) fn screen(
             .h(cell.height)
             .children(runs.iter().map(|run| render_run(run, cell)))
     });
-    let cursor = screen.cursor.map(|(row, column)| {
+    let cursor = cursor.map(|(row, column)| {
         div()
             .absolute()
             .top(px(PADDING) + cell.height * row as f32)

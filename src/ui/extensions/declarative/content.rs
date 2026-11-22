@@ -9,7 +9,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::{code_block, view::DeclarativeView};
-use crate::declarative::protocol::{Content, SurfaceKind};
+use crate::declarative::protocol::{Content, ContentSource, SurfaceKind};
 use crate::ui::extensions::Host;
 use crate::ui::kit;
 use crate::ui::kit::ButtonLabel as _;
@@ -17,10 +17,10 @@ use crate::ui::kit::Hint as _;
 
 /// Enabled contributors in the user's extension order; the first claimant
 /// wins a duplicate language registration deterministically.
-pub(in crate::ui) fn languages(cx: &App) -> Vec<(String, &'static str)> {
+fn language_entries(cx: &App) -> impl Iterator<Item = (&'static str, &'static str)> + '_ {
     crate::ui::extensions::ordered(cx)
         .into_iter()
-        .filter(|manifest| crate::ui::extensions::is_enabled(manifest.id, cx))
+        .filter(move |manifest| crate::ui::extensions::is_enabled(manifest.id, cx))
         .flat_map(|manifest| {
             super::installed(manifest.id)
                 .into_iter()
@@ -29,17 +29,18 @@ pub(in crate::ui) fn languages(cx: &App) -> Vec<(String, &'static str)> {
                     content
                         .languages
                         .iter()
-                        .cloned()
-                        .map(move |language| (language, manifest.id))
+                        .map(move |language| (language.as_str(), manifest.id))
                 })
         })
-        .collect()
+}
+
+pub(in crate::ui) fn languages(cx: &App) -> Vec<(&'static str, &'static str)> {
+    language_entries(cx).collect()
 }
 
 pub(in crate::ui) fn language_renderer(language: &str, cx: &App) -> Option<&'static str> {
-    languages(cx)
-        .into_iter()
-        .find(|(name, _)| name == language)
+    language_entries(cx)
+        .find(|(name, _)| *name == language)
         .map(|(_, id)| id)
 }
 
@@ -67,7 +68,7 @@ fn populate_context(value: &mut serde_json::Value, cx: &App) {
     let mut contributors = serde_json::Map::new();
     for (language, id) in &languages {
         contributors
-            .entry(language.clone())
+            .entry((*language).to_owned())
             .or_insert_with(|| serde_json::json!(id));
     }
     context.insert(
@@ -88,10 +89,13 @@ fn populate_context(value: &mut serde_json::Value, cx: &App) {
 fn updated_content(
     current: &Content,
     language: &str,
-    source: &str,
+    source: impl AsRef<str> + Into<ContentSource>,
     context: serde_json::Value,
 ) -> Option<Arc<Content>> {
-    if current.language == language && current.source == source && current.context == context {
+    if current.language == language
+        && current.source.as_str() == source.as_ref()
+        && current.context == context
+    {
         return None;
     }
     Some(Arc::new(Content {
@@ -100,6 +104,13 @@ fn updated_content(
         context,
         source_revision: Some(current.source_revision.unwrap_or_default().wrapping_add(1)),
     }))
+}
+
+fn source_label(source: &ContentSource) -> SharedString {
+    match source {
+        ContentSource::Owned(source) => SharedString::from(source.clone()),
+        ContentSource::Shared(source) => SharedString::from(Arc::clone(source)),
+    }
 }
 
 pub(in crate::ui) struct WillResize;
@@ -268,7 +279,7 @@ impl ContentView {
     pub(in crate::ui) fn set_source(
         &mut self,
         language: &str,
-        source: &str,
+        source: impl AsRef<str> + Into<ContentSource>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -338,7 +349,7 @@ impl Render for ContentView {
                 )
             })
             .child(if raw {
-                let source = SharedString::from(self.content.source.clone());
+                let source = source_label(&self.content.source);
                 width = Some(super::code_geometry::Width::Source(source.clone()));
                 if self.body {
                     gpui_kit::base::SelectableText::new("content-source-text", source)
@@ -379,7 +390,7 @@ impl Render for ContentView {
         code_block::shell(
             "copy-content-source",
             &self.content.language,
-            move |_, _| content.source.clone().into(),
+            move |_, _| source_label(&content.source),
             Some(toggle.into_any_element()),
             body.into_any_element(),
             cx,
@@ -425,7 +436,7 @@ impl Render for FormattedText {
             self.view = contributor.map(|id| {
                 let content = Content {
                     language: self.format.clone(),
-                    source: self.source.to_string(),
+                    source: self.source.to_string().into(),
                     context: serde_json::Value::Null,
                     source_revision: Some(0),
                 };

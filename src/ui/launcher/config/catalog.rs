@@ -184,7 +184,12 @@ fn scan(
         if ignored(name) {
             continue;
         }
-        if path.is_dir() {
+        // Both branches classify the symlink target from the same lookup.
+        let Ok(metadata) = path.metadata() else {
+            continue;
+        };
+        let kind = metadata.file_type();
+        if kind.is_dir() {
             // A configs directory contains top-level profiles only. Fragments,
             // prompts and other implementation folders are never a menu tree.
             if profiles && depth > 0 {
@@ -207,7 +212,7 @@ fn scan(
                     "Глубина списка ограничена; другой файл можно выбрать вручную".into()
                 });
             }
-        } else if profiles && config_file(&path) && path.is_file() {
+        } else if profiles && config_file(&path) && kind.is_file() {
             let Ok(physical) = path.canonicalize() else {
                 continue;
             };

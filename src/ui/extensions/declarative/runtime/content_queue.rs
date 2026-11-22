@@ -50,7 +50,7 @@ mod tests {
     fn snapshot(revision: u64) -> Arc<Content> {
         Arc::new(Content {
             language: "fixture".into(),
-            source: format!("revision {revision}\n{}", "αβ😀\n".repeat(1024)),
+            source: format!("revision {revision}\n{}", "αβ😀\n".repeat(1024)).into(),
             context: serde_json::json!({"custom": "preserved"}),
             source_revision: Some(revision),
         })

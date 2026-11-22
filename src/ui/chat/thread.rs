@@ -139,8 +139,9 @@ impl Chat {
         } else {
             ix + 1
         };
-        let time = stamp::time_after(entries, end, self.complete_stamp_tail());
-        let footer = stamp::ending(entries, end, self.complete_stamp_tail());
+        let ending = stamp::turn_end(entries, end, self.complete_stamp_tail());
+        let footer = ending.is_some();
+        let time = ending.and_then(|ending| ending.time);
         let end_key = entries[end - 1].key;
         let turn = &entries[..end];
         let copyable = footer

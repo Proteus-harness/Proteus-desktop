@@ -311,6 +311,7 @@ impl Render for TerminalView {
                     cell,
                     foreground,
                     matches!(self.state, State::Running(_)) && self.focus.is_focused(window),
+                    screen.cursor,
                 ))
             }
         };

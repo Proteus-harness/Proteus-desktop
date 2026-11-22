@@ -269,18 +269,71 @@ fn subject_text(key: &str, value: &Value) -> Option<String> {
     let text = match value {
         Value::String(text) => return single_line(text, SUBJECT_LIMIT),
         Value::Array(items) => {
-            let parts = items.iter().filter_map(Value::as_str).collect::<Vec<_>>();
-            match parts.as_slice() {
-                [] => return None,
-                [only] => return single_line(only, SUBJECT_LIMIT),
-                [first, rest @ ..] if key.ends_with('s') => format!("{first} +{}", rest.len()),
-                _ => parts.join(" "),
+            let mut parts = items.iter().filter_map(Value::as_str);
+            let first = parts.next()?;
+            if let Some(second) = parts.next() {
+                return Some(multi_subject(key, first, second, parts));
             }
+            return single_line(first, SUBJECT_LIMIT);
         }
         Value::Number(number) => number.to_string(),
         _ => return None,
     };
     Some(limit(text, SUBJECT_LIMIT))
+}
+
+/// The multi-value branch keeps raw strings and separators, not single_line's
+/// normalized whitespace. Only the prefix can reach the caption.
+fn multi_subject<'a>(
+    key: &str,
+    first: &'a str,
+    second: &'a str,
+    rest: impl Iterator<Item = &'a str>,
+) -> String {
+    let mut remaining = SUBJECT_LIMIT;
+    let first = take_chars(first, &mut remaining);
+    if remaining == 0 {
+        return first.to_owned();
+    }
+    if key.ends_with('s') {
+        // Don't walk the other paths if their count cannot be shown.
+        const SUFFIX_PREFIX: &str = " +";
+        if remaining <= SUFFIX_PREFIX.len() {
+            let mut result = String::with_capacity(first.len() + remaining);
+            result.push_str(first);
+            result.push_str(&SUFFIX_PREFIX[..remaining]);
+            return result;
+        }
+        use std::fmt::Write as _;
+        let others = 1 + rest.count();
+        let digits = others.ilog10() as usize + 1;
+        let mut result = String::with_capacity(first.len() + SUFFIX_PREFIX.len() + digits);
+        result.push_str(first);
+        write!(&mut result, "{SUFFIX_PREFIX}{others}").expect("writing to String cannot fail");
+        // The count and its separator are ASCII, so this is a byte boundary.
+        result.truncate(first.len() + remaining);
+        return result;
+    }
+
+    remaining -= 1; // The first joining space.
+    let second = take_chars(second, &mut remaining);
+    let mut result = String::with_capacity(first.len() + 1 + second.len());
+    result.push_str(first);
+    result.push(' ');
+    result.push_str(second);
+
+    let mut rest = rest;
+    while remaining != 0 {
+        let Some(part) = rest.next() else {
+            break;
+        };
+        remaining -= 1;
+        let part = take_chars(part, &mut remaining);
+        result.reserve(1 + part.len());
+        result.push(' ');
+        result.push_str(part);
+    }
+    result
 }
 
 /// Several lines become one, joined by `↵`; the row fades out what does

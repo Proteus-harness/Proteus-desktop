@@ -92,7 +92,9 @@ impl DiffView {
                                 let patch = file.patch.clone();
                                 move |_, _, cx| {
                                     cx.stop_propagation();
-                                    cx.write_to_clipboard(ClipboardItem::new_string(patch.clone()));
+                                    cx.write_to_clipboard(ClipboardItem::new_string(
+                                        patch.as_str().to_owned(),
+                                    ));
                                 }
                             }),
                     ),

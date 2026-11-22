@@ -139,8 +139,8 @@ impl Chat {
         );
         chat._pump = Some(cx.spawn(async move |this, cx| {
             while let Ok(first) = events.recv().await {
-                let mut batch = vec![first];
-                while batch.len() < 128 {
+                let mut batch = Vec::new();
+                for _ in 1..128 {
                     match events.try_recv() {
                         Ok(event) => batch.push(event),
                         Err(_) => break,
@@ -148,6 +148,7 @@ impl Chat {
                 }
                 if this
                     .update(cx, |this, cx| {
+                        this.apply_codex(first, cx);
                         for event in batch {
                             this.apply_codex(event, cx);
                         }
@@ -242,19 +243,19 @@ impl Chat {
                 state.output = true;
                 self.session
                     .transcript
-                    .external_delta(&turn_id, &id, &delta, false, false)
+                    .external_delta(turn_id, id, &delta, false, false)
             }
             Event::ReasoningDelta { id, turn_id, delta } => {
                 state.output = false;
                 self.session
                     .transcript
-                    .external_delta(&turn_id, &id, &delta, true, false)
+                    .external_delta(turn_id, id, &delta, true, false)
             }
             Event::ToolOutputDelta { id, turn_id, delta } => {
                 state.output = true;
                 self.session
                     .transcript
-                    .external_delta(&turn_id, &id, &delta, false, true)
+                    .external_delta(turn_id, id, &delta, false, true)
             }
             Event::TurnStarted { id } => {
                 state.started(id);

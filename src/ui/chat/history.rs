@@ -65,10 +65,21 @@ impl HistoryWindow {
 
     fn trim(&mut self, direction: Direction, visible: Range<usize>) -> Option<Change> {
         let entries = self.transcript.entries();
-        let mut bytes: usize = entries.iter().map(|row| row.retained_bytes()).sum();
-        let mut keep = 0..entries.len();
+        // Rows outside the cardinality limit can be dropped without walking
+        // their payload, provided the active page and visible rows stay intact.
+        let limit = CACHE_ROWS.max(PAGE_ROWS);
+        let mut keep = match direction {
+            Direction::Older => 0..entries.len().min(limit.max(visible.end)),
+            Direction::Newer => {
+                entries.len().saturating_sub(limit).min(visible.start)..entries.len()
+            }
+        };
+        let mut bytes: usize = entries[keep.clone()]
+            .iter()
+            .map(|row| row.retained_bytes())
+            .sum();
         // A page and the visible rows are indivisible. A large row is never truncated.
-        while keep.len() > CACHE_ROWS || bytes > CACHE_BYTES {
+        while bytes > CACHE_BYTES {
             let index = match direction {
                 Direction::Older if keep.end > visible.end.max(PAGE_ROWS) => keep.end - 1,
                 Direction::Newer if keep.start < visible.start && keep.len() > PAGE_ROWS => {

@@ -9,7 +9,7 @@ fn aligns_replacements_without_losing_unified_order() {
         (file.path.as_str(), file.added, file.removed),
         ("src/a.rs", 2, 1)
     );
-    assert_eq!(file.patch, input);
+    assert_eq!(file.patch.as_str(), input);
     assert_eq!((file.lines[2].old, file.lines[2].new), (Some(9), None));
     assert_eq!((file.lines[5].old, file.lines[5].new), (Some(10), Some(11)));
     assert_eq!(
@@ -152,7 +152,7 @@ fn missing_newline_metadata_does_not_split_a_replacement() {
     let input = "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-old\n\\ No newline at end of file\n+new\n\\ No newline at end of file\n";
     let files = parse(input, &[]);
     let file = &files[0];
-    assert_eq!(file.patch, input);
+    assert_eq!(file.patch.as_str(), input);
     assert_eq!(file.unified, [1, 2]);
     assert_eq!(file.pairs, [Pair::Lines(Some(1), Some(2))]);
     assert!(file.lines[1].no_newline);
@@ -196,7 +196,7 @@ fn metadata_without_a_patch_does_not_claim_to_know_the_contents() {
         let files = parse(raw, &[info]);
         assert_eq!(files.len(), 2);
         assert_eq!(files[0].lines[0].text, "Пустой файл");
-        assert_eq!(files[0].patch, raw);
+        assert_eq!(files[0].patch.as_str(), raw);
         let card = &files[1];
         assert_eq!(
             card.lines[0].text, "Текст изменений не предоставлен",
@@ -231,7 +231,7 @@ fn git_control_escapes_merge_file_metadata() {
         );
         assert_eq!(files.len(), 1, "escape {escape}: duplicate file card");
         assert_eq!(files[0].path, expected);
-        assert_eq!(files[0].patch, patch);
+        assert_eq!(files[0].patch.as_str(), patch);
         assert_eq!((files[0].added, files[0].removed), (1, 1));
     }
 }
@@ -257,20 +257,20 @@ HcmV?d00001
     let file = &files[0];
     assert_eq!(file.path, "after/tile.png");
     assert_eq!(file.status, "added");
-    assert_eq!(file.patch, image);
+    assert_eq!(file.patch.as_str(), image);
     assert_eq!((file.added, file.removed), (0, 0));
     assert_eq!(file.unified, [0]);
     assert_eq!(file.pairs, [Pair::Full(0)]);
     assert_eq!(file.lines[0].kind, Kind::Note);
     assert_eq!(file.lines[0].text, "Двоичный файл");
-    assert_eq!(files[1].patch, text);
+    assert_eq!(files[1].patch.as_str(), text);
     assert_eq!((files[1].added, files[1].removed), (1, 1));
 
     // A finished binary record must not hide unrelated annotations.
     let footer = "-- \n2.52.0\n";
     let with_footer = format!("{image}{footer}");
     let file = &parse(&with_footer, &[])[0];
-    assert_eq!(file.patch, with_footer);
+    assert_eq!(file.patch.as_str(), with_footer);
     assert_eq!(
         file.lines
             .iter()

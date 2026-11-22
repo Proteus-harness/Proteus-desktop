@@ -5,10 +5,11 @@ use super::{code_block, content::ContentView, view::DeclarativeView};
 use gpui_kit::component::text::{TextView, TextViewState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use std::sync::Arc;
 
 pub(super) struct RichText {
     state: Entity<TextViewState>,
-    html: String,
+    html: Arc<String>,
     slots: super::inline_content::Slots,
     _changed: Subscription,
 }
@@ -18,21 +19,22 @@ impl RichText {
         self.state.read(cx).is_ready()
     }
 
-    fn new(html: &str, cx: &mut Context<DeclarativeView>) -> Self {
-        let state = cx.new(|cx| TextViewState::html(html, cx).scrollable(false));
+    fn new(html: &Arc<String>, cx: &mut Context<DeclarativeView>) -> Self {
+        let state = cx.new(|cx| TextViewState::html(html.as_str(), cx).scrollable(false));
         let changed = cx.observe(&state, |_, _, cx| cx.notify());
         Self {
             state,
-            html: html.into(),
+            html: Arc::clone(html),
             slots: super::inline_content::Slots::default(),
             _changed: changed,
         }
     }
 
-    fn set_html(&mut self, html: &str, cx: &mut Context<DeclarativeView>) {
-        if self.html != html {
-            self.html = html.into();
-            self.state.update(cx, |state, cx| state.set_text(html, cx));
+    fn set_html(&mut self, html: &Arc<String>, cx: &mut Context<DeclarativeView>) {
+        if self.html.as_str() != html.as_str() {
+            self.html = Arc::clone(html);
+            self.state
+                .update(cx, |state, cx| state.set_text(html.as_str(), cx));
         }
     }
 
@@ -79,7 +81,7 @@ impl DeclarativeView {
     pub(super) fn prepare_rich_text(
         &mut self,
         id: &str,
-        html: &str,
+        html: &Arc<String>,
         inlines: &[crate::declarative::widget::InlineContent],
         window: &mut Window,
         cx: &mut Context<Self>,

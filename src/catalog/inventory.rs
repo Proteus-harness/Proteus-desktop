@@ -35,6 +35,15 @@ impl Inventory {
             .map(|(id, package)| (id.as_str(), package))
     }
 
+    /// Provider choices only consume module paths; leave extension presence to the catalog.
+    pub(super) fn local_modules() -> Self {
+        let mut inventory = Self::default();
+        if let Some(backend) = resolve_binary(&crate::backend::proteus_binary()) {
+            inventory.read_modules(&backend);
+        }
+        inventory
+    }
+
     pub fn local() -> Self {
         let backend = resolve_binary(&crate::backend::proteus_binary());
         let bundled = crate::declarative::manifest::bundled_root();
@@ -47,10 +56,10 @@ impl Inventory {
         if let Some(backend) = backend {
             inventory.read_modules(backend);
         }
-        let (extensions, problems) = crate::declarative::manifest::discover_sources(bundled, user);
+        let (extensions, problems) = crate::declarative::manifest::discover_presence(bundled, user);
         for installed in extensions {
             inventory.extensions.insert(
-                installed.manifest.id,
+                installed.id,
                 Package {
                     version: None,
                     path: installed.dir,

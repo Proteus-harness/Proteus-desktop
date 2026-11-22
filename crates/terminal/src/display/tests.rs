@@ -16,7 +16,7 @@ fn wait(mut condition: impl FnMut() -> bool) {
     }
 }
 
-fn screen(display: &Display, condition: impl Fn(&Screen) -> bool) -> Screen {
+fn screen(display: &Display, condition: impl Fn(&Screen) -> bool) -> Arc<Screen> {
     let mut found = None;
     wait(|| {
         let value = display.snapshot(BASE);

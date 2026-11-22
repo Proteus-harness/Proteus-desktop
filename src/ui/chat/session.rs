@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use gpui_kit::SharedString;
 use proteus_client_common::pending::PendingCursor;
@@ -27,7 +27,7 @@ pub(in crate::ui) struct Session {
     pub link_error: Option<SharedString>,
     /// This session's server closed its stream; the shared Core may still live.
     stream_closed: bool,
-    pub config: Option<ConfigSummary>,
+    pub config: Option<Arc<ConfigSummary>>,
     pub context: Option<ContextUsage>,
     pub(super) root_thread: Option<ThreadId>,
     snapshot_identity: Option<(SessionId, String)>,

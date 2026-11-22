@@ -4,7 +4,7 @@
 //! and host events. The process answers with whole view trees whenever it
 //! wants: after a request, an action or on its own timer.
 
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 pub use proteus_contracts::app_protocol::settings::SessionSettingUpdate as SessionSetting;
 use serde::{Deserialize, Serialize};
@@ -153,11 +153,66 @@ pub struct Server {
     pub token: String,
 }
 
+/// Reply bodies borrow the transcript's immutable allocation. Other content
+/// producers keep the existing owned-string path.
+#[derive(Clone, Debug)]
+pub enum ContentSource {
+    Owned(String),
+    Shared(Arc<str>),
+}
+
+impl ContentSource {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Owned(source) => source,
+            Self::Shared(source) => source,
+        }
+    }
+}
+
+impl PartialEq for ContentSource {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_str() == other.as_str()
+    }
+}
+
+impl Eq for ContentSource {}
+
+impl Serialize for ContentSource {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl From<String> for ContentSource {
+    fn from(source: String) -> Self {
+        Self::Owned(source)
+    }
+}
+
+impl From<&String> for ContentSource {
+    fn from(source: &String) -> Self {
+        Self::Owned(source.clone())
+    }
+}
+
+impl From<&str> for ContentSource {
+    fn from(source: &str) -> Self {
+        Self::Owned(source.into())
+    }
+}
+
+impl From<&Arc<str>> for ContentSource {
+    fn from(source: &Arc<str>) -> Self {
+        Self::Shared(Arc::clone(source))
+    }
+}
+
 /// Original closed fence contents, separate from its stable view address.
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 pub struct Content {
     pub language: String,
-    pub source: String,
+    pub source: ContentSource,
     pub context: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_revision: Option<u64>,

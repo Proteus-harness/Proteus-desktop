@@ -15,28 +15,28 @@ pub(super) fn hidden(entries: &[Entry], entry: &Entry) -> bool {
         .is_some_and(|tool| crate::transcript::subagent::progress_row(entries, tool).is_some())
 }
 
-/// `end` includes the whole represented tool chain. Hidden duplicate progress
-/// rows do not become separate turns; an unloaded page edge is not an ending.
-pub(super) fn ending(entries: &[Entry], end: usize, complete_tail: bool) -> bool {
-    let Some(entry) = end.checked_sub(1).and_then(|row| entries.get(row)) else {
-        return false;
-    };
-    if entry.role == Role::User || entry.streaming {
-        return false;
-    }
-    let next = entries[end..].iter().find(|entry| !hidden(entries, entry));
-    next.map_or(complete_tail, |entry| entry.role == Role::User)
+/// A footer can exist without a recorded wall-clock timestamp.
+pub(super) struct TurnEnd {
+    pub time: Option<i64>,
 }
 
-pub(super) fn time_after(entries: &[Entry], end: usize, complete_tail: bool) -> Option<i64> {
-    if !ending(entries, end, complete_tail) {
+/// `end` includes the whole represented tool chain. Hidden duplicate progress
+/// rows do not become separate turns; an unloaded page edge is not an ending.
+pub(super) fn turn_end(entries: &[Entry], end: usize, complete_tail: bool) -> Option<TurnEnd> {
+    let entry = entries.get(end.checked_sub(1)?)?;
+    if entry.role == Role::User || entry.streaming {
         return None;
     }
-    entries[..end]
+    let next = entries[end..].iter().find(|entry| !hidden(entries, entry));
+    if !next.map_or(complete_tail, |entry| entry.role == Role::User) {
+        return None;
+    }
+    let time = entries[..end]
         .iter()
         .rev()
         .take_while(|entry| entry.role != Role::User)
-        .find_map(|entry| entry.time)
+        .find_map(|entry| entry.time);
+    Some(TurnEnd { time })
 }
 
 /// The time of row `key` at `time` (Unix milliseconds), muted and small.
@@ -130,6 +130,14 @@ mod tests {
         transcript
     }
 
+    fn time_after(
+        rows: &[crate::transcript::Entry],
+        end: usize,
+        complete_tail: bool,
+    ) -> Option<i64> {
+        super::turn_end(rows, end, complete_tail).and_then(|footer| footer.time)
+    }
+
     #[test]
     fn one_stamp_after_all_replies_and_tools_of_each_turn() {
         let transcript = transcript(&[
@@ -142,16 +150,12 @@ mod tests {
         ]);
         let rows = transcript.entries();
         let stamps: Vec<_> = (1..=rows.len())
-            .filter_map(|end| super::time_after(rows, end, true).map(|time| (end, time)))
+            .filter_map(|end| time_after(rows, end, true).map(|time| (end, time)))
             .collect();
         assert_eq!(stamps, vec![(4, 103), (6, 105)]);
+        assert_eq!(time_after(rows, 6, false), None, "running or unloaded tail");
         assert_eq!(
-            super::time_after(rows, 6, false),
-            None,
-            "running or unloaded tail"
-        );
-        assert_eq!(
-            super::time_after(rows, 4, false),
+            time_after(rows, 4, false),
             Some(103),
             "earlier complete turn"
         );
@@ -162,10 +166,10 @@ mod tests {
         let transcript = transcript(&["user", "system", "system", "system"]);
         let rows = transcript.entries();
         assert_eq!(crate::transcript::tool_chain(rows, 1), Some(1..4));
-        assert_eq!(super::time_after(rows, 2, true), None);
-        assert_eq!(super::time_after(rows, 3, true), None);
-        assert_eq!(super::time_after(rows, 4, true), Some(103));
-        assert_eq!(super::time_after(rows, 4, false), None);
+        assert_eq!(time_after(rows, 2, true), None);
+        assert_eq!(time_after(rows, 3, true), None);
+        assert_eq!(time_after(rows, 4, true), Some(103));
+        assert_eq!(time_after(rows, 4, false), None);
     }
 
     #[test]
@@ -186,13 +190,13 @@ mod tests {
             "tool": "task", "child_thread_id": "child"
         });
         assert!(super::hidden(&rows, &rows[1]));
-        assert_eq!(super::time_after(&rows, 1, false), Some(100));
+        assert_eq!(time_after(&rows, 1, false), Some(100));
     }
 
     #[test]
     fn streaming_and_unanswered_user_have_no_end_stamp() {
         let mut transcript = transcript(&["user", "assistant"]);
-        assert_eq!(super::time_after(transcript.entries(), 1, true), None);
+        assert_eq!(time_after(transcript.entries(), 1, true), None);
         // Streaming state comes from the same public snapshot used by render.
         let mut message = proteus_contracts::app_protocol::AppTranscriptMessage {
             timestamp_ms: Some(100),
@@ -206,12 +210,15 @@ mod tests {
             streaming: true,
         };
         transcript.reset(vec![message.clone()]);
-        assert_eq!(super::time_after(transcript.entries(), 1, true), None);
+        assert_eq!(time_after(transcript.entries(), 1, true), None);
         message.streaming = false;
         message.timestamp_ms = None;
         message.text = "unknown time".into();
         transcript.reset(vec![message]);
-        assert!(super::ending(transcript.entries(), 1, true));
-        assert_eq!(super::time_after(transcript.entries(), 1, true), None);
+        let rows = transcript.entries();
+        assert_eq!(super::turn_end(rows, 1, true).unwrap().time, None);
+        assert!(super::turn_end(rows, 1, false).is_none());
+        assert!(super::turn_end(rows, 0, true).is_none());
+        assert!(super::turn_end(rows, rows.len() + 1, true).is_none());
     }
 }

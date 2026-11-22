@@ -15,6 +15,7 @@ use gpui_kit::component::highlighter::SyntaxHighlighter;
 
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+use std::sync::Arc;
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::*;
@@ -33,8 +34,23 @@ const HEADER: f32 = 32.;
 /// Zed's minimum_split_diff_width, measured in monospace advances.
 const SPLIT_EMS: f32 = 100.;
 
+/// The complete original input for Copy All, separate from the parsed file patches.
+enum PatchSource {
+    Document(Arc<String>),
+    Embedded(String),
+}
+
+impl PatchSource {
+    fn as_str(&self) -> &str {
+        match self {
+            Self::Document(patch) => patch.as_str(),
+            Self::Embedded(patch) => patch.as_str(),
+        }
+    }
+}
+
 pub(in crate::ui) struct DiffView {
-    patch: String,
+    patch: PatchSource,
     info: Vec<FileInfo>,
     files: Vec<Rc<File>>,
     syntax: Vec<Rc<syntax::Syntax>>,
@@ -62,21 +78,21 @@ pub(in crate::ui) struct DiffHeightChanged;
 impl EventEmitter<DiffHeightChanged> for DiffView {}
 
 impl DiffView {
-    pub fn new(patch: String, info: Vec<FileInfo>, cx: &mut Context<Self>) -> Self {
-        Self::with_viewport(patch, info, true, cx)
+    pub fn new(patch: Arc<String>, info: Vec<FileInfo>, cx: &mut Context<Self>) -> Self {
+        Self::with_viewport(PatchSource::Document(patch), info, true, cx)
     }
 
     pub fn embedded(patch: String, info: Vec<FileInfo>, cx: &mut Context<Self>) -> Self {
-        Self::with_viewport(patch, info, false, cx)
+        Self::with_viewport(PatchSource::Embedded(patch), info, false, cx)
     }
 
     fn with_viewport(
-        patch: String,
+        patch: PatchSource,
         info: Vec<FileInfo>,
         scrollable: bool,
         cx: &mut Context<Self>,
     ) -> Self {
-        let files: Vec<_> = diff::parse(&patch, &info)
+        let files: Vec<_> = diff::parse(patch.as_str(), &info)
             .into_iter()
             .map(Rc::new)
             .collect();
@@ -110,10 +126,34 @@ impl DiffView {
     }
 
     pub fn set_patch(&mut self, patch: &str, info: &[FileInfo], cx: &mut Context<Self>) {
-        if self.patch == patch && self.info == info {
+        self.update_patch(patch, info, || PatchSource::Embedded(patch.into()), cx);
+    }
+
+    pub fn set_document_patch(
+        &mut self,
+        patch: &Arc<String>,
+        info: &[FileInfo],
+        cx: &mut Context<Self>,
+    ) {
+        self.update_patch(
+            patch.as_str(),
+            info,
+            || PatchSource::Document(Arc::clone(patch)),
+            cx,
+        );
+    }
+
+    fn update_patch(
+        &mut self,
+        patch: &str,
+        info: &[FileInfo],
+        keep_source: impl FnOnce() -> PatchSource,
+        cx: &mut Context<Self>,
+    ) {
+        if self.patch.as_str() == patch && self.info == info {
             return;
         }
-        self.patch = patch.into();
+        self.patch = keep_source();
         self.info = info.to_vec();
         let anchor = self
             .list
@@ -330,10 +370,12 @@ impl DiffView {
                     .quiet(cx)
                     .xsmall()
                     .icon(Lucide::Copy)
-                    .disabled(self.patch.is_empty())
+                    .disabled(self.patch.as_str().is_empty())
                     .hint("Копировать весь diff", cx)
                     .on_click(cx.listener(|this, _, _, cx| {
-                        cx.write_to_clipboard(ClipboardItem::new_string(this.patch.clone()));
+                        cx.write_to_clipboard(ClipboardItem::new_string(
+                            this.patch.as_str().to_owned(),
+                        ));
                     })),
             )
     }

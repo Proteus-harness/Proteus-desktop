@@ -3,7 +3,7 @@
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
-use proteus_contracts::domain::{ImageAttachment, image_mime_type};
+use proteus_contracts::domain::{MAX_IMAGE_BYTES, image_mime_type};
 
 #[derive(Clone, Copy)]
 pub(super) struct Budget {
@@ -17,7 +17,8 @@ pub(super) enum Source {
 }
 
 pub(super) struct Prepared {
-    pub image: ImageAttachment,
+    pub name: String,
+    pub mime_type: &'static str,
     pub bytes: Vec<u8>,
 }
 
@@ -28,9 +29,16 @@ pub(super) struct Batch {
 }
 
 pub(super) fn prepare(name: String, bytes: Vec<u8>) -> Result<Prepared, String> {
-    let image = ImageAttachment::from_bytes(name.clone(), &bytes)
-        .map_err(|error| format!("{name}: {error}"))?;
-    Ok(Prepared { image, bytes })
+    if bytes.len() > MAX_IMAGE_BYTES {
+        return Err(format!("{name}: image exceeds 5 MiB"));
+    }
+    let mime_type =
+        image_mime_type(&bytes).ok_or_else(|| format!("{name}: unsupported image format"))?;
+    Ok(Prepared {
+        name,
+        mime_type,
+        bytes,
+    })
 }
 
 pub(super) fn read_batch(sources: Vec<Source>, mut budget: Budget) -> Batch {

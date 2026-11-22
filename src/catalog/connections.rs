@@ -215,7 +215,7 @@ pub struct Discovery {
 /// Bundled and already installed packages share one metadata format. No
 /// provider calls, key reads or package downloads are part of discovery.
 pub fn discover(installed: &[Installed]) -> Discovery {
-    discover_with_inventory(installed, Inventory::local())
+    discover_with_inventory(installed, Inventory::local_modules())
 }
 
 fn discover_with_inventory(installed: &[Installed], inventory: Inventory) -> Discovery {

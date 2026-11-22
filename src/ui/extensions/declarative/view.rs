@@ -220,7 +220,7 @@ impl DeclarativeView {
 
     pub(super) fn show(
         &mut self,
-        root: Node,
+        root: impl Into<Rc<Node>>,
         sequence: u64,
         keys: HashMap<String, String>,
         cx: &mut Context<Self>,
@@ -232,7 +232,8 @@ impl DeclarativeView {
             cx.emit(WillResize);
         }
         self.failure = None;
-        self.images.prepare(&root, cx);
+        let root = root.into();
+        self.images.prepare(root.as_ref(), cx);
         self.keys = keys;
         self.root_revision = self.root_revision.wrapping_add(1);
         if let (
@@ -244,12 +245,12 @@ impl DeclarativeView {
                 transition: Some(new),
                 ..
             },
-        ) = (self.root.as_deref(), &root)
+        ) = (self.root.as_deref(), root.as_ref())
         {
             self.focus_page |= old != new;
         }
         self.accepted_source_revision = self.source_revision;
-        self.root = Some(Rc::new(root));
+        self.root = Some(root);
         cx.notify();
         true
     }
@@ -310,9 +311,9 @@ impl DeclarativeView {
         }
     }
 
-    /// Last tree and keys, to seed a reopened popup until the process answers.
-    pub(super) fn snapshot(&self) -> Option<(Node, HashMap<String, String>)> {
-        Some((self.root.as_deref()?.clone(), self.keys.clone()))
+    /// Keep the accepted immutable tree to seed a reopened popup.
+    pub(super) fn snapshot(&self) -> Option<(Rc<Node>, HashMap<String, String>)> {
+        Some((Rc::clone(self.root.as_ref()?), self.keys.clone()))
     }
 
     pub(super) fn present(&mut self, presentation: Option<Presentation>, cx: &mut Context<Self>) {

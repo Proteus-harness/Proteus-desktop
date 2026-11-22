@@ -9,6 +9,7 @@
 use anyhow::{Result, bail};
 use serde::Deserialize;
 use serde_json::Value;
+use std::sync::Arc;
 
 const MAX_DEPTH: usize = 32;
 const MAX_NODES: usize = 5_000;
@@ -47,7 +48,8 @@ pub enum Node {
     },
     Tree {
         id: String,
-        rows: Vec<super::tree::Row>,
+        #[serde(deserialize_with = "tree_rows")]
+        rows: Arc<Vec<super::tree::Row>>,
         action: String,
         /// Pixels per depth level.
         #[serde(default = "sixteen")]
@@ -177,7 +179,8 @@ pub enum Node {
     /// Native selectable HTML text; parsing Markdown belongs to the producer.
     RichText {
         id: String,
-        html: String,
+        #[serde(deserialize_with = "rich_html")]
+        html: std::sync::Arc<String>,
         /// Atomic content slots referenced by HTML `data-content` attributes.
         #[serde(default)]
         inlines: Vec<InlineContent>,
@@ -217,7 +220,8 @@ pub enum Node {
     /// rows. Optional metadata keeps non-text files visible too.
     Diff {
         id: String,
-        patch: String,
+        #[serde(deserialize_with = "document_patch")]
+        patch: std::sync::Arc<String>,
         #[serde(default)]
         files: Vec<crate::diff::FileInfo>,
         #[serde(default)]
@@ -496,6 +500,13 @@ pub struct SortableItem {
     pub children: Vec<Node>,
 }
 
+/// Decode the original required array, then share its row storage with the native tree.
+fn tree_rows<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Arc<Vec<super::tree::Row>>, D::Error> {
+    Vec::deserialize(d).map(Arc::new)
+}
+
 fn search_placeholder() -> String {
     "Поиск…".into()
 }
@@ -505,6 +516,13 @@ fn no_matches() -> String {
 
 fn hundred() -> f64 {
     100.
+}
+
+/// Decode the original required patch string, then share its backing with the document.
+fn document_patch<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<std::sync::Arc<String>, D::Error> {
+    String::deserialize(d).map(std::sync::Arc::new)
 }
 
 fn one() -> usize {
@@ -525,6 +543,13 @@ fn yes() -> bool {
 
 fn muted() -> Tone {
     Tone::Muted
+}
+
+/// Decode the same required HTML string and share it with the native update guard.
+fn rich_html<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<std::sync::Arc<String>, D::Error> {
+    String::deserialize(d).map(std::sync::Arc::new)
 }
 
 pub(super) fn known_icon(name: Option<&str>) -> Result<()> {
@@ -791,7 +816,7 @@ impl Node {
                 if !indent.is_finite() || !(0. ..=64.).contains(indent) {
                     bail!("tree indent must be within 0..=64");
                 }
-                for row in rows {
+                for row in rows.iter() {
                     known_icon(row.icon.as_deref())?;
                     super::control::check_items(&row.menu)?;
                 }

@@ -298,7 +298,7 @@ impl Runtime {
             // synthetic source and calls its own production renderer.
             Some(Content {
                 language: String::new(),
-                source: String::new(),
+                source: "".into(),
                 context: theme.clone(),
                 source_revision: None,
             })

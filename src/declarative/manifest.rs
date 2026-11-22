@@ -215,6 +215,12 @@ pub struct Installed {
     pub revision: u64,
 }
 
+/// A validated installation's identity for catalog display, not runtime use.
+pub(crate) struct Presence {
+    pub id: String,
+    pub dir: PathBuf,
+}
+
 /// A folder that looks like an extension but cannot be loaded.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Problem {
@@ -251,9 +257,36 @@ pub fn bundled_root() -> PathBuf {
 /// A user installation overrides a bundled package, including a broken
 /// installation: show its error instead of silently running another version.
 pub fn discover_sources(bundled: &Path, user: Option<&Path>) -> (Vec<Installed>, Vec<Problem>) {
+    discover_sources_with(bundled, user, discover, |entry| &entry.manifest.id)
+}
+
+/// Inventory only displays presence; it does not need runtime source revisions.
+pub(crate) fn discover_presence(
+    bundled: &Path,
+    user: Option<&Path>,
+) -> (Vec<Presence>, Vec<Problem>) {
+    discover_sources_with(
+        bundled,
+        user,
+        |root| {
+            discover_with(root, |dir, manifest| Presence {
+                id: manifest.id,
+                dir,
+            })
+        },
+        |entry| &entry.id,
+    )
+}
+
+fn discover_sources_with<T>(
+    bundled: &Path,
+    user: Option<&Path>,
+    discover: impl Fn(&Path) -> (Vec<T>, Vec<Problem>),
+    id: impl Fn(&T) -> &str,
+) -> (Vec<T>, Vec<Problem>) {
     let (mut found, mut problems) = discover(bundled);
     if let Some(user) = user {
-        found.retain(|extension| !user.join(&extension.manifest.id).exists());
+        found.retain(|extension| !user.join(id(extension)).exists());
         let (installed, errors) = discover(user);
         found.extend(installed);
         problems.extend(errors);
@@ -264,6 +297,17 @@ pub fn discover_sources(bundled: &Path, user: Option<&Path>) -> (Vec<Installed>,
 /// Reads every `<root>/<id>/extension.json`, sorted by folder name. A
 /// missing root means no extensions.
 pub fn discover(root: &Path) -> (Vec<Installed>, Vec<Problem>) {
+    discover_with(root, |dir, manifest| Installed {
+        revision: revision(&dir),
+        dir,
+        manifest,
+    })
+}
+
+fn discover_with<T>(
+    root: &Path,
+    project: impl Fn(PathBuf, Manifest) -> T,
+) -> (Vec<T>, Vec<Problem>) {
     let mut installed = Vec::new();
     let mut problems = Vec::new();
     let Ok(entries) = std::fs::read_dir(root) else {
@@ -276,11 +320,7 @@ pub fn discover(root: &Path) -> (Vec<Installed>, Vec<Problem>) {
     dirs.sort();
     for dir in dirs {
         match load(&dir) {
-            Ok(manifest) => installed.push(Installed {
-                revision: revision(&dir),
-                dir,
-                manifest,
-            }),
+            Ok(manifest) => installed.push(project(dir, manifest)),
             Err(error) => problems.push(Problem {
                 dir,
                 error: format!("{error:#}"),

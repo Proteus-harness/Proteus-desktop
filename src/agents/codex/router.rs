@@ -392,6 +392,23 @@ fn thread_id(params: &Value) -> Option<&str> {
         .or_else(|| params.pointer("/turn/threadId"))
         .and_then(Value::as_str)
 }
+// Measure the same compact JSON as Display without keeping the formatted bytes.
+fn json_bytes(value: &Value) -> usize {
+    use std::fmt::{self, Write as _};
+
+    struct Count(usize);
+    impl fmt::Write for Count {
+        fn write_str(&mut self, text: &str) -> fmt::Result {
+            self.0 = self.0.checked_add(text.len()).ok_or(fmt::Error)?;
+            Ok(())
+        }
+    }
+
+    let mut count = Count(0);
+    write!(&mut count, "{value}").expect("compact JSON length must fit in usize");
+    count.0
+}
+
 fn event_bytes(event: &Event) -> usize {
     match event {
         Event::Resynced { history, .. } => history.iter().map(item_bytes).sum::<usize>() + 1024,
@@ -400,7 +417,7 @@ fn event_bytes(event: &Event) -> usize {
         | Event::ReasoningDelta { delta, .. }
         | Event::ToolOutputDelta { delta, .. } => delta.len() + 512,
         Event::PendingRequest { params, .. } | Event::Plan(params) | Event::Usage(params) => {
-            params.to_string().len() + 1024
+            json_bytes(params) + 1024
         }
         _ => 1024,
     }
@@ -412,9 +429,7 @@ fn item_bytes(item: &Item) -> usize {
         | super::ItemKind::Reasoning { text }
         | super::ItemKind::Plan { text }
         | super::ItemKind::Other { text, .. } => text.len() + 512,
-        super::ItemKind::Tool { input, output, .. } => {
-            input.to_string().len() + output.len() + 1024
-        }
+        super::ItemKind::Tool { input, output, .. } => json_bytes(input) + output.len() + 1024,
     }
 }
 

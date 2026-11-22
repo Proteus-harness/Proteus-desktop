@@ -46,7 +46,7 @@ impl Slots {
         for specification in specifications {
             let renderer = languages
                 .iter()
-                .find(|(language, _)| language == &specification.language)
+                .find(|(language, _)| *language == specification.language.as_str())
                 .map(|(_, renderer)| *renderer);
             if let Some(slot) = self.slots.get(&specification.id)
                 && slot.language == specification.language

@@ -8,6 +8,7 @@ use crate::declarative::widget::Node;
 use gpui_kit::component::input::{EditorState, InputEvent, InputState, TextareaState};
 use gpui_kit::*;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 pub(super) mod textarea;
 
@@ -364,7 +365,7 @@ impl DeclarativeView {
                 id, patch, files, ..
             } => {
                 if let Some(diff) = self.fields.diffs.get(id) {
-                    diff.update(cx, |diff, cx| diff.set_patch(patch, files, cx));
+                    diff.update(cx, |diff, cx| diff.set_document_patch(patch, files, cx));
                 } else {
                     let diff = cx
                         .new(|cx| crate::ui::diff::DiffView::new(patch.clone(), files.clone(), cx));
@@ -604,14 +605,14 @@ impl DeclarativeView {
                 if let Some(tree) = self.fields.trees.get(id) {
                     tree.update(cx, |tree, cx| {
                         tree.action.rebind(action);
-                        tree.set_rows(rows.clone(), layout, cx);
+                        tree.set_rows(Arc::clone(rows), layout, cx);
                     });
                 } else {
                     let send = self.widget_action(action, cx);
                     let view = cx.weak_entity();
                     let natural = self.embedded;
                     let tree =
-                        cx.new(|cx| Tree::new(rows.clone(), layout, natural, view, cx, send));
+                        cx.new(|cx| Tree::new(Arc::clone(rows), layout, natural, view, cx, send));
                     self.fields.trees.insert(id.clone(), tree);
                 }
             }

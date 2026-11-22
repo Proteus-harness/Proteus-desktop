@@ -575,17 +575,20 @@ impl Workspace {
                                     .baseline(&summary.session_dir, activity.status);
                             }
                         }
+                        // Match the same lossy text as tabs::chat without
+                        // building a prefixed String for every catalog row.
                         let known: std::collections::HashSet<_> = sessions
                             .iter()
-                            .map(|session| tabs::chat(&session.session_dir))
+                            .map(|session| session.session_dir.to_string_lossy())
                             .collect();
                         let open: std::collections::HashSet<_> =
                             this.chats.keys().cloned().collect();
-                        this.update_tabs(cx, |layout| {
+                        this.update_tabs(cx, move |layout| {
                             layout.retain(|id| {
-                                tabs::chat_dir(id).is_none()
-                                    || known.contains(id)
-                                    || open.contains(id)
+                                tabs::chat_dir(id).is_none_or(|dir| {
+                                    known.contains(dir.to_string_lossy().as_ref())
+                                        || open.contains(id)
+                                })
                             });
                         });
                         this.sessions_arrived

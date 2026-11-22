@@ -55,6 +55,15 @@ fn language(path: &str) -> String {
     }
 }
 
+fn append_expanded(source: &mut String, line: &str) {
+    let mut parts = line.split('\t');
+    source.push_str(parts.next().unwrap_or_default());
+    for part in parts {
+        source.push_str("    ");
+        source.push_str(part);
+    }
+}
+
 fn side(file: &File, old: bool, theme: &HighlightTheme) -> Vec<Highlights> {
     let mut source = String::new();
     let mut ranges = vec![None; file.lines.len()];
@@ -70,7 +79,7 @@ fn side(file: &File, old: bool, theme: &HighlightTheme) -> Vec<Highlights> {
             continue;
         }
         let start = source.len();
-        source.push_str(&line.text.replace('\t', "    "));
+        append_expanded(&mut source, &line.text);
         ranges[index] = Some(start..source.len());
         source.push('\n');
     }

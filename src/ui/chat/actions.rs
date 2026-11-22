@@ -108,7 +108,7 @@ impl Chat {
         let request = SendRequest {
             id: Some(format!("run-{}", uuid::Uuid::new_v4().simple())),
             text: text.clone(),
-            images: draft.images(),
+            images: Vec::new(),
             options: RunOptions::default(),
             session_dir: self.session.dir.clone(),
         };
@@ -119,9 +119,12 @@ impl Chat {
             .as_ref()
             .map(|pending| pending.queued_user_messages.as_slice())
             .unwrap_or_default();
-        self.session
-            .feedback
-            .begin(request_id.clone(), text.clone(), &request.images, queued);
+        self.session.feedback.begin_with_names(
+            request_id.clone(),
+            text.clone(),
+            draft.image_names(),
+            queued,
+        );
         self.composer.update(cx, |state, cx| {
             state.clean(window, cx);
             state.focus(window, cx);
@@ -133,10 +136,18 @@ impl Chat {
         let Some(api) = self.api.clone() else {
             return;
         };
+        let images = draft.images();
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { api.send(&request) })
+                .spawn(async move {
+                    let mut request = request;
+                    request.images = images
+                        .into_iter()
+                        .map(|image| image.encode())
+                        .collect::<anyhow::Result<_>>()?;
+                    api.send(&request)
+                })
                 .await;
             let Ok(owner) = this.read_with(cx, |this, _| this.window_handle) else {
                 return;
@@ -316,7 +327,7 @@ impl Chat {
                     .ok();
             });
         }
-        self.session.config = Some(config);
+        self.session.config = Some(std::sync::Arc::new(config));
         cx.emit(ChatEvent::state_changed());
     }
 }

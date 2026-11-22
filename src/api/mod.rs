@@ -401,6 +401,7 @@ impl EventStream {
     /// Returns the next item, or `None` when the server closed the stream.
     pub fn next(&mut self) -> Option<Result<StreamItem>> {
         let mut data = String::new();
+        let mut data_start = 0;
         let mut line = String::new();
         loop {
             line.clear();
@@ -409,24 +410,40 @@ impl EventStream {
                 Ok(_) => {}
                 Err(error) => return Some(Err(error.into())),
             }
-            let line = line.trim_end_matches(['\r', '\n']);
-            if line.is_empty() {
+            let trimmed = line.trim_end_matches(['\r', '\n']);
+            if trimmed.is_empty() {
                 if data.is_empty() {
                     continue;
                 }
-                return Some(parse_output(&data).map(StreamItem::Event));
+                return Some(parse_output(&data[data_start..]).map(StreamItem::Event));
             }
-            if line.starts_with(':') {
+            if trimmed.starts_with(':') {
                 if data.is_empty() {
                     return Some(Ok(StreamItem::Heartbeat));
                 }
                 continue;
             }
-            if let Some(value) = line.strip_prefix("data:") {
-                if !data.is_empty() {
+            if let Some(value) = trimmed.strip_prefix("data:") {
+                let value = value.strip_prefix(' ').unwrap_or(value);
+                if data.is_empty() {
+                    if value.is_empty() {
+                        continue;
+                    }
+                    // Leave an oversized scratch buffer available when this
+                    // line reused capacity from a preceding ignored line.
+                    if line.capacity() > line.len().saturating_mul(2) {
+                        data.push_str(value);
+                        continue;
+                    }
+                    // Parse the first payload from the line's allocation.
+                    let end = trimmed.len();
+                    data_start = end - value.len();
+                    line.truncate(end);
+                    std::mem::swap(&mut data, &mut line);
+                } else {
                     data.push('\n');
+                    data.push_str(value);
                 }
-                data.push_str(value.strip_prefix(' ').unwrap_or(value));
             }
         }
     }

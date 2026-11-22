@@ -22,7 +22,7 @@ pub(super) struct DeclarativeBadge {
     pub(super) view: Entity<DeclarativeView>,
     pub(super) popup: crate::ui::motion::Popup<super::super::SurfaceView>,
     pub(super) last_popup: Option<(
-        crate::declarative::widget::Node,
+        Rc<crate::declarative::widget::Node>,
         std::collections::HashMap<String, String>,
     )>,
     pub(super) popup_epoch: u64,

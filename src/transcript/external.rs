@@ -88,17 +88,18 @@ impl Transcript {
 
     pub(crate) fn external_delta(
         &mut self,
-        turn: &str,
-        id: &str,
+        turn: impl Into<String>,
+        id: impl Into<String>,
         delta: &str,
         reasoning: bool,
         tool: bool,
     ) -> Change {
-        let identity = (turn.to_owned(), id.to_owned());
+        let identity = (turn.into(), id.into());
         let Some(index) = self.external_index(&identity) else {
+            let (turn_id, id) = identity;
             return self.external_upsert(Item {
-                id: id.into(),
-                turn_id: turn.into(),
+                id,
+                turn_id,
                 status: "inProgress".into(),
                 timestamp_ms: None,
                 kind: if tool {
@@ -245,9 +246,14 @@ impl Transcript {
         let old_count = self.entries.len();
         let mut prefix = self.empty_window();
         for item in items {
-            let identity = (item.turn_id.clone(), item.id.clone());
+            let identity = (item.turn_id, item.id);
             if self.external_index(&identity).is_none() {
-                prefix.external_upsert(item);
+                let (turn_id, id) = identity;
+                prefix.external_upsert(Item {
+                    turn_id,
+                    id,
+                    ..item
+                });
             }
         }
         let inserted = prefix.entries.len();
