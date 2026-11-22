@@ -24,9 +24,32 @@ pub(crate) struct Preparation {
     result: async_channel::Receiver<Result<Boot>>,
 }
 
+/// The pre-graphics worker never reads inactive areas.
+#[derive(Default)]
+struct BootLayout {
+    active: TabLayout,
+    owner: Option<String>,
+}
+
+impl BootLayout {
+    fn from_spaces(spaces: &ChatSpaces) -> Self {
+        Self {
+            active: spaces.active_layout().clone(),
+            owner: spaces.active_root().map(str::to_owned),
+        }
+    }
+}
+
 impl Preparation {
-    pub(crate) fn launch(launch: &crate::launch::Launch, saved: ChatSpaces) -> Option<Self> {
+    pub(crate) fn launch(
+        launch: &crate::launch::Launch,
+        preferences: Option<&crate::preferences::Preferences>,
+    ) -> Option<Self> {
         let workspace = launch.workspace.clone()?;
+        let saved = preferences
+            .and_then(|preferences| preferences.saved_spaces_for(&workspace, &launch.target))
+            .map(BootLayout::from_spaces)
+            .unwrap_or_default();
         let options = LaunchOptions {
             workspace: workspace.clone(),
             target: launch.target.clone(),
@@ -37,7 +60,11 @@ impl Preparation {
         std::thread::Builder::new()
             .name("proteus-startup".into())
             .spawn(move || {
-                let _ = send.send_blocking(boot(&options, saved));
+                let _ = send.send_blocking(boot_from_layout(
+                    &options,
+                    &saved.active,
+                    saved.owner.as_deref(),
+                ));
             })
             .ok()?;
         Some(Self { workspace, result })
@@ -106,14 +133,24 @@ fn needs_core(agent: AgentKind, required: &[ChatKey]) -> bool {
 }
 
 pub(super) fn boot(options: &LaunchOptions, saved: ChatSpaces) -> Result<Boot> {
-    boot_spaces_with(
+    boot_from_layout(options, saved.active_layout(), saved.active_root())
+}
+
+fn boot_from_layout(
+    options: &LaunchOptions,
+    saved: &TabLayout,
+    owner: Option<&str>,
+) -> Result<Boot> {
+    boot_with_owner(
         options,
         saved,
+        owner,
         connection::connect_with_preference,
         |program, cwd| Ok(CodexService::spawn(program, cwd)?),
     )
 }
 
+#[cfg(test)]
 fn boot_spaces_with(
     options: &LaunchOptions,
     saved: ChatSpaces,
@@ -122,7 +159,7 @@ fn boot_spaces_with(
 ) -> Result<Boot> {
     boot_with_owner(
         options,
-        saved.active_layout().clone(),
+        saved.active_layout(),
         saved.active_root(),
         connect,
         spawn_codex,
@@ -136,12 +173,12 @@ fn boot_with(
     connect: impl FnOnce(&LaunchOptions, Option<&Path>) -> Result<(Api, Option<BackendGuard>)>,
     spawn_codex: impl FnOnce(PathBuf, PathBuf) -> Result<CodexService>,
 ) -> Result<Boot> {
-    boot_with_owner(options, saved, None, connect, spawn_codex)
+    boot_with_owner(options, &saved, None, connect, spawn_codex)
 }
 
 fn boot_with_owner(
     options: &LaunchOptions,
-    saved: TabLayout,
+    saved: &TabLayout,
     owner: Option<&str>,
     connect: impl FnOnce(&LaunchOptions, Option<&Path>) -> Result<(Api, Option<BackendGuard>)>,
     spawn_codex: impl FnOnce(PathBuf, PathBuf) -> Result<CodexService>,
@@ -150,9 +187,15 @@ fn boot_with_owner(
     // A config picked by the user must never acquire an old chat merely
     // because its history is the newest one in the shared session store.
     let fresh = options.startup == StartupIntent::Fresh;
-    let saved = if fresh { TabLayout::default() } else { saved };
+    let empty;
+    let saved = if fresh {
+        empty = TabLayout::default();
+        &empty
+    } else {
+        saved
+    };
     let owner = if fresh { None } else { owner };
-    let required = required_chats_with_owner(&saved, owner);
+    let required = required_chats_with_owner(saved, owner);
     let codex_ids: Vec<_> = required
         .iter()
         .filter_map(|key| match key {
@@ -262,13 +305,13 @@ fn fresh_core(api: Api, backend: Option<BackendGuard>, workspace: &Path) -> Resu
 #[cfg(test)]
 fn restore(api: Api, backend: Option<BackendGuard>, saved: TabLayout) -> Result<Boot> {
     let required = required_chats(&saved);
-    restore_core(api, backend, saved, true, &required)
+    restore_core(api, backend, &saved, true, &required)
 }
 
 fn restore_core(
     api: Api,
     backend: Option<BackendGuard>,
-    saved: TabLayout,
+    saved: &TabLayout,
     fallback: bool,
     required: &[ChatKey],
 ) -> Result<Boot> {

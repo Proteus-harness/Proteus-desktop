@@ -58,17 +58,7 @@ fn main() {
     if let Ok(preferences) = &preferences {
         launch.restore_workspace(preferences);
     }
-    let saved_spaces = preferences
-        .as_ref()
-        .ok()
-        .and_then(|preferences| {
-            launch
-                .workspace
-                .as_ref()
-                .map(|workspace| preferences.spaces_for(workspace, &launch.target))
-        })
-        .unwrap_or_default();
-    let preparation = ui::Preparation::launch(&launch, saved_spaces);
+    let preparation = ui::Preparation::launch(&launch, preferences.as_ref().ok());
 
     gpui_kit::application()
         .with_assets(gpui_kit::assets::AllAssets)

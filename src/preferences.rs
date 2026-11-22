@@ -171,12 +171,18 @@ impl Preferences {
 
     /// Restore all independent chat areas only in their saved server namespace.
     pub fn spaces_for(&self, workspace: &Path, target: &crate::launch::Target) -> ChatSpaces {
+        self.saved_spaces_for(workspace, target)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn saved_spaces_for(
+        &self,
+        workspace: &Path,
+        target: &crate::launch::Target,
+    ) -> Option<&ChatSpaces> {
         let owner = TabWorkspace::new(workspace, target);
-        if owner.is_some() && owner == self.tabs_workspace {
-            self.tabs.clone()
-        } else {
-            ChatSpaces::default()
-        }
+        (owner.is_some() && owner == self.tabs_workspace).then_some(&self.tabs)
     }
 }
 

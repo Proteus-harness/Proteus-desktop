@@ -266,9 +266,13 @@ pub(super) fn is_enabled(id: &str, cx: &App) -> bool {
 /// Every extension in the user's order.
 pub(super) fn ordered(cx: &App) -> Vec<&'static Manifest> {
     let all = catalog();
+    let extensions = &prefs::visual(cx).extensions;
+    // A strictly ascending catalog already has the default first-id order.
+    if extensions.order.is_empty() && all.windows(2).all(|pair| pair[0].id < pair[1].id) {
+        return all;
+    }
     let ids: Vec<&'static str> = all.iter().map(|manifest| manifest.id).collect();
-    prefs::visual(cx)
-        .extensions
+    extensions
         .ordered(&ids)
         .into_iter()
         .filter_map(|id| all.iter().find(|manifest| manifest.id == id).copied())

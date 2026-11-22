@@ -329,7 +329,7 @@ fn restart_keeps_core_owner_context_when_child_is_command_target_behind_file() {
             ChatKey::Proteus("/sessions/root".into()),
         ]
     );
-    let boot = restore_core(server.api(), None, layout.clone(), true, &required).unwrap();
+    let boot = restore_core(server.api(), None, &layout, true, &required).unwrap();
     assert_eq!(boot.resumed, paths(&["/sessions/child", "/sessions/root"]));
     assert_eq!(
         boot.projects.get(Path::new("/sessions/root")),
@@ -355,7 +355,7 @@ fn context_only_root_resumes_without_reopening_its_chat_tab() {
     spaces.set_active(Some("chat:/sessions/root"), fragment.clone());
     let required = required_chats_with_owner(spaces.active_layout(), spaces.active_root());
     assert_eq!(required, [ChatKey::Proteus("/sessions/root".into())]);
-    let boot = restore_core(server.api(), None, fragment.clone(), true, &required).unwrap();
+    let boot = restore_core(server.api(), None, &fragment, true, &required).unwrap();
     assert_eq!(boot.resumed, paths(&["/sessions/root"]));
     assert!(boot.restored.is_empty());
     assert!(boot.startup.is_none());
