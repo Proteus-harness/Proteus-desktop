@@ -10,7 +10,7 @@ use proteus_contracts::domain::SkillDescriptor;
 
 use super::SettingsView;
 use super::widgets::{Tone, card, changed_dot, chip, hashed_id, item_row, named, note, section};
-use crate::settings::addons::{missing_skills, package_of, skills};
+use crate::settings::addons::{package_of, skills};
 use crate::ui::kit;
 
 impl SettingsView {
@@ -53,11 +53,6 @@ impl SettingsView {
                 self.skill_row(skill, (providers.len() > 1).then_some(*provider), cx)
             })
             .collect();
-        rows.extend(
-            missing_skills(&self.draft, addons)
-                .into_iter()
-                .map(|id| self.missing_skill_row(id, cx)),
-        );
         if rows.is_empty() {
             rows.push(note("Поставщики контекста не нашли skills.", cx).into_any_element());
         }
@@ -129,31 +124,6 @@ impl SettingsView {
             item_row(title, trailing),
             cx,
         )
-    }
-
-    /// Disabled entry that no catalog lists any more; switching it on only
-    /// removes the stale entry.
-    fn missing_skill_row(&self, id: &str, cx: &Context<Self>) -> AnyElement {
-        let target = id.to_string();
-        let switch = kit::switch(hashed_id("missing-skill", &id))
-            .checked(false)
-            .on_click(cx.listener(move |this, _: &bool, _, cx| {
-                this.update_draft(cx, |draft| draft.set_skill(&target, true));
-            }));
-        item_row(
-            named(
-                hashed_id("missing-skill-name", &id),
-                id.to_string(),
-                None,
-                None,
-                cx,
-            ),
-            [
-                chip("нет в каталоге", Tone::Warning, cx).into_any_element(),
-                switch.into_any_element(),
-            ],
-        )
-        .into_any_element()
     }
 }
 

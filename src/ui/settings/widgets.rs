@@ -40,6 +40,56 @@ pub(super) fn changed_dot(cx: &App) -> impl IntoElement + use<> {
         .bg(cx.theme().warning)
 }
 
+/// Feedback for async operations. Its fixed space keeps the list viewport
+/// stable; long diagnostics scroll within the footer.
+pub(super) fn operation_status(
+    id: &'static str,
+    status: Option<(SharedString, bool)>,
+    busy: bool,
+    cx: &App,
+) -> Div {
+    let theme = cx.theme();
+    div()
+        .flex_none()
+        .h(prefs::scaled(48.))
+        .px_6()
+        .bg(theme.background)
+        .child(
+            div()
+                .id(id)
+                .size_full()
+                .overflow_y_scroll()
+                .children(status.map(|(text, error)| {
+                    let pending = busy && !error;
+                    h_flex()
+                        .min_h(prefs::scaled(48.))
+                        .py_2()
+                        .gap_2()
+                        .items_start()
+                        .text_sm()
+                        .text_color(if error {
+                            theme.danger
+                        } else if pending {
+                            theme.muted_foreground
+                        } else {
+                            theme.success
+                        })
+                        .child(div().flex_none().mt_0p5().child(if pending {
+                            crate::ui::motion::Spinner::new().small().into_any_element()
+                        } else {
+                            Icon::new(if error {
+                                IconName::TriangleAlert
+                            } else {
+                                IconName::Check
+                            })
+                            .small()
+                            .into_any_element()
+                        }))
+                        .child(div().flex_1().min_w_0().child(text))
+                })),
+        )
+}
+
 /// Titled part of a page: heading with an optional hint and action, then
 /// the body.
 pub(super) fn section(

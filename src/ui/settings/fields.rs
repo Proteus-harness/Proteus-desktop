@@ -205,7 +205,7 @@ impl SettingsView {
             .when(changed, |title| title.child(changed_dot(cx)));
         self.spotted(
             &super::spot::field(path),
-            field_row(title, control, fit),
+            super::reveal::cell(cx).child(field_row(title, control, fit)),
             cx,
         )
     }

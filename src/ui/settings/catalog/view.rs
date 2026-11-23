@@ -15,7 +15,7 @@ use gpui_kit::*;
 
 use super::super::{
     SettingsView,
-    widgets::{Tone, chip, hashed_id, package_heading, package_icon},
+    widgets::{Tone, chip, hashed_id, operation_status, package_heading, package_icon},
 };
 use super::details::DETAILS_WIDTH;
 use super::items::{Item, Status, kind_icon, version_label};
@@ -23,8 +23,8 @@ use crate::catalog::open::OPEN;
 use crate::ui::fade::faded;
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
+use crate::ui::motion;
 use crate::ui::prefs;
-use crate::ui::{Spinner, motion};
 
 impl SettingsView {
     pub(in crate::ui::settings) fn catalog_page(
@@ -182,56 +182,24 @@ impl SettingsView {
             div().size_full().min_w_0().child(body),
             hashed_id("catalog-mode", &mode_key),
         );
+        let status = self
+            .catalogs
+            .message
+            .as_ref()
+            .map(|(error, text)| (SharedString::from(text.clone()), *error))
+            .or_else(|| {
+                (!loading.is_empty()).then(|| {
+                    let names = loading
+                        .iter()
+                        .map(|source| source.name())
+                        .collect::<Vec<_>>();
+                    (format!("Скачиваю: {}", names.join(", ")).into(), false)
+                })
+            });
         let page = v_flex()
             .size_full()
             .child(self.catalog_header(sources.len(), cx))
             .child(self.catalog_toolbar(updates, cx))
-            .children(self.catalogs.message.as_ref().map(|(error, text)| {
-                h_flex()
-                    .px_6()
-                    .pb_3()
-                    .gap_2()
-                    .items_start()
-                    .text_sm()
-                    .text_color(if *error {
-                        theme.danger
-                    } else if self.catalogs.busy {
-                        theme.muted_foreground
-                    } else {
-                        theme.success
-                    })
-                    .child(if self.catalogs.busy && !*error {
-                        Spinner::new().small().into_any_element()
-                    } else {
-                        Icon::new(if *error {
-                            IconName::TriangleAlert
-                        } else {
-                            IconName::Check
-                        })
-                        .small()
-                        .flex_none()
-                        .mt_0p5()
-                        .into_any_element()
-                    })
-                    .child(div().flex_1().min_w_0().child(text.clone()))
-            }))
-            .when(!loading.is_empty(), |page| {
-                let names = loading
-                    .iter()
-                    .map(|source| source.name())
-                    .collect::<Vec<_>>();
-                page.child(
-                    h_flex()
-                        .px_6()
-                        .pb_3()
-                        .gap_2()
-                        .items_center()
-                        .text_sm()
-                        .text_color(theme.muted_foreground)
-                        .child(Spinner::new().small())
-                        .child(faded(format!("Скачиваю: {}", names.join(", ")))),
-                )
-            })
             .child(
                 self.catalog_list_keys(h_flex())
                     .flex_1()
@@ -276,7 +244,13 @@ impl SettingsView {
                             window.refresh();
                         }
                     }),
-            );
+            )
+            .child(operation_status(
+                "catalog-operation-status",
+                status,
+                self.catalogs.busy || !loading.is_empty(),
+                cx,
+            ));
         self.catalog_page_keys(page, cx).into_any_element()
     }
 

@@ -50,7 +50,6 @@ impl SettingsView {
             })
             .collect::<Vec<_>>();
         let mut parts = self.preferences_problem(cx);
-        parts.extend(self.extension_notice(cx));
         parts.push(
             section(
                 "Установленные",
@@ -185,40 +184,6 @@ impl SettingsView {
             });
         }).detach();
         cx.notify();
-    }
-
-    fn extension_notice(&self, cx: &App) -> Option<AnyElement> {
-        let notice = self.extension_notice.as_ref()?;
-        let theme = cx.theme();
-        let color = if notice.error {
-            theme.danger
-        } else {
-            theme.success
-        };
-        Some(
-            h_flex()
-                .gap_2()
-                .items_start()
-                .px_4()
-                .py_3()
-                .surface_frame(cx)
-                .border_color(color.opacity(0.4))
-                .bg(color.opacity(0.08))
-                .text_sm()
-                .child(
-                    Icon::new(if notice.error {
-                        IconName::TriangleAlert
-                    } else {
-                        IconName::CircleCheck
-                    })
-                    .small()
-                    .flex_none()
-                    .mt_0p5()
-                    .text_color(color),
-                )
-                .child(div().flex_1().min_w_0().child(notice.text.clone()))
-                .into_any_element(),
-        )
     }
 
     fn extension_row(&self, manifest: &'static Manifest, cx: &Context<Self>) -> Stateful<Div> {

@@ -331,27 +331,6 @@ pub fn skills(addons: &AppAddonsSnapshot) -> Vec<(&str, &SkillDescriptor)> {
         .collect()
 }
 
-/// Disabled skill ids that no catalog lists. Unknown while a provider
-/// failed, since its skills are not visible.
-pub fn missing_skills<'a>(draft: &'a Draft, addons: &AppAddonsSnapshot) -> Vec<&'a str> {
-    if addons
-        .catalogs
-        .iter()
-        .any(|catalog| catalog.error.is_some())
-    {
-        return Vec::new();
-    }
-    let known = skills(addons);
-    draft
-        .addons
-        .addons
-        .disabled_skills
-        .iter()
-        .filter(|id| !known.iter().any(|(_, skill)| &skill.id == *id))
-        .map(String::as_str)
-        .collect()
-}
-
 /// Load state of a package of the saved profile, matched by its entry.
 pub fn package_state<'a>(
     addons: &'a AppAddonsSnapshot,

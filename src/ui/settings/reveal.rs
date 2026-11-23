@@ -16,8 +16,8 @@ thread_local! {
     static NEXT: Cell<usize> = const { Cell::new(0) };
     /// The scrolled page being built, if any.
     static PAGE: RefCell<Option<ScrollHandle>> = const { RefCell::new(None) };
-    /// The focus already brought into view.
-    static SHOWN: RefCell<Option<FocusHandle>> = const { RefCell::new(None) };
+    /// The last focus observed, including mouse focus.
+    static FOCUSED: RefCell<Option<FocusHandle>> = const { RefCell::new(None) };
 }
 
 /// Starts a page: cells built until `end` scroll `scroll`.
@@ -55,19 +55,20 @@ fn reveal(
     window: &mut Window,
     cx: &mut App,
 ) {
-    if !window.last_input_was_keyboard() {
-        return;
-    }
     let Some(focused) = window.focused(cx) else {
+        FOCUSED.replace(None);
         return;
     };
     // Nested cells come first, so the closest one moves the page.
-    if SHOWN.with_borrow(|shown| shown.as_ref() == Some(&focused))
+    if FOCUSED.with_borrow(|shown| shown.as_ref() == Some(&focused))
         || !cell.contains_focused(window, cx)
     {
         return;
     }
-    SHOWN.replace(Some(focused));
+    FOCUSED.replace(Some(focused));
+    if !window.last_input_was_keyboard() {
+        return;
+    }
     let view = scroll.bounds();
     let (top, bottom) = (view.top() + px(MARGIN), view.bottom() - px(MARGIN));
     let shift = if bounds.top() < top || bounds.size.height > bottom - top {

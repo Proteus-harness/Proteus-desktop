@@ -9,7 +9,7 @@ use proteus_contracts::domain::{ConfigField, ConfigValueSchema, ModuleConfigSche
 use serde_json::json;
 
 use super::addons::{
-    mcp_servers, missing_skills, normalized, package_contents, package_state, tool_server,
+    mcp_servers, normalized, package_contents, package_state, skills, tool_server,
 };
 use super::catalog::{
     CLIENT_PAGES, CONNECTION_PAGES, CONTEXT_PROVIDER_SLOT, HOOK_SLOT, MODEL_SLOT, POLICY_SLOT,
@@ -385,7 +385,11 @@ fn addons_snapshot_links_servers_tools_skills_and_packages() {
         ]
     );
     assert_eq!(tool_server(&addons, "x_run"), Some("team:x"));
-    assert_eq!(missing_skills(&draft, &addons), ["gone"]);
+    let listed: Vec<_> = skills(&addons)
+        .into_iter()
+        .map(|(_, skill)| (skill.id.as_str(), draft.skill_enabled(&skill.id)))
+        .collect();
+    assert_eq!(listed, [("review", false), ("team:deploy", true)]);
     assert_eq!(package_contents(&addons, "team"), (1, 1));
     let state = package_state(&addons, Path::new("pkg")).expect("package state");
     assert_eq!(state.name.as_deref(), Some("team"));

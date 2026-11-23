@@ -31,7 +31,7 @@ pub(in crate::ui) fn config_selector(
                 .settings_control(cx)
                 .small()
                 .icon(Lucide::ChevronDown)
-                .faded_label("Сменить…"),
+                .faded_label("Сменить"),
         )
         .content(move |_, window, cx| {
             let popup = cx.weak_entity();
@@ -172,7 +172,7 @@ impl Render for ConfigPicker {
             .child(
                 kit::button("config-choose-other-file")
                     .small()
-                    .faded_label("Другой файл…")
+                    .faded_label("Другой файл")
                     .on_click(cx.listener(|this, _, window, cx| {
                         (this.pick)(None, window, cx);
                     })),

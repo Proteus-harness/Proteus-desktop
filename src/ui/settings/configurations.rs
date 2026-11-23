@@ -78,11 +78,11 @@ pub(in crate::ui) fn controls(
         true,
         move |menu: PopupMenu, _, _| {
             menu.item(
-                crate::ui::selection::menu_option("Выбрать файл…", false)
+                crate::ui::selection::menu_option("Выбрать файл", false)
                     .on_click(|_, window, cx| visual::run(Action::Open, window, cx)),
             )
             .item(
-                crate::ui::selection::menu_option("Сохранить оформление как…", false)
+                crate::ui::selection::menu_option("Сохранить оформление в файл", false)
                     .on_click(|_, window, cx| visual::run(Action::SaveAs, window, cx)),
             )
             .item(

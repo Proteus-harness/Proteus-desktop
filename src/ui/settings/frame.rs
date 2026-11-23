@@ -207,9 +207,18 @@ impl SettingsView {
                 frame.child(self.render_save_bar(cx))
             })
             .when(self.page == PageId::Extensions, |frame| {
-                frame.on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
-                    this.install_archives(paths.paths(), cx)
-                }))
+                frame
+                    .child(super::widgets::operation_status(
+                        "extensions-operation-status",
+                        self.extension_notice
+                            .as_ref()
+                            .map(|notice| (notice.text.clone(), notice.error)),
+                        self.catalogs.busy,
+                        cx,
+                    ))
+                    .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
+                        this.install_archives(paths.paths(), cx)
+                    }))
             })
             .into_any_element()
     }
