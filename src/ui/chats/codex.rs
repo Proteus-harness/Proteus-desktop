@@ -1,6 +1,6 @@
 //! Codex lifecycle uses native opaque thread IDs; the Chat view is shared.
 use super::*;
-use crate::agents::codex::Opened;
+use crate::agents::codex::{Model, Opened};
 
 impl Workspace {
     pub(in crate::ui) fn refresh_codex_sessions(&mut self, cx: &mut Context<Self>) {
@@ -105,6 +105,14 @@ impl Workspace {
         .detach();
     }
 
+    pub(in crate::ui) fn replace_codex_models(&mut self, models: Vec<Model>) {
+        self.codex_models = if models.is_empty() {
+            Default::default()
+        } else {
+            models.into()
+        };
+    }
+
     pub(in crate::ui) fn insert_codex_chat(
         &mut self,
         opened: Opened,
@@ -147,7 +155,7 @@ impl Workspace {
                 Ok((service.new_thread(&project)?, models))
             },
             move |this, (opened, models), window, cx| {
-                this.codex_models = models;
+                this.replace_codex_models(models);
                 if this.finish_chat_creation(&creation, &requested_layout) {
                     let key = ChatKey::Codex(opened.handle.thread_id().to_owned());
                     this.select_chat_space(&key, cx);
@@ -203,7 +211,7 @@ impl Workspace {
                         return this.fail_chat_resume(&id, format!("Codex: {error:#}"), cx);
                     }
                 };
-                this.codex_models = models;
+                this.replace_codex_models(models);
                 let id = this.insert_codex_chat(opened, false, window, cx);
                 this.finish_chat_resume(&id, open, window, cx);
             },

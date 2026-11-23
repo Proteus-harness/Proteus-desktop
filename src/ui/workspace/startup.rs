@@ -113,7 +113,7 @@ fn required_chats_with_owner(saved: &TabLayout, owner: Option<&str>) -> Vec<Chat
     let mut required: Vec<_> = saved
         .chats()
         .filter(|id| {
-            saved.visible().any(|visible| visible == *id) || active.as_deref() == Some(*id)
+            saved.is_visible(id) || active.as_deref() == Some(*id)
         })
         .filter_map(tabs::chat_key)
         .collect();

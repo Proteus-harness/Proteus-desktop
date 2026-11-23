@@ -111,6 +111,10 @@ impl Replies {
         }
     }
 
+    pub(super) fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     pub(super) fn retain(&mut self, keys: &HashSet<u64>) {
         // Releasing historical rows closes their surfaces and child workers.
         self.0.retain(|key, _| keys.contains(key));

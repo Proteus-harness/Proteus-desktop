@@ -2,6 +2,8 @@
 //! Zed conversation_view::load_subagent_session supplies the lazy/deduplicated
 //! navigation pattern; Proteus reads its existing journal page API instead.
 //! Composer suppression follows Zed conversation_view/thread_view.rs::render_message_editor.
+#[cfg(test)]
+use gpui_kit::base::ElementExt as _;
 use gpui_kit::component::*;
 use gpui_kit::*;
 use proteus_contracts::app_protocol::{AppSubagentSession, AppTranscriptCursor};
@@ -370,12 +372,14 @@ impl Chat {
             && !self.history.request_pending()
             && !self.history.archived())
         .then(|| {
-            kit::button("readonly-history-retry")
-                .debug_selector(|| "readonly-history-retry".into())
+            let button = kit::button("readonly-history-retry")
                 .quiet(cx)
                 .small()
                 .faded_label("Повторить")
-                .on_click(cx.listener(|chat, _, _, cx| chat.retry_failed_readonly_history(cx)))
+                .on_click(cx.listener(|chat, _, _, cx| chat.retry_failed_readonly_history(cx)));
+            #[cfg(test)]
+            let button = button.on_prepaint(retry_tests::capture_retry);
+            button
         });
         let caption = div()
             .id("readonly-status-caption")

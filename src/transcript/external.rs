@@ -214,16 +214,24 @@ impl Transcript {
     }
 
     pub(crate) fn external_trim_budget(&mut self, limit: usize, bytes: usize) -> (Change, usize) {
-        let mut count = self.entries.len().saturating_sub(limit);
-        let mut retained = self.entries[count..]
-            .iter()
-            .map(Entry::retained_bytes)
-            .sum::<usize>();
-        while retained > bytes && count + 1 < self.entries.len() {
-            retained = retained.saturating_sub(self.entries[count].retained_bytes());
-            count += 1;
+        let mut count = self.entries.len();
+        let mut left = bytes;
+        let mut rows = self.entries.iter().rev().take(limit);
+        // Keep the newest row even when it exceeds the byte budget.
+        if let Some(newest) = rows.next() {
+            count -= 1;
+            let remaining = left.checked_sub(newest.retained_bytes());
+            left = remaining.unwrap_or(0);
+            if remaining.is_some() {
+                for row in rows {
+                    let Some(remaining) = left.checked_sub(row.retained_bytes()) else {
+                        break;
+                    };
+                    left = remaining;
+                    count -= 1;
+                }
+            }
         }
-        let left = bytes.saturating_sub(retained);
         if count == 0 {
             return (Change::None, left);
         }

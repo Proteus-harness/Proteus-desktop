@@ -169,8 +169,28 @@ def main(argv=None):
         _update(args, selected)
 
 
+def _ignore_replaced_extensions(base):
+    share = base / "share"
+    ordinary = stat.S_IRWXU
+    special = stat.S_ISUID | stat.S_ISGID | stat.S_ISVTX
+    for directory in (share, share / "extensions"):
+        try:
+            mode = directory.lstat().st_mode
+        except OSError:
+            return None
+        # Links and unusual directory modes retain the old copy/delete path.
+        if not stat.S_ISDIR(mode) or mode & (ordinary | special) != ordinary:
+            return None
+
+    def ignore(directory, _names):
+        return ("extensions",) if Path(directory) == share else ()
+
+    return ignore
+
+
 def _update(args, selected):
-    base = (args.base or PORTABLE).resolve()
+    base_input = args.base or PORTABLE
+    base = base_input.resolve()
     print(f"Base: {base}")
     for component in COMPONENTS:
         print(f"{component}: {'build' if component in selected else 'reuse ready base'}")
@@ -196,7 +216,11 @@ def _update(args, selected):
     stage = Path(tempfile.mkdtemp(prefix="Proteus.next-", dir=BUILD))
     try:
         if not complete:
-            shutil.copytree(base, stage, dirs_exist_ok=True, symlinks=True)
+            ignore = None
+            if selected == ("extensions",) and base_input.absolute() == base:
+                # This exact subtree is discarded before bundling Extensions.
+                ignore = _ignore_replaced_extensions(base)
+            shutil.copytree(base, stage, dirs_exist_ok=True, symlinks=True, ignore=ignore)
         if selected:
             assemble(stage, selected, roots, "debug" if args.debug else "release", record)
         # Reject incomplete selected packaging before replacing a working installation.

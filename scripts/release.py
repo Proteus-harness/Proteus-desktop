@@ -155,7 +155,8 @@ def assets():
     binary_archive = BUILD / f"{name}.tar.gz"
     if not binary_archive.is_file():
         raise SystemExit("Build the release portable with scripts/portable.py --full first")
-    shutil.copy2(binary_archive, distribution / binary_archive.name)
+    staged_archive = distribution / binary_archive.name
+    shutil.copy2(binary_archive, staged_archive)
     sources = distribution / f"Proteus-{version(ROOT)}-sources.tar.gz"
     source_archive(source, sources)
     (distribution / "release-sources.json").write_text(json.dumps(embedded, indent=2) + "\n")
@@ -166,15 +167,18 @@ def assets():
     smoke_record = json.loads(smoke.read_text())
     if smoke_record.get("source_manifest") != embedded or smoke_record.get("status") != "passed":
         raise SystemExit("Portable smoke evidence does not match this release")
-    with binary_archive.open("rb") as stream:
+    with staged_archive.open("rb") as stream:
         archive_digest = hashlib.file_digest(stream, "sha256").hexdigest()
     if smoke_record.get("archive_sha256") != archive_digest:
         raise SystemExit("Release archive differs from the successfully relocated archive")
     shutil.copy2(smoke, distribution / "release-smoke.json")
     checksums = []
     for path in sorted(distribution.iterdir()):
-        with path.open("rb") as stream:
-            digest = hashlib.file_digest(stream, "sha256").hexdigest()
+        if path == staged_archive:
+            digest = archive_digest  # These staged bytes were checked against smoke.
+        else:
+            with path.open("rb") as stream:
+                digest = hashlib.file_digest(stream, "sha256").hexdigest()
         checksums.append(f"{digest}  {path.name}")
     (distribution / "SHA256SUMS").write_text("\n".join(checksums) + "\n")
     print(f"Release assets: {distribution}")

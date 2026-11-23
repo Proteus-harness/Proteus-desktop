@@ -43,8 +43,7 @@ def check_vendor_mit(crate):
     return None
 
 
-def license_of(manifest, workspace):
-    package = tomllib.loads(manifest.read_text()).get("package", {})
+def license_of(manifest, package, workspace):
     value = package.get("license")
     if isinstance(value, dict) and value.get("workspace"):
         value = workspace.get("license")
@@ -64,14 +63,15 @@ def check(root):
         if any(part in ("target", "build") for part in manifest.relative_to(root).parts):
             continue
         crate = manifest.parent
-        if "package" not in tomllib.loads(manifest.read_text()):
+        package = tomllib.loads(manifest.read_text()).get("package")
+        if package is None:
             continue
-        value, error = license_of(manifest, workspace)
+        value, error = license_of(manifest, package, workspace)
         if error:
             errors.append(error)
             continue
         if (value == "MIT" and "vendor" in crate.relative_to(root).parts
-                and tomllib.loads(manifest.read_text())["package"].get("license") == "MIT"):
+                and package.get("license") == "MIT"):
             error = check_vendor_mit(crate)
             if error:
                 errors.append(error)

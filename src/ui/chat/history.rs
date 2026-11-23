@@ -74,23 +74,30 @@ impl HistoryWindow {
                 entries.len().saturating_sub(limit).min(visible.start)..entries.len()
             }
         };
-        let mut bytes: usize = entries[keep.clone()]
-            .iter()
-            .map(|row| row.retained_bytes())
-            .sum();
         // A page and the visible rows are indivisible. A large row is never truncated.
-        while bytes > CACHE_BYTES {
-            let index = match direction {
-                Direction::Older if keep.end > visible.end.max(PAGE_ROWS) => keep.end - 1,
-                Direction::Newer if keep.start < visible.start && keep.len() > PAGE_ROWS => {
-                    keep.start
-                }
-                _ => break,
+        let required = match direction {
+            Direction::Older => visible.end.max(PAGE_ROWS),
+            Direction::Newer => entries.len().saturating_sub(visible.start).max(PAGE_ROWS),
+        };
+        if keep.len() > required {
+            // Scan from the edge we keep; extending it can only add bytes.
+            let mut left = CACHE_BYTES;
+            let fits = |&charge: &usize| {
+                let Some(next) = left.checked_sub(charge) else {
+                    return false;
+                };
+                left = next;
+                true
             };
-            bytes = bytes.saturating_sub(entries[index].retained_bytes());
+            let charges = entries[keep.clone()].iter().map(|row| row.retained_bytes());
+            let fitting = match direction {
+                Direction::Older => charges.take_while(fits).count(),
+                Direction::Newer => charges.rev().take_while(fits).count(),
+            };
+            let retained = fitting.max(required);
             match direction {
-                Direction::Older => keep.end -= 1,
-                Direction::Newer => keep.start += 1,
+                Direction::Older => keep.end = retained,
+                Direction::Newer => keep.start = keep.end - retained,
             }
         }
         let removed = match direction {

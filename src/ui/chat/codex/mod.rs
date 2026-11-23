@@ -68,7 +68,7 @@ impl Binding {
 impl Chat {
     pub(in crate::ui) fn new_codex(
         opened: Opened,
-        models: Vec<Model>,
+        models: std::sync::Arc<[Model]>,
         is_new: bool,
         workspace: WeakEntity<crate::ui::workspace::Workspace>,
         extras: ComposerExtras,
@@ -106,7 +106,7 @@ impl Chat {
         };
         chat.codex = Some(Binding {
             handle,
-            models: models.into(),
+            models,
             model,
             effort,
             pending: vec![],

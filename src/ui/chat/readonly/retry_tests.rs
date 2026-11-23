@@ -1,8 +1,20 @@
 //! A terminal child remains a document even when its saved tail fails to load.
 use super::*;
 use ::gpui::{TestAppContext, VisualTestContext};
+use std::cell::Cell;
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::net::TcpListener;
+
+#[derive(Default)]
+struct RetryBounds(Cell<Option<Bounds<Pixels>>>);
+
+impl Global for RetryBounds {}
+
+pub(super) fn capture_retry(bounds: Bounds<Pixels>, _: &mut Window, cx: &mut App) {
+    if let Some(retry) = cx.try_global::<RetryBounds>() {
+        retry.0.set(Some(bounds));
+    }
+}
 
 fn serve_tail() -> (Api, std::thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -75,12 +87,16 @@ fn app() -> TestAppContext {
     cx.update(|cx| {
         gpui_kit::init(cx);
         crate::ui::prefs::init_in_memory(cx);
+        cx.set_global(RetryBounds::default());
     });
     cx
 }
 
 fn draw(cx: &mut VisualTestContext) {
-    cx.update(|w, cx| w.draw(cx).clear(cx));
+    cx.update(|window, cx| {
+        cx.global::<RetryBounds>().0.set(None);
+        window.draw(cx).clear(cx);
+    });
     cx.run_until_parked();
 }
 
@@ -105,13 +121,16 @@ fn failed_finished_child_retries_in_place_only_on_request() {
         assert!(!binding.loaded && !binding.refresh_pending && binding.inflight.is_none());
     });
     let retry = cx
-        .debug_bounds("readonly-history-retry")
+        .update(|_, cx| cx.global::<RetryBounds>().0.get())
         .expect("in-place retry")
         .center();
     cx.simulate_click(retry, Default::default());
     draw(cx);
     draw(cx);
-    assert!(cx.debug_bounds("readonly-history-retry").is_none());
+    assert!(
+        cx.update(|_, cx| cx.global::<RetryBounds>().0.get())
+            .is_none()
+    );
     chat.read_with(cx, |chat, _| {
         assert_eq!(
             chat.display_transcript().entries()[0].text.as_ref(),

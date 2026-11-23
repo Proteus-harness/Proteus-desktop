@@ -75,6 +75,47 @@ class SettingsMigrationTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('Restored 0', result.stdout)
 
+    def test_export_preferences_removes_window_state_and_preserves_portable_json(self):
+        self.preference.write_text(
+            '{"label":"старое","tabs":{"session":"inert"},"label":"Кириллица 🦋","pin":true}',
+            encoding='utf-8',
+        )
+        result = self.run_script('export')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with tarfile.open(self.archive) as archive:
+            member = archive.getmember('files/desktop/preferences.json')
+            self.assertEqual(member.mode, 0o600)
+            self.assertEqual(
+                archive.extractfile(member).read(),
+                '{\n  "label": "Кириллица 🦋",\n  "pin": true\n}\n'.encode(),
+            )
+
+    def test_export_rejects_bom_and_credentials_before_removing_window_state(self):
+        for content, error in [
+            (b'\xef\xbb\xbf{"tabs": {}}', 'Unexpected UTF-8 BOM'),
+            (b'{"tabs":{"client-secret":"synthetic fixture"}}', 'Inline credential field'),
+        ]:
+            with self.subTest(error=error):
+                self.preference.write_bytes(content)
+                result = self.run_script('export')
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(error, result.stderr)
+                self.assertFalse(self.archive.exists())
+
+    def test_export_keeps_byte_decoder_for_a_preferences_directory_child(self):
+        self.preference.unlink()
+        self.preference.mkdir()
+        (self.preference / 'serialized').write_bytes(
+            '{"recent": ["inert"], "label": "Юникод"}'.encode('utf-16'),
+        )
+        result = self.run_script('export')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with tarfile.open(self.archive) as archive:
+            self.assertEqual(
+                archive.extractfile('files/desktop/preferences.json/serialized').read(),
+                '{\n  "label": "Юникод"\n}\n'.encode(),
+            )
+
     def test_restore_keeps_destination_window_state_and_replaces_portable_preferences(self):
         result = self.run_script('export')
         self.assertEqual(result.returncode, 0, result.stderr)

@@ -87,12 +87,9 @@ impl Transcript {
     /// splice from the first differing row instead of a full reset.
     pub fn reset(&mut self, messages: Vec<AppTranscriptMessage>) -> Change {
         let old = std::mem::take(&mut self.entries);
-        let mut previous: HashMap<Identity, (u64, Arc<str>, Option<i64>)> = old
+        let mut previous: HashMap<Identity, &Entry> = old
             .iter()
-            .filter_map(|entry| {
-                let row = (entry.key, entry.text.clone(), entry.time);
-                Some((identity_of(entry)?, row))
-            })
+            .filter_map(|entry| Some((identity_of(entry)?, entry)))
             .collect();
         let mut entries = Vec::with_capacity(messages.len());
         for (index, message) in messages.into_iter().enumerate() {
@@ -103,10 +100,11 @@ impl Transcript {
                 message.tool.as_ref(),
                 message.subagent.as_ref(),
             ) {
-                Some(id) => previous.remove(&id).map(|(key, text, time)| {
+                Some(id) => previous.remove(&id).map(|before| {
                     // Compare with the owned wire text before allocating another Arc.
-                    let shared = (text.as_ref() == message.text).then_some(text);
-                    (key, shared, time)
+                    let shared =
+                        (before.text.as_ref() == message.text).then(|| before.text.clone());
+                    (before.key, shared, before.time)
                 }),
                 // Rows without identity are matched by position and content.
                 None => old

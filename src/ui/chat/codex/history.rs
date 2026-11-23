@@ -222,6 +222,9 @@ impl Chat {
                                     (count, 0..count)
                                 }
                             };
+                            if range.start < visible.end && range.end > visible.start {
+                                break;
+                            }
                             // The row limit takes precedence. Once accounting
                             // starts, rows only leave the window by whole pages.
                             let counted = if entries.len() > ROWS {
@@ -254,9 +257,6 @@ impl Chat {
                                 }
                                 Some((total, edge))
                             };
-                            if range.start < visible.end && range.end > visible.start {
-                                break;
-                            }
                             if binding.page_rows.len() > 2 {
                                 retained = counted.map(|(total, edge)| {
                                     // Plain usize sums wrap in release. Modular

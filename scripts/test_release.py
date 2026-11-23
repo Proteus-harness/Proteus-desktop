@@ -1,4 +1,5 @@
 """Synthetic repositories prove release guards and exact-source export behavior."""
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -100,21 +101,45 @@ class ReleaseSourcesTests(unittest.TestCase):
                 self.assertIn(f"sources/{name}/LICENSE", names)
             self.assertFalse(any("ignored-secret" in name or "/.git/" in name for name in names))
 
-    def test_stale_archive_cannot_reuse_smoke_evidence(self):
+    def release_assets_fixture(self):
         build = self.desktop / "build"
         (build / "Proteus/share/licenses").mkdir(parents=True)
         record = {"sources": {"fixture": {"dirty": False}}, "version": "0.1.0-alpha.2"}
         (build / "Proteus/share/release-sources.json").write_text(json.dumps(record))
         (build / "Proteus/share/licenses/README.txt").write_text("licenses")
         archive = build / f"Proteus-0.1.0-alpha.2-linux-{os.uname().machine}.tar.gz"
-        archive.write_bytes(b"new archive")
+        archive.write_bytes(b"smoked archive")
         (build / "verification").mkdir()
         (build / "verification/release-smoke.json").write_text(json.dumps({
-            "status": "passed", "source_manifest": record, "archive_sha256": "old-archive",
+            "status": "passed", "source_manifest": record,
+            "archive_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
         }))
+        return archive, record
+
+    def test_stale_archive_cannot_reuse_smoke_evidence(self):
+        archive, record = self.release_assets_fixture()
+        archive.write_bytes(b"new archive")
         with patch.object(release, "manifest", return_value=record):
             with self.assertRaisesRegex(SystemExit, "differs from"):
                 release.assets()
+
+    def test_corrupt_staged_archive_cannot_reuse_smoke_evidence(self):
+        archive, record = self.release_assets_fixture()
+        copy2 = release.shutil.copy2
+
+        def corrupt_staged_copy(source, target):
+            result = copy2(source, target)
+            if source == archive:
+                target.write_bytes(b"corrupt copy")
+            return result
+
+        with patch.object(release, "manifest", return_value=record), \
+             patch.object(release.shutil, "copy2", side_effect=corrupt_staged_copy):
+            with self.assertRaisesRegex(SystemExit, "differs from"):
+                release.assets()
+        self.assertEqual(archive.read_bytes(), b"smoked archive")
+        self.assertFalse((archive.parent / "release/release-smoke.json").exists())
+        self.assertFalse((archive.parent / "release/SHA256SUMS").exists())
 
 
 class MetadataTests(unittest.TestCase):
