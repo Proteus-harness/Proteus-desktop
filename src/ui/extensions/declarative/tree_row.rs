@@ -175,8 +175,8 @@ impl Tree {
         let color = super::render::tone_color(row.tone, cx);
         let icon_color = super::render::tone_color(
             row.icon_tone.unwrap_or(match row.expanded {
-                Some(_) => Tone::Muted,
-                None => row.tone,
+                Some(false) => Tone::Muted,
+                _ => row.tone,
             }),
             cx,
         );

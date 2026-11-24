@@ -293,7 +293,11 @@ impl Workspace {
             .gap_2()
             .rounded(theme.radius)
             .text_sm()
-            .text_color(theme.muted_foreground)
+            .text_color(if collapsed {
+                theme.muted_foreground
+            } else {
+                theme.sidebar_foreground
+            })
             .cursor_pointer()
             .child(crate::ui::selection::background(
                 current,
