@@ -1,7 +1,6 @@
-//! Window chrome around the tabs: the top bar with the logo menu, the chat
-//! shortcut and extension icons, and the rail along the left edge.
+//! Window chrome around the tabs: the top bar with the logo menu and
+//! extension icons, and the rail along the left edge.
 
-mod context;
 mod logo;
 mod projects;
 mod rail;

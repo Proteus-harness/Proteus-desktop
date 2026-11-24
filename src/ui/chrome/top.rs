@@ -42,8 +42,7 @@ impl Workspace {
                 cx,
             ))
             .when(ready, |left| {
-                left.children(self.render_root_chat_button(cx))
-                    .children(self.render_badge_strip(BadgePlace::HeaderStart, cx))
+                left.children(self.render_badge_strip(BadgePlace::HeaderStart, cx))
             });
         let right = h_flex().gap_1().items_center().when(ready, |right| {
             right.children(self.render_badge_strip(BadgePlace::HeaderEnd, cx))
