@@ -1,27 +1,9 @@
 use chrono::{Datelike, Local, TimeZone, Timelike};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::conversations::ConversationSummary;
 
 pub fn session_title(session: &ConversationSummary) -> String {
     clip(crate::sessions::preview_title(session), 80)
-}
-
-pub fn relative_time(updated_at_ms: Option<u64>) -> String {
-    let Some(updated) = updated_at_ms else {
-        return String::new();
-    };
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as u64)
-        .unwrap_or(updated);
-    let seconds = now.saturating_sub(updated) / 1000;
-    match seconds {
-        0..60 => "сейчас".to_owned(),
-        60..3600 => format!("{} мин", seconds / 60),
-        3600..86_400 => format!("{} ч", seconds / 3600),
-        _ => format!("{} д", seconds / 86_400),
-    }
 }
 
 /// First line of `text`, cut to `max_chars`.

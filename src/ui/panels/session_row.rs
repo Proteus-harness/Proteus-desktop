@@ -94,7 +94,7 @@ impl Workspace {
             .tip_anchor(anchor.clone())
             .group("session-row")
             .relative()
-            .px_2()
+            .pr_6()
             .pl(rems(0.5 + depth.min(12) as f32 * 1.25))
             .py_1p5()
             .gap_2()
@@ -168,14 +168,6 @@ impl Workspace {
                 )
             })
             .children(indicator)
-            .child(
-                div()
-                    .flex_none()
-                    .text_xs()
-                    .text_color(theme.muted_foreground)
-                    .group_hover("session-row", |time| time.invisible())
-                    .child(format::relative_time(summary.updated_at_ms)),
-            )
             .child(
                 div()
                     .absolute()
