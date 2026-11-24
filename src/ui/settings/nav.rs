@@ -25,7 +25,6 @@ use crate::ui::kit::Hint as _;
 use crate::ui::kit::Pressable as _;
 use crate::ui::panels::SidebarDrag;
 use crate::ui::prefs;
-use crate::ui::tip::Tip as _;
 use crate::ui::{divider, drag};
 
 pub(super) fn page_icon(page: &PageId) -> Icon {
@@ -213,13 +212,6 @@ impl SettingsView {
                 .text_color(theme.muted_foreground)
                 .child(text)
         };
-        let profile = snapshot.and_then(|snapshot| {
-            snapshot
-                .target_path
-                .as_deref()
-                .or(snapshot.config_path.as_deref())
-                .map(|path| (path, snapshot.writable))
-        });
         v_flex()
             .w_full()
             .h_full()
@@ -243,26 +235,17 @@ impl SettingsView {
                             .title("Настройки"),
                         ),
                     ))
-                    .children(profile.map(|(path, writable)| {
-                        let name = std::path::Path::new(path)
-                            .file_name()
-                            .map(|name| name.to_string_lossy().into_owned())
-                            .unwrap_or_else(|| path.to_owned());
-                        v_flex()
-                            .id("settings-profile")
-                            .min_w_0()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .child(
+                    .when(
+                        snapshot.is_some_and(|profile| !profile.writable),
+                        |header| {
+                            header.child(
                                 div()
-                                    .font_family(theme.mono_font_family.clone())
-                                    .child(faded(name)),
+                                    .text_xs()
+                                    .text_color(theme.warning)
+                                    .child("Только чтение"),
                             )
-                            .when(!writable, |header| {
-                                header.child(div().text_color(theme.warning).child("Только чтение"))
-                            })
-                            .tip_text(path.to_owned())
-                    })),
+                        },
+                    ),
             )
             .child(if self.query.is_empty() {
                 self.nav_keys(v_flex().id("settings-pages"))

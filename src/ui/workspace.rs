@@ -28,6 +28,17 @@ use startup::{Boot, boot};
 use windows::WindowGroup;
 
 impl Workspace {
+    pub(in crate::ui) fn profile_path<'a>(&'a self, cx: &'a App) -> Option<&'a str> {
+        let loaded = self
+            .active_chat_view()
+            .and_then(|chat| chat.read(cx).session.config.as_ref())
+            .and_then(|config| config.config_path.as_deref());
+        loaded.or_else(|| match &self.target {
+            Target::Spawn { profile } => Some(profile.as_deref().unwrap_or("config.toml")),
+            Target::Attach { .. } => None,
+        })
+    }
+
     /// Local management may only address this window's owned server.
     pub(in crate::ui) fn provider_auth_workspace(&self, connection: u64) -> Option<PathBuf> {
         (matches!(self.target, Target::Spawn { .. })

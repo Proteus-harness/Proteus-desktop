@@ -41,6 +41,28 @@ impl Workspace {
                 logo_menu(None, ready.then_some(workspace)),
                 cx,
             ))
+            .when_some(self.profile_path(cx), |left, path| {
+                let file = std::path::Path::new(path)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or(path);
+                let name = file.split_once('.').map_or(file, |(prefix, _)| prefix);
+                let caption = match name {
+                    "config" => "По умолчанию",
+                    "" => file,
+                    other => other,
+                };
+                left.child(
+                    div()
+                        .id("title-bar-profile")
+                        .min_w_0()
+                        .max_w(rems(14.))
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(crate::ui::fade::faded(caption.to_owned()))
+                        .tip_text(path.to_owned()),
+                )
+            })
             .when(ready, |left| {
                 left.children(self.render_badge_strip(BadgePlace::HeaderStart, cx))
             });
