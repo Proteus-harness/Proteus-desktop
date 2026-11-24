@@ -630,7 +630,7 @@
         "accordion": "#262a3d",
         "secondary": "#292e42",
         "foreground": "#c0caf5",
-        "muted_foreground": "#a9b1d6",
+        "muted_foreground": "#b0b9e2",
         "hover_overlay": "#ffffff08",
         "secondary_hover": "#2e334a",
         "secondary_pressed": "#323750",
@@ -643,7 +643,7 @@
         "accordion": "Proteus subtle nested surface towards card; see nested_surface_policy",
         "secondary": "GPUI Kit secondary.background",
         "foreground": "GPUI Kit foreground",
-        "muted_foreground": "fg_dark",
+        "muted_foreground": "Imported editor.foreground, readable on the selected sidebar fill",
         "hover_overlay": "Proteus neutral overlay (8/255 alpha)",
         "content": "Proteus 50:50 sRGB interpolation of authored sidebar and bg",
         "secondary_hover": "GPUI Kit original alpha secondary.hover.background, flattened over secondary",
@@ -663,11 +663,15 @@
           "color": "#a9b1d6"
         },
         {
+          "token": "editor.foreground",
+          "color": "#b0b9e2"
+        },
+        {
           "token": "fg",
           "color": "#c0caf5"
         }
       ],
-      "selection_minimum_srgb_ratio": 6.3609,
+      "selection_minimum_srgb_ratio": 4.6282,
       "previous_preserved_payload_sha256": "4c1abe8596204fe116840416bdfd2d88a53daf8f5df5a1030a765af542a450de"
     },
     {

@@ -248,6 +248,16 @@ fn normal_and_muted_labels_meet_minimum_on_their_resolved_surfaces() {
                 );
             }
             let backdrop: Rgba = theme.background.into();
+            let selected = composite(
+                theme.sidebar_accent.into(),
+                composite(theme.sidebar.into(), backdrop),
+            );
+            for (role, foreground) in [
+                ("selected sidebar label", theme.sidebar_foreground),
+                ("selected muted label", theme.muted_foreground),
+            ] {
+                assert_readable(&name, role, foreground, selected);
+            }
             for (role, foreground, fill) in [
                 ("sidebar label", theme.sidebar_foreground, theme.sidebar),
                 ("card label", theme.group_box_foreground, theme.group_box),
