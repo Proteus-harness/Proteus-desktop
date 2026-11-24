@@ -173,6 +173,25 @@ class SettingsMigrationTests(unittest.TestCase):
                          {'context': 'simple', 'session_storage': 'jsonl'})
         self.assertEqual(modern.read_bytes(), before)
 
+    def test_startup_migrates_only_the_stock_go_model_binding(self):
+        import runpy
+        convert = runpy.run_path(str(SCRIPT))['with_native_go']
+        stock = ('[components.opencode-model]\ncommand = "proteus-opencode-module"\n'
+                 '[components.opencode-model.exports.model.opencode]\n'
+                 '[module_config.model.opencode]\nprovider = "opencode-go"\n'
+                 'database_path = "/fixture/key-store"\n').encode()
+        updated = convert(stock)
+        profile = tomllib.loads(updated.decode())
+        self.assertEqual(profile['components']['opencode-model']['command'], 'proteus-model-pack-module')
+        self.assertEqual(profile['module_config']['model']['opencode'], {
+            'implementation': 'opencode_go', 'provider': 'opencode-go', 'database_path': '/fixture/key-store',
+        })
+        self.assertEqual(convert(updated), updated)
+        for custom in (stock + b'models_file = "/custom"\n', stock.replace(b'opencode-go', b'opencode-zen'),
+                       b'include = ["parent.toml"]\n' + stock,
+                       stock + b'[components.opencode-model.exports.workflow.opencode_loop]\n'):
+            self.assertEqual(convert(custom), custom)
+
     def test_home_override_isolates_environment_and_explicit_root_takes_precedence(self):
         external = self.root / 'external agent'
         (external / 'configs').mkdir(parents=True)

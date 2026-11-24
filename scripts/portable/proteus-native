@@ -41,10 +41,10 @@ for source in "${bundled}"/*; do
 done
 
 # With no arguments the app opens the default profile. Older restored profiles
-# need a storage export before the desktop server can open a persistent session.
+# can need session storage and the current bundled Go model command.
 if [ "$#" -eq 0 ] && [ -z "${PROTEUS_CONFIG_PATH+x}" ]; then
   # The normal backend startup still reports errors from a custom profile.
-  python3 "${here}/share/settings-migration.py" upgrade-storage "${configs}/config.toml" >/dev/null || :
+  python3 "${here}/share/settings-migration.py" upgrade-startup "${configs}/config.toml" >/dev/null || :
 fi
 
 export PROTEUS_BIN="${here}/bin/proteus"
