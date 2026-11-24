@@ -446,8 +446,8 @@ fn observed_rows(session: &Session) -> Vec<Value> {
                 "role": format!("{:?}", entry.role),
                 "text": &*entry.text,
                 "images": entry.images,
-                "tool": entry.tool,
-                "subagent": entry.subagent,
+                "tool": entry.tool.as_deref(),
+                "subagent": entry.subagent.as_deref(),
                 "streaming": entry.streaming,
                 "time": entry.time,
             })

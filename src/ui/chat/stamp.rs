@@ -177,7 +177,7 @@ mod tests {
         let transcript = transcript(&["system", "system", "user"]);
         let mut rows = transcript.entries().to_vec();
         rows[0].tool = None;
-        rows[0].subagent = Some(proteus_contracts::app_protocol::AppTranscriptSubagent {
+        rows[0].subagent = Some(std::sync::Arc::new(proteus_contracts::app_protocol::AppTranscriptSubagent {
             child_thread_id: "child".into(),
             session: None,
             role: "worker".into(),
@@ -185,8 +185,8 @@ mod tests {
             status: "completed".into(),
             iterations: None,
             tools: vec![],
-        });
-        rows[1].tool.as_mut().unwrap().metadata = serde_json::json!({
+        }));
+        std::sync::Arc::make_mut(rows[1].tool.as_mut().unwrap()).metadata = serde_json::json!({
             "tool": "task", "child_thread_id": "child"
         });
         assert!(super::hidden(&rows, &rows[1]));

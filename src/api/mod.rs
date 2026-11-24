@@ -1,4 +1,4 @@
-use std::io::{BufRead, BufReader};
+use std::io::{self, BufRead, BufReader, Read};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -337,7 +337,12 @@ impl Api {
         }
         let response = request.call()?;
         let status = response.status();
-        let body = response.into_body().into_with_config().read_to_string()?;
+        let body = response.into_body();
+        let body = if path == "/history/page" && status.is_success() {
+            read_history_body(body)?
+        } else {
+            body.into_with_config().read_to_string()?
+        };
         if !status.is_success() {
             bail!("GET {path} failed with {status}: {body}");
         }
@@ -376,6 +381,59 @@ impl Api {
             Err(_) => Err(anyhow!("POST {path} failed with {status}: {text}")),
         }
     }
+}
+
+/// For a fixed-length Core history page, avoid rounding the final raw JSON
+/// allocation up to the usual doubling boundary. The body size is still
+/// unbounded by this hint; ureq continues to own all HTTP framing and errors.
+fn read_history_body(body: ureq::Body) -> std::result::Result<String, ureq::Error> {
+    let planned = body
+        .content_length()
+        .and_then(|size| usize::try_from(size).ok())
+        .filter(|size| (256 * 1024..=16 * 1024 * 1024).contains(size))
+        .and_then(|size| {
+            let rounded = size.next_power_of_two();
+            (rounded - size >= 64 * 1024).then_some((rounded / 2, size))
+        });
+    let Some((prefix, size)) = planned.filter(|_| body.mime_type() == Some("application/json"))
+    else {
+        return body.into_with_config().read_to_string();
+    };
+
+    let mut reader = body.into_with_config().reader();
+    let mut bytes = Vec::new();
+    // Leave room for the capped read's EOF check without growing the buffer.
+    reader
+        .by_ref()
+        .take((prefix - 1) as u64)
+        .read_to_end(&mut bytes)?;
+    let mut next = [0; 2];
+    let mut received = 0;
+    while received < next.len() {
+        match reader.read(&mut next[received..]) {
+            Ok(0) => break,
+            Ok(count) => received += count,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error.into()),
+        }
+    }
+    let crossed = received == next.len() && bytes.len() == prefix - 1 && bytes.capacity() == prefix;
+    if crossed {
+        // Only a received byte beyond the old boundary justifies a reserve.
+        // Leave one byte free for read_to_end's final EOF check.
+        bytes.reserve_exact(size + 1 - bytes.len());
+    }
+    bytes.extend_from_slice(&next[..received]);
+    if received == next.len() {
+        reader.read_to_end(&mut bytes)?;
+    }
+    String::from_utf8(bytes).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "stream did not contain valid UTF-8",
+        )
+        .into()
+    })
 }
 
 fn request_id(kind: &str) -> String {

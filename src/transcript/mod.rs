@@ -24,15 +24,16 @@ pub enum Role {
 }
 
 #[derive(Clone, Debug)]
-pub struct Entry {
+pub struct Entry<Tool = Arc<AppTranscriptTool>, Child = Arc<AppTranscriptSubagent>> {
     /// Stable client identity, reused across snapshots for the same message.
     pub key: u64,
     pub message_id: Option<MessageId>,
     pub role: Role,
     pub text: Arc<str>,
     pub images: Vec<ImageRef>,
-    pub tool: Option<AppTranscriptTool>,
-    pub subagent: Option<AppTranscriptSubagent>,
+    /// Display windows share the frozen payload until a live event changes it.
+    pub tool: Option<Tool>,
+    pub subagent: Option<Child>,
     pub streaming: bool,
     /// Creation time in Unix milliseconds. Canonical history timestamps take
     /// precedence over provisional live/local event times.
@@ -158,12 +159,21 @@ impl Transcript {
         if inserted == 0 {
             return Change::None;
         }
-        let mut prefix: Vec<_> = messages
-            .into_iter()
-            .map(|message| self.entry_from(message))
-            .collect();
-        prefix.append(&mut self.entries);
-        self.entries = prefix;
+        let next_key = &self.next_key;
+        let incoming = messages.into_iter().map(|message| {
+            let role = role_of(&message.role);
+            let key = next_key.fetch_add(1, Ordering::Relaxed) + 1;
+            Entry::from_wire(key, message, role, None)
+        });
+        // Eviction leaves reusable storage in a full paging window. Only
+        // reuse an exact fit; a much larger former window must still be freed.
+        if self.entries.capacity() - self.entries.len() == inserted {
+            drop(self.entries.splice(..0, incoming));
+        } else {
+            let mut prefix: Vec<_> = incoming.collect();
+            prefix.append(&mut self.entries);
+            self.entries = prefix;
+        }
         Change::Spliced {
             start: 0,
             removed: 0,
@@ -326,13 +336,12 @@ impl Transcript {
                     metadata: Value::Null,
                 };
                 if let Some(index) = self.running_subagent(thread_id) {
-                    let tools = &mut self.entries[index]
+                    let subagent = self.entries[index]
                         .subagent
                         .as_mut()
-                        .expect("subagent entry")
-                        .tools;
-                    if tools.len() < MAX_SUBAGENT_TOOLS {
-                        tools.push(tool);
+                        .expect("subagent entry");
+                    if subagent.tools.len() < MAX_SUBAGENT_TOOLS {
+                        Arc::make_mut(subagent).tools.push(tool);
                     }
                     return Change::Updated(index);
                 }
@@ -344,7 +353,7 @@ impl Transcript {
                     role: Role::System,
                     text: "".into(),
                     images: Vec::new(),
-                    tool: Some(tool),
+                    tool: Some(Arc::new(tool)),
                     subagent: None,
                     streaming: false,
                     time: None,
@@ -380,7 +389,7 @@ impl Transcript {
                     text: "".into(),
                     images: Vec::new(),
                     tool: None,
-                    subagent: Some(AppTranscriptSubagent {
+                    subagent: Some(Arc::new(AppTranscriptSubagent {
                         child_thread_id: child_thread_id.to_string(),
                         session: None,
                         role: role.clone(),
@@ -388,7 +397,7 @@ impl Transcript {
                         status: "running".to_owned(),
                         iterations: None,
                         tools: Vec::new(),
-                    }),
+                    })),
                     streaming: false,
                     time: None,
                 });
@@ -408,7 +417,8 @@ impl Transcript {
                 }) else {
                     return Change::None;
                 };
-                self.entries[index].subagent.as_mut().unwrap().session =
+                let subagent = self.entries[index].subagent.as_mut().unwrap();
+                Arc::make_mut(subagent).session =
                     Some(proteus_contracts::app_protocol::AppSubagentSession {
                         session_id: *session_id,
                         session_dir: session_dir.clone(),
@@ -434,6 +444,7 @@ impl Transcript {
                     .subagent
                     .as_mut()
                     .expect("subagent entry");
+                let subagent = Arc::make_mut(subagent);
                 subagent.status = status.clone();
                 subagent.iterations = Some(*iterations);
                 Change::Updated(index)
@@ -516,16 +527,14 @@ impl Transcript {
     ) -> Change {
         for (index, entry) in self.entries.iter_mut().enumerate().rev() {
             if let Some(tool) = entry.tool.as_mut().filter(|tool| tool.call_id == call_id) {
-                update(tool);
+                update(Arc::make_mut(tool));
                 return Change::Updated(index);
             }
-            if let Some(tool) = entry.subagent.as_mut().and_then(|subagent| {
-                subagent
-                    .tools
-                    .iter_mut()
-                    .rfind(|tool| tool.call_id == call_id)
-            }) {
-                update(tool);
+            if let Some(subagent) = entry.subagent.as_mut()
+                && let Some(tool) = subagent.tools.iter().rposition(|tool| tool.call_id == call_id)
+            {
+                // A reverse lookup must not detach any unrelated progress.
+                update(&mut Arc::make_mut(subagent).tools[tool]);
                 return Change::Updated(index);
             }
         }
@@ -542,25 +551,31 @@ impl Transcript {
         self.next_key.fetch_add(1, Ordering::Relaxed) + 1
     }
 
-    fn entry_from(&mut self, message: AppTranscriptMessage) -> Entry {
-        let role = role_of(&message.role);
-        self.entry_from_with_text(message, role, None)
-    }
-
     fn entry_from_with_text(
         &mut self,
         message: AppTranscriptMessage,
         role: Role,
         shared_text: Option<Arc<str>>,
     ) -> Entry {
-        Entry {
-            key: self.allocate_key(),
+        Entry::from_wire(self.allocate_key(), message, role, shared_text)
+    }
+}
+
+impl Entry {
+    fn from_wire(
+        key: u64,
+        message: AppTranscriptMessage,
+        role: Role,
+        shared_text: Option<Arc<str>>,
+    ) -> Self {
+        Self {
+            key,
             message_id: message.message_id,
             role,
             text: shared_text.unwrap_or_else(|| message.text.into()),
             images: message.images,
-            tool: message.tool,
-            subagent: message.subagent,
+            tool: message.tool.map(Arc::new),
+            subagent: message.subagent.map(Arc::new),
             streaming: message.streaming,
             time: message.timestamp_ms,
         }
@@ -587,8 +602,8 @@ fn identity_of(entry: &Entry) -> Option<Identity<'_>> {
     identity(
         entry.message_id,
         entry.role,
-        entry.tool.as_ref(),
-        entry.subagent.as_ref(),
+        entry.tool.as_deref(),
+        entry.subagent.as_deref(),
     )
 }
 

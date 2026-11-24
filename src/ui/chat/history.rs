@@ -63,9 +63,14 @@ impl HistoryWindow {
         self.start + self.transcript.entries().len()
     }
 
-    fn trim(&mut self, direction: Direction, visible: Range<usize>) -> Option<Change> {
+    fn trim(
+        &mut self,
+        direction: Direction,
+        visible: Range<usize>,
+        charged: Option<ChargedRows>,
+    ) -> Option<Change> {
         let entries = self.transcript.entries();
-        let removed = trim_range(entries.len(), direction, visible, |row| {
+        let removed = trim_range(entries.len(), direction, visible, charged, |row| {
             entries[row].retained_bytes()
         });
         if removed.is_empty() {
@@ -76,11 +81,18 @@ impl HistoryWindow {
     }
 }
 
+/// A context seek already counted these consecutive rows on the retained edge.
+struct ChargedRows {
+    count: usize,
+    bytes: usize,
+}
+
 /// Identify rows to evict without taking ownership of their payloads.
 fn trim_range(
     rows: usize,
     direction: Direction,
     visible: Range<usize>,
+    charged: Option<ChargedRows>,
     charge: impl Fn(usize) -> usize,
 ) -> Range<usize> {
     // Rows outside the cardinality limit can be dropped without walking
@@ -96,20 +108,33 @@ fn trim_range(
         Direction::Newer => rows.saturating_sub(visible.start).max(PAGE_ROWS),
     };
     if keep.len() > required {
-        // Scan from the edge we keep; extending it can only add bytes.
-        let mut left = CACHE_BYTES;
-        let fits = |&charge: &usize| {
-            let Some(next) = left.checked_sub(charge) else {
-                return false;
+        // The sum is sufficient only if all charged rows are required: if
+        // their sum exhausts the budget, any earlier cutoff is immaterial.
+        let (count, bytes) = charged
+            .filter(|edge| edge.count <= required)
+            .map_or((0, 0), |edge| (edge.count, edge.bytes));
+        let fitting = CACHE_BYTES.checked_sub(bytes).map_or(0, |mut left| {
+            // Scan from the edge we keep; extending it can only add bytes.
+            let fits = |&charge: &usize| {
+                let Some(next) = left.checked_sub(charge) else {
+                    return false;
+                };
+                left = next;
+                true
             };
-            left = next;
-            true
-        };
-        let charges = keep.clone().map(charge);
-        let fitting = match direction {
-            Direction::Older => charges.take_while(fits).count(),
-            Direction::Newer => charges.rev().take_while(fits).count(),
-        };
+            count
+                + match direction {
+                    Direction::Older => (keep.start + count..keep.end)
+                        .map(charge)
+                        .take_while(fits)
+                        .count(),
+                    Direction::Newer => (keep.start..keep.end - count)
+                        .rev()
+                        .map(charge)
+                        .take_while(fits)
+                        .count(),
+                }
+        });
         let retained = fitting.max(required);
         match direction {
             Direction::Older => keep.end = retained,
@@ -333,15 +358,15 @@ impl History {
             _ => return None,
         };
         let mut changes = vec![change];
-        if let Some(seek) = &mut self.context_seek {
+        let charged = self.context_seek.as_mut().map(|seek| {
             let entries = window.transcript.entries();
             let loaded = match direction {
                 Direction::Older => &entries[..loaded_count],
                 Direction::Newer => &entries[entries.len() - loaded_count..],
             };
-            seek.loaded(loaded);
-        }
-        if let Some(change) = window.trim(direction, visible) {
+            seek.loaded(loaded)
+        });
+        if let Some(change) = window.trim(direction, visible, charged) {
             changes.push(change);
         }
         Some(changes)
@@ -358,10 +383,15 @@ impl History {
         let mut transcript = live.empty_window();
         let mut changes = vec![transcript.prepend(page.messages)];
         let rows = count + live.entries().len();
+        let charged = self
+            .context_seek
+            .as_mut()
+            .map(|seek| seek.loaded(&transcript.entries()[..count]));
         let removed = trim_range(
             rows,
             Direction::Older,
             visible.start + count..visible.end + count,
+            charged,
             |row| {
                 if row < count {
                     transcript.entries()[row].retained_bytes()
@@ -373,9 +403,6 @@ impl History {
         // The whole older page is inside the required visible-prefix bound.
         // Clone only live rows that remain after the corresponding trim.
         transcript.complete_history_window(live, removed.start - count);
-        if let Some(seek) = &mut self.context_seek {
-            seek.loaded(&transcript.entries()[..count]);
-        }
         self.archive = Some(HistoryWindow {
             start: page.start,
             transcript,
@@ -408,10 +435,11 @@ impl History {
             return self.latest(live);
         }
         let mut changes = vec![window.transcript.append_known(&live.entries()[offset..])];
-        if let Some(seek) = &mut self.context_seek {
-            seek.loaded(&live.entries()[offset..]);
-        }
-        if let Some(change) = window.trim(Direction::Newer, visible) {
+        let charged = self
+            .context_seek
+            .as_mut()
+            .map(|seek| seek.loaded(&live.entries()[offset..]));
+        if let Some(change) = window.trim(Direction::Newer, visible, charged) {
             changes.push(change);
         }
         changes

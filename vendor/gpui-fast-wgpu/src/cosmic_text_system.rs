@@ -181,17 +181,18 @@ impl PlatformTextSystem for CosmicTextSystem {
     }
 
     fn all_font_names(&self) -> Vec<String> {
-        let mut result = self
-            .0
-            .read()
+        let state = self.0.read();
+        // A family can have many faces. Sort and deduplicate references before
+        // taking ownership of the unique names returned to the UI.
+        let mut families = state
             .font_system
             .db()
             .faces()
-            .filter_map(|face| face.families.first().map(|family| family.0.clone()))
+            .filter_map(|face| face.families.first().map(|family| &family.0))
             .collect_vec();
-        result.sort_unstable();
-        result.dedup();
-        result
+        families.sort_unstable();
+        families.dedup();
+        families.into_iter().cloned().collect()
     }
 
     fn font_id(&self, font: &Font) -> Result<FontId> {

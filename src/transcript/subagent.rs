@@ -9,24 +9,30 @@ pub fn progress_row(entries: &[super::Entry], tool: &AppTranscriptTool) -> Optio
         return None;
     }
     let child = tool.metadata.get("child_thread_id")?.as_str()?;
-    let session = task_session(tool);
-    if tool
+    let mut candidates = entries.iter().enumerate().filter_map(|(row, entry)| {
+        let agent = entry.subagent.as_ref()?;
+        (agent.child_thread_id == child).then_some((row, &agent.session))
+    });
+    // Saved task cards have no live progress row. Do not deserialize (and
+    // allocate) a session path just to decide they are not duplicates.
+    let (row, live) = candidates.next()?;
+    let Some(value) = tool
         .metadata
         .get("subagent_session")
-        .is_some_and(|value| !value.is_null())
-        && session.is_none()
-    {
-        return None;
-    }
-    entries.iter().position(|entry| {
-        entry.subagent.as_ref().is_some_and(|agent| {
-            agent.child_thread_id == child
-                && match (&session, &agent.session) {
-                    (Some(bound), Some(live)) => bound == live,
-                    _ => true,
-                }
+        .filter(|value| !value.is_null())
+    else {
+        return Some(row);
+    };
+    // An explicitly invalid binding never deduplicates, even if a live row
+    // is unbound. A later compatible overlay can still follow a conflict.
+    let bound = decode_session(value)?;
+    std::iter::once((row, live))
+        .chain(candidates)
+        .find_map(|(row, live)| {
+            live.as_ref()
+                .is_none_or(|live| *live == bound)
+                .then_some(row)
         })
-    })
 }
 
 pub fn status(status: &str) -> &str {
@@ -89,7 +95,11 @@ pub fn task_session(tool: &AppTranscriptTool) -> Option<AppSubagentSession> {
     if !is_task(tool) {
         return None;
     }
-    let session = AppSubagentSession::deserialize(tool.metadata.get("subagent_session")?).ok()?;
+    decode_session(tool.metadata.get("subagent_session")?)
+}
+
+fn decode_session(value: &serde_json::Value) -> Option<AppSubagentSession> {
+    let session = AppSubagentSession::deserialize(value).ok()?;
     session.session_dir.is_absolute().then_some(session)
 }
 

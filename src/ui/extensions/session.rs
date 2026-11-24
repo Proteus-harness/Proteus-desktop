@@ -50,8 +50,8 @@ pub(in crate::ui) fn entries(
                 Role::Reasoning => "reasoning",
                 Role::System => "system",
             },
-            tool: entry.tool.clone(),
-            subagent: entry.subagent.clone(),
+            tool: entry.tool.as_deref().cloned(),
+            subagent: entry.subagent.as_deref().cloned(),
         })
         .collect()
 }

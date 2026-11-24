@@ -245,7 +245,7 @@ impl Chat {
                 Some(chain) if ix == chain.start => {
                     let tools = entries[chain.clone()]
                         .iter()
-                        .filter_map(|entry| entry.tool.as_ref());
+                        .filter_map(|entry| entry.tool.as_deref());
                     let header =
                         render_chain_header(key, tools, chain_open, self.session.connected, cx);
                     let calls = if chain_moving {
