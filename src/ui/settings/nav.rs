@@ -34,8 +34,8 @@ pub(super) fn page_icon(page: &PageId) -> Icon {
         PageId::Modes => Icon::new(Lucide::Shield),
         PageId::Slot(slot) => match slot.as_str() {
             "workflow" => Icon::new(Lucide::Workflow),
-            "context" => Icon::new(Lucide::Layers),
-            SESSION_STORAGE_SLOT => Icon::new(Lucide::Database),
+            "context" => Icon::new(Lucide::Database),
+            SESSION_STORAGE_SLOT => Icon::new(Lucide::Archive),
             _ => Icon::new(Lucide::Puzzle),
         },
         PageId::Tools => Icon::new(Lucide::Wrench),
