@@ -12,6 +12,7 @@ use crate::{
 };
 
 const MAX_BYTES: usize = 16 * 1024 * 1024;
+const MIN_OWNED_PART: usize = 128 * 1024;
 const MAX_PAGES: usize = 4096;
 
 pub(super) struct Plan {
@@ -45,12 +46,15 @@ struct Anchor {
 struct Parts {
     // Walk newest to oldest; reverse only once, when producing the clipboard.
     newest_first: Vec<Arc<str>>,
+    // One tight wire String can pass through without a new Arc buffer.
+    // Positions of all other parts and their compact representation stay intact.
+    owned: Option<(usize, String)>,
     bytes: usize,
 }
 
 impl Parts {
     fn length_with(&self, length: usize) -> Result<usize> {
-        let separators = usize::from(!self.newest_first.is_empty()) * 2;
+        let separators = usize::from(self.bytes != 0) * 2;
         let bytes = self
             .bytes
             .checked_add(length)
@@ -75,25 +79,51 @@ impl Parts {
         if text.trim().is_empty() {
             return Ok(());
         }
-        // Reject oversized source before allocating the shared text fragment.
-        self.length_with(text.len())?;
-        self.push(text.into())
+        // Set the total only after the same byte limit has accepted the part.
+        self.bytes = self.length_with(text.len())?;
+        if self.owned.is_none() && text.len() >= MIN_OWNED_PART && text.capacity() == text.len() {
+            self.owned = Some((self.newest_first.len(), text));
+        } else {
+            self.newest_first.push(text.into());
+        }
+        Ok(())
     }
 
     fn finish(self) -> Result<String> {
         ensure!(
-            !self.newest_first.is_empty(),
+            self.bytes != 0,
             "В этом ходе нет текста ответа для копирования"
         );
-        let mut text = String::with_capacity(self.bytes);
-        for part in self.newest_first.into_iter().rev() {
-            if !text.is_empty() {
-                text.push_str("\n\n");
+        let mut shared = self.newest_first.into_iter().rev();
+        let mut text;
+        if let Some((newer, owned)) = self.owned {
+            if shared.len() == 0 {
+                return Ok(owned);
             }
-            text.push_str(&part);
+            text = String::with_capacity(self.bytes);
+            let older = shared.len() - newer;
+            for part in shared.by_ref().take(older) {
+                append_part(&mut text, &part);
+            }
+            append_part(&mut text, &owned);
+            // Remaining shared parts are newer; don't retain the wire buffer
+            // while writing them into the output.
+            drop(owned);
+        } else {
+            text = String::with_capacity(self.bytes);
+        }
+        for part in shared {
+            append_part(&mut text, &part);
         }
         Ok(text)
     }
+}
+
+fn append_part(output: &mut String, part: &str) {
+    if !output.is_empty() {
+        output.push_str("\n\n");
+    }
+    output.push_str(part);
 }
 
 impl Chat {

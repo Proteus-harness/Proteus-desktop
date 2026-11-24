@@ -48,21 +48,46 @@ fn check_dimensions(width: u32, height: u32, bytes: u64) -> Result<()> {
     Ok(())
 }
 
+fn resize_center<P: image::Pixel<Subpixel = u8> + 'static>(
+    image: &image::ImageBuffer<P, Vec<u8>>,
+    side: u32,
+    edge: u32,
+) -> image::ImageBuffer<P, Vec<u8>> {
+    let view = image::imageops::crop_imm(
+        image,
+        (image.width() - side) / 2,
+        (image.height() - side) / 2,
+        side,
+        side,
+    );
+    image::imageops::resize(&*view, edge, edge, image::imageops::FilterType::Triangle)
+}
+
 fn thumbnail(mut image: DynamicImage, edge: u32) -> image::RgbaImage {
     // Cover matches the existing square UI frame; cropping prevents extremely
     // wide sources from retaining large offscreen strips in the GPU atlas.
     let (width, height) = (image.width(), image.height());
     let side = width.min(height);
     let edge = edge.min(side);
-    // Crop BEFORE resizing: resize_to_fill would create a gigantic intermediate
-    // for e.g. a 32768x1 source displayed in a square.
-    if width != height {
-        let cropped = image.crop((width - side) / 2, (height - side) / 2, side, side);
-        image = cropped;
-    }
-    let mut rgba = image
-        .resize_exact(edge, edge, image::imageops::FilterType::Triangle)
-        .into_rgba8();
+    // A view retains the decoded source through resize. For large 8-bit
+    // RGB(A) downsamplings, the float scratch (16 * side * edge bytes)
+    // and bounded output still cost less than the avoided square crop.
+    let borrow_crop = width != height && side >= 16 && side >= 8 * edge;
+    let mut rgba = match &image {
+        DynamicImage::ImageRgba8(source) if borrow_crop => resize_center(source, side, edge),
+        DynamicImage::ImageRgb8(source) if borrow_crop => {
+            DynamicImage::ImageRgb8(resize_center(source, side, edge)).into_rgba8()
+        }
+        _ => {
+            // Crop BEFORE resizing, notably for very thin sources.
+            if width != height {
+                image = image.crop((width - side) / 2, (height - side) / 2, side, side);
+            }
+            image
+                .resize_exact(edge, edge, image::imageops::FilterType::Triangle)
+                .into_rgba8()
+        }
+    };
     for pixel in rgba.pixels_mut() {
         pixel.0.swap(0, 2); // GPUI's RenderImage consumes BGRA, not RGBA.
     }

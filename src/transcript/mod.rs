@@ -325,7 +325,7 @@ impl Transcript {
                 ..
             } => self.push_user(Some(*message_id), text, images.clone()),
             Event::ToolCallRequested { call } => {
-                let tool = AppTranscriptTool {
+                let prepare_tool = || AppTranscriptTool {
                     terminal: None,
                     call_id: call.id.clone(),
                     name: call.name.clone(),
@@ -341,10 +341,12 @@ impl Transcript {
                         .as_mut()
                         .expect("subagent entry");
                     if subagent.tools.len() < MAX_SUBAGENT_TOOLS {
+                        let tool = prepare_tool();
                         Arc::make_mut(subagent).tools.push(tool);
                     }
                     return Change::Updated(index);
                 }
+                let tool = prepare_tool();
                 self.stop_streaming();
                 let key = self.allocate_key();
                 self.entries.push(Entry {

@@ -2,6 +2,7 @@
 //! A root owns its pane tree; a focused child chat never changes that owner.
 
 use std::collections::{BTreeMap, HashSet};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
@@ -11,7 +12,9 @@ use super::{TabLayout, is_chat};
 #[serde(default, deny_unknown_fields)]
 pub struct ChatSpaces {
     active: Option<String>,
-    pub(super) roots: BTreeMap<String, TabLayout>,
+    // Preferences, window registration, and persistence can retain the
+    // same inactive areas without copying their pane trees and tab history.
+    roots: BTreeMap<String, Arc<TabLayout>>,
     loose: TabLayout,
 }
 
@@ -33,6 +36,7 @@ impl ChatSpaces {
         self.active
             .as_ref()
             .and_then(|root| self.roots.get(root))
+            .map(Arc::as_ref)
             .unwrap_or(&self.loose)
     }
 
@@ -41,7 +45,7 @@ impl ChatSpaces {
     pub fn save_active(&mut self, layout: TabLayout) {
         match &self.active {
             Some(root) => {
-                self.roots.insert(root.clone(), layout);
+                self.roots.insert(root.clone(), Arc::new(layout));
             }
             None => self.loose = layout,
         }
@@ -56,7 +60,7 @@ impl ChatSpaces {
         self.roots.entry(root.to_owned()).or_insert_with(|| {
             let mut layout = TabLayout::default();
             layout.open(root, |_| false);
-            layout
+            Arc::new(layout)
         });
         self.active = Some(root.to_owned());
         true
@@ -85,7 +89,7 @@ impl ChatSpaces {
     pub fn root_layouts(&self) -> impl Iterator<Item = (&str, &TabLayout)> {
         self.roots
             .iter()
-            .map(|(root, layout)| (root.as_str(), layout))
+            .map(|(root, layout)| (root.as_str(), layout.as_ref()))
     }
 
     /// Whether there are no actual tabs, including the unowned area.
@@ -111,6 +115,9 @@ impl ChatSpaces {
     /// that chat from every area. Recently closed entries cannot resurrect it.
     pub fn remove_chats<'a>(&mut self, ids: impl IntoIterator<Item = &'a str>) {
         let ids: HashSet<_> = ids.into_iter().filter(|id| is_chat(id)).collect();
+        if ids.is_empty() {
+            return;
+        }
         self.roots.retain(|root, _| !ids.contains(root.as_str()));
         if self
             .active
@@ -119,7 +126,7 @@ impl ChatSpaces {
         {
             self.active = None;
         }
-        for layout in std::iter::once(&mut self.loose).chain(self.roots.values_mut()) {
+        for layout in self.layouts_mut() {
             for id in &ids {
                 layout.extract(id);
             }
@@ -133,7 +140,7 @@ impl ChatSpaces {
         if !is_chat(id) {
             return;
         }
-        for layout in std::iter::once(&mut self.loose).chain(self.roots.values_mut()) {
+        for layout in self.layouts_mut() {
             extract_chat(layout, id);
         }
     }
@@ -147,7 +154,7 @@ impl ChatSpaces {
         extract_chat(&mut self.loose, id);
         for (owner, layout) in &mut self.roots {
             if owner != root {
-                extract_chat(layout, id);
+                extract_chat(Arc::make_mut(layout), id);
             }
         }
     }
@@ -158,7 +165,7 @@ impl ChatSpaces {
         self.loose.include_window(&other.loose);
         for (root, layout) in &other.roots {
             match self.roots.get_mut(root) {
-                Some(existing) => existing.include_window(layout),
+                Some(existing) => Arc::make_mut(existing).include_window(layout),
                 None => {
                     self.roots.insert(root.clone(), layout.clone());
                 }
@@ -167,7 +174,7 @@ impl ChatSpaces {
     }
 
     pub fn all_layouts(&self) -> impl Iterator<Item = &TabLayout> {
-        std::iter::once(&self.loose).chain(self.roots.values())
+        std::iter::once(&self.loose).chain(self.roots.values().map(Arc::as_ref))
     }
 
     /// Actual tabs, excluding root identities whose tabs were detached.
@@ -183,12 +190,20 @@ impl ChatSpaces {
     /// Remove invalid documents from every retained area, including its closed
     /// tab history. Root ownership is unaffected by document cleanup.
     pub fn retain_documents(&mut self, keep: impl Fn(&str) -> bool) {
-        for layout in std::iter::once(&mut self.loose).chain(self.roots.values_mut()) {
+        for layout in self.layouts_mut() {
             layout.retain(|id| is_chat(id) || keep(id));
             layout
                 .closed
                 .retain(|tab| is_chat(&tab.id) || keep(&tab.id));
         }
+    }
+
+    fn layouts_mut(&mut self) -> impl Iterator<Item = &mut TabLayout> {
+        std::iter::once(&mut self.loose).chain(self.roots.values_mut().map(Arc::make_mut))
+    }
+
+    pub(super) fn root_layout_mut(&mut self, root: &str) -> Option<&mut TabLayout> {
+        self.roots.get_mut(root).map(Arc::make_mut)
     }
 
     pub fn validate(&self) -> Result<(), String> {

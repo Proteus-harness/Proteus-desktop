@@ -419,3 +419,44 @@ fn snapshot_matches_anonymous_text_in_place_and_preserves_local_date_on_acceptan
     assert_ne!(rows[1].key, old[1].key);
     assert!(!Arc::ptr_eq(&rows[1].text, &old[1].text));
 }
+
+#[test]
+fn full_child_request_does_not_become_a_standalone_tool_or_touch_shared_progress() {
+    let mut transcript = Transcript::default();
+    let root = Uuid::from_u128(10_661);
+    let child = Uuid::from_u128(10_662);
+    transcript.set_root_thread(Some(root));
+    transcript.apply_runtime(
+        root,
+        &Event::SubagentStarted {
+            role: "fixture".into(),
+            description: None,
+            child_thread_id: child,
+        },
+    );
+    let tool = |id| Event::ToolCallRequested {
+        call: ToolCall::new(id, "fixture", serde_json::json!({})),
+    };
+    for index in 0..MAX_SUBAGENT_TOOLS {
+        assert_eq!(
+            transcript.apply_runtime(child, &tool(format!("fixture-{index}"))),
+            Change::Updated(0)
+        );
+    }
+    let original = transcript.entries()[0].subagent.as_ref().unwrap().clone();
+    assert_eq!(
+        transcript.apply_runtime(child, &tool("not-visible-above-cap".to_owned())),
+        Change::Updated(0)
+    );
+    assert_eq!(transcript.entries().len(), 1);
+    let crowd = transcript.entries()[0].subagent.as_ref().unwrap();
+    assert!(Arc::ptr_eq(crowd, &original));
+    assert_eq!(crowd.tools.len(), MAX_SUBAGENT_TOOLS);
+
+    assert_eq!(
+        transcript.apply_runtime(root, &tool("still-standalone".to_owned())),
+        Change::Pushed
+    );
+    let standalone = transcript.entries()[1].tool.as_deref().unwrap();
+    assert_eq!(standalone.call_id, "still-standalone");
+}

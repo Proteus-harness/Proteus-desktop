@@ -107,31 +107,41 @@ impl Backend {
                     .map_err(|error| anyhow!("server reported invalid origin: {error}"))?;
                 Ok(backend)
             }
-            Err(mpsc::RecvTimeoutError::Timeout) => Err(anyhow!(
-                "server did not become ready in {} s\n{}",
-                READY_TIMEOUT.as_secs(),
-                backend.diagnostics()
-            )),
+            Err(mpsc::RecvTimeoutError::Timeout) => Err(anyhow!(backend.diagnostics(format!(
+                "server did not become ready in {} s\n",
+                READY_TIMEOUT.as_secs()
+            )))),
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 let ending = match backend.settle() {
                     Some(status) => format!("server exited before it was ready ({status})"),
                     None => "server closed its output before it was ready".to_owned(),
                 };
-                Err(anyhow!("{ending}\n{}", backend.diagnostics()))
+                Err(anyhow!(backend.diagnostics(format!("{ending}\n"))))
             }
         }
     }
 
-    pub fn diagnostics(&self) -> String {
+    fn diagnostics(&self, mut report: String) -> String {
         let log = self.log.lock().expect("log lock");
-        log.iter().cloned().collect::<Vec<_>>().join("\n")
+        // Size the final report from the same borrowed ring entries that
+        // will be copied into it; neither clone the lines nor join a draft.
+        let body_len = log.iter().map(String::len).sum::<usize>()
+            + log.len().saturating_sub(1);
+        report.reserve_exact(body_len);
+        for (index, line) in log.iter().enumerate() {
+            if index != 0 {
+                report.push('\n');
+            }
+            report.push_str(line);
+        }
+        report
     }
 
     /// Why the server ended, once it has exited on its own.
     pub fn exit_report(&mut self) -> Option<String> {
         self.child.try_wait().ok().flatten()?;
         let status = self.settle()?;
-        Some(format!("server exited ({status})\n{}", self.diagnostics()))
+        Some(self.diagnostics(format!("server exited ({status})\n")))
     }
 
     /// Waits briefly for a server that closed its stdout to exit and for its

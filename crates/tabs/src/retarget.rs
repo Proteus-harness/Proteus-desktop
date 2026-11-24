@@ -55,7 +55,7 @@ impl TabLayout {
 
 impl ChatSpaces {
     pub fn retarget_document_to_existing(&mut self, root: &str, from: &str, to: &str) -> bool {
-        let Some(layout) = self.roots.get_mut(root) else {
+        let Some(layout) = self.root_layout_mut(root) else {
             return false;
         };
         layout.retarget_document_to_existing(from, to);
@@ -65,7 +65,7 @@ impl ChatSpaces {
     /// Exact retained session area only; another session with identical
     /// document arguments is independent.
     pub fn retarget_document(&mut self, root: &str, from: &str, to: &str) -> bool {
-        let Some(layout) = self.roots.get_mut(root) else {
+        let Some(layout) = self.root_layout_mut(root) else {
             return false;
         };
         layout.retarget_document(from, to);

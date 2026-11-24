@@ -7,7 +7,7 @@ license = "GPL-3.0-or-later"
 description = "Headless tab, pane and split-layout state for Proteus Desktop"
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive", "rc"] }
 
 [dev-dependencies]
 serde_json = "1"

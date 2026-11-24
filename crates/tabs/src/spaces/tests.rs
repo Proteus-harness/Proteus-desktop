@@ -266,3 +266,50 @@ fn deleting_a_saved_document_cleans_open_and_closed_tabs_in_hidden_areas() {
     assert_eq!(spaces.active_root(), Some(SECOND));
     assert!(spaces.owner_of_chat(FIRST).is_some());
 }
+
+#[test]
+fn cloned_workspace_remains_a_frozen_value_across_shared_window_edits() {
+    let mut spaces = populated();
+    let mut first = spaces.active_layout().clone();
+    first.open("files:closed.rs", |_| false);
+    first.close("files:closed.rs");
+    spaces.save_active(first);
+    spaces.select(SECOND);
+    let mut second = spaces.active_layout().clone();
+    second.open("files:second.rs", |_| false);
+    spaces.save_active(second);
+
+    let original = spaces.clone();
+    let preferences = serde_json::to_vec(&original).unwrap();
+    let mut moved = ChatSpaces::default();
+    let mut fragment = TabLayout::default();
+    fragment.open("terminal:from-other-window", |_| false);
+    moved.set_active(Some(FIRST), fragment);
+    spaces.include_window(&moved);
+    spaces.select(FIRST);
+    assert!(
+        spaces
+            .active_layout()
+            .contains("terminal:from-other-window")
+    );
+    spaces.remove_chats([CHILD]);
+    assert!(spaces.retarget_document(FIRST, "files:first.rs", "files:renamed.rs"));
+    spaces.retain_documents(|id| id != "files:second.rs");
+    assert!(!spaces.contains(CHILD));
+    assert!(!spaces.contains("files:second.rs"));
+
+    assert_eq!(original.active_root(), Some(SECOND));
+    assert!(original.contains(CHILD));
+    assert!(original.contains("files:second.rs"));
+    assert!(!original.contains("terminal:from-other-window"));
+    assert_eq!(serde_json::to_vec(&original).unwrap(), preferences);
+    let first = original
+        .root_layouts()
+        .find(|(key, _)| *key == FIRST)
+        .unwrap()
+        .1;
+    assert!(first.is_pinned("files:first.rs"));
+    assert_eq!(first.closed_ids().collect::<Vec<_>>(), ["files:closed.rs"]);
+    assert_eq!(original.validate(), Ok(()));
+    assert_eq!(spaces.validate(), Ok(()));
+}
