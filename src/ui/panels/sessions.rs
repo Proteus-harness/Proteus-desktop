@@ -282,7 +282,6 @@ impl Workspace {
     ) -> impl IntoElement {
         let theme = cx.theme();
         let path = project.path.to_path_buf();
-        let current = path == self.active_project_path();
         h_flex()
             .id(("session-project", gi))
             .group("project-row")
@@ -299,13 +298,7 @@ impl Workspace {
                 theme.sidebar_foreground
             })
             .cursor_pointer()
-            .child(crate::ui::selection::background(
-                current,
-                false,
-                "project-row",
-                false,
-                cx,
-            ))
+            .hover(|row| row.bg(theme.list_hover))
             .child(
                 Icon::new(if collapsed {
                     Lucide::Folder
