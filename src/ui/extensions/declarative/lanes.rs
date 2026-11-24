@@ -130,7 +130,6 @@ impl Kind for LaneRows {
     }
     fn draw(&self, row: &Rc<Row>, index: usize, ring: bool, cx: &App) -> Stateful<Div> {
         let theme = cx.theme();
-        let selected = theme.sidebar_accent_foreground;
         h_flex()
             .id(("lanes-row", index))
             .relative()
@@ -146,7 +145,6 @@ impl Kind for LaneRows {
                 true,
                 cx,
             ))
-            .when(row.selected, |r| r.text_color(selected))
             .children(
                 self.columns
                     .iter()

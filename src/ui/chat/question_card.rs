@@ -168,13 +168,8 @@ impl Chat {
             .justify_center()
             .frame(cx)
             .text_xs()
-            .map(|badge| {
-                if selected {
-                    badge.bg(theme.primary).text_color(theme.primary_foreground)
-                } else {
-                    badge.bg(theme.secondary).text_color(theme.muted_foreground)
-                }
-            })
+            .bg(theme.secondary)
+            .text_color(theme.muted_foreground)
             .child((ix + 1).to_string());
         h_flex()
             .id(SharedString::from(format!(
@@ -187,17 +182,14 @@ impl Chat {
             .rounded(theme.radius)
             .cursor_pointer()
             .pressable(cx)
-            .when(selected, |row| {
-                row.bg(theme.sidebar_accent)
-                    .text_color(theme.sidebar_accent_foreground)
-            })
-            // Selection keeps its own foreground/fill pair, while the hover
-            // callback still tracks pointer leave for the later unselection.
+            .when(selected, |row| row.bg(theme.tokens.sidebar_accent))
+            // Register hover on selected rows too, so pointer leave keeps
+            // tracking when the row is later unselected.
             .hover(|row| {
                 if selected {
                     row
                 } else {
-                    row.bg(theme.list_hover)
+                    row.bg(theme.tokens.list_hover)
                 }
             })
             .child(badge)

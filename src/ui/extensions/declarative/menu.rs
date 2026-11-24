@@ -86,9 +86,12 @@ pub(super) fn fill(
             return menu.item(PopupMenuItem::label(item.label.clone()));
         }
         let (view, entry) = (view.clone(), item.clone());
+        let danger = item.danger && !item.disabled;
         let row = if item.selected {
-            crate::ui::selection::menu_option(item.label.clone(), true)
-        } else if item.danger && !item.disabled {
+            crate::ui::selection::menu_option_with_color(item.label.clone(), true, move |theme| {
+                danger.then_some(theme.danger)
+            })
+        } else if danger {
             let label = item.label.clone();
             PopupMenuItem::element(move |_, cx| {
                 div().text_color(cx.theme().danger).child(label.clone())

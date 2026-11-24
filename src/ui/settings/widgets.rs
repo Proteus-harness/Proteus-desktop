@@ -392,10 +392,10 @@ pub(super) fn radio_card(
         .surface_frame(cx)
         .cursor_pointer()
         .pressable(cx)
+        .text_color(theme.group_box_foreground)
         .map(|card| {
             if selected {
                 card.bg(kit::surface_selected(cx))
-                    .text_color(theme.group_box_foreground)
             } else {
                 card.bg(theme.group_box)
             }

@@ -46,6 +46,14 @@ pub(crate) fn focus(cx: &App) -> Div {
 /// cursor. The menu retains its native navigation and intrinsic text width;
 /// the selected value uses the same inset surface as rows and model choices.
 pub(crate) fn menu_option(label: impl Into<SharedString>, selected: bool) -> PopupMenuItem {
+    menu_option_with_color(label, selected, |_| None)
+}
+
+pub(crate) fn menu_option_with_color(
+    label: impl Into<SharedString>,
+    selected: bool,
+    foreground: impl Fn(&ThemeColor) -> Option<Hsla> + 'static,
+) -> PopupMenuItem {
     let label = label.into();
     PopupMenuItem::element(move |window, cx| {
         let theme = cx.theme();
@@ -66,9 +74,7 @@ pub(crate) fn menu_option(label: impl Into<SharedString>, selected: bool) -> Pop
             .flex_grow(1.)
             .text_sm()
             .min_h(prefs::scaled(26.))
-            .when(selected, |row| {
-                row.text_color(theme.sidebar_accent_foreground)
-            })
+            .when_some(foreground(theme), |row, color| row.text_color(color))
             // Keep native menu padding in the layout. Only the selected
             // paint extends into it; negative margins on the caption used
             // to reduce its measured room and fade fitting final letters.

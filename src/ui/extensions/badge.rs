@@ -95,8 +95,7 @@ pub(super) fn pressable_badge(
     cx: &App,
 ) -> impl IntoElement + use<> {
     let id = host.extension();
-    let theme = cx.theme();
-    let (hover, foreground) = (theme.list_hover, theme.foreground);
+    let hover = cx.theme().tokens.list_hover;
     let opens = super::find(id).is_some_and(|manifest| manifest.panel.is_some());
     let pinned = prefs::visual(cx).extensions.is_pinned(id);
     let lifted = drag::is_source(&drag_key(id), cx);
@@ -115,7 +114,7 @@ pub(super) fn pressable_badge(
     let rail = in_rail(id, cx);
     resting_badge(rail, cx)
         .id(ElementId::Name(format!("badge-{id}").into()))
-        .when(highlighted, |badge| badge.bg(hover).text_color(foreground))
+        .when(highlighted, |badge| badge.bg(hover))
         .when_some(press, |badge, press| {
             badge
                 .cursor_pointer()
@@ -125,7 +124,7 @@ pub(super) fn pressable_badge(
                     press(window, cx);
                 })
         })
-        .hover(move |style| style.bg(hover).text_color(foreground))
+        .hover(move |style| style.bg(hover))
         // The title bar must not turn widget clicks into window move/zoom.
         .on_mouse_down(MouseButton::Left, |_, window, cx| {
             window.prevent_default();

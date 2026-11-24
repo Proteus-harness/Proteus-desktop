@@ -6,7 +6,6 @@
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
 use gpui_kit::component::*;
-use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::preferences::{BadgePlace, SESSIONS_PANEL};
@@ -93,7 +92,6 @@ fn rail_button(
     cx: &App,
 ) -> Button {
     let theme = cx.theme();
-    let foreground = theme.foreground;
     kit::button(id)
         .custom(ButtonCustomVariant::new(cx).foreground(theme.muted_foreground))
         .accessibility_label(title.to_owned())
@@ -113,19 +111,7 @@ fn rail_button(
             false,
             cx,
         ))
-        .when(active, |button| {
-            button.text_color(theme.sidebar_accent_foreground)
-        })
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .justify_center()
-                .when(!active, |icon| {
-                    icon.group_hover("rail-selection", move |style| style.text_color(foreground))
-                })
-                .child(icon.with_size(gpui_kit::component::Size::Medium)),
-        )
+        .child(icon.with_size(gpui_kit::component::Size::Medium))
         // The accessible name is the icon-only title, not a duplicate
         // description. Native button focus shares the common hover tooltip.
         .hint_keys("", keys, cx)

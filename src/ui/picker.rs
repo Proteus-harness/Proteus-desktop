@@ -379,9 +379,6 @@ impl<T: Clone + PartialEq + 'static> Render for Picker<T> {
                                 true,
                                 cx,
                             ))
-                            .when(option.selected, |row| {
-                                row.text_color(cx.theme().sidebar_accent_foreground)
-                            })
                             .child(div().flex_1().min_w_0().child(label))
                             .when(cursor && focused && super::kit::keyboard(), |row| {
                                 row.child(selection::focus(cx))

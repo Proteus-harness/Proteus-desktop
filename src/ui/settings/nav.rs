@@ -167,26 +167,18 @@ impl SettingsView {
                 .border_color(gpui_kit::transparent_black())
                 .text_sm()
                 .cursor_pointer()
-                .text_color(if selected {
-                    theme.sidebar_accent_foreground
-                } else {
-                    theme.sidebar_foreground
-                })
                 .render_label(move |title, clipped, _, cx| {
                     h_flex()
                         .w_full()
                         .min_w_0()
                         .gap_2()
                         .items_center()
+                        .text_color(cx.theme().sidebar_foreground)
                         .child(
                             page_icon(&page)
                                 .small()
                                 .flex_none()
-                                .text_color(if selected {
-                                    cx.theme().sidebar_accent_foreground
-                                } else {
-                                    cx.theme().muted_foreground
-                                }),
+                                .text_color(cx.theme().muted_foreground),
                         )
                         .child(
                             div()

@@ -52,7 +52,6 @@ impl Tree {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = cx.theme();
-        let selected_foreground = theme.sidebar_accent_foreground;
         let (line, lit_line) = (theme.border, theme.muted_foreground.opacity(0.5));
         let indent = self.layout.indent;
         let start = move |depth: usize| INSET + depth as f32 * indent;
@@ -105,7 +104,6 @@ impl Tree {
                 true,
                 cx,
             ))
-            .when(selected, |element| element.text_color(selected_foreground))
             .children(guides.into_iter().flatten())
             .child(body)
             .when_some(row.stats, |element, stats| {

@@ -296,7 +296,13 @@ impl Workspace {
             .text_sm()
             .text_color(theme.muted_foreground)
             .cursor_pointer()
-            .hover(|row| row.bg(theme.list_hover).text_color(theme.foreground))
+            .child(crate::ui::selection::background(
+                current,
+                false,
+                "project-row",
+                false,
+                cx,
+            ))
             .child(
                 Icon::new(if collapsed {
                     Lucide::Folder
@@ -306,13 +312,7 @@ impl Workspace {
                 .small()
                 .flex_none(),
             )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .when(current, |name| name.text_color(theme.foreground))
-                    .child(faded(folder_name(&path))),
-            )
+            .child(div().flex_1().min_w_0().child(faded(folder_name(&path))))
             .child(
                 div()
                     .absolute()

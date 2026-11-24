@@ -215,11 +215,6 @@ impl Chat {
                 .selected(open)
                 .toggled(open)
                 .max_w(prefs::scaled(240.))
-                .when(open, |button| {
-                    button
-                        .bg(theme.sidebar_accent)
-                        .text_color(theme.sidebar_accent_foreground)
-                })
                 .child(motion::chevron(
                     SharedString::from(format!("{key}-chevron")),
                     open,
