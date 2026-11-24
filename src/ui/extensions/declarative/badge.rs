@@ -13,6 +13,7 @@ use super::view::DeclarativeView;
 use super::{Host, SurfaceKind, installed, runtime};
 use crate::declarative::presentation::Face;
 use crate::declarative::widget::Tone;
+use crate::preferences::BadgePlace;
 use crate::ui::kit::MetricText as _;
 use crate::ui::{motion::Number, prefs};
 use std::cell::Cell;
@@ -61,7 +62,8 @@ impl Render for DeclarativeBadge {
         let icon = super::icon(manifest.icon.as_deref());
         let view = self.view.read(cx);
         let error = view.error(cx);
-        let initially_hidden = super::super::find(id)
+        let extension_ui = super::super::find(id);
+        let initially_hidden = extension_ui
             .and_then(|extension| extension.badge.as_ref())
             .is_some_and(|badge| badge.initially_hidden);
         if should_hide(
@@ -86,6 +88,14 @@ impl Render for DeclarativeBadge {
             details = details.line(manifest.description.clone());
         }
         let presentation = view.presentation.as_ref();
+        let composer_selector = manifest.surfaces.popup.is_some()
+            && presentation.is_some_and(|p| matches!(p.face, Face::Text { caret: true, .. }))
+            && extension_ui.is_some_and(|extension| {
+                matches!(
+                    super::super::badge_place(extension, cx),
+                    BadgePlace::ComposerStart | BadgePlace::ComposerEnd
+                )
+            });
         if let Some(presentation) = presentation {
             details = Details::new(presentation.title.clone());
             for line in &presentation.lines {
@@ -141,7 +151,7 @@ impl Render for DeclarativeBadge {
                     icon: show_icon,
                     caret,
                 } => {
-                    let (show_icon, caret) = (*show_icon, *caret);
+                    let (show_icon, caret) = (*show_icon, *caret && !composer_selector);
                     // Default is ordinary readable text, as in Node::Text.
                     // Only an explicitly muted face inherits the badge tint.
                     let color = (!matches!(tone, Tone::Muted))
@@ -222,10 +232,10 @@ impl Render for DeclarativeBadge {
             .relative()
             .on_prepaint(move |rect, _, _| bounds.set(rect))
             .child(pressable_badge(
-                id,
                 face,
                 details,
                 &self.host,
+                composer_selector,
                 press,
                 Some(drag_start),
                 cx,

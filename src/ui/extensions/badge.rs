@@ -78,14 +78,15 @@ pub(super) type Press = Rc<dyn Fn(&mut Window, &mut App)>;
 /// A widget whose click runs `press`; a drag still moves it, since a press
 /// only counts once the pointer is released without dragging.
 pub(super) fn pressable_badge(
-    id: &'static str,
     face: Face,
     details: Details,
     host: &Host,
+    highlighted: bool,
     press: Option<Press>,
     drag_start: Option<Press>,
     cx: &App,
 ) -> impl IntoElement + use<> {
+    let id = host.extension();
     let theme = cx.theme();
     let (hover, foreground) = (theme.list_hover, theme.foreground);
     let opens = super::find(id).is_some_and(|manifest| manifest.panel.is_some());
@@ -108,7 +109,12 @@ pub(super) fn pressable_badge(
         .when(rail, |badge| badge.size_8().px_0())
         .id(ElementId::Name(format!("badge-{id}").into()))
         .rounded(theme.radius)
-        .text_color(theme.muted_foreground)
+        .text_color(if highlighted {
+            foreground
+        } else {
+            theme.muted_foreground
+        })
+        .when(highlighted, |badge| badge.bg(hover))
         .when_some(press, |badge, press| {
             badge
                 .cursor_pointer()
