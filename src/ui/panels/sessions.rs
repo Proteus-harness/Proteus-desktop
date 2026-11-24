@@ -8,7 +8,6 @@ use std::time::Duration;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::scroll::{ScrollableElement as _, vertical_scroll_gutter};
 use gpui_kit::component::*;
-use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::session_row::Look;
