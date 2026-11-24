@@ -235,7 +235,7 @@ impl Render for DeclarativeBadge {
                 face,
                 details,
                 &self.host,
-                composer_selector,
+                composer_selector && open,
                 press,
                 Some(drag_start),
                 cx,
