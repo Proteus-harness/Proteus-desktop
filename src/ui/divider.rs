@@ -81,7 +81,12 @@ impl ResizeSeam {
 
     /// Build the seven-pixel hit strip without padding away its upper part.
     pub(super) fn grip(self, name: SharedString, cx: &App) -> Stateful<Div> {
-        let accent = cx.theme().drag_border;
+        let theme = cx.theme();
+        let mark_color = if self.idle_line {
+            theme.drag_border
+        } else {
+            theme.sidebar_foreground.opacity(0.22)
+        };
         let held = drag::is_source(&name, cx);
         let reach = px((GRIP - WIDTH) / 2. * prefs::scale(cx));
         let grip = div()
@@ -91,8 +96,8 @@ impl ResizeSeam {
             .flex()
             .justify_center();
         let mark = div()
-            .when(held, |mark| mark.bg(accent))
-            .group_hover(name, move |style| style.bg(accent));
+            .when(held, |mark| mark.bg(mark_color))
+            .group_hover(name, move |style| style.bg(mark_color));
         match self.axis {
             Axis::Row => grip
                 .top(self.hit_start)

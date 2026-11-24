@@ -107,12 +107,7 @@ impl Workspace {
                 false,
                 cx,
             ))
-            .when(selected, |row| {
-                row.text_color(theme.sidebar_accent_foreground)
-            })
-            .when(mark.archived && !selected, |row| {
-                row.text_color(theme.muted_foreground)
-            })
+            .when(mark.archived, |row| row.text_color(theme.muted_foreground))
             .when(mark.pinned, |row| {
                 row.child(
                     Icon::new(Lucide::Pin)
