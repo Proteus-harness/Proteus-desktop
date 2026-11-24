@@ -61,7 +61,7 @@ impl Chat {
                         })),
                 )
             })
-            .children(stamp::turn_time(key, time, cx))
+            .children(stamp::turn_time(time))
             .into_any_element()
     }
 

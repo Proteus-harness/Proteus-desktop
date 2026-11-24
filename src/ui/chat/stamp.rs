@@ -2,11 +2,9 @@
 // Local-day comparison follows Zed: crates/time_format/src/time_format.rs.
 
 use chrono::{DateTime, Local, TimeZone as _};
-use gpui_kit::component::*;
 use gpui_kit::*;
 
 use crate::transcript::{Entry, Role};
-use crate::ui::tip::Tip as _;
 
 pub(super) fn hidden(entries: &[Entry], entry: &Entry) -> bool {
     entry
@@ -39,18 +37,14 @@ pub(super) fn turn_end(entries: &[Entry], end: usize, complete_tail: bool) -> Op
     Some(TurnEnd { time })
 }
 
-/// The time of row `key` at `time` (Unix milliseconds), muted and small.
-pub(super) fn turn_time(key: u64, time: Option<i64>, cx: &App) -> Option<AnyElement> {
+/// Local time in the turn footer, inheriting its secondary text color.
+pub(super) fn turn_time(time: Option<i64>) -> Option<AnyElement> {
     let time = Local.timestamp_millis_opt(time?).single()?;
     let element = div()
-        .id(ElementId::NamedInteger("turn-time".into(), key))
         .flex_none()
         .px_1()
         .text_xs()
-        .text_color(cx.theme().chat_secondary_foreground)
-        .hover(|style| style.text_color(cx.theme().foreground))
-        .child(short(time, Local::now()))
-        .tip_text(full(time));
+        .child(short(time, Local::now()));
     Some(element.into_any_element())
 }
 
@@ -63,16 +57,11 @@ fn short(time: DateTime<Local>, now: DateTime<Local>) -> String {
     .to_string()
 }
 
-/// Full source date and seconds remain available in the tooltip.
-fn full(time: DateTime<Local>) -> String {
-    time.format("%H:%M:%S %d.%m.%Y").to_string()
-}
-
 #[cfg(test)]
 mod tests {
     use chrono::{DateTime, Local, TimeZone as _};
 
-    use super::{full, short};
+    use super::short;
 
     fn at(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> DateTime<Local> {
         Local
@@ -88,11 +77,6 @@ mod tests {
         assert_eq!(short(at(2026, 10, 21, 14, 32), now), "14:32 21.10.2026");
         assert_eq!(short(at(2025, 10, 22, 14, 32), now), "14:32 22.10.2025");
         assert_eq!(short(at(2026, 10, 23, 0, 0), now), "00:00 23.10.2026");
-    }
-
-    #[test]
-    fn full_time_has_seconds() {
-        assert_eq!(full(at(2026, 10, 22, 14, 32)), "14:32:05 22.10.2026");
     }
 
     fn transcript(roles: &[&str]) -> crate::transcript::Transcript {
