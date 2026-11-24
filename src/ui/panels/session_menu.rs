@@ -62,8 +62,7 @@ pub(super) fn build(
     ))
     .item(pin)
     .item(archive)
-    .separator()
-    .item(item("Удалить чат…", |this, dir, window, cx| {
+    .item(item("Удалить чат", |this, dir, window, cx| {
         this.confirm_delete(dir, window, cx)
     }))
 }
