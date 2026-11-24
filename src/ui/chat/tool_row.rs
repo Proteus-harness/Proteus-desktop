@@ -183,25 +183,28 @@ impl Fold {
     /// blocks of a row apart.
     fn block(&self, part: usize, text: &str, build: impl Fn(String) -> Div, cx: &App) -> Div {
         let build = |text| clipped_surface(build(text), self.clip, cx);
-        let lines = text.lines().count();
-        let long = lines > PEEK_LINES || text.len() > PEEK_CHARS;
+        let full = self.full.get(part).copied().unwrap_or(false);
+        let lines = (!full).then(|| text.lines().count());
+        let long = text.len() > PEEK_CHARS
+            || match lines {
+                Some(lines) => lines > PEEK_LINES,
+                None => text.lines().nth(PEEK_LINES).is_some(),
+            };
         if !long {
             return build(text.trim_end().to_owned());
         }
-        let full = self.full.get(part).copied().unwrap_or(false);
         let preview = format::peek_block(text, PEEK_LINES, PEEK_CHARS);
-        let peeked = preview.lines().count();
         let theme = cx.theme();
         let chat = self.chat.clone();
         let copy_chat = self.chat.clone();
         let key = self.key;
-        let label = if full {
-            "Свернуть".to_owned()
-        } else {
-            match lines.saturating_sub(peeked) {
+        let label = if let Some(lines) = lines {
+            match lines.saturating_sub(preview.lines().count()) {
                 0 => "Показать больше".to_owned(),
                 hidden => format!("Показать больше · ещё строк: {hidden}"),
             }
+        } else {
+            "Свернуть".to_owned()
         };
         v_flex()
             .gap_1()

@@ -331,6 +331,30 @@ def restore_archive(args):
     apply_settings(settings_state_dir(args, home), data_by_path, args.dry_run)
 
 
+def with_native_go(data):
+    if b'proteus-opencode-module' not in data:
+        return data
+    text = data.decode('utf-8')
+    expected = tomllib.loads(text)
+    if expected.get('include'):
+        return data
+    component = expected.get('components', {}).get('opencode-model', {})
+    config = expected.get('module_config', {}).get('model', {}).get('opencode', {})
+    if (component.get('command') != 'proteus-opencode-module'
+            or component.get('exports') != {'model': {'opencode': {}}}
+            or config.get('provider') != 'opencode-go'
+            or config.keys() - {'provider', 'api_key', 'database_path'}):
+        return data
+    # Rewrite only the stock spelling, and verify the entire TOML round trip.
+    text = text.replace('[components.opencode-model]\ncommand = "proteus-opencode-module"',
+                        '[components.opencode-model]\ncommand = "proteus-model-pack-module"', 1)
+    text = text.replace('[module_config.model.opencode]\n',
+                        '[module_config.model.opencode]\nimplementation = "opencode_go"\n', 1)
+    config['implementation'] = 'opencode_go'
+    component['command'] = 'proteus-model-pack-module'
+    return text.encode('utf-8') if tomllib.loads(text) == expected else data
+
+
 def upgrade_storage(args):
     home, locations = roots(args)
     agent = locations['agent']
@@ -347,6 +371,8 @@ def upgrade_storage(args):
         raise ValueError('No Proteus TOML profiles found')
     original = {path: read_settings(path.resolve(strict=True)) for path in profiles}
     updated = {path: with_session_storage(path, original, home) for path in profiles}
+    if args.operation == 'upgrade-startup':
+        updated = {path: with_native_go(data) for path, data in updated.items()}
     apply_settings(settings_state_dir(args, home), updated, args.dry_run, action='update')
 
 
@@ -419,24 +445,24 @@ def apply_settings(state_dir, data_by_path, dry_run, action='restore'):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('operation', choices=('export', 'restore', 'upgrade-storage'))
+    parser.add_argument('operation', choices=('export', 'restore', 'upgrade-storage', 'upgrade-startup'))
     parser.add_argument('archive', type=Path, nargs='?', metavar='ARCHIVE_OR_PROFILE')
     parser.add_argument('--home', type=Path, help='home for a staged or alternate user')
     parser.add_argument('--agent-config', type=Path)
     parser.add_argument('--desktop-config', type=Path)
     parser.add_argument('--dry-run', action='store_true', help='show changes without writing')
     args = parser.parse_args()
-    if args.operation != 'upgrade-storage' and args.archive is None:
+    if args.operation in ('export', 'restore') and args.archive is None:
         parser.error('export and restore require an archive path')
     if args.dry_run and args.operation == 'export':
         parser.error('--dry-run applies to restore and upgrade-storage')
     errors = (OSError, ValueError, KeyError)
-    if args.operation != 'upgrade-storage':
+    if args.operation in ('export', 'restore'):
         from tarfile import TarError
 
         errors += (TarError,)
     try:
-        operations = {'export': export_archive, 'restore': restore_archive, 'upgrade-storage': upgrade_storage}
+        operations = {'export': export_archive, 'restore': restore_archive, 'upgrade-storage': upgrade_storage, 'upgrade-startup': upgrade_storage}
         operations[args.operation](args)
     except errors as error:
         parser.exit(1, f'{error}\n')

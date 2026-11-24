@@ -92,11 +92,15 @@ impl SentImages {
     }
 
     pub(super) fn retain(&mut self, entries: &[crate::transcript::Entry]) {
-        let ids: std::collections::HashSet<_> = entries
-            .iter()
-            .flat_map(|row| row.images.iter().map(|image| image.id.as_str()))
-            .collect();
-        self.by_id.retain(|id, _| ids.contains(id.as_str()));
+        // A cold chat has no local thumbnail slots until its first layout.
+        // Shared cache pruning must still run for other, already opened chats.
+        if !self.by_id.is_empty() {
+            let ids: std::collections::HashSet<_> = entries
+                .iter()
+                .flat_map(|row| row.images.iter().map(|image| image.id.as_str()))
+                .collect();
+            self.by_id.retain(|id, _| ids.contains(id.as_str()));
+        }
         SHARED.with(|shared| shared.borrow_mut().cache.prune());
     }
 
@@ -109,22 +113,18 @@ impl SentImages {
     ) -> Vec<String> {
         let mut missing = Vec::new();
         for image in images {
-            let key = Key {
-                connection,
-                dir: dir.into(),
-                id: image.id.clone(),
-                edge,
-            };
-            if self
-                .by_id
-                .get(&image.id)
-                .is_some_and(|slot| slot.key != key)
-            {
+            if self.by_id.get(&image.id).is_some_and(|slot| {
+                let key = &slot.key;
+                key.connection != connection
+                    || key.dir.as_path() != dir
+                    || key.id.as_str() != image.id.as_str()
+                    || key.edge != edge
+            }) {
                 self.by_id.remove(&image.id);
             }
             if let Some(slot) = self.by_id.get_mut(&image.id) {
                 if let Some(image) =
-                    SHARED.with(|shared| shared.borrow_mut().cache.get(&key, &slot.owner))
+                    SHARED.with(|shared| shared.borrow_mut().cache.get(&slot.key, &slot.owner))
                 {
                     slot.state = Stored::Ready(Arc::downgrade(&image));
                     continue;

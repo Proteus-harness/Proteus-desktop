@@ -46,7 +46,7 @@ fn terminal_binding_is_visible_before_completion_and_survives_snapshot() {
         ),
         Change::Updated(0)
     );
-    let live = transcript.entries()[0].tool.as_ref().unwrap();
+    let live = transcript.entries()[0].tool.as_deref().unwrap();
     assert_eq!(live.status, "running");
     assert!(live.result.is_none());
     assert_eq!(live.terminal.as_ref(), Some(&terminal));

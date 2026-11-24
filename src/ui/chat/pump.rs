@@ -279,12 +279,15 @@ impl Chat {
         shown |= !matches!(change, Change::None);
         if let Some(changes) = display_changes {
             self.apply_history_changes(changes, cx);
-        } else if !self.history.archived() {
-            self.apply_change(change, cx);
-        } else if change != Change::None {
-            self.invalidate_archived_live_heights(cx);
+        } else {
+            // Snapshot display changes already synchronize the range and key.
+            if !self.history.archived() {
+                self.apply_change(change, cx);
+            } else if change != Change::None {
+                self.invalidate_archived_live_heights(cx);
+            }
+            self.sync_history_range(cx);
         }
-        self.sync_history_range(cx);
         if refresh_context {
             self.load_context(cx);
         }

@@ -231,7 +231,7 @@ impl HeightMap {
                     },
                 );
                 let rows = span.rows;
-                next = join(next, SumTree::from_item(span, ()));
+                push_joined(&mut next, span);
                 remaining -= rows;
                 row += rows;
                 if let Some(span) = candidate.as_mut() {
@@ -650,6 +650,22 @@ fn split(tree: &SumTree<Span>, row: usize) -> (SumTree<Span>, SumTree<Span>) {
     }
     right.append(cursor.suffix(), ());
     (left, right)
+}
+
+/// The singleton case of `join`: keep the same append order and summary
+/// grouping, without creating a right tree just to split it when it joins.
+fn push_joined(tree: &mut SumTree<Span>, span: Span) {
+    if tree.last().is_some_and(|last| last.joins(span)) {
+        tree.update_last(
+            |last| {
+                last.rows += span.rows;
+                last.pixels += span.pixels;
+            },
+            (),
+        );
+    } else {
+        tree.push(span, ());
+    }
 }
 
 fn join(mut left: SumTree<Span>, mut right: SumTree<Span>) -> SumTree<Span> {

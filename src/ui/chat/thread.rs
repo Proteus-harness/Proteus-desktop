@@ -145,12 +145,15 @@ impl Chat {
         let end_key = entries[end - 1].key;
         let turn = &entries[..end];
         let copyable = footer
-            && (turn
+            && turn
                 .iter()
                 .rev()
-                .take_while(|entry| entry.role != Role::User)
-                .any(|entry| entry.role == Role::Assistant && !entry.text.trim().is_empty())
-                || !turn.iter().any(|entry| entry.role == Role::User));
+                .find_map(|entry| match entry.role {
+                    Role::User => Some(false),
+                    Role::Assistant if !entry.text.trim().is_empty() => Some(true),
+                    _ => None,
+                })
+                .unwrap_or(true);
         let image_edge = super::images::thumbnail_edge(window, cx);
         let missing = self
             .api
@@ -242,7 +245,7 @@ impl Chat {
                 Some(chain) if ix == chain.start => {
                     let tools = entries[chain.clone()]
                         .iter()
-                        .filter_map(|entry| entry.tool.as_ref());
+                        .filter_map(|entry| entry.tool.as_deref());
                     let header =
                         render_chain_header(key, tools, chain_open, self.session.connected, cx);
                     let calls = if chain_moving {

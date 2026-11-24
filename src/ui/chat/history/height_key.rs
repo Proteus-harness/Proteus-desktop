@@ -10,7 +10,9 @@ use uuid::Uuid;
 pub(super) fn key(session: &Session, cursor: &AppTranscriptCursor) -> Option<HeightCacheKey> {
     let id = session.durable_id()?;
     Some(HeightCacheKey {
-        identity: identity_hash(&session.key.tab_id(), id),
+        identity: session
+            .key
+            .with_tab_id_parts(|prefix, value| identity_hash(prefix, value, id)),
         revision: height_hash(&cursor.revision),
         layout: [0; 32],
         // The cursor owns the archived prefix; its last row also depends on
@@ -27,10 +29,11 @@ pub(super) fn key(session: &Session, cursor: &AppTranscriptCursor) -> Option<Hei
 }
 
 /// Hash the existing persisted preimage without joining it on the heap.
-fn identity_hash(tab_id: &str, id: Uuid) -> [u8; 32] {
+fn identity_hash(prefix: &str, value: &str, id: Uuid) -> [u8; 32] {
     let mut hash = Sha256::new();
     let mut uuid = [0; uuid::fmt::Hyphenated::LENGTH];
-    hash.update(tab_id.as_bytes());
+    hash.update(prefix.as_bytes());
+    hash.update(value.as_bytes());
     hash.update(b":");
     hash.update(id.hyphenated().encode_lower(&mut uuid).as_bytes());
     hash.finalize().into()
@@ -42,10 +45,16 @@ mod identity_tests {
 
     #[test]
     fn geometry_identity_keeps_the_legacy_formatted_preimage() {
-        for tab_id in ["chat:/synthetic/ё", "codex:opaque:child", "", "chat:\n"] {
+        for (prefix, value) in [
+            ("chat:", "/synthetic/ё"),
+            ("codex:", "opaque:child"),
+            ("", ""),
+            ("chat:", "\n"),
+        ] {
+            let tab_id = format!("{prefix}{value}");
             for id in [Uuid::nil(), Uuid::max(), Uuid::from_u128(0xabcdef)] {
                 assert_eq!(
-                    identity_hash(tab_id, id),
+                    identity_hash(prefix, value, id),
                     height_hash(format!("{tab_id}:{id}"))
                 );
             }

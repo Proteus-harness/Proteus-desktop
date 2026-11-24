@@ -1,7 +1,7 @@
 //! Bounded semantic context for an explicit fractional history seek.
 use super::{
-    CACHE_BYTES, CACHE_ROWS, Chat, Direction, History, HistoryRange, ScrollTarget, Transcript,
-    seek_context,
+    CACHE_BYTES, CACHE_ROWS, ChargedRows, Chat, Direction, History, HistoryRange, ScrollTarget,
+    Transcript, seek_context,
 };
 use gpui_kit::*;
 use std::ops::Range;
@@ -28,12 +28,12 @@ impl ContextSeek {
         }
     }
 
-    pub(super) fn loaded(&mut self, entries: &[crate::transcript::Entry]) {
-        self.rows += entries.len();
-        self.bytes += entries
-            .iter()
-            .map(|entry| entry.retained_bytes())
-            .sum::<usize>();
+    pub(super) fn loaded(&mut self, entries: &[crate::transcript::Entry]) -> ChargedRows {
+        let count = entries.len();
+        let bytes = entries.iter().map(|entry| entry.retained_bytes()).sum();
+        self.rows += count;
+        self.bytes += bytes;
+        ChargedRows { count, bytes }
     }
 
     fn step(

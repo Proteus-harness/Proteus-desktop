@@ -103,7 +103,7 @@ mod tests {
             },
             text: Arc::from(""),
             images: Vec::new(),
-            tool,
+            tool: tool.map(Arc::new),
             subagent: None,
             streaming: false,
             time: None,
@@ -132,7 +132,7 @@ mod tests {
     fn early_terminal_binding_keeps_button_visible_and_invalidates_old_chain() {
         let mut rows: Vec<_> = (0..5).map(|key| entry(key, true)).collect();
         assert_eq!(tool_chain(&rows, 2), Some(0..5));
-        rows[2].tool.as_mut().unwrap().terminal =
+        Arc::make_mut(rows[2].tool.as_mut().unwrap()).terminal =
             Some(proteus_contracts::contracts::ToolTerminalRef {
                 id: uuid::Uuid::from_u128(19),
                 title: "running command".into(),
@@ -152,7 +152,7 @@ mod tests {
             entry(4, true),
         ];
         assert_eq!(tool_chain(&rows, 2), Some(0..5));
-        rows[2].tool.as_mut().unwrap().metadata =
+        Arc::make_mut(rows[2].tool.as_mut().unwrap()).metadata =
             serde_json::json!({"tool":"task","child_thread_id":"exact-child"});
         assert_eq!(tool_chain(&rows, 2), None);
         assert_eq!(tool_chain(&rows, 0), None);
@@ -161,11 +161,11 @@ mod tests {
             session_id: uuid::Uuid::from_u128(5),
             session_dir: "/saved/child".into(),
         };
-        rows[2].tool.as_mut().unwrap().metadata["subagent_session"] =
+        Arc::make_mut(rows[2].tool.as_mut().unwrap()).metadata["subagent_session"] =
             serde_json::to_value(&bound).unwrap();
         let mut progress = entry(5, false);
         progress.role = Role::System;
-        progress.subagent = Some(proteus_contracts::app_protocol::AppTranscriptSubagent {
+        progress.subagent = Some(Arc::new(proteus_contracts::app_protocol::AppTranscriptSubagent {
             child_thread_id: "exact-child".into(),
             session: Some(bound),
             role: "explorer".into(),
@@ -173,7 +173,7 @@ mod tests {
             status: "running".into(),
             iterations: None,
             tools: Vec::new(),
-        });
+        }));
         rows.push(progress);
         assert_eq!(
             super::super::subagent::progress_row(&rows, rows[2].tool.as_ref().unwrap()),
@@ -181,10 +181,7 @@ mod tests {
         );
         assert_eq!(affected_rows(&rows, 2), 0..6);
         assert_eq!(affected_rows(&rows, 5), 2..6);
-        rows[5]
-            .subagent
-            .as_mut()
-            .unwrap()
+        Arc::make_mut(rows[5].subagent.as_mut().unwrap())
             .session
             .as_mut()
             .unwrap()

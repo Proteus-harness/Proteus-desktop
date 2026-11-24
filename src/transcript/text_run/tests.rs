@@ -87,21 +87,21 @@ fn assert_entry(actual: &Entry, expected: &Entry) {
     assert_eq!(
         actual
             .tool
-            .as_ref()
+            .as_deref()
             .map(|value| serde_json::to_value(value).unwrap()),
         expected
             .tool
-            .as_ref()
+            .as_deref()
             .map(|value| serde_json::to_value(value).unwrap()),
     );
     assert_eq!(
         actual
             .subagent
-            .as_ref()
+            .as_deref()
             .map(|value| serde_json::to_value(value).unwrap()),
         expected
             .subagent
-            .as_ref()
+            .as_deref()
             .map(|value| serde_json::to_value(value).unwrap()),
     );
     assert_eq!(actual.streaming, expected.streaming);
@@ -299,7 +299,7 @@ fn reverse_identity_lookup_preserves_nonassistant_metadata() {
             mime_type: "image/png".into(),
             path: "fixture.png".into(),
         });
-        entry.subagent = Some(proteus_contracts::app_protocol::AppTranscriptSubagent {
+        entry.subagent = Some(std::sync::Arc::new(proteus_contracts::app_protocol::AppTranscriptSubagent {
             child_thread_id: id(20).to_string(),
             session: None,
             role: "fixture".into(),
@@ -307,8 +307,8 @@ fn reverse_identity_lookup_preserves_nonassistant_metadata() {
             status: "running".into(),
             iterations: Some(4),
             tools: Vec::new(),
-        });
-        entry.tool = Some(AppTranscriptTool {
+        }));
+        entry.tool = Some(std::sync::Arc::new(AppTranscriptTool {
             terminal: None,
             call_id: "collision".into(),
             name: "fixture".into(),
@@ -317,7 +317,7 @@ fn reverse_identity_lookup_preserves_nonassistant_metadata() {
             status: "done".into(),
             result: Some("result".into()),
             metadata: serde_json::json!({"keep": "all"}),
-        });
+        }));
         transcript
     };
     let mut actual = make();

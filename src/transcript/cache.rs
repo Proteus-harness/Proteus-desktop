@@ -4,7 +4,10 @@ use serde_json::Value;
 
 impl Entry {
     pub fn retained_bytes(&self) -> usize {
-        std::mem::size_of::<Self>()
+        // Keep the historical inline charge even when display windows
+        // share standalone tool and child-progress payloads.
+        use proteus_contracts::app_protocol::{AppTranscriptSubagent, AppTranscriptTool};
+        std::mem::size_of::<Entry<AppTranscriptTool, AppTranscriptSubagent>>()
             + self.text.len()
             + self
                 .images
@@ -16,7 +19,7 @@ impl Entry {
                         + image.path.as_os_str().len()
                 })
                 .sum::<usize>()
-            + self.tool.as_ref().map_or(0, tool_bytes)
+            + self.tool.as_deref().map_or(0, tool_bytes)
             + self.subagent.as_ref().map_or(0, |agent| {
                 agent.child_thread_id.len()
                     + agent

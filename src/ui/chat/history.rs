@@ -63,25 +63,58 @@ impl HistoryWindow {
         self.start + self.transcript.entries().len()
     }
 
-    fn trim(&mut self, direction: Direction, visible: Range<usize>) -> Option<Change> {
+    fn trim(
+        &mut self,
+        direction: Direction,
+        visible: Range<usize>,
+        charged: Option<ChargedRows>,
+    ) -> Option<Change> {
         let entries = self.transcript.entries();
-        // Rows outside the cardinality limit can be dropped without walking
-        // their payload, provided the active page and visible rows stay intact.
-        let limit = CACHE_ROWS.max(PAGE_ROWS);
-        let mut keep = match direction {
-            Direction::Older => 0..entries.len().min(limit.max(visible.end)),
-            Direction::Newer => {
-                entries.len().saturating_sub(limit).min(visible.start)..entries.len()
-            }
-        };
-        // A page and the visible rows are indivisible. A large row is never truncated.
-        let required = match direction {
-            Direction::Older => visible.end.max(PAGE_ROWS),
-            Direction::Newer => entries.len().saturating_sub(visible.start).max(PAGE_ROWS),
-        };
-        if keep.len() > required {
+        let removed = trim_range(entries.len(), direction, visible, charged, |row| {
+            entries[row].retained_bytes()
+        });
+        if removed.is_empty() {
+            return None;
+        }
+        self.start += removed.start.eq(&0).then_some(removed.len()).unwrap_or(0);
+        Some(self.transcript.remove(removed))
+    }
+}
+
+/// A context seek already counted these consecutive rows on the retained edge.
+struct ChargedRows {
+    count: usize,
+    bytes: usize,
+}
+
+/// Identify rows to evict without taking ownership of their payloads.
+fn trim_range(
+    rows: usize,
+    direction: Direction,
+    visible: Range<usize>,
+    charged: Option<ChargedRows>,
+    charge: impl Fn(usize) -> usize,
+) -> Range<usize> {
+    // Rows outside the cardinality limit can be dropped without walking
+    // their payload, provided the active page and visible rows stay intact.
+    let limit = CACHE_ROWS.max(PAGE_ROWS);
+    let mut keep = match direction {
+        Direction::Older => 0..rows.min(limit.max(visible.end)),
+        Direction::Newer => rows.saturating_sub(limit).min(visible.start)..rows,
+    };
+    // A page and the visible rows are indivisible. A large row is never truncated.
+    let required = match direction {
+        Direction::Older => visible.end.max(PAGE_ROWS),
+        Direction::Newer => rows.saturating_sub(visible.start).max(PAGE_ROWS),
+    };
+    if keep.len() > required {
+        // The sum is sufficient only if all charged rows are required: if
+        // their sum exhausts the budget, any earlier cutoff is immaterial.
+        let (count, bytes) = charged
+            .filter(|edge| edge.count <= required)
+            .map_or((0, 0), |edge| (edge.count, edge.bytes));
+        let fitting = CACHE_BYTES.checked_sub(bytes).map_or(0, |mut left| {
             // Scan from the edge we keep; extending it can only add bytes.
-            let mut left = CACHE_BYTES;
             let fits = |&charge: &usize| {
                 let Some(next) = left.checked_sub(charge) else {
                     return false;
@@ -89,26 +122,28 @@ impl HistoryWindow {
                 left = next;
                 true
             };
-            let charges = entries[keep.clone()].iter().map(|row| row.retained_bytes());
-            let fitting = match direction {
-                Direction::Older => charges.take_while(fits).count(),
-                Direction::Newer => charges.rev().take_while(fits).count(),
-            };
-            let retained = fitting.max(required);
-            match direction {
-                Direction::Older => keep.end = retained,
-                Direction::Newer => keep.start = keep.end - retained,
-            }
+            count
+                + match direction {
+                    Direction::Older => (keep.start + count..keep.end)
+                        .map(charge)
+                        .take_while(fits)
+                        .count(),
+                    Direction::Newer => (keep.start..keep.end - count)
+                        .rev()
+                        .map(charge)
+                        .take_while(fits)
+                        .count(),
+                }
+        });
+        let retained = fitting.max(required);
+        match direction {
+            Direction::Older => keep.end = retained,
+            Direction::Newer => keep.start = keep.end - retained,
         }
-        let removed = match direction {
-            Direction::Older => keep.end..entries.len(),
-            Direction::Newer => 0..keep.start,
-        };
-        if removed.is_empty() {
-            return None;
-        }
-        self.start += removed.start.eq(&0).then_some(removed.len()).unwrap_or(0);
-        Some(self.transcript.remove(removed))
+    }
+    match direction {
+        Direction::Older => keep.end..rows,
+        Direction::Newer => 0..keep.start,
     }
 }
 
@@ -298,6 +333,12 @@ impl History {
         }
         let loaded_count = page.messages.len();
         let visible = self.context_visible(visible);
+        if direction == Direction::Older
+            && self.archive.is_none()
+            && requested.before == self.live_start()
+        {
+            return Some(self.accept_first_older(live, page, visible));
+        }
         let window = self.archive.get_or_insert_with(|| HistoryWindow {
             start: self.cursor.as_ref().unwrap().before,
             transcript: live.clone(),
@@ -317,18 +358,63 @@ impl History {
             _ => return None,
         };
         let mut changes = vec![change];
-        if let Some(seek) = &mut self.context_seek {
+        let charged = self.context_seek.as_mut().map(|seek| {
             let entries = window.transcript.entries();
             let loaded = match direction {
                 Direction::Older => &entries[..loaded_count],
                 Direction::Newer => &entries[entries.len() - loaded_count..],
             };
-            seek.loaded(loaded);
-        }
-        if let Some(change) = window.trim(direction, visible) {
+            seek.loaded(loaded)
+        });
+        if let Some(change) = window.trim(direction, visible, charged) {
             changes.push(change);
         }
         Some(changes)
+    }
+
+    fn accept_first_older(
+        &mut self,
+        live: &Transcript,
+        page: AppTranscriptPage,
+        visible: Range<usize>,
+    ) -> Vec<Change> {
+        let count = page.messages.len();
+        // This is a display window, with the same key space as a seek page.
+        let mut transcript = live.empty_window();
+        let mut changes = vec![transcript.prepend(page.messages)];
+        let rows = count + live.entries().len();
+        let charged = self
+            .context_seek
+            .as_mut()
+            .map(|seek| seek.loaded(&transcript.entries()[..count]));
+        let removed = trim_range(
+            rows,
+            Direction::Older,
+            visible.start + count..visible.end + count,
+            charged,
+            |row| {
+                if row < count {
+                    transcript.entries()[row].retained_bytes()
+                } else {
+                    live.entries()[row - count].retained_bytes()
+                }
+            },
+        );
+        // The whole older page is inside the required visible-prefix bound.
+        // Clone only live rows that remain after the corresponding trim.
+        transcript.complete_history_window(live, removed.start - count);
+        self.archive = Some(HistoryWindow {
+            start: page.start,
+            transcript,
+        });
+        if !removed.is_empty() {
+            changes.push(Change::Spliced {
+                start: removed.start,
+                removed: removed.len(),
+                inserted: 0,
+            });
+        }
+        changes
     }
 
     fn merge_tail(&mut self, live: &Transcript, visible: Range<usize>) -> Vec<Change> {
@@ -349,10 +435,11 @@ impl History {
             return self.latest(live);
         }
         let mut changes = vec![window.transcript.append_known(&live.entries()[offset..])];
-        if let Some(seek) = &mut self.context_seek {
-            seek.loaded(&live.entries()[offset..]);
-        }
-        if let Some(change) = window.trim(Direction::Newer, visible) {
+        let charged = self
+            .context_seek
+            .as_mut()
+            .map(|seek| seek.loaded(&live.entries()[offset..]));
+        if let Some(change) = window.trim(Direction::Newer, visible, charged) {
             changes.push(change);
         }
         changes
@@ -489,6 +576,13 @@ impl Chat {
     }
 
     fn disclosed_height_rows(&self) -> Vec<Range<usize>> {
+        if self.expanded.is_empty()
+            && self.full_blocks.is_empty()
+            && self.open_chains.is_empty()
+            && self.tool_diffs.is_empty()
+        {
+            return Vec::new();
+        }
         let entries = self.display_transcript().entries();
         let mut excluded: Vec<Range<usize>> = Vec::new();
         for (row, entry) in entries.iter().enumerate() {

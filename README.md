@@ -1,89 +1,37 @@
 # Proteus Desktop
 
-Основной клиент Proteus — нативное приложение на GPUI (`gpui-kit`). Работает
-с Proteus HTTP/SSE app-server через DTO из `proteus-contracts::app_protocol`.
-Эксперимент прямого подключения Codex app-server отложен; его код сохранён
-в отдельном Rust-клиенте. Общие правила Proteus-подключения — в
-`crates/client-common`.
+Proteus Desktop — нативный клиент на GPUI. Он открывает рабочую папку и чаты,
+а задания выполняет Core, с которым клиент общается по HTTP/SSE. Расширения запускаются отдельными процессами.
 
-Клиент использует GPUI Kit 0.8.1 со штатным feature `gpui-fast`
-(GPUI Fast 0.1.12): ядро, платформы и компоненты выбирают один backend
-через общий Kit. Сохранение неизменившихся представлений, раскладки и строк
-при прокрутке работает в общем UI-слое; протокол расширений остаётся тем же.
-Для диагностики сохранения кадров доступны upstream-переменные
-`GPUI_VIEW_RETENTION=0` и `GPUI_SCROLL_LAYERS=0`; сравнивайте один профиль,
-размер окна и оптимизированную сборку. Это не замер холодного старта.
+## Быстрый запуск
 
-Непрерывные углы фона, рамок и изображений задаёт общий WGPU-рендерер,
-включая элементы Settings и процессных расширений. Его закреплённая локальная
-правка находится в `vendor/gpui-fast-wgpu` и подключается через Cargo patch;
-круги и капсулы сохраняют исходную форму. Происхождение и порядок обновления
-описаны в `vendor/gpui-fast-wgpu/README.proteus.md`.
+Из готовой поставки запустите `./build/Proteus/proteus-native /path/to/project`.
+Для первой сборки из исходников выполните `python3 scripts/portable.py --full --no-archive`.
+Системные пакеты для Linux перечислены [ниже](#сборка-на-linux).
 
-Источники разделены на четыре репозитория. Этот содержит приложение,
-`crates/client-common`, разбор diff в `crates/diff` и модель вкладок и областей
-в `crates/tabs`. Последние два крейта не зависят от GPUI; их рендереры остаются
-в приложении. DTO берутся из закреплённого Git commit Proteus-core.
-`repositories.json` задаёт revisions Core, модулей и расширений для поставки.
-`scripts/sources.py` читает PROTEUS_HARNESS_SOURCE / PROTEUS_MODULES_SOURCE /
-PROTEUS_EXTENSIONS_SOURCE, использует соседние checkout `../Proteus-core`,
-`../Proteus-modules` и `../Proteus-desktop-extensions` или загружает закреплённые
-исходники в `build/sources` только для явно выбранных компонентов. Для самостоятельного clone
-достаточно этого репозитория и доступа Git к публичным зависимостям.
+| Задача | Где смотреть |
+|---|---|
+| Запустить изменённый UI с готовым backend | `python3 scripts/run.py /path/to/project --config PROFILE` |
+| Проверить изменения в клиенте | [Запуск и проверки](BUILDING.md#запуск-и-проверки) |
+| Обновить компонент готовой поставки | [Выбор компонентов](BUILDING.md#выбор-компонентов) |
+| Изменить поведение виджета | [Дизайн интерфейса](DESIGN.md) |
+| Разобраться с восстановлением вкладок | [Рабочие области чатов](docs/chat-workspaces.md) |
+| Написать расширение | [Расширения без пересборки](#расширения-без-пересборки) |
 
-Для UI-разработки используйте готовую поставку `build/Proteus` как runtime:
+## Устройство клиента
 
-```bash
-python3 scripts/test.py
-python3 scripts/run.py /path/to/project --config PROFILE
-python3 scripts/portable.py --no-archive # собрать только Desktop
-./build/Proteus/proteus-native /path/to/project
-```
+Общие правила подключения находятся в `crates/client-common`, разбор diff — в `crates/diff`,
+модель вкладок и областей — в `crates/tabs`. Ревизии Core, модулей и расширений для
+поставки закреплены в [repositories.json](repositories.json).
 
-Подготовка с нуля и выбор компонентов описаны в [BUILDING.md](BUILDING.md).
-Обычная UI-правка не пересобирает Core, модули и расширения. Если готовой
-поставки нет, укажите `--base /path/to/Proteus` или явно выполните bootstrap
-через `python3 scripts/portable.py --full --no-archive`.
+Клиент использует GPUI Kit со штатным `gpui-fast`. Для диагностики прокрутки доступны
+`GPUI_VIEW_RETENTION=0` и `GPUI_SCROLL_LAYERS=0`. Сравнивайте результаты на одном
+профиле и размере окна в release-сборке. Отрисовка непрерывных углов описана
+в [заметках к WGPU-рендереру](vendor/gpui-fast-wgpu/README.proteus.md).
 
-`python3 scripts/test.py` проверяет Desktop workspace, не собирая расширения.
-Для моделей без GPUI и для явной межрепозиторной проверки:
+## Происхождение изменений
 
-```bash
-python3 scripts/test.py -p proteus-diff --lib
-python3 scripts/test.py -p proteus-tabs --lib
-python3 -m unittest discover -s scripts -p 'test_release*.py'
-python3 scripts/test.py --extensions       # wire-проверка с готовыми расширениями
-python3 scripts/test.py --build-extensions # явно собрать расширения и проверить
-```
-
-Desktop release gate явно использует `--build-extensions`. Обычный `cargo test`
-включает приложение и вспомогательные крейты через `default-members`;
-`cargo test -p proteus-native` проверяет только выбранный пакет. Полный runner
-проверяет workspace через `--workspace`. Компиляция публичного
-`proteus-contracts` как зависимости клиента не собирает сервер Core.
-
-Для сборки и упаковки расширений нужен Python 3 без дополнительных pip-пакетов. Их автор —
-Proteus Project. DCP отложен в `Proteus-modules/research/dcp` и исключён из
-штатных профилей, сборки и поставки. Для поставляемых JS hook adapters нужен
-системный Node.js 22.18+; npm для упаковки portable не требуется.
-
-По умолчанию portable собирает Desktop обычным release-профилем и переносит
-остальные компоненты из готового `--base` (по умолчанию `build/Proteus`).
-Бинарники, runtime-assets и сведения об исходниках повторно используемого
-компонента остаются вместе. Отсутствующий компонент вызывает ошибку до Cargo;
-скрытой сборки Core или соседних пакетов нет. `--components` выбирает
-компоненты явно, `--full` собирает весь стек, `--reuse-binaries` копирует
-готовую поставку целиком без компиляции и загрузки исходников.
-
-Для правки одного расширения используйте в его репозитории
-`python3 package.py --package <id>` и установите ZIP через менеджер расширений.
-Core и Desktop для этого пересобирать не нужно. В репозитории Modules команда
-`python3 package.py --package <id> --install /path/to/Proteus`
-обновляет один пакет в готовом portable без сборки Core, Desktop и остальных.
-Перезапустите backend после обновления. Общее изменение SDK/runtime может
-требовать пересборки потребителей. Aggregate fixture в поставку не включается.
-
-Эти изменения сборки адаптированы из `Qweasd123tg/proteus-modules-dot`,
+Выборочная сборка адаптирована из `Qweasd123tg/proteus-modules-dot`,
 ревизия `ea7409b30edec9a84a842a36d6ec56d0fbdd3059`, каталог `build-speed`.
 Из ревизии `f272d8ead883906e85549a56136f071885c987b7` перенесены
 [PR #75](https://github.com/Qweasd123tg/proteus-modules-dot/pull/75) и
@@ -97,8 +45,6 @@ Core и Desktop для этого пересобирать не нужно. В �
 полное содержимое при раскрытии или движении анимации; в покое закрытый
 блок сохраняет только превью. Исходный текст остаётся в модели чата;
 уменьшение общего RSS/PSS этим переносом не заявляется.
-Проверки #78–#80, native UI и стоимость сборки записаны в
-[отчёте переноса](examples/performance/dot-2026-11-03.md).
 В `share/modules/claude-command-hooks` и `share/modules/hook-process` поставляются
 адаптер командных hooks и общий JavaScript SDK. Адаптер подключается явно;
 упаковка не включает выполнение сторонних hooks. `bin/proteus-hook-worker`
@@ -107,8 +53,10 @@ Core и Desktop для этого пересобирать не нужно. В �
 История приложения и общих правил клиента сохранена из
 Proteus-agent (ныне Proteus-core).
 
-Workspace приложения отделён от Core и собирается на Rust 1.95
-(`rust-toolchain.toml`). Для линковки на Linux нужны dev-пакеты xcb,
+## Сборка на Linux
+
+Версия Rust указана в [rust-toolchain.toml](rust-toolchain.toml). Для упаковки
+поставляемых JavaScript-хуков нужен Node.js 22.18+. Для линковки на Linux нужны dev-пакеты xcb,
 xkbcommon (с x11), fontconfig и freetype; в Fedora:
 
 ```bash
@@ -134,6 +82,8 @@ cargo build --release
 ./target/release/proteus-native [workspace] [--config <profile|path>]
 ./target/release/proteus-native [workspace] --origin <url> --token <token>
 ```
+
+## Выбор конфигурации и восстановление чата
 
 В **«Настройки → Конфигурации → Сменить…»** открывается список у кнопки
 из `${PROTEUS_CONFIG_HOME:-~/.config/Proteus-harness}`: TOML/JSON в корне,
@@ -266,65 +216,25 @@ assets. Это ориентир для разделения затрат rendere
 видны проект и активный чат; нажатие названия чата возвращает к нему из файла
 или Git. Старые сессии без сведений о родителе остаются обычными строками.
 
-Исправления удаления открытого чата, потери связи и завершения shell-команд
-проверены в [отчёте жизненного цикла](examples/performance/session-lifecycle-2026-11-03.md).
-
 ### Экспериментальное подключение Codex — отложено
 
-По решению владельца от 2026-11-03 эксперимент отложен из-за проблем при
-использовании. Текущий приоритет — обычный Proteus backend, удаление сессий
-и завершение tool-команд. Это решение относится к запуску внешнего Codex из
-Desktop; Codex-compatible model/tool adapters Proteus остаются в работе.
-Для обычного запуска после ранее выбранного Codex укажите `--agent proteus`.
-Описанные ниже возможности относятся к сохранённому эксперименту.
+Для обычных чатов используется Proteus. Чтобы вернуть его после эксперимента с
+внешним Codex, запустите Desktop с `--agent proteus`. Открытые ранее чаты используют
+прежнее подключение. Установка Codex, вход, ограничения панелей и команды запуска
+описаны в [руководстве по агентам](docs/agent-drivers.md#codex-сохранённый-эксперимент).
 
-Основной клиент работает с Proteus Core. Экспериментальный агент Codex
-подключается напрямую через `codex app-server`, без Node/ACP adapter.
-Нужен отдельно установленный Codex с настроенным входом; используются его
-обычные настройки и авторизация. Desktop не устанавливает Codex и не переносит
-в него ключи Proteus.
+Ярлык и `scripts/run.py` ищут Codex в `PATH`, настроенном npm prefix,
+`~/.local/bin`, `~/.npm-global/bin`, `~/.cargo/bin` и каталоге приложения ChatGPT
+на Linux (`/usr/lib/chatgpt/resources/codex`). Явный `PROTEUS_CODEX_EXECUTABLE`
+имеет приоритет. При прямом запуске бинарника нужен этот путь или `codex` в `PATH`.
 
-Ярлык и `scripts/run.py` сначала используют `PROTEUS_CODEX_EXECUTABLE`, затем
-`codex` из `PATH`.
-Если его нет в окружении рабочего стола, проверяются настроенный npm prefix,
-`~/.local/bin`, `~/.npm-global/bin`, `~/.cargo/bin` и встроенный Codex приложения
-ChatGPT в `/usr/lib/chatgpt/resources/codex` на Linux. `PATH` не изменяется;
-явно заданный путь остаётся приоритетным, даже если он недоступен.
-При прямом запуске `target/release/proteus-native` этот поиск не выполняется:
-нужен `codex` в `PATH` или явный `PROTEUS_CODEX_EXECUTABLE`.
+## Терминал и окно
 
-```bash
-./build/Proteus/proteus-native /path/to/project --agent codex
-# При необходимости — другой установленный binary или локальный wrapper:
-PROTEUS_CODEX_EXECUTABLE=/path/to/codex ./build/Proteus/proteus-native /path/to/project --agent codex
-```
-
-Выбор агента новых чатов сохраняется; `--agent proteus` возвращает Proteus.
-Сохранённые чаты восстанавливают своего агента. В общей ленте работают streaming,
-остановка хода, восстановление, запросы разрешений и вопросы; модели и effort
-приходят от Codex. История загружается страницами по 50 элементов. Один
-принадлежащий Desktop app-server разделяется между чатами и отделёнными окнами;
-при Codex-only запуске Core и модули не стартуют.
-
-Core-настройки профиля, modules/hooks/policy и связанные с Core панели файлов
-и Git в Codex недоступны. Рендереры сообщений и собственный нативный терминал
-Desktop работают независимо от Core. Терминал по умолчанию использует Ghostty VT.
-
-Обычная вкладка терминала открывает свою оболочку. После её завершения вкладка
-сохраняет финальный вывод и прокрутку; ввод и курсор выключены, оболочка и PTY
-освобождены. «Перезапустить» создаёт новую оболочку.
-У `exec_command` в основном
-чате Proteus доступна кнопка «Открыть терминал» сразу после запуска процесса:
-она открывает тот же вывод, а при `tty=true` позволяет вводить ответы и пароль
-в тот же PTY. Закрытие просмотра оставляет процесс работающим; «Остановить»
-завершает его явно. Процессы без PTY доступны только для просмотра. Ввод идёт
-напрямую процессу и не создаёт сообщение модели; echo и вывод самого процесса
-остаются обычным выводом команды. Скрытая вкладка не опрашивает вывод.
-Codex, сохранённые чаты субагентов и их отдельные процессы пока не поддерживают
-такое подключение. Claude Code и ACP client также отложены.
-Границы реализации и планы — в
-[подключении агентов, терминалах и Ghostty](docs/agent-drivers.md).
-Для проверки без аккаунта есть [синтетический app-server](examples/codex/README.md).
+Обычная вкладка терминала открывает оболочку. После выхода из неё вывод остаётся
+доступен для прокрутки, «Перезапустить» открывает новую оболочку. В чате Proteus
+кнопка «Открыть терминал» показывает вывод уже работающей команды. При `tty=true`
+можно ввести ответ в тот же процесс. Закрытие вкладки оставляет команду работать,
+кнопка «Остановить» завершает её. [Проверка терминала работающей команды](examples/performance/agent-terminal/README.md).
 
 Над вкладками — верхняя полоса (`ui/chrome`), своя, а не из gpui-kit: за
 пустое место на ней перетаскивается окно, а нажатие на кнопку или значок
@@ -430,27 +340,13 @@ Model/режим и остальные виджеты расширений, ак
 
 ## Portable
 
-```bash
-python3 scripts/portable.py --no-archive # Desktop; остальное из build/Proteus
-python3 scripts/portable.py --components desktop extensions --no-archive
-python3 scripts/portable.py --components extensions --base /path/to/Proteus --no-archive
-python3 scripts/portable.py --reuse-binaries --base /path/to/Proteus --no-archive
-python3 scripts/portable.py --full       # явная полная сборка с архивом
-python3 scripts/portable.py --plan       # показать scope, без Cargo и загрузки исходников
-```
+`python3 scripts/portable.py --no-archive` обновляет Desktop в готовой поставке
+`build/Proteus`. Для первой сборки используйте `--full`. Команды для отдельных
+компонентов, внешней базы и просмотра плана приведены в [BUILDING.md](BUILDING.md#выбор-компонентов).
 
-Профиль по умолчанию — обычный `release`. `--fast` и `--reuse-hosts` удалены;
-выбор сборки задаётся компонентами. `--debug` доступен для отладки выбранных
-компонентов; для оценки плавности используйте release.
-Подробности, сохранение provenance и замеры — в [BUILDING.md](BUILDING.md).
-
-`scripts/portable.py` и `scripts/test.py` не занимают всю машину: они
-перезапускаются в systemd scope примерно с 40% процессоров и памяти, с низким
-приоритетом процессора и диска, и ограничивают число задач cargo.
-`PROTEUS_BUILD_SHARE=70` меняет долю, `PROTEUS_BUILD_SHARE=100` снимает
-ограничение; при заданной `CI` оно не действует.
-`--debug` собирает код клиента без оптимизаций: интерфейс может
-подтормаживать, для оценки плавности он не подходит.
+По умолчанию локальные скрипты сборки и тестов используют около 40% CPU и памяти.
+`PROTEUS_BUILD_SHARE=70` задаёт долю 70%, `PROTEUS_BUILD_SHARE=100` снимает
+ограничение. В CI ограничение отключено. Производительность измеряйте в release.
 
 Скрипт собирает выбранные компоненты, остальные переносит из готовой базы,
 затем складывает `build/Proteus/` и, без `--no-archive`, архив
@@ -654,7 +550,13 @@ ZIP с существующим id атомарно обновляет поль�
 чтение. При закрытии клиент останавливает всю группу процессов программы:
 `SIGTERM`, через секунду `SIGKILL`.
 
-Устройство:
+### Общие примитивы UI
+
+Пакет объявляет возможности в `extension.json` и передаёт клиенту данные и действия.
+Клиент рисует виджеты и обрабатывает ввод, фокус и анимации. Для выбора значения
+есть `picker`, для перестановки строк — `sortable`. [Схема виджетов](https://github.com/Proteus-harness/Proteus-desktop-extensions/blob/main/PROTOCOL.md#виджеты).
+
+## Устройство интерфейса
 
 - `transcript` — headless модель ленты: snapshot и live fold runtime
   событий по правилам `app_server/turn_progress.rs`, без GPUI;
@@ -1187,17 +1089,3 @@ GPL-3.0-or-later, `crates/client-common` — Apache-2.0.
 Proteus-core и Proteus-modules остаются под MIT — это отдельные программы,
 клиент общается с ними по HTTP. `python3 scripts/check_licenses.py` проверяет
 разметку.
-
-### Общие примитивы UI
-
-Расширение поставляется отдельной программой с `extension.json` и строит UI
-через публичную схему: изменение или установка пакета не пересобирает клиент.
-Для выбора Model/Branch используется общий `picker` с поиском и клавиатурой,
-для порядка произвольных строк — `sortable` с удержанием, drag и анимацией
-соседей. `loading`, `empty`, `disclosure`, `tree`, `list`, `lanes`, `diff`
-предоставляют готовые состояния и поведение. Нативные примитивы одинаковы у
-встроенных страниц и сторонних процессов; отдельной логики по имени пакета нет.
-Схема, required features, SDK и примеры — в
-[PROTOCOL.md расширений](../Proteus-desktop-extensions/PROTOCOL.md). Внешний пакет объявляет используемые capabilities и
-передаёт данные/actions; анимации, clip-aware подсказки, фокус и ввод обрабатывает
-клиент. При закрытии и восстановлении вкладки тип документа не меняет поведение.

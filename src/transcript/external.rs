@@ -3,6 +3,7 @@ use super::{Change, Entry, Role, Transcript};
 use crate::agents::codex::{Item, ItemKind};
 use proteus_contracts::app_protocol::AppTranscriptTool;
 use serde_json::Value;
+use std::sync::Arc;
 
 impl Transcript {
     pub(crate) fn external_upsert(&mut self, item: Item) -> Change {
@@ -65,7 +66,7 @@ impl Transcript {
                 row.text = text.into();
             }
             row.role = role;
-            row.tool = tool;
+            row.tool = tool.map(Arc::new);
             row.streaming = streaming;
             row.time = item.timestamp_ms.or(row.time);
             return Change::Updated(index);
@@ -78,7 +79,7 @@ impl Transcript {
             role,
             text: text.into(),
             images: vec![],
-            tool,
+            tool: tool.map(Arc::new),
             subagent: None,
             streaming,
             time: item.timestamp_ms,
@@ -139,7 +140,10 @@ impl Transcript {
         }
         if tool {
             if let Some(tool) = &mut entry.tool {
-                tool.result.get_or_insert_default().push_str(&delta[..end]);
+                Arc::make_mut(tool)
+                    .result
+                    .get_or_insert_default()
+                    .push_str(&delta[..end]);
             }
         } else {
             let mut text = String::with_capacity(entry.text.len() + end);

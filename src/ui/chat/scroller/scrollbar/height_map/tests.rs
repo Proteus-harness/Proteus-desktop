@@ -301,3 +301,59 @@ fn window_estimates_match_point_queries_across_span_boundaries() {
     assert!(map.compact(16..32, 3));
     check(&map);
 }
+
+#[test]
+fn cold_import_coalesces_equal_slices_without_changing_native_or_unknown_rows() {
+    let mut map = HeightMap::with_limit(60, 50., 128);
+    map.set(4, 30.);
+    map.exclude_disk(8..10);
+    let cold = [
+        ColdSpan {
+            rows: 2,
+            pixels: 40.,
+            kind: 1,
+        },
+        ColdSpan {
+            rows: 3,
+            pixels: 60.,
+            kind: 1,
+        },
+        ColdSpan {
+            rows: 3,
+            pixels: 60.,
+            kind: 1,
+        },
+        ColdSpan {
+            rows: 2,
+            pixels: 40.,
+            kind: 1,
+        },
+        ColdSpan {
+            rows: 5,
+            pixels: 50.,
+            kind: 2,
+        },
+    ];
+    // A partly restored last record and an in-flight disclosure do not
+    // overwrite native rows, or turn imported estimates into fresh facts.
+    map.merge_cold_protected(&cold, 12, 128, 4..10);
+    assert_eq!(map.span_count(), 6);
+    assert_eq!(map.lookup(3), Some((20., false)));
+    assert_eq!(map.lookup(4), Some((30., true)));
+    assert_eq!(map.lookup(7), Some((20., false)));
+    assert_eq!(map.lookup(8), None);
+    assert_eq!(map.lookup(10), None); // imported approximation, not a measurement
+    assert_eq!(map.estimate(10), Some(10.));
+    assert_eq!(map.estimate(12), Some(50.));
+    assert_eq!(map.prefix(12), 290.);
+    assert_eq!(map.total_height(), 2690.);
+    assert_eq!(map.target(290.), Some((12, 0.)));
+    assert_eq!(
+        map.cold_spans(12)[3],
+        ColdSpan {
+            rows: 2,
+            pixels: 100.,
+            kind: 0
+        }
+    );
+}

@@ -19,6 +19,14 @@ impl ChatKey {
         }
     }
 
+    /// Visit the same prefix and payload as `tab_id`, without joining them.
+    pub fn with_tab_id_parts<T>(&self, f: impl FnOnce(&str, &str) -> T) -> T {
+        match self {
+            Self::Proteus(path) => f(super::CHAT_PREFIX, &path.to_string_lossy()),
+            Self::Codex(id) => f("codex:", id),
+        }
+    }
+
     /// Only Proteus conversations have a local session-directory identity.
     pub fn proteus_dir(&self) -> Option<&Path> {
         match self {
