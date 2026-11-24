@@ -33,7 +33,7 @@ pub(super) fn row(
                 .and_then(|entry| {
                     entry
                         .tool
-                        .as_ref()
+                        .as_deref()
                         .filter(|tool| tool.call_id == call_id)
                         .or_else(|| {
                             entry
