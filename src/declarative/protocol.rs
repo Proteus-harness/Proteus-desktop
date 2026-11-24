@@ -19,6 +19,7 @@ pub const FEATURES: &[&str] = &[
     "session.settings.v1",
     "session.tool_state.v1",
     "widgets.controls.v1",
+    "widgets.badge_preview.v1",
     "widgets.search.v1",
     "widgets.selection.v1",
     "widgets.picker.v1",

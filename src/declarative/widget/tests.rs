@@ -8,6 +8,40 @@ fn parse(value: Value) -> Result<Node> {
 }
 
 #[test]
+fn badge_preview_uses_the_native_face_schema() {
+    use crate::declarative::presentation::{Face, RingDisplay};
+
+    let node = parse(json!({
+        "type": "badge_preview",
+        "face": {"type": "ring", "percent": 64, "display": "number"}
+    }))
+    .unwrap();
+    assert!(matches!(
+        node,
+        Node::BadgePreview {
+            face: Face::Ring {
+                display: RingDisplay::Number,
+                percent: 64.,
+                ..
+            },
+        }
+    ));
+
+    for face in [
+        json!({"type": "icon", "count": 3}),
+        json!({"type": "text", "text": "42 t/s", "icon": true}),
+    ] {
+        assert!(parse(json!({"type": "badge_preview", "face": face})).is_ok());
+    }
+    for value in [
+        json!({"type": "badge_preview", "face": {"type": "ring", "percent": 101}}),
+        json!({"type": "badge_preview", "face": {"type": "icon"}, "action": "toggle"}),
+    ] {
+        assert!(parse(value).is_err());
+    }
+}
+
+#[test]
 fn settings_rows_visit_and_validate_their_one_control() {
     let row = json!({"type":"setting_row", "id":"radius-row", "label":"Радиус",
         "description":"Enter сохраняет значение",

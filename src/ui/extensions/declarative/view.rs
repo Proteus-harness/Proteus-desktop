@@ -15,7 +15,7 @@ use serde_json::Value;
 
 use super::render;
 use super::runtime::Runtime;
-use crate::declarative::presentation::Presentation;
+use crate::declarative::presentation::{Face, Presentation};
 use crate::declarative::protocol::{Content, Outgoing, SurfaceKind};
 use crate::declarative::widget::Node;
 use crate::ui::kit;
@@ -150,6 +150,23 @@ impl DeclarativeView {
 
     pub(super) fn host(&self, cx: &App) -> Option<crate::ui::extensions::Host> {
         self.runtime.read(cx).host_for(&self.view).cloned()
+    }
+
+    pub(super) fn badge_preview(&self, face: &Face, path: &str, cx: &Context<Self>) -> AnyElement {
+        if self.surface != SurfaceKind::Preview {
+            return div().into_any_element();
+        }
+        self.host(cx).map_or_else(
+            || div().into_any_element(),
+            |host| {
+                super::badge::preview_face(
+                    host.extension(),
+                    ElementId::Name(format!("badge-sample-{}-{path}", cx.entity_id()).into()),
+                    face,
+                    cx,
+                )
+            },
+        )
     }
 
     pub(super) fn set_content(

@@ -48,6 +48,9 @@ pub const OPEN: [Open; 4] = [
     },
 ];
 
+pub(crate) const EXTENSIONS_REPOSITORY: &str =
+    "https://github.com/Proteus-harness/Proteus-desktop-extensions.git";
+
 pub const OFFICIAL: [Open; 2] = [
     Open {
         title: "Proteus Modules",
@@ -56,7 +59,7 @@ pub const OFFICIAL: [Open; 2] = [
     },
     Open {
         title: "Proteus Extensions",
-        url: "https://github.com/Proteus-harness/Proteus-desktop-extensions.git",
+        url: EXTENSIONS_REPOSITORY,
         about: "Панели, документы, виджеты и рендереры клиента",
     },
 ];

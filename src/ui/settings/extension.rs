@@ -3,6 +3,7 @@
 
 use crate::ui::kit::ButtonLabel as _;
 use crate::ui::kit::Frame as _;
+use gpui_kit::assets::IconName;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::*;
 use gpui_kit::*;
@@ -88,11 +89,16 @@ impl SettingsView {
                     .into_any_element(),
             );
         }
+        let mut details = Vec::new();
         if manifest.page_embedded
             && let Some((page_id, page)) = &self.extension_view
             && page_id == id
         {
-            parts.push(section("Параметры", None, None, page.view.clone(), cx).into_any_element());
+            details.push(page.view.clone().into_any_element());
+        }
+        details.extend(self.surface_rows(manifest, enabled, cx));
+        if !details.is_empty() {
+            parts.push(card(details, cx));
         }
         if !manifest.tool_dependencies.is_empty() {
             let rows = manifest.tool_dependencies.iter().map(|name| {
@@ -126,6 +132,7 @@ impl SettingsView {
         if !manifest.agent_instructions.is_empty() {
             parts.push(self.extension_instructions_section(manifest, cx));
         }
+        parts.push(self.origin_section(manifest, cx).into_any_element());
         if manifest.preview.is_some() {
             let key = preview_key(id);
             let open = self.is_open(&key);
@@ -165,17 +172,6 @@ impl SettingsView {
             );
             parts.push(self.spotted(&key, example, cx));
         }
-        parts.push(
-            section(
-                "Что добавляет",
-                None,
-                None,
-                card(self.surface_rows(manifest, enabled, cx), cx),
-                cx,
-            )
-            .into_any_element(),
-        );
-        parts.push(self.origin_section(manifest, cx).into_any_element());
         parts
     }
 
@@ -328,9 +324,6 @@ impl SettingsView {
                 .into_any_element(),
             );
         }
-        if rows.is_empty() {
-            rows.push(note("У расширения нет поверхностей.", cx).into_any_element());
-        }
         rows
     }
 
@@ -338,7 +331,16 @@ impl SettingsView {
         let id = manifest.id;
         let mut rows = match extensions::folder(id) {
             None => {
-                vec![note("Поставляется с приложением отдельным пакетом. Можно выключить или обновить через ZIP с тем же id.", cx).into_any_element()]
+                let repository =
+                    crate::catalog::open::EXTENSIONS_REPOSITORY.trim_end_matches(".git");
+                let url = format!("{repository}/tree/main/packages/{id}");
+                let link = kit::button("extension-package-source")
+                    .faded_label(format!("Proteus-desktop-extensions/packages/{id}"))
+                    .quiet(cx)
+                    .small()
+                    .child(Icon::new(IconName::ExternalLink).xsmall())
+                    .on_click(move |_, _, cx| cx.open_url(&url));
+                vec![item_row(link, []).into_any_element()]
             }
             Some(folder) => {
                 let confirming = self.removing.as_deref() == Some(id);

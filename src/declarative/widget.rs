@@ -403,6 +403,10 @@ pub enum Node {
         #[serde(default)]
         tone: Tone,
     },
+    /// A native compact widget sample on an isolated preview surface.
+    BadgePreview {
+        face: super::presentation::Face,
+    },
     Divider {},
     /// Empty room that pushes the following items of a row to its end.
     Spacer {},
@@ -696,6 +700,10 @@ impl Node {
                 {
                     bail!("rich_text requires at most 256 bounded, unique inline content slots");
                 }
+                &[]
+            }
+            Node::BadgePreview { face } => {
+                face.validate()?;
                 &[]
             }
             Node::Svg {

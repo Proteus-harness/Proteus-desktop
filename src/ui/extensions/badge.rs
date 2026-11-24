@@ -72,6 +72,14 @@ fn badge_box() -> Div {
         .text_xs()
 }
 
+pub(super) fn resting_badge(rail: bool, cx: &App) -> Div {
+    let theme = cx.theme();
+    badge_box()
+        .when(rail, |badge| badge.size_8().px_0())
+        .rounded(theme.radius)
+        .text_color(theme.muted_foreground)
+}
+
 /// What a click on a widget does instead of bringing its panel forward.
 pub(super) type Press = Rc<dyn Fn(&mut Window, &mut App)>;
 
@@ -105,16 +113,9 @@ pub(super) fn pressable_badge(
         })
     });
     let rail = in_rail(id, cx);
-    badge_box()
-        .when(rail, |badge| badge.size_8().px_0())
+    resting_badge(rail, cx)
         .id(ElementId::Name(format!("badge-{id}").into()))
-        .rounded(theme.radius)
-        .text_color(if highlighted {
-            foreground
-        } else {
-            theme.muted_foreground
-        })
-        .when(highlighted, |badge| badge.bg(hover))
+        .when(highlighted, |badge| badge.bg(hover).text_color(foreground))
         .when_some(press, |badge, press| {
             badge
                 .cursor_pointer()

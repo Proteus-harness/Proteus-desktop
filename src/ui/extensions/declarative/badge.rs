@@ -4,12 +4,13 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
+use gpui_kit::assets::IconName;
 use gpui_kit::component::progress::ProgressCircle;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use super::super::badge::{Details, Press, pressable_badge};
+use super::super::badge::{Details, Press, pressable_badge, resting_badge};
 use super::view::DeclarativeView;
 use super::{Host, SurfaceKind, installed, runtime};
 use crate::declarative::presentation::{Face, RingDisplay};
@@ -89,14 +90,12 @@ impl Render for DeclarativeBadge {
             details = details.line(manifest.description.clone());
         }
         let presentation = view.presentation.as_ref();
-        let composer_selector = manifest.surfaces.popup.is_some()
-            && presentation.is_some_and(|p| matches!(p.face, Face::Text { caret: true, .. }))
-            && extension_ui.is_some_and(|extension| {
-                matches!(
-                    super::super::badge_place(extension, cx),
-                    BadgePlace::ComposerStart | BadgePlace::ComposerEnd
-                )
-            });
+        let place = extension_ui.map_or(BadgePlace::Hidden, |extension| {
+            super::super::badge_place(extension, cx)
+        });
+        let composer_selector = presentation.is_some_and(|presentation| {
+            is_composer_selector(manifest.surfaces.popup.is_some(), place, &presentation.face)
+        });
         if let Some(presentation) = presentation {
             details = Details::new(presentation.title.clone());
             for line in &presentation.lines {
@@ -106,90 +105,20 @@ impl Render for DeclarativeBadge {
         if let Some(error) = error {
             details = details.line(format!("Ошибка: {error}"));
         }
-        // Icons in the rail match the rail's own buttons.
-        let icon_size = if super::super::badge::in_rail(id, cx) {
-            gpui_kit::component::Size::Medium
-        } else {
-            gpui_kit::component::Size::Small
-        };
+        let rail = place.is_rail();
         let open = self.popup.is_open();
         let face: Rc<dyn Fn() -> AnyElement> = if let Some(presentation) = presentation {
-            match &presentation.face {
-                Face::Icon { tone, count } => {
-                    let color = (!matches!(tone, Tone::Muted | Tone::Default))
-                        .then(|| super::render::tone_color(*tone, cx));
-                    let count = *count;
-                    Rc::new(move || {
-                        div()
-                            .relative()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .size(prefs::scaled(22.))
-                            .child(
-                                Icon::new(icon)
-                                    .with_size(icon_size)
-                                    .when_some(color, |icon, color| icon.text_color(color)),
-                            )
-                            .children(count.filter(|count| *count > 0).map(|count| {
-                                div()
-                                    .absolute()
-                                    .right_0()
-                                    .bottom_0()
-                                    .compact_metric()
-                                    .child(if count > 99 {
-                                        "99+".to_string()
-                                    } else {
-                                        count.to_string()
-                                    })
-                            }))
-                            .into_any_element()
-                    })
-                }
-                Face::Text {
-                    text,
-                    tone,
-                    icon: show_icon,
-                    caret,
-                } => {
-                    let (show_icon, caret) = (*show_icon, *caret && !composer_selector);
-                    // Default is ordinary readable text, as in Node::Text.
-                    // Only an explicitly muted face inherits the badge tint.
-                    let color = (!matches!(tone, Tone::Muted))
-                        .then(|| super::render::tone_color(*tone, cx));
-                    let text = text.clone();
-                    let chevron_key =
-                        SharedString::from(format!("badge-chevron-{}", cx.entity_id()));
-                    let chevron_color = cx.theme().muted_foreground;
-                    let animate_chevron = crate::ui::motion::moves(cx);
-                    Rc::new(move || {
-                        h_flex()
-                            .gap_1()
-                            .when_some(color, |face, color| face.text_color(color))
-                            .children(show_icon.then(|| Icon::new(icon).small()))
-                            .child(text.clone())
-                            .children(caret.then(|| {
-                                crate::ui::motion::menu_chevron(
-                                    ElementId::Name(chevron_key.clone()),
-                                    open,
-                                    chevron_color,
-                                    animate_chevron,
-                                )
-                            }))
-                            .into_any_element()
-                    })
-                }
-                Face::Ring {
-                    percent,
-                    tone,
-                    display,
-                } => {
-                    let (percent, display) = (*percent, *display);
-                    let color = super::render::tone_color(*tone, cx);
-                    let label = SharedString::from(presentation.title.clone());
-                    Rc::new(move || metric_face(id, label.clone(), percent, color, display))
-                }
-            }
+            render_face(
+                &presentation.face,
+                FaceStyle {
+                    id: ("badge-face", cx.entity_id()).into(),
+                    icon,
+                    title: details.title.clone(),
+                    rail,
+                    caret_open: (!composer_selector).then_some(open),
+                },
+                cx,
+            )
         } else {
             match view.face(cx) {
                 Some((text, color)) => Rc::new(move || {
@@ -199,7 +128,11 @@ impl Render for DeclarativeBadge {
                         .child(div().text_color(color).child(text.clone()))
                         .into_any_element()
                 }),
-                None => Rc::new(move || Icon::new(icon).with_size(icon_size).into_any_element()),
+                None => Rc::new(move || {
+                    Icon::new(icon)
+                        .with_size(icon_size(rail))
+                        .into_any_element()
+                }),
             }
         };
         let press = manifest.surfaces.popup.as_ref().map(|_| {
@@ -241,8 +174,149 @@ impl Render for DeclarativeBadge {
     }
 }
 
+pub(super) fn preview_face(extension_id: &str, id: ElementId, face: &Face, cx: &App) -> AnyElement {
+    let Some(manifest) = super::super::find(extension_id) else {
+        return div().into_any_element();
+    };
+    let Some(badge) = &manifest.badge else {
+        return div().into_any_element();
+    };
+    if badge.narrow && !face.narrow() {
+        return div().into_any_element();
+    }
+    let place = match super::super::badge_place(manifest, cx) {
+        BadgePlace::Hidden => badge.place,
+        place => place,
+    };
+    let has_popup = installed(extension_id)
+        .is_some_and(|extension| extension.manifest.surfaces.popup.is_some());
+    let rail = place.is_rail();
+    let face = render_face(
+        face,
+        FaceStyle {
+            id,
+            icon: manifest.icon,
+            title: manifest.title.into(),
+            rail,
+            caret_open: (!is_composer_selector(has_popup, place, face)).then_some(false),
+        },
+        cx,
+    );
+    resting_badge(rail, cx)
+        .flex_none()
+        .child(face())
+        .into_any_element()
+}
+
+fn is_composer_selector(has_popup: bool, place: BadgePlace, face: &Face) -> bool {
+    has_popup
+        && matches!(place, BadgePlace::ComposerStart | BadgePlace::ComposerEnd)
+        && matches!(face, Face::Text { caret: true, .. })
+}
+
+fn icon_size(rail: bool) -> gpui_kit::component::Size {
+    if rail {
+        gpui_kit::component::Size::Medium
+    } else {
+        gpui_kit::component::Size::Small
+    }
+}
+
+struct FaceStyle {
+    id: ElementId,
+    icon: IconName,
+    title: SharedString,
+    rail: bool,
+    caret_open: Option<bool>,
+}
+
+fn render_face(face: &Face, style: FaceStyle, cx: &App) -> Rc<dyn Fn() -> AnyElement> {
+    let FaceStyle {
+        id,
+        icon,
+        title,
+        rail,
+        caret_open,
+    } = style;
+    let icon_size = icon_size(rail);
+    match face {
+        Face::Icon { tone, count } => {
+            let color = (!matches!(tone, Tone::Muted | Tone::Default))
+                .then(|| super::render::tone_color(*tone, cx));
+            let count = *count;
+            Rc::new(move || {
+                div()
+                    .relative()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .size(prefs::scaled(22.))
+                    .child(
+                        Icon::new(icon)
+                            .with_size(icon_size)
+                            .when_some(color, |icon, color| icon.text_color(color)),
+                    )
+                    .children(count.filter(|count| *count > 0).map(|count| {
+                        div()
+                            .absolute()
+                            .right_0()
+                            .bottom_0()
+                            .compact_metric()
+                            .child(if count > 99 {
+                                "99+".to_string()
+                            } else {
+                                count.to_string()
+                            })
+                    }))
+                    .into_any_element()
+            })
+        }
+        Face::Text {
+            text,
+            tone,
+            icon: show_icon,
+            caret,
+        } => {
+            let show_icon = *show_icon;
+            let caret_open = caret_open.filter(|_| *caret);
+            // Default is ordinary readable text, as in Node::Text.
+            // Only an explicitly muted face inherits the badge tint.
+            let color =
+                (!matches!(tone, Tone::Muted)).then(|| super::render::tone_color(*tone, cx));
+            let text = text.clone();
+            let chevron_color = cx.theme().muted_foreground;
+            let animate_chevron = crate::ui::motion::moves(cx);
+            Rc::new(move || {
+                h_flex()
+                    .gap_1()
+                    .when_some(color, |face, color| face.text_color(color))
+                    .children(show_icon.then(|| Icon::new(icon).small()))
+                    .child(text.clone())
+                    .children(caret_open.map(|open| {
+                        crate::ui::motion::menu_chevron(
+                            (id.clone(), "chevron"),
+                            open,
+                            chevron_color,
+                            animate_chevron,
+                        )
+                    }))
+                    .into_any_element()
+            })
+        }
+        Face::Ring {
+            percent,
+            tone,
+            display,
+        } => {
+            let (percent, display) = (*percent, *display);
+            let color = super::render::tone_color(*tone, cx);
+            Rc::new(move || metric_face(id.clone(), title.clone(), percent, color, display))
+        }
+    }
+}
+
 fn metric_face(
-    id: &'static str,
+    id: ElementId,
     label: SharedString,
     percent: f32,
     color: Hsla,
@@ -252,11 +326,7 @@ fn metric_face(
         div()
             .line_height(relative(1.))
             .font_features(FontFeatures(Arc::new(vec![("tnum".into(), 1)])))
-            .child(Number::new(
-                ElementId::Name(format!("extension-{id}-number").into()),
-                percent,
-                format,
-            ))
+            .child(Number::new((id.clone(), "number"), percent, format))
     };
     if display == RingDisplay::Number {
         return number(|value| format!("{value:.0}%"))
@@ -268,7 +338,7 @@ fn metric_face(
         .relative()
         .size(diameter)
         .child(
-            ProgressCircle::new(id)
+            ProgressCircle::new(id.clone())
                 .value(percent)
                 .color(color)
                 .accessibility_label(label)

@@ -693,6 +693,7 @@ impl DeclarativeView {
                     .child(label.clone())
                     .into_any_element()
             }
+            Node::BadgePreview { face } => self.badge_preview(face, path, cx),
             Node::Spacer {} => div().flex_1().into_any_element(),
             Node::Divider {} => div()
                 .h(px(1.))
