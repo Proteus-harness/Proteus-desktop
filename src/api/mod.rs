@@ -244,19 +244,20 @@ impl Api {
         &self,
         session_dir: &Path,
         setting: SessionSettingUpdate,
-    ) -> Result<ConfigSummary> {
+    ) -> Result<(ConfigSummary, bool)> {
         let body = SetSessionSettingRequest {
             id: Some(request_id("setting")),
             session_dir: session_dir.to_path_buf(),
             setting,
         };
-        let output: Value = self.command("/session/setting", None, &body)?;
-        Ok(serde_json::from_value(
-            output
-                .get("config")
-                .ok_or_else(|| anyhow!("session setting response is missing config"))?
-                .clone(),
-        )?)
+        #[derive(Deserialize)]
+        struct Output {
+            config: ConfigSummary,
+            #[serde(default)]
+            catalog_pending: bool,
+        }
+        let output: Output = self.command("/session/setting?catalog=local", None, &body)?;
+        Ok((output.config, output.catalog_pending))
     }
 
     pub fn config_builder(&self, session_dir: &Path) -> Result<ConfigBuilderSnapshot> {

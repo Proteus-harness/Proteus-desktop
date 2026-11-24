@@ -134,9 +134,9 @@ impl Runtime {
                     return;
                 }
                 let route = request.route(this);
-                let (config, error) = match result {
-                    Ok(config) => (Some(config), None),
-                    Err(error) => (None, Some(format!("{error:#}"))),
+                let (config, catalog_pending, error) = match result {
+                    Ok((config, pending)) => (Some(config), pending, None),
+                    Err(error) => (None, false, Some(format!("{error:#}"))),
                 };
                 if let Some((_, host)) = &route
                     && host.session_dir(cx).as_ref() == Some(&request.session)
@@ -144,7 +144,11 @@ impl Runtime {
                 {
                     chat.update(cx, |chat, cx| {
                         if let Some(config) = &config {
-                            chat.apply_config(config.clone(), cx);
+                            if catalog_pending {
+                                chat.apply_local_config(config.clone(), cx);
+                            } else {
+                                chat.apply_config(config.clone(), cx);
+                            }
                         } else if let Some(error) = &error {
                             chat.show_notice(error.clone(), cx);
                         }

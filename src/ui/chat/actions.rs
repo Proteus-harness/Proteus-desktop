@@ -27,18 +27,52 @@ impl Chat {
                 if this.config_generation != generation {
                     return;
                 }
-                this.apply_config(config, cx);
-                let generation = this.config_generation;
-                let dir = this.session.dir.clone();
-                this.call(
-                    cx,
-                    move |api| api.config(&dir),
-                    move |this, config, cx| {
-                        if this.config_generation == generation {
-                            this.apply_config(config, cx);
-                        }
-                    },
-                );
+                this.apply_local_config(config, cx);
+            },
+        );
+    }
+
+    pub(in crate::ui) fn apply_local_config(
+        &mut self,
+        mut config: ConfigSummary,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(previous) = &self.session.config {
+            // Keep discovered choices usable while the next catalog loads.
+            // The local response already knows which providers are configured.
+            let providers: std::collections::HashSet<_> = config
+                .model_options
+                .iter()
+                .map(|option| option.provider.as_str())
+                .collect();
+            let cached: Vec<_> = previous
+                .model_options
+                .iter()
+                .filter(|option| providers.contains(option.provider.as_str()))
+                .collect();
+            let keys: std::collections::HashSet<_> = cached
+                .iter()
+                .map(|option| (option.provider.as_str(), option.name.as_str()))
+                .collect();
+            config
+                .model_options
+                .retain(|option| !keys.contains(&(option.provider.as_str(), option.name.as_str())));
+            config.model_options.extend(cached.into_iter().cloned());
+        }
+        self.apply_config(config, cx);
+        let generation = self.config_generation;
+        let dir = self.session.dir.clone();
+        self.call_result(
+            cx,
+            move |api| api.config(&dir),
+            move |this, result, cx| {
+                if this.config_generation != generation {
+                    return;
+                }
+                match result {
+                    Ok(config) => this.apply_config(config, cx),
+                    Err(error) => this.show_notice(format!("{error:#}"), cx),
+                }
             },
         );
     }
