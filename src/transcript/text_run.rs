@@ -188,7 +188,9 @@ impl Transcript {
         }
         #[cfg(test)]
         {
-            self.text_work.prior_row_prefix_bytes += edit.keep;
+            if !edit.tail.is_empty() {
+                self.text_work.prior_row_prefix_bytes += edit.keep;
+            }
             self.text_work.delta_row_replacements += 1;
         }
         let text = edit.finish();
@@ -254,6 +256,12 @@ impl<'a> DeltaEdit<'a> {
 
     fn finish(self) -> std::sync::Arc<str> {
         let length = self.keep.checked_add(self.tail.len()).expect("text length");
+        if self.keep == 0 {
+            return self.tail.as_str().into();
+        }
+        if self.tail.is_empty() {
+            return (&self.base[..self.keep]).into();
+        }
         let mut text = String::with_capacity(length);
         text.push_str(&self.base[..self.keep]);
         text.push_str(&self.tail);

@@ -410,25 +410,38 @@ impl ThreadHandle {
             "thread/items/list",
             json!({"threadId":thread_id,"cursor":cursor,"limit":50,"sortDirection":"desc"}),
         )?;
-        let mut data: Vec<_> = array(&response, "data")?
-            .iter()
+        let Value::Object(mut response) = response else {
+            return Err(Error::Protocol("Codex omitted data array".into()));
+        };
+        let Some(Value::Array(rows)) = response.remove("data") else {
+            return Err(Error::Protocol("Codex omitted data array".into()));
+        };
+        let next_cursor = match response.remove("nextCursor") {
+            Some(Value::String(cursor)) => Some(cursor),
+            _ => None,
+        };
+        // Project owned rows one at a time rather than holding an entire raw
+        // reply alongside the reconstructed page.
+        drop(response);
+        let mut data: Vec<_> = rows
+            .into_iter()
             .filter_map(|entry| {
-                projection::item(
-                    &entry["item"],
+                let Value::Object(mut entry) = entry else {
+                    return None;
+                };
+                let item = entry.remove("item")?;
+                projection::history_item(
+                    item,
                     entry
                         .get("turnId")
                         .and_then(Value::as_str)
                         .unwrap_or_default(),
-                    true,
                     entry.get("startedAtMs").and_then(Value::as_i64),
                 )
             })
             .collect();
         data.reverse();
-        Ok(Page {
-            data,
-            next_cursor: cursor_of(&response),
-        })
+        Ok(Page { data, next_cursor })
     }
 }
 

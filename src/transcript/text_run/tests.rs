@@ -355,6 +355,34 @@ fn foreign_root_run_is_ignored_without_consuming_identity_or_work() {
 }
 
 #[test]
+fn one_span_finish_keeps_fresh_arc_and_skips_intermediate_prefix_copy() {
+    let base = "éa";
+    for (operations, expected_text, prefix_bytes) in [
+        ([(3, ""), (3, "")], "éa", 0),
+        ([(2, ""), (2, "")], "é", 0),
+        ([(0, "éa"), (3, "")], "éa", 0),
+        ([(0, ""), (0, "")], "", 0),
+        ([(2, "b"), (3, "")], "éb", 2),
+    ] {
+        let events = operations
+            .into_iter()
+            .enumerate()
+            .map(|(i, (offset, text))| event(offset, text, i as i64 + 11))
+            .collect::<Vec<_>>();
+        let mut actual = fixture(Some(base));
+        let mut expected = fixture(Some(base));
+        let old = actual.entries[1].text.clone();
+        let changes = apply_oracle(&mut expected, &events);
+        let outcome = actual.apply_text_run(&run(&events));
+        assert_eq!(outcome.changes.as_slice(), changes);
+        assert_transcript(&actual, &expected);
+        assert_eq!(&*actual.entries[1].text, expected_text);
+        assert!(!std::sync::Arc::ptr_eq(&old, &actual.entries[1].text));
+        assert_eq!(actual.take_text_work().prior_row_prefix_bytes, prefix_bytes);
+    }
+}
+
+#[test]
 fn work_budget_for_adjacent_appends() {
     let base = "p".repeat(4096);
     let text = "d".repeat(64);

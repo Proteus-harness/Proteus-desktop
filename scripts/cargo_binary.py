@@ -7,6 +7,41 @@ import subprocess
 import sys
 
 
+_LINE_ENDS = "\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029"
+_OUTPUT_CHUNK = 64 * 1024
+
+
+def _output_lines(output):
+    """Split bounded batches, slicing unusually long lines only once."""
+    start = 0
+    size = len(output)
+    while start + _OUTPUT_CHUNK < size:
+        limit = start + _OUTPUT_CHUNK
+        end = output.rfind("\n", start, limit) + 1
+        if end:
+            yield from output[start:end].splitlines()
+            start = end
+            continue
+        # Scan oversized lines or unusual separators using short fragments.
+        scan = begin = start
+        while scan < size:
+            stop = min(scan + _OUTPUT_CHUNK, size)
+            if output.startswith("\r\n", stop - 1):
+                stop += 1  # Keep CRLF together across the scan boundary.
+            for fragment in output[scan:stop].splitlines(keepends=True):
+                scan += len(fragment)
+                if fragment[-1] in _LINE_ENDS:
+                    separator = 2 if fragment.endswith("\r\n") else 1
+                    yield output[start:scan - separator]
+                    start = scan
+            if start != begin:
+                break
+        else:
+            yield output[start:]
+            return
+    yield from output[start:].splitlines()
+
+
 def existing_binary(cwd, profile, binary):
     """Explicit reuse mode: existing conventional output, without invoking Cargo.
 
@@ -47,7 +82,7 @@ def build_binary(cwd, package, binary, flags, manifest, *, environ=None):
     outputs = []
     finished = 0
     invalid = False
-    for line in result.stdout.splitlines():
+    for line in _output_lines(result.stdout):
         try:
             message = json.loads(line)
         except json.JSONDecodeError:

@@ -279,12 +279,15 @@ impl Chat {
         shown |= !matches!(change, Change::None);
         if let Some(changes) = display_changes {
             self.apply_history_changes(changes, cx);
-        } else if !self.history.archived() {
-            self.apply_change(change, cx);
-        } else if change != Change::None {
-            self.invalidate_archived_live_heights(cx);
+        } else {
+            // Snapshot display changes already synchronize the range and key.
+            if !self.history.archived() {
+                self.apply_change(change, cx);
+            } else if change != Change::None {
+                self.invalidate_archived_live_heights(cx);
+            }
+            self.sync_history_range(cx);
         }
-        self.sync_history_range(cx);
         if refresh_context {
             self.load_context(cx);
         }
@@ -313,12 +316,19 @@ impl Chat {
                 .and_then(|binding| binding.archive.as_ref())
                 .unwrap_or_else(|| self.history.displayed(&self.session.transcript))
                 .entries();
-            let keys = entries.iter().map(|entry| entry.key).collect();
-            self.replies.retain(&keys);
-            self.tool_diffs.retain(|key, _| keys.contains(key));
-            self.expanded.retain(|key| keys.contains(key));
-            self.full_blocks.retain(|(key, _)| keys.contains(key));
-            self.open_chains.retain(|key| keys.contains(key));
+            if !self.replies.is_empty()
+                || !self.tool_diffs.is_empty()
+                || !self.expanded.is_empty()
+                || !self.full_blocks.is_empty()
+                || !self.open_chains.is_empty()
+            {
+                let keys = entries.iter().map(|entry| entry.key).collect();
+                self.replies.retain(&keys);
+                self.tool_diffs.retain(|key, _| keys.contains(key));
+                self.expanded.retain(|key| keys.contains(key));
+                self.full_blocks.retain(|(key, _)| keys.contains(key));
+                self.open_chains.retain(|key| keys.contains(key));
+            }
             self.sent_images.retain(entries);
         }
         let layout = row_layout(self.display_transcript().entries(), change);

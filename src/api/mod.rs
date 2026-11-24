@@ -400,6 +400,11 @@ impl EventStream {
         let mut data_start = 0;
         let mut line = String::new();
         loop {
+            if data.is_empty()
+                && let Some(output) = self.buffered_output()
+            {
+                return Some(output);
+            }
             line.clear();
             match self.reader.read_line(&mut line) {
                 Ok(0) => return None,
@@ -442,6 +447,35 @@ impl EventStream {
                 }
             }
         }
+    }
+
+    /// Parse one complete, already buffered Core SSE record in place.
+    /// Fragmentation and all other SSE forms still use the line reader.
+    fn buffered_output(&mut self) -> Option<Result<StreamItem>> {
+        let buffered = self.reader.buffer();
+        let data = buffered
+            .strip_prefix(b"event: output\n")
+            .unwrap_or(buffered)
+            .strip_prefix(b"data: ")?;
+        // Do not scan a typical partial JSON line twice. The fast path
+        // only needs to recognize records already present in the buffer.
+        if !data.ends_with(b"\n") {
+            return None;
+        }
+        let end = data.iter().position(|&byte| byte == b'\n')?;
+        if data.get(end + 1) != Some(&b'\n') {
+            return None;
+        }
+        let json = std::str::from_utf8(&data[..end])
+            .ok()?
+            .trim_end_matches('\r');
+        if json.is_empty() {
+            return None;
+        }
+        let consumed = buffered.len() - data.len() + end + 2;
+        let output = parse_output(json).map(StreamItem::Event);
+        self.reader.consume(consumed);
+        Some(output)
     }
 }
 

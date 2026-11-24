@@ -48,8 +48,14 @@ impl Measurements {
         });
         self.range = range;
         self.epoch = self.epoch.wrapping_add(1);
-        self.pending = vec![None; range.map_or(0, |range| range.rows + 1)];
-        self.fraction_ready = vec![false; self.pending.len()];
+        let slots = range.map_or(0, |range| range.rows + 1);
+        if self.pending.len() == slots && self.fraction_ready.len() == slots {
+            self.pending.fill(None);
+            self.fraction_ready.fill(false);
+        } else {
+            self.pending = vec![None; slots];
+            self.fraction_ready = vec![false; slots];
+        }
         self.dirty.clear();
     }
 

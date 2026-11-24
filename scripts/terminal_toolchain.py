@@ -44,18 +44,30 @@ PACKAGES = [
 ]
 
 
+def _archive_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    buffer = memoryview(bytearray(256 * 1024))
+    with path.open("rb") as stream:
+        while True:
+            count = stream.readinto(buffer)
+            if not count:
+                break
+            digest.update(buffer[:count])
+    return digest.hexdigest()
+
+
 def download(url: str, destination: Path, sha256: str | None = None) -> str:
     destination.parent.mkdir(parents=True, exist_ok=True)
     if not destination.exists():
         temporary = destination.with_name(destination.name + ".download")
         with urllib.request.urlopen(url, timeout=60) as response, temporary.open("wb") as output:
             shutil.copyfileobj(response, output)
-        digest = hashlib.sha256(temporary.read_bytes()).hexdigest()
+        digest = _archive_sha256(temporary)
         if sha256 and digest != sha256:
             temporary.unlink()
             raise RuntimeError(f"{url}: SHA256 mismatch: {digest}")
         temporary.replace(destination)
-    digest = hashlib.sha256(destination.read_bytes()).hexdigest()
+    digest = _archive_sha256(destination)
     if sha256 and digest != sha256:
         raise RuntimeError(f"{destination}: SHA256 mismatch: {digest}")
     return digest

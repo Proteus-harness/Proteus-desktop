@@ -245,6 +245,120 @@ class PortableCompatibilityTests(unittest.TestCase):
         self.assert_rejected_unchanged(["--components", "extensions"], "unsupported.*" + FEATURE)
         self.portable.run.assert_called_once()
 
+    @contextlib.contextmanager
+    def copied_from(self, origin):
+        copier = self.portable.shutil.copytree
+        copy2 = self.portable.shutil.copy2
+        reads = {}
+
+        def observed_file(source, target):
+            path = Path(source)
+            reads[path.relative_to(origin).as_posix()] = path.stat().st_size
+            return copy2(source, target)
+
+        def observed_tree(source, target, *args, **kwargs):
+            if Path(source) == origin:
+                kwargs["copy_function"] = observed_file
+            return copier(source, target, *args, **kwargs)
+
+        with patch.object(self.portable.shutil, "copytree", side_effect=observed_tree):
+            yield reads
+
+    def test_extensions_only_does_not_copy_payload_replaced_by_bundle(self):
+        base = self.root / "ready-base"
+        seed(base, self.state)
+        old_payload = "share/extensions/sample/old.asset"
+        dropped = base / old_payload
+        dropped.write_bytes(b"old payload" * 65536)
+        kept = "share/modules/sample/extensions/kept"
+        put(base / kept, "retained module data")
+        (base / kept).chmod(0o640)
+        link = "share/module-alias"
+        (base / link).symlink_to("modules/sample/extensions/kept")
+        before = snapshot(base)
+
+        with self.copied_from(base) as reads:
+            self.run_main(["--components", "extensions", "--base", str(base)])
+
+        stage = self.portable.PORTABLE
+        self.assertNotIn(old_payload, reads)
+        self.assertFalse(any(name.startswith("share/extensions/") for name in reads))
+        self.assertEqual(reads[kept], len(b"retained module data"))
+        self.assertFalse((stage / old_payload).exists())
+        self.assertTrue((stage / link).is_symlink())
+        self.assertEqual((stage / link).readlink(), (base / link).readlink())
+        after = snapshot(stage)
+        self.assertEqual(after[kept], before[kept])
+        self.assertEqual(snapshot(base), before)
+        self.assertEqual(self.state.extension_protocols(stage), {4})
+        saved = self.state.read_record(stage)
+        self.assertEqual(saved["build_components"], ["extensions"])
+        self.assertIn("share/extensions/sample/bin/extension", saved["binary_sha256"])
+        self.assertEqual(saved["sources"]["Proteus-desktop-extensions"]["commit"], "synthetic-new")
+        self.portable.install_desktop.assert_not_called()
+        self.portable.install_core.assert_not_called()
+        self.portable.publish.assert_called_once()
+
+    def test_old_subtree_is_copied_for_reuse_mixed_or_aliased_base(self):
+        base = self.root / "ready-base"
+        seed(base, self.state)
+        alias = self.root / "alias"
+        alias.symlink_to(base, target_is_directory=True)
+        old = "share/extensions/sample/old.asset"
+        put(base / old, "old bytes")
+        for selection, requested_base in [
+            (["--reuse-binaries"], base),
+            (["--components", "desktop", "extensions"], base),
+            (["--components", "extensions"], alias),
+        ]:
+            with self.subTest(selection=selection, base=requested_base.name):
+                with self.copied_from(base) as reads:
+                    self.run_main([*selection, "--base", str(requested_base)])
+                self.assertEqual(reads[old], len(b"old bytes"))
+
+    def test_linked_or_nonordinary_subtree_keeps_legacy_copy_without_bundling(self):
+        ignore = self.portable._ignore_replaced_extensions
+        base = self.root / "ready-base"
+        seed(base, self.state)
+        share = base / "share"
+        ext = share / "extensions"
+        renamed = self.root / "real-extensions"
+        ext.rename(renamed)
+        ext.symlink_to(renamed, target_is_directory=True)
+        self.assertIsNone(ignore(base))
+
+        def stop_before_bundle(stage, *_):
+            staged = stage / "share/extensions"
+            self.assertTrue(staged.is_symlink())
+            self.assertEqual(staged.readlink(), renamed)
+            raise SystemExit("inert stop before bundle")
+
+        with patch.object(self.portable, "assemble", side_effect=stop_before_bundle):
+            self.assert_rejected_unchanged(
+                ["--components", "extensions", "--base", str(base)], "inert stop before bundle",
+            )
+        ext.unlink()
+        renamed.rename(ext)
+        ext.chmod(0o500)
+        self.assertIsNone(ignore(base))
+        ext.chmod(0o700)
+        real_share = self.root / "real-share"
+        share.rename(real_share)
+        share.symlink_to(real_share, target_is_directory=True)
+        self.assertIsNone(ignore(base))
+        self.portable.run.assert_not_called()
+
+    def test_extensions_bundle_failure_preserves_destination_and_cleans_stage(self):
+        self.portable.run.side_effect = SystemExit("inert extension bundle failed")
+        self.assert_rejected_unchanged(["--components", "extensions"], "inert extension bundle failed")
+        self.portable.run.assert_called_once()
+
+    def test_extensions_only_checks_old_ready_base_before_copy(self):
+        old = self.portable.PORTABLE / "share/extensions/sample/bin/extension"
+        old.unlink()
+        self.assert_rejected_unchanged(["--components", "extensions"], "missing executable")
+        self.portable.run.assert_not_called()
+
     def test_plan_never_validates_or_publishes(self):
         before = snapshot(self.root)
         self.portable.read_record = forbidden

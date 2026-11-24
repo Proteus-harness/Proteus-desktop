@@ -2,15 +2,12 @@
 """Export Proteus settings and restore them on another machine (Python 3.11+)."""
 import argparse
 from datetime import datetime, timezone
-import hashlib
-import io
 import json
 import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
 import sys
-import tarfile
 import tempfile
 import tomllib
 
@@ -95,7 +92,32 @@ def read_settings(path):
     return path.read_bytes()
 
 
+def _portable_preferences(preferences):
+    for key in WINDOW_STATE:
+        preferences.pop(key, None)
+    return (json.dumps(preferences, ensure_ascii=False, indent=2) + '\n').encode()
+
+
+def _export_data(path, preferences_source):
+    data = read_settings(path)
+    suffix = path.suffix
+    if suffix in ('.json', '.toml'):
+        decoded = structured(data, suffix)
+        reject_credentials(decoded, path)
+        if suffix == '.json' and path == preferences_source:
+            return _portable_preferences(decoded)
+        del decoded
+    # If preferences.json is a directory, retain the old bytes decoder for its files.
+    if preferences_source is not None:
+        return _portable_preferences(json.loads(data))
+    return data
+
+
 def export_archive(args):
+    import hashlib
+    import io
+    import tarfile
+
     home, locations = roots(args)
     files = {}
     for kind, items in SECTIONS.items():
@@ -106,6 +128,7 @@ def export_archive(args):
             if not source.exists():
                 continue
             candidates = sorted(source.rglob('*')) if source.is_dir() else [source]
+            preferences_source = source if kind == 'desktop' and item == 'preferences.json' else None
             for path in candidates:
                 if path.is_symlink():
                     raise ValueError(f'Symlink is not supported: {path}')
@@ -113,15 +136,7 @@ def export_archive(args):
                 if path.is_dir() or EXCLUDED.intersection(relative.parts):
                     continue
                 name = f'files/{kind}/{path.relative_to(locations[kind]).as_posix()}'
-                data = read_settings(path)
-                if path.suffix in ('.json', '.toml'):
-                    reject_credentials(structured(data, path.suffix), path)
-                if kind == 'desktop' and item == 'preferences.json':
-                    preferences = json.loads(data)
-                    for key in WINDOW_STATE:
-                        preferences.pop(key, None)
-                    data = (json.dumps(preferences, ensure_ascii=False, indent=2) + '\n').encode()
-                files[name] = data
+                files[name] = _export_data(path, preferences_source)
     if not files:
         raise ValueError('No Proteus settings found')
     if sum(map(len, files.values())) > MAX_TOTAL:
@@ -153,6 +168,9 @@ def export_archive(args):
 
 
 def read_archive(path):
+    import hashlib
+    import tarfile
+
     files = {}
     total = 0
     with tarfile.open(path, 'r:gz') as archive:
@@ -332,11 +350,33 @@ def upgrade_storage(args):
     apply_settings(settings_state_dir(args, home), updated, args.dry_run, action='update')
 
 
+def _changed_settings(data_by_path):
+    buffer = None
+    prepared = []
+    for path, data in data_by_path.items():
+        if not path.exists():
+            prepared.append((path, data))
+            continue
+        with path.open('rb') as stream:
+            if buffer is None:
+                buffer = memoryview(bytearray(64 * 1024))
+            desired = memoryview(data)
+            length = 0
+            matches = True
+            while count := stream.readinto(buffer):
+                end = length + count
+                if matches and buffer[:count] != desired[length:end]:
+                    matches = False
+                length = end
+            # A mismatch does not stop the read before EOF: a later I/O
+            # failure must still prevent the whole batch from being written.
+        if not matches or length != len(data):
+            prepared.append((path, data))
+    return prepared
+
+
 def apply_settings(state_dir, data_by_path, dry_run, action='restore'):
-    prepared = [
-        (path, data) for path, data in data_by_path.items()
-        if not path.exists() or path.read_bytes() != data
-    ]
+    prepared = _changed_settings(data_by_path)
     for path, _ in prepared:
         regular_path(path)
     if dry_run:
@@ -390,10 +430,15 @@ def main():
         parser.error('export and restore require an archive path')
     if args.dry_run and args.operation == 'export':
         parser.error('--dry-run applies to restore and upgrade-storage')
+    errors = (OSError, ValueError, KeyError)
+    if args.operation != 'upgrade-storage':
+        from tarfile import TarError
+
+        errors += (TarError,)
     try:
         operations = {'export': export_archive, 'restore': restore_archive, 'upgrade-storage': upgrade_storage}
         operations[args.operation](args)
-    except (OSError, ValueError, KeyError, tarfile.TarError) as error:
+    except errors as error:
         parser.exit(1, f'{error}\n')
 
 

@@ -134,6 +134,39 @@ pub fn item(
     completed: bool,
     timestamp_ms: Option<i64>,
 ) -> Option<Item> {
+    item_with_primary_text(value, turn_id, completed, timestamp_ms, None)
+}
+
+/// These history fields already have the representation the UI needs. Move
+/// tight, in-limit strings; other variants keep the shared clipping rules.
+pub(super) fn history_item(
+    mut value: Value,
+    turn_id: &str,
+    timestamp_ms: Option<i64>,
+) -> Option<Item> {
+    let primary_text = if matches!(
+        value.get("type").and_then(Value::as_str),
+        Some("agentMessage" | "plan")
+    ) {
+        value.get_mut("text").and_then(|field| match field {
+            Value::String(text) if text.len() <= MAX_TEXT && text.capacity() == text.len() => {
+                Some(std::mem::take(text))
+            }
+            _ => None,
+        })
+    } else {
+        None
+    };
+    item_with_primary_text(&value, turn_id, true, timestamp_ms, primary_text)
+}
+
+fn item_with_primary_text(
+    value: &Value,
+    turn_id: impl Into<String>,
+    completed: bool,
+    timestamp_ms: Option<i64>,
+    primary_text: Option<String>,
+) -> Option<Item> {
     let id = value.get("id")?.as_str()?.to_owned();
     let name = value.get("type")?.as_str()?;
     let status = value
@@ -146,13 +179,13 @@ pub fn item(
             text: joined(value.get("content")),
         },
         "agentMessage" => ItemKind::Assistant {
-            text: text(value, "text"),
+            text: primary_text.unwrap_or_else(|| text(value, "text")),
         },
         "reasoning" => ItemKind::Reasoning {
             text: joined(value.get("summary")),
         },
         "plan" => ItemKind::Plan {
-            text: text(value, "text"),
+            text: primary_text.unwrap_or_else(|| text(value, "text")),
         },
         "commandExecution" => ItemKind::Tool {
             name: "shell".into(),

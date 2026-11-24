@@ -2,6 +2,7 @@
 //! the same way the server folds turn progress, so that the next snapshot
 //! replaces it without visible jumps.
 
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -87,14 +88,14 @@ impl Transcript {
     /// splice from the first differing row instead of a full reset.
     pub fn reset(&mut self, messages: Vec<AppTranscriptMessage>) -> Change {
         let old = std::mem::take(&mut self.entries);
-        let mut previous: HashMap<Identity, (u64, Arc<str>, Option<i64>)> = old
+        // The index borrows old row IDs. Consume each winner exactly once,
+        // including when the incoming snapshot contains duplicate identities.
+        let previous: HashMap<_, _> = old
             .iter()
-            .filter_map(|entry| {
-                let row = (entry.key, entry.text.clone(), entry.time);
-                Some((identity_of(entry)?, row))
-            })
+            .filter_map(|entry| Some((identity_of(entry)?, Cell::new(Some(entry)))))
             .collect();
         let mut entries = Vec::with_capacity(messages.len());
+        let mut local_rows = old.as_slice();
         for (index, message) in messages.into_iter().enumerate() {
             let role = role_of(&message.role);
             let reused = match identity(
@@ -103,10 +104,11 @@ impl Transcript {
                 message.tool.as_ref(),
                 message.subagent.as_ref(),
             ) {
-                Some(id) => previous.remove(&id).map(|(key, text, time)| {
+                Some(id) => previous.get(&id).and_then(Cell::take).map(|before| {
                     // Compare with the owned wire text before allocating another Arc.
-                    let shared = (text.as_ref() == message.text).then_some(text);
-                    (key, shared, time)
+                    let shared =
+                        (before.text.as_ref() == message.text).then(|| before.text.clone());
+                    (before.key, shared, before.time)
                 }),
                 // Rows without identity are matched by position and content.
                 None => old
@@ -125,7 +127,7 @@ impl Transcript {
                 entry
             } else {
                 let mut entry = self.entry_from_with_text(message, role, None);
-                entry.time = entry.time.or_else(|| local_time_of(&old, &entry));
+                entry.time = entry.time.or_else(|| local_time_of(&mut local_rows, &entry));
                 entry
             };
             entries.push(entry);
@@ -223,6 +225,18 @@ impl Transcript {
             removed: 0,
             inserted: entries.len(),
         }
+    }
+
+    /// Complete a display window using the same state as a clone of the
+    /// live transcript, but never clone live rows already planned for eviction.
+    pub(crate) fn complete_history_window(&mut self, live: &Self, keep: usize) {
+        debug_assert!(Arc::ptr_eq(&self.next_key, &live.next_key));
+        self.entries.extend_from_slice(&live.entries[..keep]);
+        self.external_ids.clone_from(&live.external_ids);
+        self.turn_thread = live.turn_thread;
+        self.snapshot_root_known = live.snapshot_root_known;
+        #[cfg(test)]
+        self.text_work.clone_from(&live.text_work);
     }
 
     pub fn push_user(
@@ -554,10 +568,10 @@ impl Transcript {
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
-enum Identity {
+enum Identity<'a> {
     Message(MessageId, Role),
-    Tool(String),
-    Subagent(String),
+    Tool(&'a str),
+    Subagent(&'a str),
 }
 
 fn role_of(role: &str) -> Role {
@@ -569,7 +583,7 @@ fn role_of(role: &str) -> Role {
     }
 }
 
-fn identity_of(entry: &Entry) -> Option<Identity> {
+fn identity_of(entry: &Entry) -> Option<Identity<'_>> {
     identity(
         entry.message_id,
         entry.role,
@@ -578,24 +592,32 @@ fn identity_of(entry: &Entry) -> Option<Identity> {
     )
 }
 
-fn identity(
+fn identity<'a>(
     message_id: Option<MessageId>,
     role: Role,
-    tool: Option<&AppTranscriptTool>,
-    subagent: Option<&AppTranscriptSubagent>,
-) -> Option<Identity> {
+    tool: Option<&'a AppTranscriptTool>,
+    subagent: Option<&'a AppTranscriptSubagent>,
+) -> Option<Identity<'a>> {
     if let Some(id) = message_id {
         return Some(Identity::Message(id, role));
     }
     if let Some(tool) = tool {
-        return Some(Identity::Tool(tool.call_id.clone()));
+        return Some(Identity::Tool(&tool.call_id));
     }
-    subagent.map(|subagent| Identity::Subagent(subagent.child_thread_id.clone()))
+    subagent.map(|subagent| Identity::Subagent(&subagent.child_thread_id))
 }
 
 /// Time of a row pushed locally, before the server gave it an identity:
 /// the sent message comes back in the snapshot with its id.
-fn local_time_of(old: &[Entry], entry: &Entry) -> Option<i64> {
+fn local_time_of(old: &mut &[Entry], entry: &Entry) -> Option<i64> {
+    // A suffix with no provisional timestamps cannot serve any lookup in this
+    // reset. Forget it once, without indexing or hashing message bodies.
+    while let Some((last, rest)) = old.split_last() {
+        if last.message_id.is_none() && last.time.is_some() {
+            break;
+        }
+        *old = rest;
+    }
     old.iter()
         .rev()
         .find(|before| {

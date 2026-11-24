@@ -15,14 +15,24 @@ fi
 configs="${config_home}/configs"
 bundled="${here}/share/configs"
 
-mkdir -p "${configs}"
+# Keep option-like operands on the legacy mkdir path, even if they exist.
+if [ "${configs#-}" != "${configs}" ] || [ ! -d "${configs}" ]; then
+  mkdir -p "${configs}"
+fi
 for source in "${bundled}"/*; do
-  name=$(basename "${source}")
+  name=${source##*/}
+  # Keep command substitution's historical trimming for LF-ending names.
+  case "${name}" in
+    *'
+') name=$(basename "${source}") ;;
+  esac
   target="${configs}/${name}"
   if [ -d "${source}" ]; then
     # Same folder when configs is a symlink to the bundled copy.
     if [ ! "${source}" -ef "${target}" ]; then
-      mkdir -p "${target}"
+      if [ "${target#-}" != "${target}" ] || [ ! -d "${target}" ]; then
+        mkdir -p "${target}"
+      fi
       cp -R --update=none "${source}/." "${target}/"
     fi
   elif [ ! -e "${target}" ]; then

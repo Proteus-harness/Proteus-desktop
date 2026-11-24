@@ -65,43 +65,60 @@ impl HistoryWindow {
 
     fn trim(&mut self, direction: Direction, visible: Range<usize>) -> Option<Change> {
         let entries = self.transcript.entries();
-        // Rows outside the cardinality limit can be dropped without walking
-        // their payload, provided the active page and visible rows stay intact.
-        let limit = CACHE_ROWS.max(PAGE_ROWS);
-        let mut keep = match direction {
-            Direction::Older => 0..entries.len().min(limit.max(visible.end)),
-            Direction::Newer => {
-                entries.len().saturating_sub(limit).min(visible.start)..entries.len()
-            }
-        };
-        let mut bytes: usize = entries[keep.clone()]
-            .iter()
-            .map(|row| row.retained_bytes())
-            .sum();
-        // A page and the visible rows are indivisible. A large row is never truncated.
-        while bytes > CACHE_BYTES {
-            let index = match direction {
-                Direction::Older if keep.end > visible.end.max(PAGE_ROWS) => keep.end - 1,
-                Direction::Newer if keep.start < visible.start && keep.len() > PAGE_ROWS => {
-                    keep.start
-                }
-                _ => break,
-            };
-            bytes = bytes.saturating_sub(entries[index].retained_bytes());
-            match direction {
-                Direction::Older => keep.end -= 1,
-                Direction::Newer => keep.start += 1,
-            }
-        }
-        let removed = match direction {
-            Direction::Older => keep.end..entries.len(),
-            Direction::Newer => 0..keep.start,
-        };
+        let removed = trim_range(entries.len(), direction, visible, |row| {
+            entries[row].retained_bytes()
+        });
         if removed.is_empty() {
             return None;
         }
         self.start += removed.start.eq(&0).then_some(removed.len()).unwrap_or(0);
         Some(self.transcript.remove(removed))
+    }
+}
+
+/// Identify rows to evict without taking ownership of their payloads.
+fn trim_range(
+    rows: usize,
+    direction: Direction,
+    visible: Range<usize>,
+    charge: impl Fn(usize) -> usize,
+) -> Range<usize> {
+    // Rows outside the cardinality limit can be dropped without walking
+    // their payload, provided the active page and visible rows stay intact.
+    let limit = CACHE_ROWS.max(PAGE_ROWS);
+    let mut keep = match direction {
+        Direction::Older => 0..rows.min(limit.max(visible.end)),
+        Direction::Newer => rows.saturating_sub(limit).min(visible.start)..rows,
+    };
+    // A page and the visible rows are indivisible. A large row is never truncated.
+    let required = match direction {
+        Direction::Older => visible.end.max(PAGE_ROWS),
+        Direction::Newer => rows.saturating_sub(visible.start).max(PAGE_ROWS),
+    };
+    if keep.len() > required {
+        // Scan from the edge we keep; extending it can only add bytes.
+        let mut left = CACHE_BYTES;
+        let fits = |&charge: &usize| {
+            let Some(next) = left.checked_sub(charge) else {
+                return false;
+            };
+            left = next;
+            true
+        };
+        let charges = keep.clone().map(charge);
+        let fitting = match direction {
+            Direction::Older => charges.take_while(fits).count(),
+            Direction::Newer => charges.rev().take_while(fits).count(),
+        };
+        let retained = fitting.max(required);
+        match direction {
+            Direction::Older => keep.end = retained,
+            Direction::Newer => keep.start = keep.end - retained,
+        }
+    }
+    match direction {
+        Direction::Older => keep.end..rows,
+        Direction::Newer => 0..keep.start,
     }
 }
 
@@ -291,6 +308,12 @@ impl History {
         }
         let loaded_count = page.messages.len();
         let visible = self.context_visible(visible);
+        if direction == Direction::Older
+            && self.archive.is_none()
+            && requested.before == self.live_start()
+        {
+            return Some(self.accept_first_older(live, page, visible));
+        }
         let window = self.archive.get_or_insert_with(|| HistoryWindow {
             start: self.cursor.as_ref().unwrap().before,
             transcript: live.clone(),
@@ -322,6 +345,49 @@ impl History {
             changes.push(change);
         }
         Some(changes)
+    }
+
+    fn accept_first_older(
+        &mut self,
+        live: &Transcript,
+        page: AppTranscriptPage,
+        visible: Range<usize>,
+    ) -> Vec<Change> {
+        let count = page.messages.len();
+        // This is a display window, with the same key space as a seek page.
+        let mut transcript = live.empty_window();
+        let mut changes = vec![transcript.prepend(page.messages)];
+        let rows = count + live.entries().len();
+        let removed = trim_range(
+            rows,
+            Direction::Older,
+            visible.start + count..visible.end + count,
+            |row| {
+                if row < count {
+                    transcript.entries()[row].retained_bytes()
+                } else {
+                    live.entries()[row - count].retained_bytes()
+                }
+            },
+        );
+        // The whole older page is inside the required visible-prefix bound.
+        // Clone only live rows that remain after the corresponding trim.
+        transcript.complete_history_window(live, removed.start - count);
+        if let Some(seek) = &mut self.context_seek {
+            seek.loaded(&transcript.entries()[..count]);
+        }
+        self.archive = Some(HistoryWindow {
+            start: page.start,
+            transcript,
+        });
+        if !removed.is_empty() {
+            changes.push(Change::Spliced {
+                start: removed.start,
+                removed: removed.len(),
+                inserted: 0,
+            });
+        }
+        changes
     }
 
     fn merge_tail(&mut self, live: &Transcript, visible: Range<usize>) -> Vec<Change> {
@@ -482,6 +548,13 @@ impl Chat {
     }
 
     fn disclosed_height_rows(&self) -> Vec<Range<usize>> {
+        if self.expanded.is_empty()
+            && self.full_blocks.is_empty()
+            && self.open_chains.is_empty()
+            && self.tool_diffs.is_empty()
+        {
+            return Vec::new();
+        }
         let entries = self.display_transcript().entries();
         let mut excluded: Vec<Range<usize>> = Vec::new();
         for (row, entry) in entries.iter().enumerate() {

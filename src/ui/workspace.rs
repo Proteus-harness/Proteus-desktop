@@ -2,6 +2,7 @@ use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Instant;
 
 use crate::conversations::ConversationSummary;
@@ -53,7 +54,7 @@ pub struct Workspace {
     target: Target,
     pub(super) codex_catalog_loading: bool,
     pub(super) codex_catalogs: HashMap<PathBuf, crate::agents::codex::CatalogCursor>,
-    pub(super) codex_models: Vec<crate::agents::codex::Model>,
+    pub(super) codex_models: Arc<[crate::agents::codex::Model]>,
     pub(super) layout: TabLayout,
     pub(super) spaces: ChatSpaces,
     parked_spaces: HashMap<Option<String>, spaces::SpaceViews>,
@@ -259,7 +260,7 @@ impl Workspace {
             target,
             codex_catalog_loading: false,
             codex_catalogs: HashMap::new(),
-            codex_models: Vec::new(),
+            codex_models: Default::default(),
             layout,
             spaces,
             parked_spaces: HashMap::new(),
@@ -332,7 +333,7 @@ impl Workspace {
                 if let Some(service) = boot.codex {
                     self.windows.set_codex(service, cx);
                 }
-                self.codex_models = boot.codex_models;
+                self.replace_codex_models(boot.codex_models);
                 self.startup_streams = boot.streams;
                 self.sessions = boot.sessions;
                 self.session_projects = boot.projects;

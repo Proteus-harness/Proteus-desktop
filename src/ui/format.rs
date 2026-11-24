@@ -37,6 +37,8 @@ pub fn clip(text: &str, max_chars: usize) -> String {
 /// The first lines of `text`, at most `max_chars` of it, without a mark of
 /// what is left out: the caller fades the end out instead.
 pub fn peek_block(text: &str, max_lines: usize, max_chars: usize) -> String {
+    let inspect = max_chars.saturating_add(max_lines).saturating_add(4);
+    let text = &text[..text.floor_char_boundary(inspect)];
     let mut out = String::new();
     for line in text.lines().take(max_lines) {
         if out.len() + line.len() > max_chars {
@@ -55,16 +57,16 @@ pub fn peek_block(text: &str, max_lines: usize, max_chars: usize) -> String {
 pub fn clip_block(text: &str, max_lines: usize, max_chars: usize) -> String {
     let mut out = String::new();
     let mut lines = 0;
-    for line in text.lines() {
+    let mut input = text.lines();
+    while let Some(line) = input.next() {
         if lines == max_lines || out.len() + line.len() > max_chars {
             // A single overlong first line is cut rather than hidden.
             if lines == 0 {
                 let cut = line.floor_char_boundary(max_chars);
                 out.push_str(&line[..cut]);
                 out.push('\n');
-                lines = 1;
             }
-            let rest = text.lines().count() - lines;
+            let rest = input.count() + usize::from(lines != 0);
             if rest == 0 {
                 out.truncate(out.trim_end().len());
                 out.push_str("\n… Текст обрезан");

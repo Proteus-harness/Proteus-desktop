@@ -32,10 +32,11 @@ def require_extensions(directory, *, hint, path=None, native=None):
         verify_features(manifests, features)
     for manifest in manifests:
         try:
-            command = json.loads(manifest.read_text())["command"]
+            spec = json.loads(manifest.read_text())
+            command = spec["command"]
             if not isinstance(command, list) or not command or not all(isinstance(arg, str) for arg in command):
                 raise ValueError("command must be a nonempty string array")
-            if protocol is not None and json.loads(manifest.read_text()).get("protocol") != protocol:
+            if protocol is not None and spec.get("protocol") != protocol:
                 raise ValueError(f"protocol differs from Desktop {protocol}; select compatible ready extensions or --build-extensions explicitly")
             if not executable(command[0], cwd=manifest.parent, path=path):
                 raise ValueError(f"missing executable {command[0]}")
