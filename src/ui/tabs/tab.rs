@@ -50,7 +50,7 @@ pub(in crate::ui) struct DraggedTab {
 
 impl Render for DraggedTab {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let foreground = cx.theme().tab_active_foreground;
+        let foreground = cx.theme().tab_foreground;
         let style = window.text_style();
         let font_size = prefs::scaled(14.).to_pixels(window.rem_size());
         let width = window
@@ -174,7 +174,7 @@ impl Workspace {
         let label = self.tab_label(id, cx);
         let tab_group = SharedString::from(format!("tab-{id}"));
         let hover = theme.list_hover;
-        let foreground = crate::ui::selection::tab_foreground(theme, state.active);
+        let foreground = theme.tab_foreground;
         let lifted = drag::is_source(&format!("tab:{id}"), cx);
         let icon = match self.chat_state(id, cx) {
             Some(ChatState::Busy(_)) => Spinner::new().xsmall().into_any_element(),

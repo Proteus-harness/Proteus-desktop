@@ -102,10 +102,10 @@ impl DeclarativeView {
             .flex_none()
             .w_full()
             .h(prefs::scaled(BAR))
+            .text_color(theme.tab_foreground)
             .children(tabs.iter().enumerate().flat_map(|(index, tab)| {
                 let (key, action) = (path.to_string(), action.map(str::to_string));
                 let active = index == selected;
-                let foreground = crate::ui::selection::tab_foreground(theme, active);
                 let divider = (index > 0).then(|| {
                     div()
                         .flex_none()
@@ -114,13 +114,10 @@ impl DeclarativeView {
                         .bg(faded_border)
                         .into_any_element()
                 });
-                let count = tab.count.filter(|count| *count > 0).map(|count| {
-                    div()
-                        .flex_none()
-                        .text_xs()
-                        .text_color(foreground)
-                        .child(format!("({count})"))
-                });
+                let count = tab
+                    .count
+                    .filter(|count| *count > 0)
+                    .map(|count| div().flex_none().text_xs().child(format!("({count})")));
                 let tab = h_flex()
                     .id(ElementId::Name(format!("decl-tab-{path}-{index}").into()))
                     .flex_1()
@@ -134,11 +131,9 @@ impl DeclarativeView {
                     .border_color(faded_border)
                     .map(|tab| {
                         if active {
-                            tab.bg(active_bg).text_color(foreground)
+                            tab.bg(active_bg)
                         } else {
-                            tab.border_b_1()
-                                .text_color(foreground)
-                                .hover(move |tab| tab.bg(hover))
+                            tab.border_b_1().hover(move |tab| tab.bg(hover))
                         }
                     })
                     .child(div().min_w_0().child(faded(tab.label.clone())))

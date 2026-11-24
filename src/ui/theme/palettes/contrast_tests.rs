@@ -258,11 +258,7 @@ fn normal_and_muted_labels_meet_minimum_on_their_resolved_surfaces() {
                     theme.input_background(),
                 ),
                 ("popup label", theme.popover_foreground, theme.popover),
-                (
-                    "active tab label",
-                    theme.tab_active_foreground,
-                    theme.tab_active,
-                ),
+                ("active tab label", theme.tab_foreground, theme.tab_active),
                 ("inactive tab label", theme.tab_foreground, theme.sidebar),
             ] {
                 assert_readable(&name, role, foreground, composite(fill.into(), backdrop));
