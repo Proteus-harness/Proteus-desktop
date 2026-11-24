@@ -34,6 +34,7 @@ pub const FEATURES: &[&str] = &[
     "widgets.setting_row.v1",
     "widgets.setting_row.reset.v1",
     "surfaces.badge.visibility.v1",
+    "surfaces.badge.ring_display.v1",
     "surfaces.activity.v1",
     "surfaces.preview.v1",
     "surfaces.invalidate.v1",
@@ -523,8 +524,25 @@ mod tests {
 
     #[test]
     fn validates_independent_badge_presentations() {
+        use crate::declarative::presentation::RingDisplay;
+
         let badge = r#"{"type":"badge","view":"badge","session_dir":"/a","title":"Left 8%","lines":["Weekly"],"face":{"type":"ring","percent":92,"tone":"danger"}}"#;
-        assert!(matches!(parse(badge).unwrap(), Incoming::Badge { .. }));
+        for (field, expected) in [
+            ("", RingDisplay::RingNumber),
+            (r#", "display":"ring_number""#, RingDisplay::RingNumber),
+            (r#", "display":"ring""#, RingDisplay::Ring),
+            (r#", "display":"number""#, RingDisplay::Number),
+        ] {
+            let variant = badge.replace("\"percent\":92", &format!("\"percent\":92{field}"));
+            assert!(matches!(
+                parse(&variant).unwrap(),
+                Incoming::Badge { face: Face::Ring { display, .. }, .. } if display == expected
+            ));
+        }
+        assert!(
+            parse(&badge.replace("\"percent\":92", "\"percent\":92,\"display\":\"unknown\""))
+                .is_err()
+        );
         assert!(parse(&badge.replace("\"percent\":92", "\"percent\":101")).is_err());
         assert!(parse(&badge.replace("\"type\":\"ring\"", "\"type\":\"unknown\"")).is_err());
     }

@@ -29,6 +29,7 @@ pub(in crate::ui) fn config_selector(
         .trigger(
             kit::button("config-open-agent")
                 .settings_control(cx)
+                .border_on_hover(false)
                 .small()
                 .icon(Lucide::ChevronDown)
                 .faded_label("Сменить"),

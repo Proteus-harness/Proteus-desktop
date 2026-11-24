@@ -12,13 +12,12 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use proteus_contracts::app_protocol::config_builder::ConfigBuilderSnapshot;
 
+use super::SettingsView;
 use super::widgets::changed_dot;
-use super::{SettingsEvent, SettingsView};
 use crate::settings::catalog::{
     CLIENT_PAGES, CONNECTION_PAGES, PROFILE_PAGES, PageId, SESSION_STORAGE_SLOT, area_page,
     page_description, page_title, slot_pages,
 };
-use crate::shortcuts::Command;
 use crate::ui::extensions;
 use crate::ui::fade::faded;
 use crate::ui::kit;
@@ -217,8 +216,8 @@ impl SettingsView {
         let profile = snapshot.and_then(|snapshot| {
             snapshot
                 .target_path
-                .clone()
-                .or_else(|| snapshot.config_path.clone())
+                .as_deref()
+                .or(snapshot.config_path.as_deref())
                 .map(|path| (path, snapshot.writable))
         });
         v_flex()
@@ -227,37 +226,44 @@ impl SettingsView {
             .flex_none()
             .bg(theme.sidebar)
             .child(
-                h_flex().h(prefs::scaled(44.)).px_2().items_center().child(
-                    kit::button("settings-back")
-                        .icon(IconName::ArrowLeft)
-                        .faded_label("Чат")
-                        .quiet(cx)
-                        .small()
-                        .hint_keys(
-                            "К разговору",
-                            kit::command_keys(Command::ToggleSettings, cx).as_deref(),
-                            cx,
-                        )
-                        .on_click(cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::Close))),
-                ),
-            )
-            .child(Self::search_keys(
-                h_flex()
+                v_flex()
                     .px_2()
+                    .pt_2()
                     .pb_1()
-                    .gap_1()
+                    .gap_0p5()
                     .min_w_0()
-                    .items_center()
-                    .child(
-                        crate::ui::search::Search::new(
-                            "settings-search",
-                            self.search.clone(),
-                            self.nav_focus.clone(),
-                            "Поиск настроек",
-                        )
-                        .title("Настройки"),
-                    ),
-            ))
+                    .child(Self::search_keys(
+                        h_flex().min_w_0().items_center().child(
+                            crate::ui::search::Search::new(
+                                "settings-search",
+                                self.search.clone(),
+                                self.nav_focus.clone(),
+                                "Поиск настроек",
+                            )
+                            .title("Настройки"),
+                        ),
+                    ))
+                    .children(profile.map(|(path, writable)| {
+                        let name = std::path::Path::new(path)
+                            .file_name()
+                            .map(|name| name.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| path.to_owned());
+                        v_flex()
+                            .id("settings-profile")
+                            .min_w_0()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child(
+                                div()
+                                    .font_family(theme.mono_font_family.clone())
+                                    .child(faded(name)),
+                            )
+                            .when(!writable, |header| {
+                                header.child(div().text_color(theme.warning).child("Только чтение"))
+                            })
+                            .tip_text(path.to_owned())
+                    })),
+            )
             .child(if self.query.is_empty() {
                 self.nav_keys(v_flex().id("settings-pages"))
                     .flex_1()
@@ -284,29 +290,6 @@ impl SettingsView {
                     .overflow_y_scrollbar()
                     .vertical_gutter(rems(0.5), rems(1.))
             })
-            .children(profile.map(|(path, writable)| {
-                let name = std::path::Path::new(&path)
-                    .file_name()
-                    .map(|name| name.to_string_lossy().to_string())
-                    .unwrap_or_else(|| path.clone());
-                v_flex()
-                    .id("settings-profile")
-                    .px_4()
-                    .py_3()
-                    .gap_0p5()
-                    .border_t_1()
-                    .border_color(theme.transparent)
-                    .text_xs()
-                    .child(
-                        div()
-                            .font_family(theme.mono_font_family.clone())
-                            .child(faded(name)),
-                    )
-                    .when(!writable, |footer| {
-                        footer.child(div().text_color(theme.warning).child("Только чтение"))
-                    })
-                    .tip_text(path)
-            }))
             .map(|nav| {
                 h_flex()
                     .w(width)

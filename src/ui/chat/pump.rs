@@ -223,6 +223,14 @@ impl Chat {
                 change
             }
             AppServerEvent::UserMessageSubmitted { text, images } => {
+                if self
+                    .api
+                    .as_ref()
+                    .is_some_and(|api| api.finish_session_draft(&session.dir))
+                {
+                    // An authoritative echo can arrive even if the HTTP reply is lost.
+                    cx.emit(ChatEvent::CatalogUpdated);
+                }
                 session.feedback.submitted(&text, &images);
                 let change = session.transcript.push_user(None, &text, images);
                 let now = chrono::Utc::now().timestamp_millis();

@@ -148,8 +148,13 @@ impl Chat {
                         .map(|image| image.encode())
                         .collect::<anyhow::Result<_>>()
                         .map_err(|error| format!("Не удалось подготовить вложения: {error:#}"))?;
-                    api.send(&request)
-                        .map_err(|error| format!("Core не подтвердил приём сообщения.\n{error:#}"))
+                    let receipt = api.send(&request).map_err(|error| {
+                        format!("Core не подтвердил приём сообщения.\n{error:#}")
+                    })?;
+                    let first_input = receipt.get("accepted").and_then(serde_json::Value::as_bool)
+                        == Some(true)
+                        && api.finish_session_draft(&request.session_dir);
+                    Ok::<_, String>((receipt, first_input))
                 })
                 .await;
             let Ok(owner) = this.read_with(cx, |this, _| this.window_handle) else {
@@ -161,12 +166,15 @@ impl Chat {
                         let message_id = result
                             .as_ref()
                             .ok()
-                            .and_then(|value| value.get("message_id"))
+                            .and_then(|(receipt, _)| receipt.get("message_id"))
                             .and_then(|id| serde_json::from_value(id.clone()).ok());
                         let restore =
                             this.session
                                 .feedback
                                 .complete(&request_id, result.is_ok(), message_id);
+                        if result.as_ref().is_ok_and(|(_, first_input)| *first_input) {
+                            cx.emit(ChatEvent::CatalogUpdated);
+                        }
                         let Err(error) = result else {
                             cx.notify();
                             return;

@@ -285,6 +285,7 @@ impl Render for FontControl {
             .child(
                 kit::button("font-trigger")
                     .settings_control(cx)
+                    .border_on_hover(false)
                     .track_focus(&self.focus)
                     .small()
                     .faded_label(value)

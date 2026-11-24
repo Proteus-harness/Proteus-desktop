@@ -228,6 +228,7 @@ pub struct Button {
     variant: ButtonVariant,
     rounded: ButtonRounded,
     outline: bool,
+    border_on_hover: bool,
     border_corners: Corners<bool>,
     border_edges: Edges<bool>,
     dropdown_caret: bool,
@@ -302,6 +303,7 @@ impl Button {
             loading: false,
             compact: false,
             outline: false,
+            border_on_hover: true,
             loading_icon: None,
             dropdown_caret: false,
             hover_group: None,
@@ -359,6 +361,13 @@ impl Button {
     /// Set the outline style of the Button.
     pub fn outline(mut self) -> Self {
         self.outline = true;
+        self
+    }
+
+    /// Keep the normal edge but hide its paint while the pointer is over the
+    /// button. Keyboard focus still marks the control.
+    pub fn border_on_hover(mut self, visible: bool) -> Self {
+        self.border_on_hover = visible;
         self
     }
 
@@ -818,9 +827,14 @@ impl RenderOnce for Button {
                     return this;
                 }
                 let hover_style = style.hovered(self.outline, cx);
-                this.bg(hover_style.bg)
-                    .border_color(hover_style.border)
-                    .text_color(hover_style.fg)
+                let this = this.bg(hover_style.bg).text_color(hover_style.fg);
+                if self.border_on_hover {
+                    this.border_color(hover_style.border)
+                } else if is_focused && self.focus_ring_enabled {
+                    this
+                } else {
+                    this.border_color(cx.theme().transparent)
+                }
             })
             .line_height(relative(1.25))
             .refine_style(&instance_style);

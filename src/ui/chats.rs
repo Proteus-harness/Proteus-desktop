@@ -338,14 +338,10 @@ impl Workspace {
         self.call_in(
             window,
             cx,
-            move |api| {
-                let opened = api.new_session(source.as_deref(), Some(&project))?;
-                Ok((opened, api.sessions()?))
-            },
-            move |this, (opened, sessions), window, cx| {
+            move |api| api.new_session(source.as_deref(), Some(&project)),
+            move |this, opened, window, cx| {
                 this.session_projects
                     .insert(opened.session_dir.clone(), opened.workspace_path);
-                this.set_sessions(sessions, cx);
                 if this.finish_chat_creation(&creation, &requested_layout) {
                     this.add_chat(opened.session_dir, pane, window, cx);
                 }

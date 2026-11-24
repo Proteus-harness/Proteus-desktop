@@ -210,9 +210,13 @@ impl RenderOnce for Slider {
             .map(Into::into)
             .unwrap_or_else(|| cx.theme().tokens.slider_thumb.into());
         let corner_radii = self.style.corner_radii.clone();
-        // The track is a pill by default, and square when the theme squares its
-        // corners. A caller's own corner radii still win.
-        let default_radius = cx.theme().radius_full();
+        // The compact track and marker are pills, even next to square cards.
+        // A caller's own track corner radii still win.
+        let default_radius = if self.compact {
+            compact_track / 2.
+        } else {
+            cx.theme().radius_full()
+        };
         let radius = Corners {
             top_left: corner_radii
                 .top_left
@@ -314,9 +318,11 @@ impl RenderOnce for Slider {
                                 .when(axis.is_vertical(), |this| {
                                     this.h(compact_marker).w(compact_thumb)
                                 })
-                                .rounded_full_style(cx)
+                                .rounded(compact_marker / 2.)
                                 .bg(cx.theme().foreground)
-                                .child(thumb_ring(&ring, cx))
+                                .child(
+                                    thumb_ring(&ring, cx).rounded(compact_marker / 2. + ring.width),
+                                )
                                 .into_any_element()
                         } else {
                             div()
@@ -369,8 +375,10 @@ impl RenderOnce for Slider {
                                     .when(self.compact, |this| this.w(compact_track))
                                     .when(!self.compact, |this| this.w_1p5())
                             })
-                            .bg(bar_color.opacity(0.2))
-                            .active(|this| this.bg(bar_color.opacity(0.4)))
+                            .when(!self.compact, |this| {
+                                this.bg(bar_color.opacity(0.2))
+                                    .active(|this| this.bg(bar_color.opacity(0.4)))
+                            })
                             .corner_radii(radius)
                             .child(
                                 div()
@@ -382,7 +390,7 @@ impl RenderOnce for Slider {
                                         this.w_full().bottom(bar_start).top(bar_end)
                                     })
                                     .bg(bar_color)
-                                    .rounded_full_style(cx),
+                                    .corner_radii(radius),
                             )
                             .when_some(start_ring, |this, ring| {
                                 this.child(thumb(relative(percentage.start), true, ring))

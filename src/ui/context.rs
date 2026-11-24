@@ -131,7 +131,9 @@ impl RenderOnce for ContextMenu {
         let trigger = match self.trigger {
             Trigger::Element(element) => element,
             Trigger::Button(button, caret) => button
-                .when(settings_selector, |button| button.settings_control(cx))
+                .when(settings_selector, |button| {
+                    button.settings_control(cx).border_on_hover(false)
+                })
                 .when(caret, |b| {
                     b.child(motion::menu_chevron(
                         ElementId::Name(format!("{:?}:chevron", self.id).into()),

@@ -212,13 +212,11 @@ impl Workspace {
                 if let Some(source) = &source {
                     api.resume(source)?;
                 }
-                let opened = api.new_session(source.as_deref(), workspace.as_deref())?;
-                Ok((opened, api.sessions()?))
+                api.new_session(source.as_deref(), workspace.as_deref())
             },
-            move |this, (opened, sessions), window, cx| {
+            move |this, opened, window, cx| {
                 this.session_projects
                     .insert(opened.session_dir.clone(), opened.workspace_path);
-                this.set_sessions(sessions, cx);
                 if this.finish_chat_creation(&creation, &requested) {
                     this.add_chat(opened.session_dir, None, window, cx);
                 }

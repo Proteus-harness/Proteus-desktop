@@ -283,11 +283,7 @@ impl SettingsView {
         } else {
             ("Изменений нет".to_string(), theme.muted_foreground)
         };
-        let target = match snapshot.and_then(|snapshot| snapshot.target_path.clone()) {
-            Some(path) => home_relative(&path),
-            None => "Файл профиля недоступен".to_string(),
-        };
-        let read_only = snapshot.is_some_and(|snapshot| !snapshot.writable);
+        let target_unavailable = snapshot.is_none_or(|snapshot| snapshot.target_path.is_none());
         h_flex()
             .flex_none()
             .h(prefs::scaled(56.))
@@ -310,16 +306,14 @@ impl SettingsView {
                             .when(dirty && !self.saving, |line| line.child(changed_dot(cx)))
                             .child(div().child(faded(status))),
                     )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(theme.muted_foreground)
-                            .child(faded(if read_only {
-                                format!("{target} · только чтение")
-                            } else {
-                                target
-                            })),
-                    ),
+                    .when(target_unavailable, |bar| {
+                        bar.child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child("Файл профиля недоступен"),
+                        )
+                    }),
             )
             .when(!dirty, |bar| {
                 bar.child(
@@ -377,13 +371,4 @@ fn centered(content: impl IntoElement) -> AnyElement {
         .p_8()
         .child(content)
         .into_any_element()
-}
-
-fn home_relative(path: &str) -> String {
-    match std::env::var("HOME") {
-        Ok(home) if !home.is_empty() && path.starts_with(&home) => {
-            format!("~{}", &path[home.len()..])
-        }
-        _ => path.to_string(),
-    }
 }

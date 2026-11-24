@@ -339,6 +339,14 @@ fn restore_core(
         .collect();
     let startup = if resumed.is_empty() && fallback {
         let bootstrap = api.bootstrap()?;
+        if backend.is_some()
+            && let Some(dir) = &bootstrap.session_dir
+            && matches!(dir.try_exists(), Ok(false))
+        {
+            // An owned Core can suggest its fresh live session before the
+            // first write. Keep the composer without adding a history row.
+            api.mark_session_draft(dir.clone());
+        }
         // A fresh preference file has no restore target. Only that case needs
         // catalog discovery; existing tabs never wait for unrelated journals.
         if bootstrap.session_dir.is_none() {
@@ -346,11 +354,7 @@ fn restore_core(
         }
         let opened = match select_startup_session(None, bootstrap.session_dir, &sessions) {
             Some(dir) => api.resume(Path::new(&dir))?,
-            None => {
-                let opened = api.new_session(None, None)?;
-                sessions = api.sessions()?;
-                opened
-            }
+            None => api.new_session(None, None)?,
         };
         projects.insert(opened.session_dir.clone(), opened.workspace_path);
         Some(opened.session_dir)

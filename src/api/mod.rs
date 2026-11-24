@@ -1,6 +1,7 @@
+use std::collections::HashSet;
 use std::io::{self, BufRead, BufReader, Read};
-use std::path::Path;
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
@@ -33,6 +34,15 @@ pub struct Api {
     agent: ureq::Agent,
     origin: Arc<str>,
     token: Arc<str>,
+    drafts: Arc<SessionDrafts>,
+}
+
+#[derive(Default)]
+struct SessionDrafts {
+    /// Orders catalog filtering after an admitted creation publishes its ID.
+    creating: Mutex<()>,
+    /// Fresh live addresses shared by every window attached to this client.
+    hidden: Mutex<HashSet<PathBuf>>,
 }
 
 impl Api {
@@ -56,6 +66,7 @@ impl Api {
             agent,
             origin: origin.into(),
             token: token.into(),
+            drafts: Arc::default(),
         }
     }
 
@@ -64,7 +75,35 @@ impl Api {
     }
 
     pub fn sessions(&self) -> Result<Vec<AppSessionSummary>> {
-        self.get("/sessions", None)
+        let mut sessions = self.get("/sessions", None)?;
+        let _creation = self.drafts.creating.lock().unwrap();
+        self.filter_session_drafts(&mut sessions);
+        Ok(sessions)
+    }
+
+    pub(crate) fn mark_session_draft(&self, dir: PathBuf) {
+        self.drafts.hidden.lock().unwrap().insert(dir);
+    }
+
+    /// Acknowledged or echoed input is enough to show the row during a run.
+    pub(crate) fn finish_session_draft(&self, dir: &Path) -> bool {
+        self.drafts.hidden.lock().unwrap().remove(dir)
+    }
+
+    fn filter_session_drafts(&self, sessions: &mut Vec<AppSessionSummary>) {
+        let mut drafts = self.drafts.hidden.lock().unwrap();
+        if !drafts.is_empty() {
+            sessions.retain(|session| {
+                if session.message_count > 0 {
+                    // Recover visibility after a lost acknowledgement or an
+                    // accepted send from a different client.
+                    drafts.remove(&session.session_dir);
+                    true
+                } else {
+                    !drafts.contains(&session.session_dir)
+                }
+            });
+        }
     }
 
     pub fn history_page(
@@ -115,7 +154,10 @@ impl Api {
             source_session_dir: source.map(Path::to_path_buf),
             workspace: workspace.map(Path::to_path_buf),
         };
-        self.command("/new-session", None, &body)
+        let _creation = self.drafts.creating.lock().unwrap();
+        let opened: SessionOpened = self.command("/new-session", None, &body)?;
+        self.mark_session_draft(opened.session_dir.clone());
+        Ok(opened)
     }
 
     /// Deletes a saved session from disk; `false` when it was already gone.
@@ -130,6 +172,7 @@ impl Api {
             session_dir: session_dir.to_path_buf(),
         };
         let deleted: Deleted = self.command("/delete-session", None, &body)?;
+        self.finish_session_draft(session_dir);
         Ok(deleted.deleted)
     }
 
@@ -549,13 +592,49 @@ fn parse_output(data: &str) -> Result<Box<AppServerEvent>> {
 
 #[cfg(test)]
 mod connection_identity_tests {
-    use super::Api;
+    use super::*;
+
     #[test]
     fn clones_keep_identity_and_replacement_at_same_origin_has_new_identity() {
         let first = Api::new("http://localhost:1", "synthetic");
         let second = Api::new("http://localhost:1", "synthetic");
         assert_eq!(first.connection_id(), first.clone().connection_id());
         assert_ne!(first.connection_id(), second.connection_id());
+    }
+
+    #[test]
+    fn fresh_drafts_stay_out_of_history_until_the_first_accepted_input() {
+        let api = Api::new("http://localhost:1", "synthetic");
+        let other_window = api.clone();
+        let summary = |name: &str, count| {
+            AppSessionSummary::new(
+                Path::new("/sessions").join(name),
+                uuid::Uuid::new_v4(),
+                "/workspace".into(),
+                count,
+                None,
+                None,
+            )
+        };
+        let saved = summary("previously-saved-empty", 0);
+        let draft = summary("fresh", 0);
+        let from_another_client = summary("other", 0);
+        api.mark_session_draft(draft.session_dir.clone());
+        api.mark_session_draft(from_another_client.session_dir.clone());
+
+        let mut catalog = vec![draft.clone(), saved.clone(), from_another_client.clone()];
+        other_window.filter_session_drafts(&mut catalog);
+        assert_eq!(catalog, [saved.clone()]);
+
+        assert!(other_window.finish_session_draft(&draft.session_dir));
+        assert!(!api.finish_session_draft(&draft.session_dir));
+        let mut active = from_another_client;
+        active.message_count = 1;
+        let mut catalog = vec![draft.clone(), saved, active.clone()];
+        api.filter_session_drafts(&mut catalog);
+        assert_eq!(catalog.len(), 3);
+        assert_eq!(catalog[0], draft);
+        assert!(!other_window.finish_session_draft(&active.session_dir));
     }
 }
 

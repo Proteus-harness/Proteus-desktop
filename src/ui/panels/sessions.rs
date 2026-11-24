@@ -308,22 +308,10 @@ impl Workspace {
             )
             .child(
                 div()
+                    .flex_1()
                     .min_w_0()
                     .when(current, |name| name.text_color(theme.foreground))
                     .child(faded(folder_name(&path))),
-            )
-            // As in Zed's sidebar: the disclosure follows the name on hover.
-            .child(
-                div()
-                    .flex_1()
-                    .invisible()
-                    .group_hover("project-row", |chevron| chevron.visible())
-                    .child(motion::chevron(
-                        ("session-project-chevron", gi),
-                        !collapsed,
-                        theme.muted_foreground,
-                        cx,
-                    )),
             )
             .child(
                 div()

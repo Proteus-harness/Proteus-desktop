@@ -5,6 +5,15 @@ use serde::Deserialize;
 
 use super::widget::Tone;
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RingDisplay {
+    #[default]
+    RingNumber,
+    Ring,
+    Number,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Face {
@@ -27,6 +36,8 @@ pub enum Face {
         percent: f32,
         #[serde(default)]
         tone: Tone,
+        #[serde(default)]
+        display: RingDisplay,
     },
 }
 

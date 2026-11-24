@@ -2,6 +2,7 @@
 //! process puts at the top of the badge tree.
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 use gpui_kit::component::progress::ProgressCircle;
 use gpui_kit::component::*;
@@ -11,7 +12,7 @@ use gpui_kit::*;
 use super::super::badge::{Details, Press, pressable_badge};
 use super::view::DeclarativeView;
 use super::{Host, SurfaceKind, installed, runtime};
-use crate::declarative::presentation::Face;
+use crate::declarative::presentation::{Face, RingDisplay};
 use crate::declarative::widget::Tone;
 use crate::preferences::BadgePlace;
 use crate::ui::kit::MetricText as _;
@@ -178,20 +179,15 @@ impl Render for DeclarativeBadge {
                             .into_any_element()
                     })
                 }
-                Face::Ring { percent, tone } => {
-                    let (percent, color) = (*percent, super::render::tone_color(*tone, cx));
-                    Rc::new(move || {
-                        ProgressCircle::new(id)
-                            .value(percent)
-                            .color(color)
-                            .size(prefs::scaled(22.))
-                            .child(div().compact_metric().child(Number::new(
-                                ElementId::Name(format!("extension-{id}-number").into()),
-                                percent,
-                                |value| format!("{value:.0}"),
-                            )))
-                            .into_any_element()
-                    })
+                Face::Ring {
+                    percent,
+                    tone,
+                    display,
+                } => {
+                    let (percent, display) = (*percent, *display);
+                    let color = super::render::tone_color(*tone, cx);
+                    let label = SharedString::from(presentation.title.clone());
+                    Rc::new(move || metric_face(id, label.clone(), percent, color, display))
                 }
             }
         } else {
@@ -243,6 +239,57 @@ impl Render for DeclarativeBadge {
             .children(popup)
             .into_any_element()
     }
+}
+
+fn metric_face(
+    id: &'static str,
+    label: SharedString,
+    percent: f32,
+    color: Hsla,
+    display: RingDisplay,
+) -> AnyElement {
+    let number = |format| {
+        div()
+            .line_height(relative(1.))
+            .font_features(FontFeatures(Arc::new(vec![("tnum".into(), 1)])))
+            .child(Number::new(
+                ElementId::Name(format!("extension-{id}-number").into()),
+                percent,
+                format,
+            ))
+    };
+    if display == RingDisplay::Number {
+        return number(|value| format!("{value:.0}%"))
+            .text_color(color)
+            .into_any_element();
+    }
+    let diameter = prefs::scaled(20.);
+    div()
+        .relative()
+        .size(diameter)
+        .child(
+            ProgressCircle::new(id)
+                .value(percent)
+                .color(color)
+                .accessibility_label(label)
+                .size(diameter),
+        )
+        .when(display == RingDisplay::RingNumber, |face| {
+            face.child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        number(|value| format!("{value:.0}"))
+                            .text_size(prefs::scaled(8.))
+                            .font_semibold(),
+                    ),
+            )
+        })
+        .into_any_element()
 }
 
 /// Absence is hidden only by explicit manifest policy. Errors always remain
