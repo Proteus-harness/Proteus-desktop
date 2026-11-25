@@ -532,7 +532,9 @@
   Различимость соседних фоновых карточек оценивается визуально.
   [WCAG — текст](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html),
   [WCAG — элементы управления](https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast).
-- Встроены 15 готовых вариантов из GPUI Kit: Catppuccin Latte/Frappe/
+- Встроенные Claude Light и Claude Dark используют тёплые нейтральные тона
+  и терракотовый акцент Claude Desktop, сохраняя цветовые роли Proteus.
+  Набор из GPUI Kit включает Catppuccin Latte/Frappe/
   Macchiato/Mocha, Tokyo Night/Storm/Moon, Gruvbox Light/Dark, Everforest
   Light/Dark, Solarized Light/Dark и Ayu Light/Dark. Источник, закреплённая
   ревизия и соответствия имён токенов записаны в

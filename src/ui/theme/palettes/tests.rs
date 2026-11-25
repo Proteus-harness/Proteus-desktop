@@ -3,9 +3,9 @@
 
 use gpui_kit::Hsla;
 use gpui_kit::component::{
-    Colorize, Theme, ThemeSet, ThemeToken, black, neutral_50, neutral_100, neutral_200,
-    neutral_300, neutral_400, neutral_600, neutral_700, neutral_800, neutral_900, neutral_950,
-    white,
+    Colorize, Theme, ThemeRegistry, ThemeSet, ThemeToken, black, neutral_50, neutral_100,
+    neutral_200, neutral_300, neutral_400, neutral_600, neutral_700, neutral_800, neutral_900,
+    neutral_950, white,
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -241,7 +241,25 @@ fn explicit_builtin_roles_survive_schema_and_theme_resolution() {
         }
     }
     // One inventory assertion protects missing/duplicate bundled variants.
-    assert_eq!(seen.len(), 20);
+    assert_eq!(seen.len(), 22);
+}
+
+#[::core::prelude::v1::test]
+fn builtin_claude_variants_use_their_appearance_and_keep_saved_names() {
+    let mut registry = ThemeRegistry::default();
+    for source in super::BUNDLED {
+        registry.load_themes_from_str(source).unwrap();
+    }
+    let variants: BTreeSet<_> = registry
+        .themes()
+        .values()
+        .filter(|theme| theme.name.starts_with("Claude "))
+        .map(|theme| (theme.name.as_ref(), theme.mode.is_dark()))
+        .collect();
+    assert_eq!(
+        variants,
+        [("Claude Light", false), ("Claude Dark", true)].into()
+    );
 }
 
 #[::core::prelude::v1::test]
@@ -262,7 +280,10 @@ fn structural_adaptation_preserves_all_other_imported_colors_and_highlights() {
             .collect()
     );
     let mut seen = BTreeSet::new();
-    for source in super::BUNDLED {
+    for source in super::BUNDLED
+        .iter()
+        .filter(|source| **source != super::CLAUDE)
+    {
         let set: Value = serde_json::from_str(source).unwrap();
         for theme in set["themes"].as_array().unwrap() {
             let name = theme["name"].as_str().unwrap();

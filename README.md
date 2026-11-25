@@ -700,7 +700,8 @@ ZIP с существующим id атомарно обновляет поль�
   Палитры выбираются в «Клиент → Внешний вид → Тема»: отдельно «Тёмная
   палитра» и «Светлая палитра» (`themes.dark`/`themes.light`), а «Тема» решает,
   какая из них показана. Помимо «Графита» (тёмная по умолчанию), «Сланца»,
-  «Светлой», «Чёрной» и «Белой» доступны 15 готовых вариантов из GPUI Kit:
+  «Светлой», «Чёрной» и «Белой» доступны палитры Proteus в цветах Claude
+  Desktop — Claude Light и Claude Dark. Набор из GPUI Kit включает
   Catppuccin Latte/Frappe/Macchiato/Mocha, Tokyo Night/Storm/Moon,
   Gruvbox Light/Dark, Everforest Light/Dark, Solarized Light/Dark и
   Ayu Light/Dark. Структурные поверхности явно сопоставлены именованным
