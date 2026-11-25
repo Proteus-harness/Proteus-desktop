@@ -95,6 +95,7 @@ pub trait AnimationExt {
             element: Some(self),
             animator: Box::new(move |this, _, value| animator(this, value)),
             animations: smallvec::smallvec![animation],
+            playing: true,
         }
     }
 
@@ -113,6 +114,7 @@ pub trait AnimationExt {
             element: Some(self),
             animator: Box::new(animator),
             animations: animations.into(),
+            playing: true,
         }
     }
 
@@ -163,6 +165,7 @@ pub struct AnimationElement<E> {
     element: Option<E>,
     animations: SmallVec<[Animation; 1]>,
     animator: Box<dyn Fn(E, usize, f32) -> E + 'static>,
+    playing: bool,
 }
 
 /// A GPUI element driven by a stateful spring.
@@ -215,6 +218,13 @@ impl<E: ParentElement> ParentElement for AnimationElement<E> {
 }
 
 impl<E> AnimationElement<E> {
+    /// Display the original element without requesting an animation frame when false.
+    /// The element's identity and animation clock survive changes to playback.
+    pub fn playing(mut self, playing: bool) -> Self {
+        self.playing = playing;
+        self
+    }
+
     /// Returns a new [`AnimationElement<E>`] after applying the given function
     /// to the element being animated.
     pub fn map_element(mut self, f: impl FnOnce(E) -> E) -> AnimationElement<E> {
@@ -404,6 +414,12 @@ impl<E: IntoElement + 'static> Element for AnimationElement<E> {
                 animation_ix: 0,
                 delayed_frame_pending: Rc::new(Cell::new(false)),
             });
+            let element = self.element.take().expect("should only be called once");
+            if !self.playing {
+                let mut element = element.into_any_element();
+                return ((element.request_layout(window, cx), element), state);
+            }
+
             let (animation_ix, delta, done) = if cx.reduce_motion() {
                 let animation_ix = self.animations.len() - 1;
                 let delta = if self.animations[animation_ix].oneshot {
@@ -445,7 +461,6 @@ impl<E: IntoElement + 'static> Element for AnimationElement<E> {
 
             debug_assert!(delta.is_finite(), "animated value should be finite");
 
-            let element = self.element.take().expect("should only be called once");
             let mut element = (self.animator)(element, animation_ix, delta).into_any_element();
 
             if !done {

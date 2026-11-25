@@ -47,17 +47,13 @@ pub(in crate::ui) fn rise_in_if<E: IntoElement + Styled + 'static>(
     cx: &App,
 ) -> AnimationElement<E> {
     let rise = shift(6., cx);
-    element.with_animation(
-        id,
-        Animation::new(BASE).with_easing(ease_enter),
-        move |element, delta| {
-            if play {
-                element.opacity(delta).top(rise * (1. - delta))
-            } else {
-                element
-            }
-        },
-    )
+    element
+        .with_animation(
+            id,
+            Animation::new(BASE).with_easing(ease_enter),
+            move |element, delta| element.opacity(delta).top(rise * (1. - delta)),
+        )
+        .playing(play)
 }
 
 /// Opacity only; safe inside virtualized lists that cache row heights.
@@ -70,17 +66,13 @@ pub(in crate::ui) fn fade_in_if<E: IntoElement + Styled + 'static>(
     id: impl Into<ElementId>,
     play: bool,
 ) -> AnimationElement<E> {
-    element.with_animation(
-        id,
-        Animation::new(BASE).with_easing(ease_enter),
-        move |element, delta| {
-            if play {
-                element.opacity(delta)
-            } else {
-                element
-            }
-        },
-    )
+    element
+        .with_animation(
+            id,
+            Animation::new(BASE).with_easing(ease_enter),
+            |element, delta| element.opacity(delta),
+        )
+        .playing(play)
 }
 
 /// A waiting indicator held back for a moment, then faded in: a load that
@@ -112,16 +104,89 @@ pub(in crate::ui) fn stagger_in<E: IntoElement + Styled + 'static>(
     let total = duration.as_secs_f32();
     let (delay, fast) = (delay.as_secs_f32(), FAST.as_secs_f32());
     let rise = shift(4., cx);
-    element.with_animation(
-        id,
-        Animation::new(duration)
-            .with_easing(move |t| ease_enter(((t * total - delay) / fast).clamp(0., 1.))),
-        move |element, delta| {
-            if play {
-                element.opacity(delta).top(rise * (1. - delta))
-            } else {
-                element
+    element
+        .with_animation(
+            id,
+            Animation::new(duration)
+                .with_easing(move |t| ease_enter(((t * total - delay) / fast).clamp(0., 1.))),
+            move |element, delta| element.opacity(delta).top(rise * (1. - delta)),
+        )
+        .playing(play)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ::gpui::TestAppContext;
+
+    struct EntranceProbe {
+        draw: fn(&mut App) -> Div,
+        reduce_motion: bool,
+    }
+
+    impl Render for EntranceProbe {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            if self.reduce_motion {
+                cx.set_reduce_motion(true);
             }
-        },
-    )
+            (self.draw)(cx)
+        }
+    }
+
+    fn pending_frames(draw: fn(&mut App) -> Div, reduce_motion: bool) -> usize {
+        let mut app = TestAppContext::single();
+        app.update(crate::ui::prefs::init_in_memory);
+        let window = app.open_window(size(px(500.), px(500.)), |_, _| EntranceProbe {
+            draw,
+            reduce_motion,
+        });
+        app.run_until_parked();
+        window
+            .update(&mut app, |_, window, cx| window.simulate_next_frame(cx))
+            .unwrap()
+    }
+
+    fn row() -> Div {
+        div().h(px(10.))
+    }
+
+    #[::core::prelude::v1::test]
+    fn static_entrances_do_not_request_frames() {
+        let reference = pending_frames(
+            |_| {
+                div().children((0usize..42).map(|index| {
+                    // The old conditional effects still ran an animation whose
+                    // animator returned the original row.
+                    row().with_animation(("reference", index), Animation::new(BASE), |row, _| row)
+                }))
+            },
+            false,
+        );
+        assert_eq!(reference, 42);
+
+        let idle = pending_frames(
+            |cx| {
+                div()
+                    .children((0usize..14).map(|index| fade_in_if(row(), ("fade", index), false)))
+                    .children(
+                        (0usize..14).map(|index| rise_in_if(row(), ("rise", index), false, cx)),
+                    )
+                    .children(
+                        (STAGGER_ROWS..STAGGER_ROWS * 2)
+                            .map(|index| stagger_in(row(), ("stagger", index), index, true, cx)),
+                    )
+            },
+            false,
+        );
+        assert_eq!(idle, 0, "42 static rows must schedule no frames");
+
+        let draw_active = |cx: &mut App| {
+            div()
+                .child(fade_in_if(row(), "active-fade", true))
+                .child(rise_in_if(row(), "active-rise", true, cx))
+                .child(stagger_in(row(), "active-stagger", 0, true, cx))
+        };
+        assert_eq!(pending_frames(draw_active, false), 3);
+        assert_eq!(pending_frames(draw_active, true), 0);
+    }
 }
