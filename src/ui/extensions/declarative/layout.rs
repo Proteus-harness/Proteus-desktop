@@ -1,4 +1,4 @@
-// Адаптировано из Zed: crates/git_ui/src/git_panel.rs (render_tab_bar, render_history_placeholder)
+// Адаптировано из Zed: crates/git_ui/src/git_panel.rs (render_history_placeholder)
 //! Layout containers: `fill`, which gives the remaining height to its list,
 //! editor or terminal, `tabs` with a panel tab bar and the centered `empty`
 //! message.
@@ -9,11 +9,8 @@ use gpui_kit::*;
 
 use super::view::DeclarativeView;
 use crate::declarative::widget::{Node, Tab};
-use crate::ui::fade::faded;
+use crate::ui::kit::{self, ButtonLabel as _};
 use crate::ui::prefs;
-
-/// Height of the tab bar, Zed's `Tab::container_height`.
-const BAR: f32 = 32.;
 
 /// Nodes that take the rest of a `fill`; the others keep their height.
 fn greedy(node: &Node) -> bool {
@@ -93,50 +90,26 @@ impl DeclarativeView {
             .copied()
             .unwrap_or(0)
             .min(tabs.len().saturating_sub(1));
-        // Colours of the editor tabs (tabs/tab.rs): the active tab is lifted,
-        // the others sit on the bar behind a bottom border.
-        let theme = cx.theme();
-        let (border, hover, active_bg) = (theme.border, theme.list_hover, theme.tab_active);
-        let faded_border = border.opacity(0.6);
         let bar = h_flex()
             .flex_none()
             .w_full()
-            .h(prefs::scaled(BAR))
-            .text_color(theme.tab_foreground)
-            .children(tabs.iter().enumerate().flat_map(|(index, tab)| {
+            .px_2()
+            .py_1()
+            .gap_1()
+            .children(tabs.iter().enumerate().map(|(index, tab)| {
                 let (key, action) = (path.to_string(), action.map(str::to_string));
                 let active = index == selected;
-                let divider = (index > 0).then(|| {
-                    div()
-                        .flex_none()
-                        .w(px(1.))
-                        .h_full()
-                        .bg(faded_border)
-                        .into_any_element()
-                });
                 let count = tab
                     .count
                     .filter(|count| *count > 0)
                     .map(|count| div().flex_none().text_xs().child(format!("({count})")));
-                let tab = h_flex()
-                    .id(ElementId::Name(format!("decl-tab-{path}-{index}").into()))
+                kit::button(ElementId::Name(format!("decl-tab-{path}-{index}").into()))
+                    .small()
+                    .quiet(cx)
+                    .selected(active)
+                    .faded_label(tab.label.clone())
                     .flex_1()
                     .min_w_0()
-                    .h_full()
-                    .py_1()
-                    .gap_1()
-                    .justify_center()
-                    .text_sm()
-                    .cursor_pointer()
-                    .border_color(faded_border)
-                    .map(|tab| {
-                        if active {
-                            tab.bg(active_bg)
-                        } else {
-                            tab.border_b_1().hover(move |tab| tab.bg(hover))
-                        }
-                    })
-                    .child(div().min_w_0().child(faded(tab.label.clone())))
                     .children(count)
                     .on_click(cx.listener(move |this, _, window, cx| {
                         if !active {
@@ -153,8 +126,7 @@ impl DeclarativeView {
                             this.act(action.clone(), Some(index.into()), cx);
                         }
                         cx.notify();
-                    }));
-                divider.into_iter().chain([tab.into_any_element()])
+                    }))
             }));
         let body_path = format!("{path}.{selected}");
         let body = tabs.get(selected).map(|tab| {

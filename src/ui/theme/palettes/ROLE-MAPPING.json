@@ -1114,7 +1114,7 @@
         "accordion": "#191d25",
         "secondary": "#1F2127",
         "foreground": "#B3B1AD",
-        "muted_foreground": "#b3b1ad",
+        "muted_foreground": "#9d9f9f",
         "hover_overlay": "#ffffff08",
         "secondary_hover": "#23252c",
         "secondary_pressed": "#26282f",
@@ -1127,7 +1127,7 @@
         "accordion": "Proteus subtle nested surface towards card; see nested_surface_policy",
         "secondary": "GPUI Kit secondary.background",
         "foreground": "GPUI Kit foreground",
-        "muted_foreground": "GPUI Kit foreground (opaque)",
+        "muted_foreground": "Midpoint of foreground and chat secondary, rounded half-up in sRGB",
         "hover_overlay": "Proteus neutral overlay (8/255 alpha)",
         "content": "Proteus 50:50 sRGB interpolation of authored sidebar and surface.lift / editor.background",
         "secondary_hover": "GPUI Kit original alpha secondary.hover.background, flattened over secondary",
@@ -1138,11 +1138,11 @@
       },
       "muted_candidates": [
         {
-          "token": "GPUI Kit foreground (opaque)",
-          "color": "#b3b1ad"
+          "token": "Midpoint of foreground and chat secondary",
+          "color": "#9d9f9f"
         }
       ],
-      "selection_minimum_srgb_ratio": 6.874,
+      "selection_minimum_srgb_ratio": 6.0482,
       "previous_preserved_payload_sha256": "ff00d76e6fcea90d74d9cf24339613c9c063f32481eee1a4b40ae59b8810e559"
     }
   ],

@@ -561,12 +561,12 @@ pub(in crate::ui) fn stat(added: usize, removed: usize, cx: &App) -> Div {
         .text_xs()
         .child(
             div()
-                .text_color(cx.theme().success)
+                .text_color(cx.theme().green)
                 .child(format!("+{added}")),
         )
         .child(
             div()
-                .text_color(cx.theme().danger)
+                .text_color(cx.theme().red)
                 .child(format!("−{removed}")),
         )
 }

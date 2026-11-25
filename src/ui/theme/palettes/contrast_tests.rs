@@ -11,6 +11,33 @@ use super::tests::{expected_color, sources};
 const MINIMUM: f64 = 4.5;
 
 #[::core::prelude::v1::test]
+fn danger_button_text_stays_readable_through_hover_and_press() {
+    let sparse = r##"{"themes":[{"name":"Dark with a muted red fill","mode":"dark","colors":{
+        "background":"#262624","danger.background":"#4b2929","danger.foreground":"#f4a29a"
+    }}]}"##;
+    for source in sources().chain(std::iter::once(sparse)) {
+        let set: ThemeSet = serde_json::from_str(source).unwrap();
+        for config in set.themes {
+            let name = config.name.to_string();
+            let mut theme = Theme::default();
+            theme.apply_config(&Rc::new(config));
+            for fill in [
+                theme.button_danger,
+                theme.button_danger_hover,
+                theme.button_danger_active,
+            ] {
+                assert_readable(
+                    &name,
+                    "danger button",
+                    theme.button_danger_foreground,
+                    composite(fill.into(), theme.background.into()),
+                );
+            }
+        }
+    }
+}
+
+#[::core::prelude::v1::test]
 fn unchecked_switch_indicator_and_outline_remain_visible_on_panel_levels() {
     for source in sources() {
         let set: ThemeSet = serde_json::from_str(source).unwrap();

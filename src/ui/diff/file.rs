@@ -27,10 +27,10 @@ impl DiffView {
             .rsplit_once('/')
             .map_or((file.path.as_str(), ""), |(a, b)| (b, a));
         let (icon, color) = match file.status.as_str() {
-            "added" | "untracked" => (Lucide::FilePlus, theme.success),
-            "deleted" => (Lucide::FileMinus, theme.danger),
-            "renamed" => (Lucide::FileSymlink, theme.warning),
-            "conflict" => (Lucide::TriangleAlert, theme.warning),
+            "added" | "untracked" => (Lucide::FilePlus, theme.green),
+            "deleted" => (Lucide::FileMinus, theme.red),
+            "renamed" => (Lucide::FileSymlink, theme.yellow),
+            "conflict" => (Lucide::TriangleAlert, theme.yellow),
             _ => (Lucide::FileDiff, theme.muted_foreground),
         };
         let group: SharedString = format!("diff-file-{index}").into();

@@ -18,6 +18,55 @@ fn try_parse_theme_token(value: &str) -> anyhow::Result<ThemeToken> {
     ))
 }
 
+/// Resolve a missing label color against every painted button state. A theme
+/// may use its danger color either as bright ink or as a dark/light surface.
+fn danger_button_label(colors: &ThemeColor) -> Hsla {
+    fn luminance(color: Hsla) -> f32 {
+        let rgb = color.to_rgb();
+        let linear = |v: f32| {
+            if v <= 0.04045 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * linear(rgb.r) + 0.7152 * linear(rgb.g) + 0.0722 * linear(rgb.b)
+    }
+
+    let surfaces = [
+        colors.button_danger,
+        colors.button_danger_hover,
+        colors.button_danger_active,
+    ]
+    .map(|fill| colors.background.blend(fill));
+    let mut best = colors.foreground;
+    let mut best_ratio = 0.;
+    for ink in [
+        colors.danger,
+        colors.danger_foreground,
+        colors.foreground,
+        gpui::black(),
+        gpui::white(),
+    ] {
+        let ratio = surfaces
+            .iter()
+            .map(|surface| {
+                let a = luminance(*surface);
+                let b = luminance(surface.blend(ink));
+                (a.max(b) + 0.05) / (a.min(b) + 0.05)
+            })
+            .fold(f32::INFINITY, f32::min);
+        if ratio >= 4.5 {
+            return ink;
+        }
+        if ratio > best_ratio {
+            best = ink;
+            best_ratio = ratio;
+        }
+    }
+    best
+}
+
 /// Represents a theme configuration.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
@@ -972,7 +1021,6 @@ impl ThemeColor {
             button_danger,
             fallback = self.danger.mix_oklab(transparent, 0.2)
         );
-        apply_color!(button_danger_foreground, fallback = self.danger);
         apply_background_color!(
             button_danger_hover,
             fallback = self.danger.mix_oklab(transparent, 0.3)
@@ -980,6 +1028,10 @@ impl ThemeColor {
         apply_background_color!(
             button_danger_active,
             fallback = self.danger.mix_oklab(transparent, 0.4)
+        );
+        apply_color!(
+            button_danger_foreground,
+            fallback = danger_button_label(self)
         );
         apply_background_color!(
             description_list_label,

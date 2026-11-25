@@ -76,8 +76,8 @@ fn cell(
     };
     let line = &file.lines[index];
     let tint = match line.kind {
-        Kind::Added => Some(theme.success),
-        Kind::Removed => Some(theme.danger),
+        Kind::Added => Some(theme.green),
+        Kind::Removed => Some(theme.red),
         _ => None,
     };
     h_flex()

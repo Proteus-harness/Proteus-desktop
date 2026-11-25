@@ -172,8 +172,8 @@ impl Tree {
     /// Chevron, icon, label and the muted detail after it.
     fn item(&self, row: &Row, anchor: &TooltipAnchor, cx: &App) -> Div {
         let muted = cx.theme().muted_foreground;
-        let color = super::render::tone_color(row.tone, cx);
-        let icon_color = super::render::tone_color(
+        let color = tree_ink(row.tone, cx);
+        let icon_color = tree_ink(
             row.icon_tone.unwrap_or(match row.expanded {
                 Some(false) => Tone::Muted,
                 _ => row.tone,
@@ -249,4 +249,15 @@ fn chevron(id: &str, open: bool, color: Hsla, cx: &App) -> Div {
             color,
             cx,
         ))
+}
+
+/// Git markers and filenames sit directly on the tree surface. Status fills
+/// can be nearly the same color as that surface in a custom palette.
+fn tree_ink(tone: Tone, cx: &App) -> Hsla {
+    match tone {
+        Tone::Success => cx.theme().green,
+        Tone::Warning => cx.theme().yellow,
+        Tone::Danger => cx.theme().red,
+        _ => super::render::tone_color(tone, cx),
+    }
 }
