@@ -282,7 +282,7 @@ impl ChatScroller {
         }
         self.autoscroll = autoscroll;
         self.wheel_up = false;
-        self.following = autoscroll && self.tail.height() <= SETTLED && self.gap() <= SETTLED;
+        self.following = autoscroll && self.tail.height() <= SETTLED && self.gap(None) <= SETTLED;
         cx.notify();
     }
 
@@ -571,8 +571,12 @@ impl ChatScroller {
         cx.notify();
     }
 
+    fn scroll_offset(&self) -> Pixels {
+        -self.list.scroll_px_offset_for_scrollbar().y
+    }
+
     /// Pixels to the scrollable end, including retained blank room.
-    fn gap(&self) -> Pixels {
+    fn gap(&self, offset: Option<Pixels>) -> Pixels {
         if let Some(tail) = self.list.bounds_for_item(self.row_count()) {
             // Scrollbar maximums omit list padding; using them near the end
             // stops a glide 2 * EDGE early. Item bounds omit top padding too,
@@ -580,7 +584,7 @@ impl ChatScroller {
             return (tail.bottom() + EDGE * 2. - self.list.viewport_bounds().bottom()).max(px(0.));
         }
         let max = self.list.max_offset_for_scrollbar().y;
-        let offset = -self.list.scroll_px_offset_for_scrollbar().y;
+        let offset = offset.unwrap_or_else(|| self.scroll_offset());
         (max - offset).max(px(0.))
     }
 
@@ -591,7 +595,7 @@ impl ChatScroller {
             || !self.following
                 && if self.footer.visible() {
                     self.list.bounds_for_item(self.row_count()).map_or_else(
-                        || self.gap() > self.trailing_blank() + SETTLED,
+                        || self.gap(None) > self.trailing_blank() + SETTLED,
                         |bounds| {
                             bounds.top() + self.footer_height + EDGE
                                 > self.list.viewport_bounds().bottom() + SETTLED
@@ -600,7 +604,7 @@ impl ChatScroller {
                 } else {
                     self.row_count().checked_sub(1).is_some_and(|last| {
                         self.list.bounds_for_item(last).map_or_else(
-                            || self.gap() > self.trailing_blank() + SETTLED,
+                            || self.gap(None) > self.trailing_blank() + SETTLED,
                             |bounds| {
                                 // Item bounds omit the list's top padding. Prefer
                                 // actual row geometry to the frozen scrollbar range.
@@ -616,8 +620,9 @@ impl ChatScroller {
     fn step(&mut self, now: Instant, animate: bool) -> bool {
         let positioning = self.scrollbar.settle();
         let wheeling = self.wheel.step(&self.list, OVERDRAW);
-        let offset = -self.list.scroll_px_offset_for_scrollbar().y;
-        let gap = self.gap();
+        let offset = self.scroll_offset();
+        let may_resume = self.autoscroll && !self.archived && !self.wheel_up;
+        let gap = (self.following || may_resume).then(|| self.gap(Some(offset)));
         let dt = self
             .last_frame
             .map_or(1. / 60., |at| now.duration_since(at).as_secs_f32().min(0.1));
@@ -625,48 +630,54 @@ impl ChatScroller {
 
         // Content growth leaves the offset alone and an item collapsing above
         // lowers both; only the user moves up while room stays below.
-        if let Some(last) = self.last_offset
+        if self.following
+            && let Some(last) = self.last_offset
             && offset < last - px(1.)
-            && gap > SETTLED
+            && gap.is_some_and(|gap| gap > SETTLED)
         {
             self.following = false;
         }
         let dirty = std::mem::take(&mut self.dirty);
-        if self.hold(now) {
+        let had_hold = self.hold.is_some();
+        if self.hold(now, offset) {
             return true;
         }
         let tail_changed = self.settle_tail();
-        if !self.following
-            && !self.wheel_up
-            && gap <= SETTLED
-            && self.tail.height() <= SETTLED
-            && self.autoscroll
-            && !self.archived
-            && !self.list.is_scrollbar_dragging()
-        {
-            self.following = true;
-        }
-
         let mut running = dirty || tail_changed || positioning || wheeling;
-        if self.following && gap > SETTLED {
-            let viewport = self.list.viewport_bounds().size.height;
-            if !animate || gap > viewport * JUMP_VIEWPORTS {
-                self.list.scroll_to_end();
-                // The end anchor reads past the content until laid out.
-                self.last_frame = Some(now);
-                self.last_offset = None;
-                return true;
-            } else {
+        let mut geometry_changed = had_hold || tail_changed;
+        if let Some(gap) = gap {
+            if !self.following
+                && may_resume
+                && gap <= SETTLED
+                && self.tail.height() <= SETTLED
+                && !self.list.is_scrollbar_dragging()
+            {
+                self.following = true;
+            }
+            if self.following && gap > SETTLED {
+                let viewport = self.list.viewport_bounds().size.height;
+                if !animate || gap > viewport * JUMP_VIEWPORTS {
+                    self.list.scroll_to_end();
+                    // The end anchor reads past the content until laid out.
+                    self.last_offset = None;
+                    return true;
+                }
                 let share = 1. - (-dt / GLIDE_SECONDS).exp();
                 self.list.scroll_by((gap * share).max(px(1.)).min(gap));
+                geometry_changed = true;
+                running = true;
             }
-            running = true;
+            if self.following && !self.autoscroll && !dirty && gap <= SETTLED {
+                // A jump without autoscroll ends once the end is reached.
+                self.following = false;
+            }
         }
-        if self.following && !self.autoscroll && !dirty && gap <= SETTLED {
-            // A jump without autoscroll ends once the end is reached.
-            self.following = false;
-        }
-        self.last_offset = Some(-self.list.scroll_px_offset_for_scrollbar().y);
+        // An expired hold or a changed tail can rebuild the item tree.
+        self.last_offset = Some(if geometry_changed {
+            self.scroll_offset()
+        } else {
+            offset
+        });
         if !running {
             self.last_frame = None;
         }
@@ -726,7 +737,7 @@ impl ChatScroller {
 
     /// One frame of a held list; false once nothing is held. The list does
     /// not scroll while held.
-    fn hold(&mut self, now: Instant) -> bool {
+    fn hold(&mut self, now: Instant, offset: Pixels) -> bool {
         let Some(hold) = &self.hold else {
             return false;
         };
@@ -744,8 +755,7 @@ impl ChatScroller {
             self.dirty = true;
             return false;
         }
-        self.last_offset = Some(-self.list.scroll_px_offset_for_scrollbar().y);
-        self.last_frame = Some(now);
+        self.last_offset = Some(offset);
         true
     }
 }

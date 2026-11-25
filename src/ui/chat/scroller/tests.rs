@@ -276,8 +276,8 @@ fn a_large_tool_chain_switches_to_virtual_rows_with_one_anchor_layout() {
             state.toggled(0..300, false, cx);
             assert!(!state.following);
             let now = Instant::now();
-            assert!(state.hold(now));
-            assert!(!state.hold(now));
+            assert!(state.hold(now, px(0.)));
+            assert!(!state.hold(now, px(0.)));
             state
         })
     });
@@ -408,7 +408,7 @@ fn wheel_up_releases_a_short_resident_tail_without_any_pixel_movement() {
     let mut state = folded_tail(true);
     // Unmeasured/folded rows provide no local scroll room. Older history must
     // still become reachable, even on the first event after a page splice.
-    assert_eq!(state.gap(), px(0.));
+    assert_eq!(state.gap(None), px(0.));
     assert!(state.last_offset.is_none());
     state.user_scroll(point(px(0.), px(3.)));
     for _ in 0..3 {
@@ -427,6 +427,43 @@ fn downward_wheel_at_the_end_resumes_following_after_manual_browsing() {
     state.user_scroll(point(px(0.), px(-3.)));
     state.step(Instant::now(), true);
     assert!(state.following);
+}
+
+#[test]
+fn archived_wheel_movement_stays_paused_and_an_explicit_jump_still_works() {
+    let app = ::gpui::TestAppContext::single();
+    app.update(|cx| {
+        cx.new(|cx| {
+            let mut state = folded_tail(true);
+            state.list.reset_with_uniform_height(51, px(20.));
+            state.set_archived(true, cx);
+            let anchor = ListOffset {
+                item_ix: 7,
+                offset_in_item: px(4.),
+            };
+            state.list.scroll_to(anchor);
+            state.wheel.painted.set(Some(anchor));
+            state.user_scroll(point(px(0.), px(-6.)));
+            let now = Instant::now();
+            assert!(!state.step(now, false));
+            assert!(!state.following);
+            assert_eq!(
+                state.list.logical_scroll_top(),
+                ListOffset {
+                    offset_in_item: px(10.),
+                    ..anchor
+                }
+            );
+            assert_eq!(state.last_offset, Some(px(150.)));
+
+            state.scroll_to_end(cx);
+            assert!(state.step(now, false));
+            assert!(state.following);
+            assert_eq!(state.list.logical_scroll_top().item_ix, 51);
+            assert_eq!(state.last_offset, None);
+            state
+        })
+    });
 }
 
 #[test]
