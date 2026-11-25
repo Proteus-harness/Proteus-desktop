@@ -326,6 +326,8 @@ def main():
     parser.add_argument('--messages', type=int, nargs='+', default=[5000, 50000])
     parser.add_argument('--repeats', type=int, default=3)
     parser.add_argument('--text-repeats', type=int, default=4)
+    parser.add_argument('--model-history-rows', type=int, default=argparse.SUPPRESS,
+                        help='retain this many active model messages without truncating display history')
     parser.add_argument('--settle', type=float, default=5)
     parser.add_argument('--idle', type=float, default=5)
     parser.add_argument('--interval', type=float, default=.2)
@@ -336,6 +338,9 @@ def main():
     parser.add_argument('--bgui-session', required=True)
     parser.add_argument('--bgui', type=Path, required=True)
     args = parser.parse_args()
+    model_rows = getattr(args, 'model_history_rows', None)
+    if model_rows is not None and not 1 <= model_rows <= min(args.messages):
+        parser.error('--model-history-rows must be between 1 and every --messages count')
     for name in ('native', 'core', 'module', 'seeder', 'extensions', 'core_source', 'output', 'bgui'):
         setattr(args, name, getattr(args, name).resolve())
     args.storage = storage_binary(args.core, args.storage)
@@ -372,18 +377,28 @@ def main():
             configs.mkdir(parents=True)
             config = configs / 'bench.toml'
             config.write_text(profile(args.module, args.storage))
-            seed = subprocess.run([str(args.seeder), str(case/'config'), str(workspace),
-                                   str(count), str(args.text_repeats)],
-                                  env=seed_env, capture_output=True, text=True, check=True)
-            save(case / 'seed.json', json.loads(seed.stdout))
-            subprocess.run([sys.executable, str(args.core_source/'examples/performance/history-scale/verify.py'),
-                            'seed', json.loads(seed.stdout)['session_dir'], str(count), str(args.text_repeats),
-                            str(case/'seed-verified.json')], capture_output=True, check=True)
+            seed_command = [str(args.seeder), str(case/'config'), str(workspace),
+                            str(count), str(args.text_repeats)]
+            if model_rows is not None:
+                seed_command.append(str(model_rows))
+            seed = subprocess.run(seed_command, env=seed_env, capture_output=True, text=True, check=True)
+            seed_info = json.loads(seed.stdout)
+            save(case / 'seed.json', seed_info)
+            verify_command = [sys.executable, str(args.core_source/'examples/performance/history-scale/verify.py'),
+                              'seed', seed_info['session_dir'], str(count), str(args.text_repeats),
+                              str(case/'seed-verified.json')]
+            if model_rows is not None:
+                verify_command.extend(('--model-history-rows', str(model_rows)))
+            subprocess.run(verify_command, capture_output=True, check=True)
             expected = json.loads((case/'seed-verified.json').read_text())
+            if model_rows is not None and expected.get('model_history_rows') != model_rows:
+                raise ValueError('seed verifier returned a different model history count')
             expected.pop('ids')
             for restart in (False, True):
                 result = run_case(args, case, workspace, config, restart, expected)
                 result.update(messages=count, repeat=repeat)
+                if model_rows is not None:
+                    result['model_history_rows'] = expected['model_history_rows']
                 results.append(result)
                 save(args.output / 'report.json', dict(status='running', results=results))
                 print(json.dumps(dict(messages=count, repeat=repeat, cache=result['cache'],
