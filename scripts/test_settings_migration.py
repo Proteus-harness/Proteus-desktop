@@ -2,6 +2,7 @@
 import io
 import json
 import os
+import runpy
 from pathlib import Path
 import subprocess
 import sys
@@ -15,6 +16,24 @@ SCRIPT = Path(__file__).with_name('settings-migration.py')
 
 
 class SettingsMigrationTests(unittest.TestCase):
+    def test_idle_worker_upgrade_preserves_custom_launches_and_explicit_choices(self):
+        upgrade = runpy.run_path(str(SCRIPT))['with_idle_workers']
+        source = (b'[components.files]\r\ncommand = "files"\r\n'
+                  b'[components.files.exports.tool.read]\r\n'
+                  b'[components.patch]\r\ncommand = "my-wrapper"\r\n'
+                  b'[components.patch.exports.tool.apply]\r\n')
+        stock = self.root / 'stock.toml'
+        stock.write_bytes(source.replace(b'command = "my-wrapper"', b'command = "patch"')
+                          .replace(b'command = ', b'release_when_idle = true\r\ncommand = ')
+                          + b'[components.files.exports.tool.write]\r\n')
+        expected = source.replace(b'[components.files]\r\n', b'[components.files]\r\nrelease_when_idle = true\r\n')
+        self.assertEqual(upgrade(source, stock), expected)
+        self.assertEqual(upgrade(expected, stock), expected)
+        for custom in (expected.replace(b'= true', b'= false'),
+                       source.replace(b'tool.read', b'tool.custom'),
+                       b'include = "parent.toml"\n' + source):
+            self.assertEqual(upgrade(custom, stock), custom)
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix='proteus settings ')
         self.addCleanup(self.temporary.cleanup)

@@ -356,6 +356,46 @@ def with_native_go(data):
     return text.encode('utf-8') if tomllib.loads(text) == expected else data
 
 
+def with_idle_workers(data, stock_path):
+    """Adopt shipped worker lifetimes in old flat profiles with stock launches."""
+    # The migration inserts this spelling. Keep repeated launches on a byte scan.
+    if re.search(rb'(?m)^\[components\.[\w-]+\]\r?\nrelease_when_idle\s*=', data):
+        return data
+    if not stock_path.is_file():
+        return data
+    text = data.decode('utf-8')
+    expected = tomllib.loads(text)
+    components = expected.get('components', {})
+    if expected.get('include') or any('release_when_idle' in c for c in components.values()):
+        return data
+    stock = tomllib.loads(stock_path.read_text(encoding='utf-8'))['components']
+    updated = set()
+    for name, component in components.items():
+        reference = stock.get(name, {})
+        if reference.get('release_when_idle') is not True:
+            continue
+        if {k: v for k, v in reference.items() if k not in ('release_when_idle', 'exports')} != {
+            k: v for k, v in component.items() if k != 'exports'
+        }:
+            continue
+        exports = component.get('exports', {})
+        if exports and all(
+            entries and all(reference['exports'].get(slot, {}).get(key) == value
+                            for key, value in entries.items())
+            for slot, entries in exports.items()
+        ):
+            component['release_when_idle'] = True
+            updated.add(name)
+    if not updated:
+        return data
+    result = re.sub(r'(?m)^\[components\.([\w-]+)\](\r?\n)',
+                    lambda m: m[0] + ('release_when_idle = true' + m[2] if m[1] in updated else ''), text)
+    try:
+        return result.encode('utf-8') if tomllib.loads(result) == expected else data
+    except tomllib.TOMLDecodeError:
+        return data
+
+
 def upgrade_storage(args):
     home, locations = roots(args)
     agent = locations['agent']
@@ -373,7 +413,8 @@ def upgrade_storage(args):
     original = {path: read_settings(path.resolve(strict=True)) for path in profiles}
     updated = {path: with_session_storage(path, original, home) for path in profiles}
     if args.operation == 'upgrade-startup':
-        updated = {path: with_native_go(data) for path, data in updated.items()}
+        stock = Path(__file__).parent / 'configs/config.toml'
+        updated = {path: with_idle_workers(with_native_go(data), stock) for path, data in updated.items()}
     apply_settings(settings_state_dir(args, home), updated, args.dry_run, action='update')
 
 
