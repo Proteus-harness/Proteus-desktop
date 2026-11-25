@@ -3,7 +3,7 @@
 
 use super::{session_menu, sessions::branch_key};
 use crate::conversations::ConversationSummary;
-use crate::sessions::Row;
+use crate::sessions::SessionMark;
 use crate::ui::context::RightClickMenu as _;
 use crate::ui::kit;
 use crate::ui::kit::ButtonLabel as _;
@@ -25,13 +25,16 @@ pub(super) struct Look {
     pub(super) cursor: bool,
     pub(super) depth: usize,
     pub(super) branch_open: bool,
+    pub(super) branch_fits: bool,
 }
 
 impl Workspace {
     pub(super) fn render_session_item(
         &self,
         ix: usize,
-        row: &Row,
+        summary: &ConversationSummary,
+        mark: SessionMark,
+        has_children: bool,
         look: Look,
         cx: &Context<Self>,
     ) -> impl IntoElement {
@@ -40,10 +43,9 @@ impl Workspace {
             cursor,
             depth,
             branch_open,
+            branch_fits,
         } = look;
         let theme = cx.theme();
-        let summary = row.summary;
-        let mark = row.mark.clone();
         let dir = summary.key.clone();
         let renaming = self
             .renaming
@@ -137,7 +139,7 @@ impl Workspace {
                     .child(crate::ui::fade::caption("session-caption", title).anchor(anchor))
                     .into_any_element(),
             })
-            .when(!row.children.is_empty(), |item| {
+            .when(has_children, |item| {
                 let branch = dir.clone();
                 item.child(
                     div()
@@ -157,7 +159,9 @@ impl Workspace {
                             if open {
                                 this.session_list.branches.insert(branch.clone());
                             }
-                            motion::toggled(branch_key(&branch), open, cx);
+                            if branch_fits {
+                                motion::toggled(branch_key(&branch), open, cx);
+                            }
                             cx.notify();
                         })),
                 )

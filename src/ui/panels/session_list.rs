@@ -5,13 +5,16 @@
 use proteus_tabs::ChatKey;
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
 
+use super::sessions::ItemId;
 use crate::ui::workspace::Workspace;
 
 const LIST_CONTEXT: &str = "ProteusSessionList";
+const OVERDRAW: Pixels = px(240.);
 /// The whole panel, the filter included.
 const PANEL_CONTEXT: &str = "ProteusSessions";
 
@@ -43,16 +46,23 @@ pub(in crate::ui) fn bind_keys(cx: &mut App) {
     ]);
 }
 
+#[derive(PartialEq, Eq)]
+pub(super) struct LayoutSlot {
+    pub id: ItemId,
+    pub moving: bool,
+    pub focus: Option<FocusHandle>,
+}
+
 pub(in crate::ui) struct SessionList {
     pub filter: Entity<InputState>,
     /// What the filter holds, trimmed.
     pub search: String,
     /// The row the arrows are on, when they moved.
     pub cursor: Option<ChatKey>,
-    /// Rows as last shown, with the index of each among the list's
-    /// children, so the cursor follows what is on screen.
-    pub shown: Vec<(ChatKey, usize)>,
-    pub scroll: ScrollHandle,
+    /// All visible navigation targets, including those outside the viewport.
+    shown: Vec<(Rc<ChatKey>, usize)>,
+    slots: Vec<LayoutSlot>,
+    pub(super) scroll: ListState,
     pub focus: FocusHandle,
     /// Project folders folded shut.
     pub collapsed: HashSet<PathBuf>,
@@ -86,7 +96,8 @@ impl SessionList {
             search: String::new(),
             cursor: None,
             shown: Vec::new(),
-            scroll: ScrollHandle::new(),
+            slots: Vec::new(),
+            scroll: ListState::new(0, ListAlignment::Top, OVERDRAW),
             focus: cx.focus_handle(),
             collapsed: HashSet::new(),
             expanded: HashSet::new(),
@@ -94,6 +105,82 @@ impl SessionList {
         };
         (list, events)
     }
+
+    pub(super) fn fold_limit(&self, window: &Window) -> usize {
+        let viewport = self.scroll.viewport_bounds().size.height;
+        ((viewport + 2. * OVERDRAW) / row_height(window)).ceil() as usize
+    }
+
+    pub(super) fn set_layout(
+        &mut self,
+        slots: Vec<LayoutSlot>,
+        shown: Vec<(Rc<ChatKey>, usize)>,
+        window: &Window,
+    ) {
+        if self.slots != slots {
+            let prefix = self
+                .slots
+                .iter()
+                .zip(&slots)
+                .take_while(|(a, b)| a == b)
+                .count();
+            let suffix = self.slots[prefix..]
+                .iter()
+                .rev()
+                .zip(slots[prefix..].iter().rev())
+                .take_while(|(a, b)| a == b)
+                .count();
+            let replacement = &slots[prefix..slots.len() - suffix];
+            self.scroll.splice_focusable(
+                prefix..self.slots.len() - suffix,
+                replacement.iter().map(|slot| slot.focus.clone()),
+            );
+            if !replacement.is_empty() {
+                self.scroll
+                    .clone()
+                    .with_uniform_item_height(row_height(window));
+            }
+            self.slots = slots;
+        }
+        // Only moving list items need their dimensions recalculated at each
+        // frame. The splice above also invalidates the final, settled extent.
+        for (index, _) in self
+            .slots
+            .iter()
+            .enumerate()
+            .filter(|(_, slot)| slot.moving)
+        {
+            self.scroll.remeasure_items(index..index + 1);
+        }
+        self.shown = shown;
+    }
+
+    pub(super) fn reveal_chat(&self, key: &ChatKey) {
+        if let Some(&(_, index)) = self
+            .shown
+            .iter()
+            .find(|(candidate, _)| candidate.as_ref() == key)
+        {
+            self.reveal_slot(index);
+        }
+    }
+
+    fn reveal_slot(&self, index: usize) {
+        if self.scroll.bounds_for_item(index).is_some() {
+            self.scroll.scroll_to_reveal_item(index);
+        } else {
+            // Home/End can jump past every measured row. Place the target
+            // directly at the anchor when its measured bounds aren't known.
+            self.scroll.scroll_to(ListOffset {
+                item_ix: index,
+                offset_in_item: px(0.),
+            });
+        }
+    }
+}
+
+fn row_height(window: &Window) -> Pixels {
+    rems(2.).to_pixels(window.rem_size())
 }
 
 impl Workspace {
@@ -115,6 +202,7 @@ impl Workspace {
             }))
             .on_action(cx.listener(|this, _: &RenameSession, window, cx| {
                 if let Some(dir) = this.session_cursor() {
+                    this.session_list.reveal_chat(&dir);
                     this.start_rename(dir, window, cx);
                 }
             }))
@@ -149,11 +237,11 @@ impl Workspace {
         let shown = &self.session_list.shown;
         let cursor = self.session_list.cursor.as_ref();
         let active = self.active_chat_key();
-        let at = |dir| shown.iter().find(|(row, _)| row == dir);
+        let at = |dir| shown.iter().find(|(row, _)| row.as_ref() == dir);
         cursor
             .and_then(at)
             .or_else(|| active.as_ref().and_then(at))
-            .map(|(dir, _)| dir.clone())
+            .map(|(dir, _)| dir.as_ref().clone())
     }
 
     /// Moves the cursor by `offset` rows; `isize::MIN`/`MAX` jump to the ends.
@@ -164,11 +252,11 @@ impl Workspace {
         }
         let current = self
             .session_cursor()
-            .and_then(|dir| shown.iter().position(|(row, _)| *row == dir));
+            .and_then(|dir| shown.iter().position(|(row, _)| row.as_ref() == &dir));
         let next = cursor_index(shown.len(), current, offset);
-        let (dir, child) = shown[next].clone();
-        self.session_list.scroll.scroll_to_item(child);
-        self.session_list.cursor = Some(dir);
+        let (dir, child) = &shown[next];
+        self.session_list.reveal_slot(*child);
+        self.session_list.cursor = Some(dir.as_ref().clone());
         cx.notify();
     }
 

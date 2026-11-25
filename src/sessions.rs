@@ -182,8 +182,10 @@ impl SessionMarks {
         let mut rows: Vec<Option<Row<'a>>> = sessions
             .iter()
             .zip(marks)
-            .map(|(summary, mark)| {
+            .enumerate()
+            .map(|(index, (summary, mark))| {
                 Some(Row {
+                    index,
                     summary,
                     mark,
                     children: Vec::new(),
@@ -254,6 +256,8 @@ pub struct View<'q> {
 }
 
 pub struct Row<'a> {
+    /// Position in the summaries passed to `arrange`.
+    pub index: usize,
     pub summary: &'a ConversationSummary,
     pub mark: SessionMark,
     pub children: Vec<Row<'a>>,
