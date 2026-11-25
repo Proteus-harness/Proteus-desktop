@@ -177,9 +177,5 @@ fn avatar(cx: &App) -> Div {
         .border_1()
         .border_color(theme.transparent)
         .bg(theme.muted)
-        .child(
-            Icon::new(Lucide::User)
-                .xsmall()
-                .text_color(theme.muted_foreground),
-        )
+        .child(Icon::new(Lucide::User).xsmall().tone(IconTone::Muted))
 }

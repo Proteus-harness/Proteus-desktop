@@ -6,6 +6,7 @@ use std::rc::Rc;
 use gpui_kit::component::{Theme, ThemeSet};
 use gpui_kit::{Hsla, Rgba};
 
+use super::super::surface_palette::SurfacePalette;
 use super::tests::{expected_color, sources};
 
 const MINIMUM: f64 = 4.5;
@@ -140,6 +141,31 @@ fn assert_readable(theme: &str, role: &str, foreground: Hsla, fill: Rgba) {
         ratio >= MINIMUM,
         "{theme}: {role} contrast {ratio:.4}:1 < {MINIMUM}:1"
     );
+}
+
+fn projected_themes() -> impl Iterator<Item = Theme> {
+    use crate::preferences::{DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME};
+
+    let builtins: ThemeSet = serde_json::from_str(super::super::BUNDLED).unwrap();
+    let base = |name| {
+        Rc::new(
+            builtins
+                .themes
+                .iter()
+                .find(|config| config.name == name)
+                .unwrap()
+                .clone(),
+        )
+    };
+    let policy = SurfacePalette::new(&base(DEFAULT_DARK_THEME), &base(DEFAULT_LIGHT_THEME));
+    sources()
+        .flat_map(|source| serde_json::from_str::<ThemeSet>(source).unwrap().themes)
+        .map(move |config| {
+            let mut theme = Theme::default();
+            theme.apply_config(&Rc::new(config));
+            policy.apply(&mut theme);
+            theme
+        })
 }
 
 #[::core::prelude::v1::test]
@@ -448,5 +474,150 @@ fn custom_chat_caption_role_is_optional_and_does_not_change_settings_labels() {
             theme.tokens.chat_secondary_foreground.color,
             theme.chat_secondary_foreground
         );
+    }
+}
+
+#[::core::prelude::v1::test]
+fn tool_and_navigation_glyphs_are_readable_in_each_bundled_palette() {
+    use gpui_kit::component::IconTone::{Danger, Muted, Normal, Selected, Success, Warning};
+    for theme in projected_themes() {
+        for tone in [Normal, Muted, Selected, Success, Warning, Danger] {
+            let ink = super::super::icons::color(tone, theme.mode);
+            for surface in [theme.background, theme.sidebar] {
+                let ratio = contrast(ink, composite(surface.into(), theme.background.into()));
+                assert!(
+                    ratio >= 3.0,
+                    "{} {tone:?}: {ratio:.2}:1",
+                    theme.theme_name()
+                );
+            }
+        }
+    }
+}
+
+#[::core::prelude::v1::test]
+fn shared_ink_is_readable_on_selected_builtin_surfaces() {
+    for theme in projected_themes() {
+        let name = theme.theme_name();
+        for (surface, fill) in surfaces(&theme) {
+            assert_readable(name, &format!("normal/{surface}"), theme.foreground, fill);
+            assert_readable(
+                name,
+                &format!("muted/{surface}"),
+                theme.muted_foreground,
+                fill,
+            );
+        }
+        assert_readable(
+            name,
+            "chat secondary",
+            theme.chat_secondary_foreground,
+            theme.background.into(),
+        );
+        for (role, ink, fills) in [
+            (
+                "primary button",
+                theme.button_primary_foreground,
+                [
+                    theme.button_primary,
+                    theme.button_primary_hover,
+                    theme.button_primary_active,
+                ],
+            ),
+            (
+                "danger button",
+                theme.button_danger_foreground,
+                [
+                    theme.button_danger,
+                    theme.button_danger_hover,
+                    theme.button_danger_active,
+                ],
+            ),
+            (
+                "success button",
+                theme.button_success_foreground,
+                [
+                    theme.button_success,
+                    theme.button_success_hover,
+                    theme.button_success_active,
+                ],
+            ),
+            (
+                "info button",
+                theme.button_info_foreground,
+                [
+                    theme.button_info,
+                    theme.button_info_hover,
+                    theme.button_info_active,
+                ],
+            ),
+            (
+                "warning button",
+                theme.button_warning_foreground,
+                [
+                    theme.button_warning,
+                    theme.button_warning_hover,
+                    theme.button_warning_active,
+                ],
+            ),
+        ] {
+            for fill in fills {
+                for (_, parent) in surfaces(&theme) {
+                    assert_readable(name, role, ink, composite(fill.into(), parent));
+                }
+            }
+        }
+        for (state, fill) in [
+            ("normal", theme.primary),
+            ("hover", theme.primary_hover),
+            ("active", theme.primary_active),
+        ] {
+            let ratio = contrast(theme.primary_foreground, fill.into());
+            assert!(
+                ratio >= 3.,
+                "{name}: check mark/{state} contrast {ratio:.4}:1"
+            );
+        }
+    }
+}
+
+#[::core::prelude::v1::test]
+fn changing_palettes_preserves_shared_roles_within_each_mode() {
+    let themes: Vec<_> = projected_themes().collect();
+    for (claude, ayu) in [("Claude Light", "Ayu Light"), ("Claude Dark", "Ayu Dark")] {
+        let find = |name: &str| {
+            themes
+                .iter()
+                .find(|theme| theme.theme_name() == name)
+                .unwrap()
+        };
+        let claude = find(claude);
+        let ayu = find(ayu);
+        assert_eq!(claude.mode, ayu.mode);
+        assert_ne!(claude.background, ayu.background);
+        assert_ne!(claude.group_box, ayu.group_box);
+        assert_ne!(claude.button_primary, ayu.button_primary);
+        assert_eq!(claude.tokens.border, ayu.tokens.border);
+        assert_eq!(claude.tokens.input, ayu.tokens.input);
+        assert_eq!(claude.tokens.foreground, ayu.tokens.foreground);
+        assert_eq!(claude.tokens.muted_foreground, ayu.tokens.muted_foreground);
+        assert_eq!(
+            claude.tokens.primary_foreground,
+            ayu.tokens.primary_foreground
+        );
+        assert_eq!(claude.tokens.primary, ayu.tokens.primary);
+        assert_eq!(claude.tokens.success, ayu.tokens.success);
+        assert_eq!(claude.tokens.danger, ayu.tokens.danger);
+        assert_eq!(claude.tokens.warning, ayu.tokens.warning);
+        assert_eq!(claude.tokens.link, ayu.tokens.link);
+        assert_eq!(claude.tokens.ring, ayu.tokens.ring);
+        assert_eq!(
+            claude.tokens.switch_thumb_unchecked,
+            ayu.tokens.switch_thumb_unchecked
+        );
+        assert!(std::sync::Arc::ptr_eq(
+            &claude.highlight_theme,
+            &ayu.highlight_theme
+        ));
     }
 }

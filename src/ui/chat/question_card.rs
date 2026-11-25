@@ -79,7 +79,7 @@ impl UserInputDrafts {
             .child(
                 Icon::new(Lucide::MessageCircleQuestionMark)
                     .small()
-                    .text_color(theme.muted_foreground),
+                    .tone(IconTone::Muted),
             )
             .child(div().flex_1().min_w_0().font_medium().child(title))
             .children(pager)
@@ -105,11 +105,7 @@ impl UserInputDrafts {
         let (skip, go) = (rid.clone(), rid.clone());
         let footer = h_flex()
             .gap_2()
-            .child(
-                Icon::new(Lucide::Pencil)
-                    .xsmall()
-                    .text_color(theme.muted_foreground),
-            )
+            .child(Icon::new(Lucide::Pencil).xsmall().tone(IconTone::Muted))
             .child(
                 div()
                     .flex_1()

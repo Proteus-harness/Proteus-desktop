@@ -25,7 +25,7 @@ pub(super) fn render(
     } else {
         Icon::new(Lucide::Brain)
             .xsmall()
-            .text_color(muted)
+            .tone(IconTone::Muted)
             .into_any_element()
     };
     let header = h_flex()

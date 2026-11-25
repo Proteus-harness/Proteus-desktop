@@ -415,7 +415,7 @@ impl SettingsView {
                     .child(
                         Icon::new(Lucide::CircleCheck)
                             .xsmall()
-                            .text_color(theme.success),
+                            .tone(IconTone::Success),
                     )
                     .child("Установлено")
                     .into_any_element();
@@ -469,11 +469,7 @@ impl SettingsView {
             .justify_center()
             .gap_2()
             .p_8()
-            .child(
-                Icon::new(Lucide::Library)
-                    .large()
-                    .text_color(theme.muted_foreground),
-            )
+            .child(Icon::new(Lucide::Library).large().tone(IconTone::Muted))
             .child(div().font_medium().child(title))
             .child(
                 div()

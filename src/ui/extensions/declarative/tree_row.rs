@@ -173,13 +173,10 @@ impl Tree {
     fn item(&self, row: &Row, anchor: &TooltipAnchor, cx: &App) -> Div {
         let muted = cx.theme().muted_foreground;
         let color = tree_ink(row.tone, cx);
-        let icon_color = tree_ink(
-            row.icon_tone.unwrap_or(match row.expanded {
-                Some(false) => Tone::Muted,
-                _ => row.tone,
-            }),
-            cx,
-        );
+        let icon_tone = super::render::icon_tone(row.icon_tone.unwrap_or(match row.expanded {
+            Some(false) => Tone::Muted,
+            _ => row.tone,
+        }));
         let icon = row
             .icon
             .as_deref()
@@ -204,7 +201,7 @@ impl Tree {
                     .flex_none()
                     .w(prefs::scaled(SLOT))
                     .justify_center()
-                    .child(Icon::new(icon).small().text_color(icon_color)),
+                    .child(Icon::new(icon).small().tone(icon_tone)),
             )
             .child(
                 h_flex()

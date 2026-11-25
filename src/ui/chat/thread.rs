@@ -642,10 +642,10 @@ fn render_subagent(
         .child(if agent.status == "unknown" {
             Icon::new(gpui_kit::assets::IconName::MessageSquare)
                 .small()
-                .text_color(theme.chat_secondary_foreground)
+                .tone(IconTone::Muted)
                 .into_any_element()
         } else {
-            status_icon(status, connected, cx).into_any_element()
+            status_icon(status, connected).into_any_element()
         })
         .child(
             div().min_w_0().max_w(relative(0.35)).font_semibold().child(

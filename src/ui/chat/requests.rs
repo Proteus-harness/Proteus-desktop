@@ -257,7 +257,7 @@ fn render_approval(request: &AppApprovalRequest, cx: &mut Context<Chat>) -> AnyE
                 .child(
                     Icon::new(approval_icon(request))
                         .small()
-                        .text_color(theme.muted_foreground),
+                        .tone(IconTone::Muted),
                 )
                 .child(div().font_medium().child(request.call.name.clone()))
                 .children(summary.map(|summary| {

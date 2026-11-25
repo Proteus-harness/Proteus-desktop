@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use ::gpui::TestAppContext;
-use gpui_kit::component::{Theme, ThemeMode, ThemeRegistry};
+use gpui_kit::component::{Colorize, Theme, ThemeMode, ThemeRegistry, neutral_950};
 use gpui_kit::*;
 
 use super::super::{ClientPreferences, ThemePreference, init_in_memory, update};
@@ -12,10 +12,12 @@ fn initialize(cx: &mut App, preference: ThemePreference) {
     init_in_memory(cx);
     ThemeRegistry::global_mut(cx)
         .load_themes_from_str(
-            r#"{"name":"Appearance fixture","themes":[
-                {"name":"Appearance fixture dark","mode":"dark","font.family":"Fixture Dark UI"},
-                {"name":"Appearance fixture light","mode":"light","font.family":"Fixture Light UI"}
-            ]}"#,
+            r##"{"name":"Appearance fixture","themes":[
+                {"name":"Appearance fixture dark","mode":"dark","font.family":"Fixture Dark UI",
+                 "colors":{"background":"#24231f","foreground":"#ff0000"}},
+                {"name":"Appearance fixture light","mode":"light","font.family":"Fixture Light UI",
+                 "colors":{"background":"#f8f4e8","foreground":"#ff0000"}}
+            ]}"##,
         )
         .unwrap();
     update(cx, |preferences| {
@@ -50,7 +52,19 @@ fn assert_mode(mode: ThemeMode, cx: &App) {
     assert_eq!(theme.mono_font_size, px(16.25));
     assert_eq!(theme.radius, px(11.25));
     assert_eq!(theme.radius_lg, px(22.5));
+    let (fill, ink) = if mode.is_dark() {
+        ("#24231f", Hsla::parse_hex("#dfdfdf").unwrap())
+    } else {
+        ("#f8f4e8", neutral_950())
+    };
+    let fill = Hsla::parse_hex(fill).unwrap();
+    assert_eq!(theme.background, fill);
+    assert_eq!(theme.foreground, ink);
+    assert_eq!(theme.tokens.background.color, fill);
+    assert_eq!(theme.tokens.foreground.color, ink);
     let base = gpui_kit::base::Theme::global(cx);
+    assert_eq!(base.tokens.colors.background, fill);
+    assert_eq!(base.tokens.colors.foreground, ink);
     assert_eq!(
         base.appearance,
         if mode.is_dark() {

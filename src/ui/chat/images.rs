@@ -251,11 +251,7 @@ pub(super) fn render_sent_images(
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(
-                    Icon::new(Lucide::ImageOff)
-                        .small()
-                        .text_color(theme.muted_foreground),
-                )
+                .child(Icon::new(Lucide::ImageOff).small().tone(IconTone::Muted))
                 .into_any_element(),
             _ => frame.into_any_element(),
         }

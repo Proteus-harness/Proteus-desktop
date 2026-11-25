@@ -1,6 +1,5 @@
 // Адаптировано из Zed: crates/ui/src/components/list/list_item.rs
-//! Application interaction policies do not rewrite the chosen palette.
-//! Native controls and application surfaces use the theme's authored colors.
+//! Interaction policies applied independently of surface colors.
 
 use gpui_kit::App;
 use gpui_kit::component::Theme;
@@ -22,8 +21,7 @@ fn project(theme: &mut Theme) {
     // Keep the native keyboard marker inside the control rather than adding
     // an outer ring that clipped containers would cut into fragments.
     theme.focus_ring = false;
-    // Visibility is an application policy; idle, hover and drag colors still
-    // belong to the selected theme.
+    // Scrollbar visibility follows the application policy in both modes.
     theme.scrollbar_mode = ScrollbarMode::Always;
 }
 

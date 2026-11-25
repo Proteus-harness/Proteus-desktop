@@ -279,11 +279,7 @@ impl Launcher {
                             }))
                     })
                     .when(!exists, |row| row.opacity(0.5))
-                    .child(
-                        Icon::new(Lucide::Folder)
-                            .small()
-                            .text_color(theme.muted_foreground),
-                    )
+                    .child(Icon::new(Lucide::Folder).small().tone(IconTone::Muted))
                     .child(
                         v_flex()
                             .min_w_0()

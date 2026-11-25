@@ -562,6 +562,11 @@ impl Workspace {
                 } else {
                     Lucide::FolderOpen
                 })
+                .tone(if collapsed {
+                    IconTone::Muted
+                } else {
+                    IconTone::Selected
+                })
                 .small()
                 .flex_none(),
             )

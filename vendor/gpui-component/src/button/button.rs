@@ -861,6 +861,11 @@ impl RenderOnce for Button {
             })
             .refine_style(&self.content_style)
             .when_some(self.icon, |this, icon| {
+                let icon = if disabled && cx.has_global::<crate::IconColorPolicy>() {
+                    icon.muted()
+                } else {
+                    icon
+                };
                 this.child(
                     icon.loading_icon(self.loading_icon)
                         .loading(self.loading)

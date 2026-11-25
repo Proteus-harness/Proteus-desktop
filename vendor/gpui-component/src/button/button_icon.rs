@@ -31,6 +31,13 @@ impl ButtonIcon {
         }
     }
 
+    pub(crate) fn muted(mut self) -> Self {
+        if let ButtonIconVariant::Icon(icon) = self.icon {
+            self.icon = ButtonIconVariant::Icon(icon.tone(crate::IconTone::Muted));
+        }
+        self
+    }
+
     pub(crate) fn loading_icon(mut self, icon: Option<Icon>) -> Self {
         self.loading_icon = icon;
         self

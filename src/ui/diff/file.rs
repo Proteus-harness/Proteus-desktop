@@ -26,12 +26,12 @@ impl DiffView {
             .path
             .rsplit_once('/')
             .map_or((file.path.as_str(), ""), |(a, b)| (b, a));
-        let (icon, color) = match file.status.as_str() {
-            "added" | "untracked" => (Lucide::FilePlus, theme.green),
-            "deleted" => (Lucide::FileMinus, theme.red),
-            "renamed" => (Lucide::FileSymlink, theme.yellow),
-            "conflict" => (Lucide::TriangleAlert, theme.yellow),
-            _ => (Lucide::FileDiff, theme.muted_foreground),
+        let (icon, tone) = match file.status.as_str() {
+            "added" | "untracked" => (Lucide::FilePlus, IconTone::Success),
+            "deleted" => (Lucide::FileMinus, IconTone::Danger),
+            "renamed" => (Lucide::FileSymlink, IconTone::Warning),
+            "conflict" => (Lucide::TriangleAlert, IconTone::Warning),
+            _ => (Lucide::FileDiff, IconTone::Muted),
         };
         let group: SharedString = format!("diff-file-{index}").into();
         let anchor = TooltipAnchor::default();
@@ -53,7 +53,7 @@ impl DiffView {
             .pressable(cx)
             .hover(move |style| style.bg(hover))
             .child(motion::chevron(("chevron", index), open, muted, cx))
-            .child(Icon::new(icon).small().flex_none().text_color(color))
+            .child(Icon::new(icon).small().flex_none().tone(tone))
             .child(
                 div()
                     .min_w_0()

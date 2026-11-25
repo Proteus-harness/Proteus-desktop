@@ -191,7 +191,7 @@ impl SettingsView {
             card(hashed_id("catalog-overview-source", &source.key()), cx)
                 .child(
                     package_heading(
-                        Icon::new(Lucide::GitBranch).text_color(cx.theme().muted_foreground),
+                        Icon::new(Lucide::GitBranch).tone(IconTone::Muted),
                         div()
                             .min_w_0()
                             .h(prefs::scaled(20.))

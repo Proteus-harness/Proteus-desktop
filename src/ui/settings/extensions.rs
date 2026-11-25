@@ -198,10 +198,10 @@ impl SettingsView {
             tags.push(chip("установлено", Tone::Accent, cx));
         }
         let text = package_heading(
-            Icon::new(manifest.icon).text_color(if enabled {
-                theme.foreground
+            Icon::new(manifest.icon).tone(if enabled {
+                IconTone::Normal
             } else {
-                theme.muted_foreground
+                IconTone::Muted
             }),
             caption("extension-title", manifest.title)
                 .description(
@@ -313,7 +313,7 @@ impl SettingsView {
                             zone.border_color(cx.theme().drag_border)
                                 .bg(cx.theme().drop_target)
                         })
-                        .child(Icon::new(Lucide::FileArchive).text_color(theme.muted_foreground))
+                        .child(Icon::new(Lucide::FileArchive).tone(IconTone::Muted))
                         .child(
                             "Перетащите ZIP сюда или в любое место этой страницы. \
                              extension.json и все файлы расширения должны лежать в архиве.",

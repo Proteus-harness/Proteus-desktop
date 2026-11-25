@@ -125,7 +125,7 @@ pub(super) fn render_chain_header<'a>(
         .text_sm()
         .min_w_0()
         .chat_disclosure(cx)
-        .child(status_icon(status, connected, cx))
+        .child(status_icon(status, connected))
         .child(div().flex_none().child(format!("Инструменты · {}", count)))
         .child(
             h_flex()

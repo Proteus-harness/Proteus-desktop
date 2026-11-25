@@ -187,11 +187,7 @@ fn render_saved(draft: &SavedDraft, loading: bool, cx: &Context<Chat>) -> impl I
         .rounded(theme.radius)
         .bg(theme.muted)
         .text_xs()
-        .child(
-            Icon::new(IconName::Inbox)
-                .xsmall()
-                .text_color(theme.warning),
-        )
+        .child(Icon::new(IconName::Inbox).xsmall().tone(IconTone::Warning))
         .child(
             div()
                 .flex_none()
@@ -246,11 +242,7 @@ fn render_queued(message: &AppQueuedUserMessage, cx: &Context<Chat>) -> impl Int
         .rounded(theme.radius)
         .bg(theme.muted)
         .text_xs()
-        .child(
-            Icon::new(IconName::Inbox)
-                .xsmall()
-                .text_color(theme.muted_foreground),
-        )
+        .child(Icon::new(IconName::Inbox).xsmall().tone(IconTone::Muted))
         .child(
             div()
                 .flex_1()

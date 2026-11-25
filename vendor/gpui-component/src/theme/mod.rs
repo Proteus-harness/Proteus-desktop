@@ -233,6 +233,12 @@ impl DerefMut for Theme {
 
 impl Global for Theme {}
 
+/// Optional application policy for the resolved colors of a loaded theme.
+/// Update both `colors` and `tokens` so solid and gradient consumers agree.
+pub struct ThemeColorPolicy(pub Rc<dyn Fn(&mut Theme)>);
+
+impl Global for ThemeColorPolicy {}
+
 impl Theme {
     /// Returns the global theme reference
     #[inline(always)]
@@ -296,6 +302,9 @@ impl Theme {
     /// swapped [`Theme::light_theme`] or [`Theme::dark_theme`] and then asks
     /// for that mode gets the new theme applied.
     fn edit<R>(cx: &mut App, reload_mode: bool, edit: impl FnOnce(&mut Theme) -> R) -> R {
+        let color_policy = cx
+            .try_global::<ThemeColorPolicy>()
+            .map(|policy| Rc::clone(&policy.0));
         let theme = Theme::global_mut(cx);
         let colors_before = theme.colors;
         let tokens_before = theme.tokens;
@@ -319,10 +328,16 @@ impl Theme {
         // mode, so a mode change that arrives with a newly registered config
         // has already loaded it. Loading it again would put the file's radius,
         // fonts and colors back over whatever the closure edited after it.
-        let installed_by_edit = mode_changed && !Rc::ptr_eq(config, config_before);
+        let config_changed = !Rc::ptr_eq(config, config_before);
+        let installed_by_edit = mode_changed && config_changed;
         if (mode_changed || reload_mode) && !installed_by_edit {
             let config = config.clone();
             theme.apply_config(&config);
+        }
+        if (mode_changed || reload_mode || config_changed)
+            && let Some(policy) = color_policy
+        {
+            policy(theme);
         }
         let fonts_changed =
             (&theme.font_family, &theme.mono_font_family) != (&fonts_before.0, &fonts_before.1);

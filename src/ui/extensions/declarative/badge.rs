@@ -241,8 +241,7 @@ fn render_face(face: &Face, style: FaceStyle, cx: &App) -> Rc<dyn Fn() -> AnyEle
     let icon_size = icon_size(rail);
     match face {
         Face::Icon { tone, count } => {
-            let color = (!matches!(tone, Tone::Muted | Tone::Default))
-                .then(|| super::render::tone_color(*tone, cx));
+            let tone = super::render::icon_tone(*tone);
             let count = *count;
             Rc::new(move || {
                 div()
@@ -251,11 +250,7 @@ fn render_face(face: &Face, style: FaceStyle, cx: &App) -> Rc<dyn Fn() -> AnyEle
                     .items_center()
                     .justify_center()
                     .size(prefs::scaled(22.))
-                    .child(
-                        Icon::new(icon)
-                            .with_size(icon_size)
-                            .when_some(color, |icon, color| icon.text_color(color)),
-                    )
+                    .child(Icon::new(icon).with_size(icon_size).tone(tone))
                     .children(count.filter(|count| *count > 0).map(|count| {
                         div()
                             .absolute()
@@ -309,7 +304,11 @@ fn render_face(face: &Face, style: FaceStyle, cx: &App) -> Rc<dyn Fn() -> AnyEle
             display,
         } => {
             let (percent, display) = (*percent, *display);
-            let color = super::render::tone_color(*tone, cx);
+            let color = if display == RingDisplay::Number {
+                super::render::tone_color(*tone, cx)
+            } else {
+                crate::ui::theme::glyph_color(super::render::icon_tone(*tone), cx.theme().mode)
+            };
             Rc::new(move || metric_face(id.clone(), title.clone(), percent, color, display))
         }
     }

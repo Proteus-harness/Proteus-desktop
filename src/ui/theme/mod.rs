@@ -1,10 +1,13 @@
-//! Colour themes: the bundled Proteus set and the user's theme files in
+//! Surface palettes: the bundled Proteus set and the user's theme files in
 //! `<config>/dev.proteus.native/themes/*.json` (the gpui-kit theme format),
-//! read once at start. The preferences name one theme per appearance.
+//! read once at start. Each appearance shares its own non-surface colors.
 
 mod fonts;
+mod icons;
+pub(in crate::ui) use icons::color as glyph_color;
 mod interaction;
 mod palettes;
+mod surface_palette;
 
 use std::rc::Rc;
 
@@ -26,6 +29,11 @@ pub(super) fn init(cx: &mut App) {
     registry
         .load_themes_from_str(BUNDLED)
         .expect("bundled themes are valid");
+    let themes = registry.themes();
+    let palette = surface_palette::SurfacePalette::new(
+        &themes[DEFAULT_DARK_THEME],
+        &themes[DEFAULT_LIGHT_THEME],
+    );
     for source in palettes::BUNDLED {
         registry
             .load_themes_from_str(source)
@@ -49,7 +57,13 @@ pub(super) fn init(cx: &mut App) {
             }
         }
     }
+    cx.set_global(gpui_kit::component::ThemeColorPolicy(Rc::new(
+        move |theme| {
+            palette.apply(theme);
+        },
+    )));
     cx.set_global(ThemeProblems(problems));
+    cx.set_global(gpui_kit::component::IconColorPolicy(icons::color));
     fonts::init(cx);
     interaction::install(cx);
 }

@@ -82,6 +82,11 @@ pub(super) fn operation_status(
                             } else {
                                 IconName::Check
                             })
+                            .tone(if error {
+                                IconTone::Danger
+                            } else {
+                                IconTone::Success
+                            })
                             .small()
                             .into_any_element()
                         }))
@@ -504,7 +509,7 @@ pub(super) fn settings_action(
     kit::button(id).faded_label(label).quiet(cx).xsmall().child(
         Icon::new(Lucide::ChevronRight)
             .xsmall()
-            .text_color(cx.theme().muted_foreground),
+            .tone(IconTone::Muted),
     )
 }
 

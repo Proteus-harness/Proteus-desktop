@@ -247,7 +247,7 @@ impl SettingsView {
                                 .small()
                                 .flex_none()
                                 .mt_0p5()
-                                .text_color(theme.warning),
+                                .tone(IconTone::Warning),
                         )
                         .child(div().flex_1().min_w_0().child(warning.message.clone()))
                 }))

@@ -92,15 +92,8 @@ fn rail_button(
     cx: &App,
 ) -> Button {
     let theme = cx.theme();
-    let foreground = if !active {
-        theme.muted_foreground
-    } else if theme.mode.is_dark() {
-        white()
-    } else {
-        theme.sidebar_foreground
-    };
     kit::button(id)
-        .custom(ButtonCustomVariant::new(cx).foreground(foreground))
+        .custom(ButtonCustomVariant::new(cx))
         .accessibility_label(title.to_owned())
         .size_8()
         .p_0()
@@ -118,7 +111,14 @@ fn rail_button(
             false,
             cx,
         ))
-        .child(icon.with_size(gpui_kit::component::Size::Medium))
+        .child(
+            icon.with_size(gpui_kit::component::Size::Medium)
+                .tone(if active {
+                    IconTone::Selected
+                } else {
+                    IconTone::Muted
+                }),
+        )
         // The accessible name is the icon-only title, not a duplicate
         // description. Native button focus shares the common hover tooltip.
         .hint_keys("", keys, cx)

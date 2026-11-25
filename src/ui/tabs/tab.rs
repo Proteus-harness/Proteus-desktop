@@ -180,7 +180,7 @@ impl Workspace {
             Some(ChatState::Busy(_)) => Spinner::new().xsmall().into_any_element(),
             Some(ChatState::Trouble(_)) => Icon::new(IconName::TriangleAlert)
                 .small()
-                .text_color(theme.warning)
+                .tone(IconTone::Warning)
                 .into_any_element(),
             _ => label.icon.clone().small().into_any_element(),
         };

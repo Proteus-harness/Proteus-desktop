@@ -15,6 +15,18 @@ use crate::ui::kit;
 use crate::ui::kit::ButtonLabel as _;
 use crate::ui::prefs;
 
+pub(super) fn icon_tone(tone: Tone) -> IconTone {
+    match tone {
+        Tone::Default => IconTone::Normal,
+        Tone::Muted => IconTone::Muted,
+        Tone::Accent => IconTone::Accent,
+        Tone::Success => IconTone::Success,
+        Tone::Warning => IconTone::Warning,
+        Tone::Danger => IconTone::Danger,
+        Tone::Color(value) => IconTone::Custom(rgb(value).into()),
+    }
+}
+
 pub(super) fn tone_color(tone: Tone, cx: &App) -> Hsla {
     let theme = cx.theme();
     match tone {
@@ -243,7 +255,7 @@ impl DeclarativeView {
             Node::Icon { name, tone } => Icon::new(super::icon(Some(name)))
                 .small()
                 .flex_none()
-                .text_color(tone_color(*tone, cx))
+                .tone(icon_tone(*tone))
                 .into_any_element(),
             Node::Split { children, widths } => {
                 let border = cx.theme().border;

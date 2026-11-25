@@ -66,7 +66,7 @@ impl Workspace {
             ) => Some(
                 Icon::new(IconName::CircleAlert)
                     .xsmall()
-                    .text_color(theme.warning)
+                    .tone(IconTone::Warning)
                     .into_any_element(),
             ),
             _ if matches!(live, Some(crate::ui::chat::ChatState::Busy(_))) => {
@@ -115,7 +115,7 @@ impl Workspace {
                     Icon::new(Lucide::Pin)
                         .xsmall()
                         .flex_none()
-                        .text_color(theme.muted_foreground),
+                        .tone(IconTone::Muted),
                 )
             })
             .child(match renaming {

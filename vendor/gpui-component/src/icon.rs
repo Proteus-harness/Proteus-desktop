@@ -80,8 +80,28 @@ pub(crate) enum IconSource {
     Data(Arc<[u8]>),
 }
 
+/// A glyph's meaning is independent of the surrounding label style.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum IconTone {
+    #[default]
+    Normal,
+    Muted,
+    Selected,
+    Accent,
+    Success,
+    Warning,
+    Danger,
+    /// Artwork with its own color, such as a file-type icon.
+    Custom(Hsla),
+}
+
+/// Optional application policy for rendering glyphs independently of text palettes.
+pub struct IconColorPolicy(pub fn(IconTone, crate::ThemeMode) -> Hsla);
+impl gpui::Global for IconColorPolicy {}
+
 #[derive(Clone, IntoElement)]
 pub struct Icon {
+    tone: IconTone,
     style: StyleRefinement,
     source: IconSource,
     text_color: Option<Hsla>,
@@ -92,6 +112,7 @@ pub struct Icon {
 impl Default for Icon {
     fn default() -> Self {
         Self {
+            tone: IconTone::Normal,
             style: StyleRefinement::default(),
             source: IconSource::Path("".into()),
             text_color: None,
@@ -147,6 +168,19 @@ impl Icon {
     /// source, color and transformation change only what it paints.
     pub(crate) fn same_layout(&self, other: &Self) -> bool {
         self.style == other.style && self.size == other.size
+    }
+
+    /// Select the glyph role used by the application's optional icon color policy.
+    pub fn tone(mut self, tone: IconTone) -> Self {
+        self.tone = tone;
+        self
+    }
+
+    fn apply_color_policy(mut self, cx: &App) -> Self {
+        if let Some(policy) = cx.try_global::<IconColorPolicy>() {
+            self.text_color = Some((policy.0)(self.tone, cx.theme().mode));
+        }
+        self
     }
 
     /// Create a new view for the icon
@@ -220,9 +254,10 @@ impl Sizable for Icon {
 }
 
 impl RenderOnce for Icon {
-    fn render(self, window: &mut Window, _cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let text_size = window.text_style().font_size.to_pixels(window.rem_size());
-        self.into_svg(text_size, window.text_style().color)
+        self.apply_color_policy(cx)
+            .into_svg(text_size, window.text_style().color)
     }
 }
 
@@ -235,7 +270,9 @@ impl From<Icon> for AnyElement {
 impl Render for Icon {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let text_size = window.text_style().font_size.to_pixels(window.rem_size());
-        self.clone().into_svg(text_size, cx.theme().foreground)
+        self.clone()
+            .apply_color_policy(cx)
+            .into_svg(text_size, cx.theme().foreground)
     }
 }
 

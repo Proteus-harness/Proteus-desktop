@@ -31,26 +31,25 @@ pub(in crate::ui) fn tool_args(tool: &AppTranscriptTool) -> &Value {
     tool.effective_args.as_ref().unwrap_or(&tool.args)
 }
 
-pub(super) fn status_icon(status: &str, connected: bool, cx: &App) -> AnyElement {
-    let theme = cx.theme();
+pub(super) fn status_icon(status: &str, connected: bool) -> AnyElement {
     match display_status(status, connected) {
         "done" => Icon::new(IconName::Check)
             .xsmall()
-            .text_color(theme.success)
+            .tone(IconTone::Success)
             .into_any_element(),
         "failed" | "denied" => Icon::new(IconName::CircleX)
             .xsmall()
-            .text_color(theme.danger)
+            .tone(IconTone::Danger)
             .into_any_element(),
         "waiting_approval" => Icon::new(IconName::CircleAlert)
             .xsmall()
-            .text_color(theme.warning)
+            .tone(IconTone::Warning)
             .into_any_element(),
         status if is_running(status) => Spinner::new().xsmall().into_any_element(),
         // Settled or unconfirmed state does not animate.
         _ => Icon::new(Lucide::CircleStop)
             .xsmall()
-            .text_color(theme.chat_secondary_foreground)
+            .tone(IconTone::Muted)
             .into_any_element(),
     }
 }
@@ -84,7 +83,7 @@ fn line_with_name(
         .gap_2()
         .text_sm()
         .min_w_0()
-        .child(status_icon(&tool.status, connected, cx))
+        .child(status_icon(&tool.status, connected))
         .child(name)
         .children(
             stats
@@ -458,15 +457,15 @@ pub(super) fn plan_list(steps: &[PlanStep], cx: &App) -> Div {
         .gap_1()
         .text_sm()
         .children(steps.iter().map(|step| {
-            let (icon, color) = match step.status {
-                StepStatus::Completed => (Lucide::CircleCheck, theme.success),
-                StepStatus::InProgress => (Lucide::CircleDot, theme.warning),
-                StepStatus::Pending => (Lucide::Minus, theme.muted_foreground),
+            let (icon, tone) = match step.status {
+                StepStatus::Completed => (Lucide::CircleCheck, IconTone::Success),
+                StepStatus::InProgress => (Lucide::CircleDot, IconTone::Warning),
+                StepStatus::Pending => (Lucide::Minus, IconTone::Muted),
             };
             h_flex()
                 .gap_2()
                 .items_start()
-                .child(Icon::new(icon).xsmall().text_color(color).mt_0p5())
+                .child(Icon::new(icon).xsmall().tone(tone).mt_0p5())
                 .child(
                     div()
                         .min_w_0()
