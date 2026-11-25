@@ -77,6 +77,10 @@ Runner включает `PROTEUS_STARTUP_TRACE=1`: для `PROTEUS_HISTORY` кл
 Измеряются RSS, PSS, SwapPss, private memory, CPU, IO и sampled peak всего
 дерева: GUI, backend, modules, extensions. Сам sampler, compositor и observer
 в сумму приложения не входят. 100% CPU означает одно логическое ядро.
+В `report.json` поля `pss_anon_kib`, `pss_file_kib` и `pss_shmem_kib`
+показывают медиану PSS анонимных страниц, файловых отображений и общей памяти (shmem) в покое
+для всего дерева и каждой группы. Если в период измерения у работающего
+процесса отсутствовало соответствующее поле ядра, медиана отмечается `null`.
 
 Readiness разделена на `backend.ready`, `window.create`,
 `chat.snapshot.applied`, `chat.transcript.render`. Последняя отметка означает
