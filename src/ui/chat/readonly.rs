@@ -6,7 +6,7 @@
 use gpui_kit::base::ElementExt as _;
 use gpui_kit::component::*;
 use gpui_kit::*;
-use proteus_contracts::app_protocol::{AppSubagentSession, AppTranscriptCursor};
+use proteus_contracts::app_protocol::AppSubagentSession;
 use serde::{Deserialize, Serialize};
 
 use super::{Chat, ComposerExtras, Session};
@@ -244,18 +244,8 @@ impl Chat {
                 }
                 let visible = workspace.document_visible(&document, cx.entity_id());
                 match result {
-                    Ok(page) if page.start + page.messages.len() == page.total => {
-                        let cursor = AppTranscriptCursor {
-                            revision: page.revision,
-                            before: page.start,
-                            base: page.base,
-                        };
-                        let (_, changes) = this.history.apply(
-                            &mut this.session.transcript,
-                            page.messages,
-                            Some(cursor),
-                        );
-                        this.apply_history_changes(changes, cx);
+                    Ok(page) if page.start.checked_add(page.messages.len()) == Some(page.total) => {
+                        this.apply_saved_tail(page, cx);
                         let binding = this.readonly.as_mut().unwrap();
                         binding.loaded = true;
                         binding.error = None;

@@ -50,7 +50,7 @@ use gpui_kit::component::{
     input::{InputEvent, TextareaState},
 };
 use gpui_kit::*;
-use proteus_contracts::app_protocol::AppSessionActivity;
+use proteus_contracts::app_protocol::{AppSessionActivity, AppTranscriptPage};
 
 pub(super) use session::{ChatState, Session};
 
@@ -250,21 +250,52 @@ impl Chat {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let events = prepared_stream
-            .unwrap_or_else(|| crate::connection::spawn_pump(api.clone(), session_dir.clone()));
-        let initial = crate::connection::take_initial_events(&events);
         let mut chat = Self::base(
-            Some(api),
+            None,
             workspace,
             Session::new(session_dir),
             extras,
             window,
             cx,
         );
-        chat._pump = Some(pump::start(events, cx));
-        chat.apply_batch(initial, cx);
-        chat.load_config(cx);
+        chat.attach_core(api, prepared_stream, cx);
         chat
+    }
+
+    pub(super) fn from_saved_tail(
+        workspace: WeakEntity<crate::ui::workspace::Workspace>,
+        session_dir: PathBuf,
+        page: AppTranscriptPage,
+        extras: ComposerExtras,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let mut chat = Self::base(
+            None,
+            workspace,
+            Session::new(session_dir),
+            extras,
+            window,
+            cx,
+        );
+        chat.apply_saved_tail(page, cx);
+        chat
+    }
+
+    pub(super) fn attach_core(
+        &mut self,
+        api: Api,
+        prepared_stream: Option<async_channel::Receiver<crate::connection::PumpItem>>,
+        cx: &mut Context<Self>,
+    ) {
+        let events = prepared_stream.unwrap_or_else(|| {
+            crate::connection::spawn_pump(api.clone(), self.session.dir.clone())
+        });
+        let initial = crate::connection::take_initial_events(&events);
+        self.api = Some(api);
+        self._pump = Some(pump::start(events, cx));
+        self.apply_batch(initial, cx);
+        self.load_config(cx);
     }
 
     fn base(

@@ -196,6 +196,7 @@ impl Workspace {
         }
         let pending = Rc::new(Cell::new(open));
         self.opening.insert(id.clone(), pending.clone());
+        self.load_opening_view(dir.clone(), id.clone(), pending.clone(), window, cx);
         self.call_in(
             window,
             cx,
@@ -211,12 +212,70 @@ impl Workspace {
                         return this.fail_chat_resume(&id, format!("{error:#}"), cx);
                     }
                 };
+                if tabs::chat_dir(&id) != Some(opened.session_dir.as_path()) {
+                    this.opening_views.remove(&id);
+                }
                 this.session_projects
                     .insert(opened.session_dir.clone(), opened.workspace_path);
                 let id = this.insert_chat(opened.session_dir, window, cx);
                 this.finish_chat_resume(&id, open, window, cx);
             },
         );
+    }
+
+    // The saved tail can paint while Core assembles the live session. Only
+    // attach network commands after the resume acknowledgement.
+    fn load_opening_view(
+        &self,
+        dir: PathBuf,
+        id: String,
+        pending: Rc<Cell<Option<OpenDocument>>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.layout.is_visible(&id) {
+            return;
+        }
+        let Some(api) = self.api() else {
+            return;
+        };
+        let connection = api.connection_id();
+        cx.spawn_in(window, async move |this, cx| {
+            let source = dir.clone();
+            let Ok(Some(page)) = cx
+                .background_executor()
+                .spawn(async move { api.cached_history_tail(&source) })
+                .await
+            else {
+                return;
+            };
+            if page.messages.is_empty()
+                || page.start.checked_add(page.messages.len()) != Some(page.total)
+            {
+                return;
+            }
+            this.update_in(cx, |this, window, cx| {
+                if !this.has_core_connection(connection)
+                    || !this
+                        .opening
+                        .get(&id)
+                        .is_some_and(|active| Rc::ptr_eq(active, &pending))
+                    || !this.layout.is_visible(&id)
+                    || this.chats.contains_key(&id)
+                {
+                    return;
+                }
+                let workspace = cx.weak_entity();
+                let extras = this.composer_extras(cx);
+                let view =
+                    cx.new(|cx| Chat::from_saved_tail(workspace, dir, page, extras, window, cx));
+                this.opening_views.insert(id, view);
+                crate::startup_trace::mark("chat.saved_tail.applied");
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     /// Restores a closed tab immediately, then fills its loading page.
@@ -370,9 +429,14 @@ impl Workspace {
         let Some(api) = self.api() else {
             return id;
         };
+        let stream = self.startup_streams.remove(&dir);
+        if let Some(view) = self.opening_views.remove(&id) {
+            view.update(cx, |chat, cx| chat.attach_core(api, stream, cx));
+            self.bind_chat(&id, view, cx);
+            return id;
+        }
         let extras = self.composer_extras(cx);
         let workspace = cx.weak_entity();
-        let stream = self.startup_streams.remove(&dir);
         let view = cx.new(|cx| Chat::new(api, workspace, dir, stream, extras, window, cx));
         self.bind_chat(&id, view, cx);
         id
@@ -605,6 +669,8 @@ impl Workspace {
     pub(super) fn sync_chats(&mut self, layout: &TabLayout, cx: &mut Context<Self>) {
         self.chats
             .retain(|id, _| self.spaces.contains(id) || self.spaces.roots().any(|root| root == id));
+        self.opening_views
+            .retain(|id, _| self.opening.contains_key(id) && self.spaces.contains(id));
         self.release_hidden_chat_activities(layout, cx);
         // A load owns its subscription until its acknowledgement arrives.
         // A quick reopen must reuse it instead of registering the same thread

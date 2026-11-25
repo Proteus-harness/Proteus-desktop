@@ -129,6 +129,13 @@ impl Api {
         self.get("/history/page", Some(session_dir))
     }
 
+    pub fn cached_history_tail(
+        &self,
+        session_dir: &Path,
+    ) -> Result<Option<proteus_contracts::app_protocol::AppTranscriptPage>> {
+        self.get("/history/cached-tail", Some(session_dir))
+    }
+
     pub fn resume(&self, session_dir: &Path) -> Result<SessionOpened> {
         let body = ResumeSessionRequest {
             id: Some(request_id("resume")),
@@ -382,7 +389,8 @@ impl Api {
         let response = request.call()?;
         let status = response.status();
         let body = response.into_body();
-        let body = if path == "/history/page" && status.is_success() {
+        let body = if matches!(path, "/history/page" | "/history/cached-tail") && status.is_success()
+        {
             read_history_body(body)?
         } else {
             body.into_with_config().read_to_string()?

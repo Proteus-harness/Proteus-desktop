@@ -14,6 +14,9 @@ impl Render for Chat {
         self.ensure_readonly_history(cx);
         if !self.display_transcript().entries().is_empty() {
             crate::startup_trace::first("chat.transcript.render");
+            if self.api.is_none() && self.codex.is_none() && self.readonly.is_none() {
+                crate::startup_trace::first("chat.saved_tail.rendered");
+            }
         }
         // The chat is retained apart from the window and drives its own
         // disclosures; caption ticks update their retained child separately.

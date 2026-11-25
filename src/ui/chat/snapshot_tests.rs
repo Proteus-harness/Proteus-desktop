@@ -1,9 +1,11 @@
 //! Snapshot routing regressions through the same Session/History helper as the pump.
-use super::{Session, history::History};
+use super::{Chat, Session, history::History};
+use crate::connection::PumpItem;
 use crate::transcript::Change;
+use gpui_kit::{AppContext, WeakEntity};
 use proteus_contracts::app_protocol::{
     AppServerEvent, AppSessionSnapshot, AppTranscriptCursor, AppTranscriptMessage,
-    AppTranscriptTool,
+    AppTranscriptPage, AppTranscriptTool,
 };
 use proteus_contracts::domain::{Event, EventContext, EventEnvelope, MessageId, ThreadId};
 use uuid::Uuid;
@@ -127,6 +129,65 @@ fn rows(start: usize, end: usize) -> Vec<AppTranscriptMessage> {
             streaming: false,
         })
         .collect()
+}
+
+#[test]
+fn saved_tail_display_is_reconciled_with_the_first_live_snapshot() {
+    let mut cx = ::gpui::TestAppContext::single();
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::ui::prefs::init_in_memory(cx);
+    });
+    let window = cx.add_empty_window();
+    let chat = window.update(|window, cx| {
+        cx.new(|cx| {
+            Chat::from_saved_tail(
+                WeakEntity::new_invalid(),
+                "/saved/chat".into(),
+                AppTranscriptPage {
+                    revision: "saved".into(),
+                    start: 10,
+                    total: 13,
+                    messages: rows(10, 13),
+                    base: None,
+                },
+                std::rc::Rc::new(|_, _, _| None),
+                window,
+                cx,
+            )
+        })
+    });
+    chat.update(&mut cx, |chat, cx| {
+        let entries = chat.display_transcript().entries();
+        assert_eq!(&*entries[0].text, "row 10");
+        assert_eq!(entries.len(), 3);
+        let first_key = entries[0].key;
+        let first_text = entries[0].text.clone();
+        assert!(!chat.supports_core());
+        assert!(!chat.session.connected);
+        assert!(chat.session.durable_id().is_none());
+        chat.apply(PumpItem::Connected, cx);
+        chat.apply(
+            PumpItem::Event(Box::new(snapshot(
+                None,
+                "live",
+                1,
+                rows(10, 14),
+                Some(AppTranscriptCursor {
+                    revision: "live".into(),
+                    before: 10,
+                    base: None,
+                }),
+            ))),
+            cx,
+        );
+        let entries = chat.display_transcript().entries();
+        assert_eq!(entries[0].key, first_key);
+        assert!(std::sync::Arc::ptr_eq(&first_text, &entries[0].text));
+        assert_eq!(&*entries[3].text, "row 13");
+        assert_eq!(entries.len(), 4);
+        assert_eq!(chat.session.durable_id(), Some(id(1)));
+    });
 }
 
 #[test]

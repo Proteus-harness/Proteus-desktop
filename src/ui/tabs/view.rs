@@ -231,13 +231,18 @@ impl Workspace {
     ) -> Div {
         let id = pane.id;
         let content = match pane.active.as_deref() {
-            Some(tab) if tabs::is_chat(tab) => match self.chats.get(tab) {
+            Some(tab) if tabs::is_chat(tab) => match self
+                .chats
+                .get(tab)
+                .map(|chat| &chat.view)
+                .or_else(|| self.opening_views.get(tab))
+            {
                 // Ordinary retained views splice dirty descendants without
                 // rendering the whole chat. An explicit cached-style wrapper
                 // instead rebuilds this parent on each caption animation tick.
-                Some(chat) => div()
+                Some(view) => div()
                     .size_full()
-                    .child(AnyView::from(chat.view.clone()))
+                    .child(AnyView::from(view.clone()))
                     .into_any_element(),
                 None => {
                     if let Some(key) = tabs::chat_key(tab) {

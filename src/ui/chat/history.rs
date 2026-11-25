@@ -490,6 +490,18 @@ impl History {
 }
 
 impl Chat {
+    pub(super) fn apply_saved_tail(&mut self, page: AppTranscriptPage, cx: &mut Context<Self>) {
+        let cursor = AppTranscriptCursor {
+            revision: page.revision,
+            before: page.start,
+            base: page.base,
+        };
+        let (_, changes) =
+            self.history
+                .apply(&mut self.session.transcript, page.messages, Some(cursor));
+        self.apply_history_changes(changes, cx);
+    }
+
     pub(super) fn display_transcript(&self) -> &Transcript {
         self.codex
             .as_ref()

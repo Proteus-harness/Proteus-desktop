@@ -9,6 +9,7 @@ use crate::conversations::ConversationSummary;
 use anyhow::Result;
 use gpui_kit::*;
 
+use super::chat::Chat;
 use super::chats::OpenChat;
 use super::chrome::WorkspaceRequest;
 use super::extensions::{OpenDocument, SurfaceView};
@@ -98,6 +99,8 @@ pub struct Workspace {
         HashMap<PathBuf, async_channel::Receiver<crate::connection::PumpItem>>,
     /// Chats being resumed, and how they open.
     pub(super) opening: HashMap<String, Rc<Cell<Option<OpenDocument>>>>,
+    /// Saved tails visible before their live session is available.
+    pub(super) opening_views: HashMap<String, Entity<Chat>>,
     /// Only the latest explicit new-chat request may select its result.
     pub(super) creating_chat: Option<Rc<()>>,
     /// Tab id of the chat that commands and extensions address.
@@ -289,6 +292,7 @@ impl Workspace {
             chats: HashMap::new(),
             startup_streams: HashMap::new(),
             opening: HashMap::new(),
+            opening_views: HashMap::new(),
             creating_chat: None,
             active_chat: None,
             notice: None,
@@ -382,6 +386,10 @@ impl Workspace {
         self.api.clone()
     }
 
+    pub(super) fn has_core_connection(&self, connection: u64) -> bool {
+        self.windows.has_core_connection(connection)
+    }
+
     /// Chats whose agent run is still going; closing the server ends them.
     pub(super) fn running_chats(&self, cx: &App) -> usize {
         self.chats
@@ -410,7 +418,7 @@ impl Workspace {
             this.update(cx, |this, cx| {
                 match result {
                     Ok((api, exited, value)) => {
-                        if !this.windows.has_core_connection(api.connection_id()) {
+                        if !this.has_core_connection(api.connection_id()) {
                             return;
                         }
                         this.api = Some(api);
@@ -462,7 +470,7 @@ impl Workspace {
             this.update_in(cx, |this, window, cx| {
                 match result {
                     Ok((api, exited, value)) => {
-                        if !this.windows.has_core_connection(api.connection_id()) {
+                        if !this.has_core_connection(api.connection_id()) {
                             return;
                         }
                         this.api = Some(api);
