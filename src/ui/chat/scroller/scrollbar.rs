@@ -289,9 +289,7 @@ impl HistoryScrollbar {
             self.measurements.clone(),
             range,
             index,
-            (index < range.rows)
-                .then(|| self.geometry.borrow().estimated_height(range.start + index))
-                .flatten(),
+            self.geometry.clone(),
             context_complete,
         )
         .into_any_element()

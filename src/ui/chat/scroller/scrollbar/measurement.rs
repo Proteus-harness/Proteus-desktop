@@ -9,7 +9,7 @@ use std::{
 
 use gpui_kit::*;
 
-use super::HistoryRange;
+use super::{Geometry, HistoryRange};
 
 #[derive(Default)]
 pub(super) struct Measurements {
@@ -27,7 +27,7 @@ impl Measurements {
             return;
         }
         let old_range = self.range;
-        let old_readiness = std::mem::take(&mut self.readiness);
+        let mut old_readiness = std::mem::take(&mut self.readiness);
         self.readiness = range.map_or_else(Vec::new, |range| {
             (0..=range.rows)
                 .map(|index| {
@@ -40,8 +40,8 @@ impl Measurements {
                                         || (*old_index == old.rows && index == range.rows)
                                 })
                         })
-                        .and_then(|index| old_readiness.get(index))
-                        .cloned()
+                        .and_then(|index| old_readiness.get_mut(index))
+                        .map(std::mem::take)
                         .unwrap_or_default()
                 })
                 .collect()
@@ -112,7 +112,7 @@ pub(super) struct MeasuredRow {
     range: HistoryRange,
     epoch: u64,
     index: usize,
-    previous_height: Option<Pixels>,
+    geometry: Rc<RefCell<Geometry>>,
     context_complete: bool,
 }
 
@@ -123,7 +123,7 @@ impl MeasuredRow {
         measurements: Rc<RefCell<Measurements>>,
         range: HistoryRange,
         index: usize,
-        previous_height: Option<Pixels>,
+        geometry: Rc<RefCell<Geometry>>,
         context_complete: bool,
     ) -> Self {
         let epoch = measurements.borrow().epoch;
@@ -134,7 +134,7 @@ impl MeasuredRow {
             range,
             epoch,
             index,
-            previous_height,
+            geometry,
             context_complete,
         }
     }
@@ -203,12 +203,15 @@ impl Element for MeasuredRow {
         // A canonical scalar can belong to a hidden member of a clipped tool
         // group, while this partial page temporarily renders its header here.
         // Hold only asynchronous content with the same semantic surroundings.
-        let held = current && self.context_complete && !ready && self.previous_height.is_some();
-        let height = if held {
-            self.previous_height.unwrap()
-        } else {
-            natural.height
-        };
+        let placeholder =
+            if current && self.context_complete && !ready && self.index < self.range.rows {
+                self.geometry
+                    .borrow()
+                    .estimated_height(self.range.start + self.index)
+            } else {
+                None
+            };
+        let height = placeholder.unwrap_or(natural.height);
         if current {
             self.measurements
                 .borrow_mut()
@@ -218,7 +221,10 @@ impl Element for MeasuredRow {
         style.flex_shrink = 0.;
         style.size.width = natural.width.into();
         style.size.height = height.into();
-        (window.request_layout(style, None, cx), held)
+        (
+            window.request_layout(style, None, cx),
+            placeholder.is_some(),
+        )
     }
 
     fn prepaint(
@@ -305,6 +311,10 @@ mod readiness_tests {
         };
         let measurements = Rc::new(RefCell::new(Measurements::default()));
         measurements.borrow_mut().set_range(Some(range));
+        let geometry = Rc::new(RefCell::new(Geometry::default()));
+        // Both a clipped row and a ready row use their natural height.
+        // Keeping the map borrowed catches any eager placeholder lookup.
+        let _guard = geometry.borrow_mut();
         let paint = |cx: &mut ::gpui::VisualTestContext, complete| {
             cx.draw(point(px(0.), px(0.)), size(px(320.), px(700.)), |_, _| {
                 MeasuredRow::new(
@@ -313,7 +323,7 @@ mod readiness_tests {
                     measurements.clone(),
                     range,
                     49,
-                    Some(px(82.)),
+                    geometry.clone(),
                     complete,
                 )
             })
@@ -373,6 +383,15 @@ mod readiness_tests {
         let width = Rc::new(Cell::new(px(320.)));
         let token = Token::default();
         let view = cx.update(|_, cx| cx.new(|_| Pending(token.clone())));
+        let geometry = Rc::new(RefCell::new(Geometry::default()));
+        geometry.borrow_mut().refresh(
+            &ListState::new(range.rows + 1, ListAlignment::Top, px(0.)),
+            range,
+            px(100.),
+            px(0.),
+            px(0.),
+            [(0, px(437.))].into_iter(),
+        );
         let make = |child| {
             MeasuredRow::new(
                 child,
@@ -380,7 +399,7 @@ mod readiness_tests {
                 measurements.clone(),
                 range,
                 0,
-                Some(px(437.)),
+                geometry.clone(),
                 true,
             )
         };
