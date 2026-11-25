@@ -29,6 +29,58 @@ fn folded_chain_skips_the_chat_update_for_its_measured_tail() {
     assert!(!folded.hides(rows.end));
 }
 
+struct FoldedRows {
+    state: ListState,
+    wrapped: bool,
+}
+
+impl Render for FoldedRows {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let wrapped = self.wrapped;
+        list(self.state.clone(), move |index, _, _| {
+            let row = match index {
+                0 => div().h(px(24.)).into_any_element(),
+                3 => div().h(px(32.)).into_any_element(),
+                _ => Empty.into_any_element(),
+            };
+            if wrapped {
+                div().w_full().min_w_0().child(row).into_any_element()
+            } else {
+                row
+            }
+        })
+        .size_full()
+    }
+}
+
+#[::core::prelude::v1::test]
+fn empty_folded_rows_keep_the_following_list_row_in_place() {
+    let mut app = TestAppContext::single();
+    let cx = app.add_empty_window();
+    let viewport = size(px(400.), px(240.));
+    for wrapped in [false, true] {
+        let state = ListState::new(4, ListAlignment::Top, px(0.));
+        let view = cx.update(|_, cx| {
+            cx.new(|_| FoldedRows {
+                state: state.clone(),
+                wrapped,
+            })
+        });
+        cx.draw(point(px(0.), px(0.)), viewport, |_, _| {
+            view.into_any_element()
+        });
+        let head = state.bounds_for_item(0).unwrap();
+        let next = state.bounds_for_item(3).unwrap();
+        for index in 1..3 {
+            let tail = state.bounds_for_item(index).unwrap();
+            assert_eq!(tail.size.height, px(0.));
+            assert_eq!(tail.top(), head.bottom());
+        }
+        assert_eq!(next.top(), head.bottom());
+        assert_eq!(next.size.height, px(32.));
+    }
+}
+
 #[derive(Clone, Copy)]
 enum Layout {
     Combined(usize),

@@ -43,7 +43,7 @@ pub(super) fn thread_renderer(
     let mut chain: Option<ChainRender> = None;
     move |index, window, cx| {
         if chain.as_ref().is_some_and(|chain| chain.hides(index)) {
-            return div().into_any_element();
+            return Empty.into_any_element();
         }
         chat.update(cx, |chat, cx| {
             chat.render_row(index, &mut chain, frame_at, window, cx)
@@ -167,7 +167,7 @@ impl Chat {
         }
         let chain = last_chain.as_ref();
         if chain.is_some_and(|chain| chain.hides(ix)) {
-            return div().into_any_element();
+            return Empty.into_any_element();
         }
         let end = chain
             .filter(|chain| !chain.open || chain.moving.is_some())
