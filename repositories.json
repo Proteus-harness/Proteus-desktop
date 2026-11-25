@@ -8,14 +8,14 @@
   },
   "modules": {
     "url": "https://github.com/Proteus-harness/Proteus-modules.git",
-    "rev": "969240eac80348324938b9e2630c7d3fc29f6170",
+    "rev": "ed77c910839b0bce31ec36a809ccb71f345a9292",
     "env": "PROTEUS_MODULES_SOURCE",
     "local": "../Proteus-modules",
     "marker": "Cargo.toml"
   },
   "extensions": {
     "url": "https://github.com/Proteus-harness/Proteus-desktop-extensions.git",
-    "rev": "8314e38e8b3ff14b9d4024d3a52d503a85e82872",
+    "rev": "ebf3099018c136174df5b7007e31edaed718c4ca",
     "env": "PROTEUS_EXTENSIONS_SOURCE",
     "local": "../Proteus-desktop-extensions",
     "marker": "package.py"
