@@ -209,6 +209,14 @@ def idle_cpu(samples, clock_ticks):
     return median, weighted, len(intervals)
 
 
+def idle_medians(rows, keys):
+    result = {key: statistics.median(row[key] for row in rows) for key in keys}
+    for key in ('pss_anon_kib', 'pss_file_kib', 'pss_shmem_kib'):
+        values = [row.get(key) for row in rows]
+        result[key] = statistics.median(values) if all(v is not None for v in values) else None
+    return result
+
+
 def run_case(args, case, workspace, config, restart, expected):
     from proc_sampler import Tree, Recorder
     target = case / ('restart' if restart else 'first')
@@ -291,15 +299,14 @@ def run_case(args, case, workspace, config, restart, expected):
     idle = [row for row in samples if row['phase'] == 'idle']
     assert len(idle) >= 2, 'insufficient steady samples'
     median_cpu, weighted_cpu, cpu_intervals = idle_cpu(samples, tree.clock_ticks)
-    median = {key: statistics.median(row[key] for row in idle)
-              for key in ('rss_kib', 'pss_kib', 'swap_pss_kib', 'pss_swap_kib', 'private_kib')}
+    median = idle_medians(idle, ('rss_kib', 'pss_kib', 'swap_pss_kib', 'pss_swap_kib', 'private_kib'))
     median['interval_cpu_percent_one_core'] = median_cpu
     stages, history = traces(log)
     result = dict(status='passed', cache='restart' if restart else 'first-app-cache',
                   stages=stages, external_readiness_observed_s=ready_at-started,
                   median=median,
-                  groups={group: {key: statistics.median(row['groups'][group][key] for row in idle)
-                                  for key in ('rss_kib', 'pss_kib', 'pss_swap_kib', 'process_count')}
+                  groups={group: idle_medians([row['groups'][group] for row in idle],
+                                              ('rss_kib', 'pss_kib', 'pss_swap_kib', 'process_count'))
                           for group in idle[-1]['groups']},
                   counters=tree.totals(), journal=dict(bytes=journal.stat().st_size, sha256=before, unchanged=True),
                   measured_peak_kib={key:max(row[key] for row in samples)

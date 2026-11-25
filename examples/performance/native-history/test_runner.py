@@ -4,7 +4,7 @@ from tempfile import TemporaryDirectory
 import unittest
 import tomllib
 
-from run import process_group, canonical_files, validate_canonical, profile, storage_binary, idle_cpu
+from run import process_group, canonical_files, validate_canonical, profile, storage_binary, idle_cpu, idle_medians
 
 
 class ProcessGroups(unittest.TestCase):
@@ -80,6 +80,14 @@ class ProcessGroups(unittest.TestCase):
             self.assertEqual(group({'exe': unknown, 'argv': [str(core)], 'name': 'proteus'}), 'other')
         self.assertEqual(group({'name': 'node'}), 'extensions')
         self.assertEqual(group({'exe': str(extensions / 'deep/old/proteus')}), 'extensions')
+
+
+class IdleMemory(unittest.TestCase):
+    def test_optional_breakdown_preserves_missing_and_zero(self):
+        rows = [dict(pss_kib=10, pss_anon_kib=10, pss_shmem_kib=0),
+                dict(pss_kib=20, pss_anon_kib=18, pss_file_kib=2, pss_shmem_kib=0)]
+        self.assertEqual(idle_medians(rows, ('pss_kib',)),
+                         dict(pss_kib=15, pss_anon_kib=14, pss_file_kib=None, pss_shmem_kib=0))
 
 
 class IdleCpu(unittest.TestCase):
