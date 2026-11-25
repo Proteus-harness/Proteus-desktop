@@ -37,14 +37,17 @@ def write_png(path, width, height, index):
     """Stream scanlines into zlib; never materialize the decoded corpus in Python."""
     compressor = zlib.compressobj(6)
     compressed = bytearray()
-    for y in range(height):
+    band_rows = 16
+    for y in range(0, height, band_rows):
         # Distinct indexed checker/gradient patterns; RGBA PNG, filter type 0.
+        # Each channel is constant within an aligned band of scanlines.
         palette = bytes(channel for x in range(256) for channel in
                         ((x * 3 + index * 29 + y // 32 * 17) % 256,
-                         (x + index * 61 + y // 16 * 7) % 256,
+                          (x + index * 61 + y // band_rows * 7) % 256,
                          (255 - x + index * 11 + y // 64 * 37) % 256, 255))
-        row = (palette * ((width + 255) // 256))[:width * 4]
-        compressed.extend(compressor.compress(b"\0" + row))
+        scanline = b"\0" + (palette * ((width + 255) // 256))[:width * 4]
+        for _ in range(min(band_rows, height - y)):
+            compressed.extend(compressor.compress(scanline))
     compressed.extend(compressor.flush())
     png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
            + chunk(b"IDAT", compressed) + chunk(b"IEND", b""))
