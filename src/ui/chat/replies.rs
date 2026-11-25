@@ -76,7 +76,7 @@ impl Replies {
             let resize = cx.subscribe(&view, move |chat, _, _: &content::WillResize, cx| {
                 if let Some(row) = chat.row_of(key) {
                     chat.scroller
-                        .update(cx, |scroller, cx| scroller.toggled(row..row + 1, cx));
+                        .update(cx, |scroller, cx| scroller.toggled(row..row + 1, true, cx));
                 }
             });
             (Part::Content(view), Some(changes), Some(resize))

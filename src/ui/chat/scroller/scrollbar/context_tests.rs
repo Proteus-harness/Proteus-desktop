@@ -23,11 +23,14 @@ impl Render for GroupedRows {
         );
         let chat = self.chat.clone();
         let at = Instant::now();
+        let mut last_chain = 0..0;
         list(bar.list.clone(), move |ix, window, cx| {
             let row = if ix == range.rows {
                 div().h(px(0.)).into_any_element()
             } else {
-                chat.update(cx, |chat, cx| chat.render_row(ix, at, window, cx))
+                chat.update(cx, |chat, cx| {
+                    chat.render_row(ix, &mut last_chain, at, window, cx)
+                })
             };
             bar.measure_chat_row(ix, row, context.missing(ix).is_none())
         })

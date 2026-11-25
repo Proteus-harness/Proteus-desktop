@@ -26,12 +26,16 @@ impl Chat {
         if open {
             self.open_chains.insert(head);
         }
-        motion::toggled(chain_reveal_key(cx.entity_id(), head), open, cx);
         let entries = self.display_transcript().entries();
         if let Some(row) = entries.iter().position(|entry| entry.key == head) {
             let rows = affected_rows(entries, row);
+            let reveal = chain_reveal_key(cx.entity_id(), head, rows.len());
+            let animated = reveal.is_some() && motion::moves(cx) && !cx.reduce_motion();
+            if let Some(reveal) = reveal {
+                motion::toggled(reveal, open, cx);
+            }
             self.scroller
-                .update(cx, |scroller, cx| scroller.toggled(rows, cx));
+                .update(cx, |scroller, cx| scroller.toggled(rows, animated, cx));
         }
         cx.notify();
     }
@@ -44,9 +48,11 @@ impl Chat {
     }
 }
 
-/// Motion key of the run starting at row `head`; row keys repeat across chats.
-pub(super) fn chain_reveal_key(chat: EntityId, head: u64) -> SharedString {
-    format!("tool-chain-{chat}-{head}").into()
+/// During a reveal the head lays out every call in one block. Keep that
+/// temporary layout small, including when new calls arrive mid-transition.
+pub(super) fn chain_reveal_key(chat: EntityId, head: u64, calls: usize) -> Option<SharedString> {
+    const MAX_ANIMATED_CALLS: usize = 24;
+    (calls <= MAX_ANIMATED_CALLS).then(|| format!("tool-chain-{chat}-{head}").into())
 }
 
 /// Geometry only, bounded like the chat's scroll diagnostics. Comparing the

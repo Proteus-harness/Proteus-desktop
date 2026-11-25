@@ -59,7 +59,7 @@ impl Chat {
         motion::toggled(reveal_key(cx.entity_id(), key), open, cx);
         if let Some(row) = self.row_of(key) {
             self.scroller
-                .update(cx, |scroller, cx| scroller.toggled(row..row + 1, cx));
+                .update(cx, |scroller, cx| scroller.toggled(row..row + 1, true, cx));
         }
         cx.notify();
     }
@@ -78,7 +78,7 @@ impl Chat {
         );
         if let Some(row) = self.row_of(key) {
             self.scroller
-                .update(cx, |scroller, cx| scroller.toggled(row..row + 1, cx));
+                .update(cx, |scroller, cx| scroller.toggled(row..row + 1, true, cx));
         }
         cx.notify();
     }
@@ -103,6 +103,7 @@ impl Chat {
     pub(super) fn render_row(
         &mut self,
         ix: usize,
+        last_chain: &mut Range<usize>,
         frame_at: Instant,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -120,13 +121,20 @@ impl Chat {
             return div().into_any_element();
         }
         let compact = prefs::visual(cx).view.compact_tools;
-        let chain = self.chain_at(ix, compact);
+        let chain = if last_chain.contains(&ix) {
+            Some(last_chain.clone())
+        } else {
+            let chain = self.chain_at(ix, compact);
+            *last_chain = chain.clone().unwrap_or(0..0);
+            chain
+        };
         let chain_head = chain.as_ref().map(|chain| entries[chain.start].key);
         let chain_open = chain_head.is_some_and(|head| self.chain_open(head));
-        let chain_reveal = chain_head.map(|head| chain_reveal_key(cx.entity_id(), head));
-        // Calls after the head are rows of their own while the run rests
-        // open; while it opens or closes the head draws the whole run as one
-        // block, so it grows like any other disclosure.
+        let chain_reveal = chain.as_ref().and_then(|chain| {
+            chain_reveal_key(cx.entity_id(), entries[chain.start].key, chain.len())
+        });
+        // Short runs grow as one block. Long open runs keep their virtual
+        // rows even when calls arrive during an existing transition.
         let chain_moving = chain_reveal
             .as_ref()
             .is_some_and(|key| motion::moving_at(key, chain_open, frame_at, cx));
@@ -416,7 +424,8 @@ impl Chat {
                 group_visible = chain.is_none_or(|chain| {
                     let head = entries[chain.start].key;
                     let open = self.chain_open(head);
-                    open || motion::moving(&chain_reveal_key(cx.entity_id(), head), open, cx)
+                    open || chain_reveal_key(cx.entity_id(), head, chain.len())
+                        .is_some_and(|key| motion::moving(&key, open, cx))
                 });
             }
             if !group_visible || !self.expanded.contains(&entry.key) {

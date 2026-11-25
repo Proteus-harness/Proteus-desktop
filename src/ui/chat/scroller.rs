@@ -105,7 +105,8 @@ impl EventEmitter<HistorySeekCanceled> for ChatScroller {}
 /// Rows whose height animates after the user toggled them.
 struct Hold {
     rows: Range<usize>,
-    until: Instant,
+    // Instant changes reserve the anchor only until the next list layout.
+    until: Option<Instant>,
 }
 
 impl ChatScroller {
@@ -382,7 +383,7 @@ impl ChatScroller {
     /// left the viewport mid-way do not keep a height from the middle. The
     /// list stops following meanwhile: the row stays under the pointer and
     /// grows downwards instead of being pulled up after the end.
-    pub(super) fn toggled(&mut self, rows: Range<usize>, cx: &mut Context<Self>) {
+    pub(super) fn toggled(&mut self, rows: Range<usize>, animated: bool, cx: &mut Context<Self>) {
         self.scrollbar.exclude_disk(rows.clone());
         self.wheel.clear(&self.list);
         self.following = false;
@@ -391,7 +392,7 @@ impl ChatScroller {
         }
         self.hold = Some(Hold {
             rows: rows.clone(),
-            until: Instant::now() + motion::SLOW + HOLD_TAIL,
+            until: animated.then(|| Instant::now() + motion::SLOW + HOLD_TAIL),
         });
         self.remeasure_items(rows, cx);
     }
@@ -608,7 +609,11 @@ impl ChatScroller {
         let Some(hold) = &self.hold else {
             return false;
         };
-        if now >= hold.until {
+        let Some(until) = hold.until else {
+            self.hold = None;
+            return true;
+        };
+        if now >= until {
             let rows = hold.rows.clone();
             self.hold = None;
             if rows.end <= self.row_count() {

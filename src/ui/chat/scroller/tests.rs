@@ -161,7 +161,7 @@ fn a_middle_disclosure_reserves_native_room_without_a_temporary_scrollbar_extent
             state.list.logical_scroll_top(),
         )
     });
-    cx.update(|_, cx| scroller.update(cx, |state, cx| state.toggled(3..4, cx)));
+    cx.update(|_, cx| scroller.update(cx, |state, cx| state.toggled(3..4, true, cx)));
     draw(cx);
     cx.update(|_, cx| {
         let state = scroller.read(cx);
@@ -187,7 +187,7 @@ fn a_middle_disclosure_reserves_native_room_without_a_temporary_scrollbar_extent
     });
     cx.update(|_, cx| {
         scroller.update(cx, |state, _| {
-            let after = state.hold.as_ref().unwrap().until + Duration::from_millis(1);
+            let after = state.hold.as_ref().unwrap().until.unwrap() + Duration::from_millis(1);
             state.step(after, true);
         })
     });
@@ -201,6 +201,29 @@ fn a_middle_disclosure_reserves_native_room_without_a_temporary_scrollbar_extent
             "hold expiry must not move the thumb back"
         );
         assert_eq!(state.list.logical_scroll_top(), anchor);
+    });
+}
+
+#[test]
+fn a_large_tool_chain_switches_to_virtual_rows_with_one_anchor_layout() {
+    let chat_id = 1u64.into();
+    let key = crate::ui::chat::tool_chain::chain_reveal_key;
+    assert!(key(chat_id, 7, 3).is_some());
+    // A run can grow even after its original reveal started.
+    assert!(key(chat_id, 7, 300).is_none());
+
+    let app = ::gpui::TestAppContext::single();
+    app.update(|cx| {
+        cx.new(|cx| {
+            let mut state = ChatScroller::new(true);
+            state.list.splice(0..0, 300);
+            state.toggled(0..300, false, cx);
+            assert!(!state.following);
+            let now = Instant::now();
+            assert!(state.hold(now));
+            assert!(!state.hold(now));
+            state
+        })
     });
 }
 
@@ -315,7 +338,7 @@ fn wheel_down_releases_disclosure_room_at_the_natural_content_end() {
     state.tail.hold(px(600.));
     state.hold = Some(Hold {
         rows: 0..1,
-        until: Instant::now() + Duration::from_secs(1),
+        until: Some(Instant::now() + Duration::from_secs(1)),
     });
     state.user_scroll(point(px(0.), px(30.)));
     assert!(state.hold.is_none());
