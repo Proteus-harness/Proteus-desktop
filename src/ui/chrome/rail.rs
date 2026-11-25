@@ -92,8 +92,13 @@ fn rail_button(
     cx: &App,
 ) -> Button {
     let theme = cx.theme();
+    let foreground = if active {
+        white()
+    } else {
+        theme.muted_foreground
+    };
     kit::button(id)
-        .custom(ButtonCustomVariant::new(cx).foreground(theme.muted_foreground))
+        .custom(ButtonCustomVariant::new(cx).foreground(foreground))
         .accessibility_label(title.to_owned())
         .size_8()
         .p_0()
