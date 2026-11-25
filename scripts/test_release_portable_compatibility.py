@@ -103,6 +103,21 @@ def snapshot(root):
 
 
 class PortableCompatibilityTests(unittest.TestCase):
+    def test_module_refresh_keeps_installed_opencode_runtime_and_removes_old_bundled_files(self):
+        stage = self.root / "installed"
+        worker = stage / "share/opencode-runtime/workflow/opencode-runtime/worker.mjs"
+        put(worker)
+        for name in ("opencode-runtime", "retired"):
+            command = "bin/proteus-opencode-module" if name == "opencode-runtime" else "bin/unused"
+            put(stage / command)
+            put(stage / "share/modules" / name / "module.json", json.dumps({"command": [command]}))
+        self.state.clear_modules(stage)
+        self.assertTrue(worker.is_file())
+        self.assertTrue((stage / "bin/proteus-opencode-module").is_file())
+        self.assertTrue((stage / "share/modules/opencode-runtime/module.json").is_file())
+        self.assertFalse((stage / "bin/unused").exists())
+        self.assertFalse((stage / "share/modules/retired").exists())
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="portable-compatibility-")
         self.addCleanup(temporary.cleanup)

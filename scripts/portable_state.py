@@ -132,14 +132,30 @@ def binary_hashes(stage):
 
 
 def clear_modules(stage):
-    for path in (stage / "share/modules").glob("*/module.json"):
+    root = stage / "share/modules"
+    optional = root / "opencode-runtime"
+    runtime_present = (
+        (stage / "share/opencode-runtime/workflow/opencode-runtime/worker.mjs").is_file()
+        and (stage / "bin/proteus-opencode-module").is_file()
+    )
+    preserved = None
+    for path in root.glob("*/module.json"):
         program = Path(json.loads(path.read_text())["command"][0])
         if program.parent != Path("bin"):
             raise SystemExit(f"Unexpected bundled module command: {program}")
+        if runtime_present and path.parent == optional and program == Path("bin/proteus-opencode-module"):
+            preserved = optional
+            continue
         (stage / program).unlink(missing_ok=True)
     for name in ("proteus-hook-worker", "proteus-claude-hooks-inspect"):
         (stage / "bin" / name).unlink(missing_ok=True)
-    shutil.rmtree(stage / "share/modules", ignore_errors=True)
+    for item in root.glob("*"):
+        if item == preserved:
+            continue
+        if item.is_dir() and not item.is_symlink():
+            shutil.rmtree(item)
+        else:
+            item.unlink()
 
 
 @contextmanager
