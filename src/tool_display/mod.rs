@@ -143,20 +143,34 @@ pub fn other_args(args: &Value, subject_key: Option<&str>) -> Vec<(String, Strin
     let Some(map) = args.as_object() else {
         return Vec::new();
     };
-    // Sorted so live rows and snapshot rows list arguments in the same order.
-    let mut args: Vec<_> = map
-        .iter()
-        .filter(|(key, value)| {
-            !value.is_null()
-                && Some(key.as_str()) != subject_key
-                && !TUNING_ARGS.contains(&key.as_str())
-        })
-        .collect();
-    args.sort_by(|a, b| a.0.cmp(b.0));
-    args.into_iter()
-        .take(MAX_ARGS)
-        .map(|(key, value)| (key.clone(), arg_preview(value)))
-        .collect()
+    // Live rows and snapshots need the same lexical ordering even when
+    // serde_json preserves insertion order. Only the first MAX_ARGS can be shown.
+    let mut selected: [Option<(&String, &Value)>; MAX_ARGS] = [None; MAX_ARGS];
+    let mut len = 0;
+    for (key, value) in map.iter().filter(|(key, value)| {
+        !value.is_null()
+            && Some(key.as_str()) != subject_key
+            && !TUNING_ARGS.contains(&key.as_str())
+    }) {
+        if len == MAX_ARGS && selected[MAX_ARGS - 1].is_some_and(|(last, _)| last < key) {
+            continue;
+        }
+        let index = selected[..len]
+            .partition_point(|entry| entry.is_some_and(|(prior, _)| prior < key));
+        let end = len.min(MAX_ARGS - 1);
+        selected.copy_within(index..end, index + 1);
+        selected[index] = Some((key, value));
+        len = (len + 1).min(MAX_ARGS);
+    }
+
+    let mut args = Vec::with_capacity(len);
+    args.extend(
+        selected
+            .into_iter()
+            .flatten()
+            .map(|(key, value)| (key.clone(), arg_preview(value))),
+    );
+    args
 }
 
 pub fn patch_text(args: &Value) -> Option<&str> {

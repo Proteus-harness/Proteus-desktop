@@ -328,7 +328,7 @@ impl QuestionnaireState {
         };
         self.items[item_ix]
             .input()
-            .is_some_and(|input| !input.state().read(cx).value().trim().is_empty())
+            .is_some_and(|input| !input.state().read(cx).is_blank())
     }
 
     pub fn focused_current_choice(&self, window: &Window) -> Option<&SharedString> {

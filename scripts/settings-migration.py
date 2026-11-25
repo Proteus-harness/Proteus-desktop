@@ -6,9 +6,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
-import shutil
 import sys
-import tempfile
 import tomllib
 
 SCHEMA = 1
@@ -117,6 +115,7 @@ def export_archive(args):
     import hashlib
     import io
     import tarfile
+    import tempfile
 
     home, locations = roots(args)
     files = {}
@@ -317,14 +316,16 @@ def restore_archive(args):
     if any(not Path(source).is_absolute() or source == '/' for source, _ in mappings):
         raise ValueError('Invalid source roots')
     data_by_path = {}
-    for name, data in files.items():
+    for name in files:
         parts = PurePosixPath(name).parts
         destination = locations[parts[1]].joinpath(*parts[2:])
         regular_path(destination)
         preferences_at = destination if name == 'files/desktop/preferences.json' else None
         data_by_path[destination] = relocate(
-            data, destination.suffix, mappings, preferences_at=preferences_at,
+            files[name], destination.suffix, mappings, preferences_at=preferences_at,
         )
+        # Drop the validated source payload without changing member order.
+        files[name] = None
     for path in data_by_path:
         if is_named_profile(path, locations['agent']):
             data_by_path[path] = with_session_storage(path, data_by_path, home)
@@ -408,9 +409,17 @@ def apply_settings(state_dir, data_by_path, dry_run, action='restore'):
     if dry_run:
         print(f'Would {action} {len(prepared)} settings files')
         return
+    past = 'Restored' if action == 'restore' else 'Updated'
+    if not prepared:
+        print(f'{past} 0 settings files')
+        return
+
+    # The startup migration usually finds no files to write.
+    import shutil
+    import tempfile
+
     backup = state_dir / 'Proteus-settings-backups' / datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ')
-    if prepared:
-        backup.mkdir(parents=True, mode=0o700)
+    backup.mkdir(parents=True, mode=0o700)
     written = []
     try:
         for index, (destination, data) in enumerate(prepared):
@@ -435,12 +444,9 @@ def apply_settings(state_dir, data_by_path, dry_run, action='restore'):
             else:
                 destination.unlink()
         raise
-    if prepared:
-        (backup / 'manifest.json').write_text(json.dumps({str(saved): str(path) for path, saved in written if saved}, indent=2) + '\n')
-    past = 'Restored' if action == 'restore' else 'Updated'
+    (backup / 'manifest.json').write_text(json.dumps({str(saved): str(path) for path, saved in written if saved}, indent=2) + '\n')
     print(f'{past} {len(prepared)} settings files')
-    if prepared:
-        print(f'Previous files backed up at {backup}')
+    print(f'Previous files backed up at {backup}')
 
 
 def main():

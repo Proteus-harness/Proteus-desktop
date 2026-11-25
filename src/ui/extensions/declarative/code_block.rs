@@ -363,13 +363,13 @@ impl SourceBlock {
     pub(super) fn new(language: &str, source: &str) -> Self {
         Self {
             language: language.into(),
-            source: source.to_owned().into(),
+            source: SharedString::from(source),
         }
     }
 
     pub(super) fn set_source(&mut self, source: &str, cx: &mut Context<Self>) {
         if self.source.as_ref() != source {
-            self.source = source.to_owned().into();
+            self.source = SharedString::from(source);
             cx.notify();
         }
     }

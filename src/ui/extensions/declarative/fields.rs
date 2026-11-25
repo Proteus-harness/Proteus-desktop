@@ -572,7 +572,12 @@ impl DeclarativeView {
                     if *embedded {
                         editor.set_scroll_bounce(false, cx);
                     }
-                    if editor.value().as_ref() != text {
+                    let current = editor.text();
+                    let unchanged = match current.as_str() {
+                        Some(slice) => slice == text.as_str(),
+                        None => current == text.as_str(),
+                    };
+                    if !unchanged {
                         editor.set_value(text.clone(), window, cx);
                     }
                 });

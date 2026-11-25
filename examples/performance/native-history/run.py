@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import signal
@@ -181,6 +182,32 @@ def terminate(process, tree):
                    and current[pid]['state'] != 'Z' for pid, start in tree.owned.items()), 'surviving descendants'
 
 
+def idle_cpu(samples, clock_ticks):
+    """Use the same wholly idle intervals for both CPU summaries."""
+    intervals = []
+    previous_idle = False
+    legacy = not any('phase_interval_eligible' in row for row in samples)
+    for row in samples:
+        idle = row['phase'] == 'idle'
+        # Older Core samplers label only the interval's end sample. Since the
+        # runner marks idle once, two successive idle samples bound an idle interval.
+        # Do not use the fallback for a missing flag in a modern stream.
+        if idle and row.get('phase_interval_eligible', legacy and previous_idle) is True:
+            elapsed = row.get('interval_seconds')
+            ticks = (row.get('interval_counters') or {}).get('cpu_ticks')
+            if (type(elapsed) in (int, float) and math.isfinite(elapsed) and elapsed > 0
+                    and type(ticks) is int and ticks >= 0):
+                intervals.append((ticks, elapsed))
+        previous_idle = idle
+    if not intervals:
+        return None, None, 0
+    median = statistics.median(100 * ticks / clock_ticks / elapsed
+                               for ticks, elapsed in intervals)
+    weighted = (100 * sum(ticks for ticks, _ in intervals) / clock_ticks
+                / math.fsum(elapsed for _, elapsed in intervals))
+    return median, weighted, len(intervals)
+
+
 def run_case(args, case, workspace, config, restart, expected):
     from proc_sampler import Tree, Recorder
     target = case / ('restart' if restart else 'first')
@@ -229,6 +256,9 @@ def run_case(args, case, workspace, config, restart, expected):
                     if ready_at is not None and time.monotonic()-ready_at >= args.settle:
                         if recorder.phase != 'idle':
                             recorder.mark('idle')
+                    # Raw samples are flushed; only the last supplies snapshot process details.
+                    if samples:
+                        samples[-1].pop('processes', None)
                     row = recorder.sample()
                     samples.append(row)
                     assert not row['memory_incomplete_pids'], row['memory_incomplete_pids']
@@ -260,20 +290,22 @@ def run_case(args, case, workspace, config, restart, expected):
     validate_canonical(journal.parent, canonical)
     idle = [row for row in samples if row['phase'] == 'idle']
     assert len(idle) >= 2, 'insufficient steady samples'
+    median_cpu, weighted_cpu, cpu_intervals = idle_cpu(samples, tree.clock_ticks)
+    median = {key: statistics.median(row[key] for row in idle)
+              for key in ('rss_kib', 'pss_kib', 'swap_pss_kib', 'pss_swap_kib', 'private_kib')}
+    median['interval_cpu_percent_one_core'] = median_cpu
     stages, history = traces(log)
     result = dict(status='passed', cache='restart' if restart else 'first-app-cache',
                   stages=stages, external_readiness_observed_s=ready_at-started,
-                  median={key: statistics.median(row[key] for row in idle)
-                          for key in ('rss_kib', 'pss_kib', 'swap_pss_kib', 'pss_swap_kib',
-                                      'private_kib', 'interval_cpu_percent_one_core')},
+                  median=median,
                   groups={group: {key: statistics.median(row['groups'][group][key] for row in idle)
                                   for key in ('rss_kib', 'pss_kib', 'pss_swap_kib', 'process_count')}
                           for group in idle[-1]['groups']},
                   counters=tree.totals(), journal=dict(bytes=journal.stat().st_size, sha256=before, unchanged=True),
                   measured_peak_kib={key:max(row[key] for row in samples)
                                      for key in ('rss_kib','pss_kib','pss_swap_kib')},
-                  idle_cpu_percent_one_core=100 * sum(row['interval_counters']['cpu_ticks'] for row in idle)
-                  / tree.clock_ticks / sum(row['interval_seconds'] for row in idle),
+                  idle_cpu_percent_one_core=weighted_cpu,
+                  idle_cpu_interval_count=cpu_intervals,
                   startup_peak_kib={key:max((row[key] for row in samples if row['phase'] == 'startup'), default=None)
                                     for key in ('rss_kib','pss_kib','pss_swap_kib')},
                   history_windows=history, snapshot_validation=validation, canonical_files=canonical,

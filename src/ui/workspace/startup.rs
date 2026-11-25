@@ -2,6 +2,7 @@
 //! belong to startup. Inactive chat areas resume lazily on selection.
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
 use proteus_client_common::session_selection::select_startup_session;
@@ -89,7 +90,7 @@ pub(super) struct Boot {
     pub streams: HashMap<PathBuf, async_channel::Receiver<connection::PumpItem>>,
     pub codex: Option<CodexService>,
     pub codex_opened: Vec<Opened>,
-    pub codex_models: Vec<Model>,
+    pub codex_models: Arc<[Model]>,
     pub codex_failed: Vec<(String, String)>,
 }
 
@@ -231,7 +232,7 @@ fn boot_with_owner(
             streams: HashMap::new(),
             codex: None,
             codex_opened: Vec::new(),
-            codex_models: Vec::new(),
+            codex_models: Default::default(),
             codex_failed: Vec::new(),
         }
     };
@@ -297,7 +298,7 @@ fn fresh_core(api: Api, backend: Option<BackendGuard>, workspace: &Path) -> Resu
         streams: HashMap::new(),
         codex: None,
         codex_opened: Vec::new(),
-        codex_models: Vec::new(),
+        codex_models: Default::default(),
         codex_failed: Vec::new(),
     })
 }
@@ -372,7 +373,7 @@ fn restore_core(
         streams: HashMap::new(),
         codex: None,
         codex_opened: Vec::new(),
-        codex_models: Vec::new(),
+        codex_models: Default::default(),
         codex_failed: Vec::new(),
     })
 }

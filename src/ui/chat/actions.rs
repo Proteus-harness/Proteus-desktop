@@ -130,7 +130,11 @@ impl Chat {
             self.send_codex(window, cx);
             return;
         }
-        let draft_text = self.composer.read(cx).value().to_string();
+        let draft_source = self.composer.read(cx).text();
+        let draft_text = match draft_source.as_str() {
+            Some(text) => text.to_owned(),
+            None => String::from(draft_source),
+        };
         let text = draft_text.trim().to_owned();
         if (text.is_empty() && self.attachments.is_empty())
             || !self.session.connected

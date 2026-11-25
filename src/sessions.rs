@@ -71,8 +71,16 @@ impl SessionMarks {
 
     /// Sets a custom title; blank input returns to the automatic one.
     pub fn rename(&mut self, dir: &ChatKey, title: &str) {
-        let title = title.split_whitespace().collect::<Vec<_>>().join(" ");
-        let title = (!title.is_empty()).then(|| title.chars().take(TITLE_LIMIT).collect());
+        let mut words = title.split_whitespace();
+        let title = words.next().map(|first| {
+            let tail = words.flat_map(|word| std::iter::once(' ').chain(word.chars()));
+            let mut bytes = [0; 4 * TITLE_LIMIT];
+            let mut len = 0;
+            for ch in first.chars().chain(tail).take(TITLE_LIMIT) {
+                len += ch.encode_utf8(&mut bytes[len..]).len();
+            }
+            String::from_utf8(bytes[..len].to_vec()).expect("encoded title is UTF-8")
+        });
         self.change(dir, |mark| mark.title = title);
     }
 

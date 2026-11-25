@@ -1,4 +1,6 @@
 //! Codex lifecycle uses native opaque thread IDs; the Chat view is shared.
+use std::sync::Arc;
+
 use super::*;
 use crate::agents::codex::{Model, Opened};
 
@@ -73,7 +75,7 @@ impl Workspace {
                         // A short final page or a tiny catalog costs less to scan directly.
                         if page.data.len() <= 8 || this.sessions.len() <= 32 {
                             for row in page.data {
-                                let row = crate::conversations::from_codex(&row);
+                                let row = crate::conversations::from_codex_owned(row);
                                 if !this.deleting_sessions.contains(&row.key) {
                                     crate::conversations::upsert_summary(&mut this.sessions, row);
                                 }
@@ -105,12 +107,8 @@ impl Workspace {
         .detach();
     }
 
-    pub(in crate::ui) fn replace_codex_models(&mut self, models: Vec<Model>) {
-        self.codex_models = if models.is_empty() {
-            Default::default()
-        } else {
-            models.into()
-        };
+    pub(in crate::ui) fn replace_codex_models(&mut self, models: Arc<[Model]>) {
+        self.codex_models = models;
     }
 
     pub(in crate::ui) fn insert_codex_chat(

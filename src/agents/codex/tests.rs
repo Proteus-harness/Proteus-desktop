@@ -235,8 +235,12 @@ fn concurrent_chat_opens_share_one_model_catalog_for_the_service() {
                 scope.spawn(move || service.models().unwrap())
             })
             .collect();
+        let mut jobs = jobs.into_iter();
+        let first = jobs.next().unwrap().join().unwrap();
+        assert_eq!(first[0].model, "execution-model");
         for job in jobs {
-            assert_eq!(job.join().unwrap()[0].model, "execution-model");
+            let models = job.join().unwrap();
+            assert!(Arc::ptr_eq(&models, &first));
         }
     });
     assert_eq!(

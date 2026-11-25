@@ -4,7 +4,7 @@ from tempfile import TemporaryDirectory
 import unittest
 import tomllib
 
-from run import process_group, canonical_files, validate_canonical, profile, storage_binary
+from run import process_group, canonical_files, validate_canonical, profile, storage_binary, idle_cpu
 
 
 class ProcessGroups(unittest.TestCase):
@@ -55,6 +55,40 @@ class ProcessGroups(unittest.TestCase):
         self.assertEqual(process_group({'exe': '/portable/bin/proteus'}, root), 'backend')
         self.assertEqual(process_group({'exe': '/portable/bin/proteus-reference-module'}, root), 'modules')
         self.assertEqual(process_group({'exe': '/portable/bin/proteus-session-storage-module'}, root), 'modules')
+
+
+class IdleCpu(unittest.TestCase):
+    def test_crossing_sample_is_not_idle_cpu_in_either_sampler(self):
+        for modern in (False, True):
+            with self.subTest(modern=modern):
+                samples = [
+                    dict(phase='settle'),
+                    dict(phase='idle', interval_seconds=.30, interval_counters={'cpu_ticks': 30}),
+                    dict(phase='idle', interval_seconds=.15, interval_counters={'cpu_ticks': 0}),
+                ]
+                if modern:
+                    samples[1]['phase_interval_eligible'] = False
+                    samples[2]['phase_interval_eligible'] = True
+                self.assertEqual(idle_cpu(samples, 100), (0, 0, 1))
+
+    def test_both_cpu_summaries_use_the_same_intervals(self):
+        samples = [
+            dict(phase='idle', interval_seconds=.25, interval_counters={'cpu_ticks': 25},
+                 phase_interval_eligible=True),
+            dict(phase='idle', interval_seconds=.75, interval_counters={'cpu_ticks': 0},
+                 phase_interval_eligible=True),
+            dict(phase='idle', interval_seconds=2, interval_counters={'cpu_ticks': 2000},
+                 phase_interval_eligible=False),
+            dict(phase='idle', interval_seconds=5, interval_counters={'cpu_ticks': 5000}),
+        ]
+        self.assertEqual(idle_cpu(samples, 100), (50, 25, 2))
+
+    def test_absent_or_invalid_intervals_do_not_mean_zero_cpu(self):
+        samples = [
+            dict(phase='idle', interval_seconds=None, interval_counters=None),
+            dict(phase='idle', interval_seconds=float('inf'), interval_counters={'cpu_ticks': 2}),
+        ]
+        self.assertEqual(idle_cpu(samples, 100), (None, None, 0))
 
 
 if __name__ == '__main__':

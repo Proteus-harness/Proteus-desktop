@@ -1,5 +1,7 @@
 // Адаптировано из Zed: crates/agent_ui/src/conversation_view/message_queue.rs
 // (failed sends retain their complete content instead of replacing new input).
+use std::rc::Rc;
+
 use gpui_kit::*;
 
 use super::Chat;
@@ -8,7 +10,8 @@ use super::attachments::Attachments;
 /// A complete unsent message kept apart from whatever is being typed now.
 pub(super) struct SavedDraft {
     pub id: String,
-    pub text: String,
+    // Keep one existing buffer shared by any live Copy closures.
+    pub text: Rc<String>,
     pub attachments: Attachments,
 }
 
@@ -16,7 +19,7 @@ impl SavedDraft {
     pub fn new(text: String, attachments: Attachments) -> Self {
         Self {
             id: uuid::Uuid::new_v4().simple().to_string(),
-            text,
+            text: Rc::new(text),
             attachments,
         }
     }
@@ -24,7 +27,7 @@ impl SavedDraft {
 
 impl Chat {
     pub(super) fn has_draft(&self, cx: &App) -> bool {
-        !self.composer.read(cx).value().trim().is_empty()
+        !self.composer.read(cx).is_blank()
             || !self.attachments.is_empty()
             || self.attachments_loading
     }
@@ -48,7 +51,7 @@ impl Chat {
         }
         self.attachments = saved.attachments;
         self.composer.update(cx, |state, cx| {
-            state.set_value(saved.text, window, cx);
+            state.set_value(saved.text.as_str(), window, cx);
             state.focus(window, cx);
         });
         cx.notify();

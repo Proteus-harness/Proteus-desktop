@@ -1,4 +1,5 @@
 use crate::ui::kit::ButtonLabel as _;
+use std::borrow::Cow;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use gpui_kit::assets::IconName as Lucide;
@@ -32,7 +33,7 @@ impl Chat {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let pending = self.session.pending.clone()?;
+        let pending = self.session.pending.as_ref()?;
         match activity {
             ActivityId::Approval(id) => pending
                 .approvals
@@ -43,7 +44,7 @@ impl Chat {
                 .user_inputs
                 .iter()
                 .find(|request| &request.request_id == id)
-                .map(|request| self.render_user_input(request, window, cx)),
+                .map(|request| self.user_input.render_user_input(request, window, cx)),
             ActivityId::Extension(_) => None,
         }
     }
@@ -116,21 +117,23 @@ fn approval_reason(request: &AppApprovalRequest) -> Option<String> {
 
 /// The text worth reading before allowing: the server preview, the
 /// tool's main argument or the other arguments.
-fn approval_body(request: &AppApprovalRequest) -> Option<String> {
+fn approval_body(request: &AppApprovalRequest) -> Option<Cow<'_, str>> {
     if let Some(preview) = &request.preview {
-        return preview.body.clone();
+        return preview.body.as_deref().map(Cow::Borrowed);
     }
     let args = &request.call.args;
     let subject = tool_display::headline(&request.call.name, args)
         .subject_key
         .filter(|key| key.as_str() != JUSTIFICATION)
-        .and_then(|key| args.get(&key).and_then(Value::as_str).map(str::to_owned));
+        .and_then(|key| args.get(&key).and_then(Value::as_str))
+        .map(Cow::Borrowed);
     subject.or_else(|| {
         let mut rest = args.as_object()?.clone();
         rest.remove(JUSTIFICATION);
         (!rest.is_empty())
             .then(|| serde_json::to_string_pretty(&rest).ok())
             .flatten()
+            .map(Cow::Owned)
     })
 }
 
@@ -275,7 +278,10 @@ fn render_approval(request: &AppApprovalRequest, cx: &mut Context<Chat>) -> AnyE
                 .child(body)
         }))
         .children(full_body.filter(|_| truncated).map(|body| {
-            let body: SharedString = body.into();
+            let body: SharedString = match body {
+                Cow::Borrowed(text) => text.into(),
+                Cow::Owned(text) => text.into(),
+            };
             kit::button(SharedString::from(format!("approval-full-{id}")))
                 .small()
                 .faded_label("Показать действие полностью…")

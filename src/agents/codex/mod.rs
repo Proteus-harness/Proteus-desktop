@@ -25,7 +25,7 @@ pub struct CodexService {
     client: Arc<Client>,
     router: Arc<Mutex<Router>>,
     subscriptions: Arc<Subscriptions>,
-    models: Arc<Mutex<Option<Vec<Model>>>>,
+    models: Arc<Mutex<Option<Arc<[Model]>>>>,
     catalog_events: Arc<Mutex<Option<async_channel::Receiver<CatalogEvent>>>>,
 }
 
@@ -175,7 +175,7 @@ impl CodexService {
             next_cursor: cursor_of(&response),
         })
     }
-    pub fn models(&self) -> Result<Vec<Model>, Error> {
+    pub fn models(&self) -> Result<Arc<[Model]>, Error> {
         // Catalogs belong to this app-server's configuration. Reopening a chat
         // must not repeat a potentially remote model discovery. Keep concurrent
         // first reads single-flight, and retry failures without caching them.
@@ -184,6 +184,11 @@ impl CodexService {
             return Ok(models.clone());
         }
         let models = self.load_models()?;
+        let models: Arc<[Model]> = if models.is_empty() {
+            Arc::default()
+        } else {
+            Arc::from(models)
+        };
         *cached = Some(models.clone());
         Ok(models)
     }

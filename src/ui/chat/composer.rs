@@ -1,5 +1,7 @@
 // Адаптировано из Zed: crates/agent_ui/src/conversation_view/thread_view.rs
 // (send readiness, retained queued drafts and focus after sending).
+use std::rc::Rc;
+
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::input::Textarea;
 use gpui_kit::component::scroll::ScrollableElement as _;
@@ -176,7 +178,7 @@ impl Chat {
 fn render_saved(draft: &SavedDraft, loading: bool, cx: &Context<Chat>) -> impl IntoElement {
     let theme = cx.theme();
     let restore_id = draft.id.clone();
-    let copy = draft.text.clone();
+    let copy = Rc::clone(&draft.text);
     let images = draft.attachments.len();
     h_flex()
         .gap_2()
@@ -217,7 +219,7 @@ fn render_saved(draft: &SavedDraft, loading: bool, cx: &Context<Chat>) -> impl I
                 .xsmall()
                 .disabled(copy.is_empty())
                 .on_click(move |_, _, cx| {
-                    cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
+                    cx.write_to_clipboard(ClipboardItem::new_string(copy.as_ref().clone()))
                 }),
         )
         .child(

@@ -1675,6 +1675,15 @@ impl<M: InputModeKind> InputBaseState<M> {
         SharedString::new(self.text.to_string())
     }
 
+    /// Whether the value is empty or contains only Unicode whitespace.
+    /// Check borrowed chunks instead of materializing the whole editor buffer.
+    pub fn is_blank(&self) -> bool {
+        match self.text.as_str() {
+            Some(text) => text.trim().is_empty(),
+            None => self.text.chunks().all(|chunk| chunk.trim().is_empty()),
+        }
+    }
+
     /// Return the portion of the value within the input field that
     /// is selected by the user, as an owned string.
     ///
@@ -3182,8 +3191,12 @@ impl<M: InputModeKind> InputBaseState<M> {
         window.show_character_palette();
     }
 
-    /// The text of every non-empty selection, in document order.
-    fn selected_texts(&self) -> Vec<String> {
+    /// Build the final clipboard string directly from the selected byte ranges.
+    fn clipboard_text(&self) -> String {
+        if self.selections.is_single() {
+            return String::from(self.text.slice(*self.selections.active()));
+        }
+
         let mut selections: Vec<CursorSelection> = self
             .selections
             .iter()
@@ -3191,10 +3204,23 @@ impl<M: InputModeKind> InputBaseState<M> {
             .filter(|sel| !sel.is_empty())
             .collect();
         selections.sort_by_key(|sel| sel.start);
-        selections
-            .iter()
-            .map(|sel| self.text.slice(*sel).to_string())
-            .collect()
+
+        let bytes = selections.iter().fold(selections.len().saturating_sub(1), |n, sel| {
+            n.checked_add(sel.len()).expect("clipboard text too large")
+        });
+        let mut text = String::with_capacity(bytes);
+        for (i, sel) in selections.into_iter().enumerate() {
+            if i != 0 {
+                text.push('\n');
+            }
+            let slice = self.text.slice(sel);
+            if let Some(chunk) = slice.as_str() {
+                text.push_str(chunk);
+            } else {
+                text.extend(slice.chunks());
+            }
+        }
+        text
     }
 
     pub(super) fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
@@ -3202,9 +3228,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             return;
         }
 
-        let texts = self.selected_texts();
-
-        cx.write_to_clipboard(ClipboardItem::new_string(texts.join("\n")));
+        cx.write_to_clipboard(ClipboardItem::new_string(self.clipboard_text()));
     }
 
     pub(super) fn cut(&mut self, _: &Cut, window: &mut Window, cx: &mut Context<Self>) {
@@ -3212,9 +3236,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             return;
         }
 
-        let texts = self.selected_texts();
-
-        cx.write_to_clipboard(ClipboardItem::new_string(texts.join("\n")));
+        cx.write_to_clipboard(ClipboardItem::new_string(self.clipboard_text()));
 
         self.undo_manager.set_pending_intent(EditIntent::Atomic);
         self.replace_text_in_range_silent(None, "", window, cx);
@@ -3245,7 +3267,7 @@ impl<M: InputModeKind> InputBaseState<M> {
                     // input too.
                     if this.is_editable()
                         && this.focus_handle.is_focused(window)
-                        && this.paste_target() == target
+                        && this.matches_paste_target(&target)
                     {
                         this.insert_clipboard(clipboard, window, cx);
                     }
@@ -3266,6 +3288,16 @@ impl<M: InputModeKind> InputBaseState<M> {
             document_revision: self.document_revision,
             selections: self.selections.iter().copied().collect(),
         }
+    }
+
+    fn matches_paste_target(&self, target: &PasteTarget) -> bool {
+        let PasteTarget {
+            document_revision,
+            selections,
+        } = target;
+        self.document_revision == *document_revision
+            && self.selections.len() == selections.len()
+            && self.selections.iter().eq(selections)
     }
 
     /// Inserts the clipboard text the way `Paste` does: one atomic edit,
@@ -11996,10 +12028,7 @@ mod tests {
         setup_cursors(&mut cx, &input, "ab|c");
         let target = input.read_with(&cx, |state, _| state.paste_target());
         // Nothing happened: a paste asked for then still applies.
-        assert_eq!(
-            input.read_with(&cx, |state, _| state.paste_target()),
-            target
-        );
+        assert!(input.read_with(&cx, |state, _| state.matches_paste_target(&target)));
 
         // Moving the caret changes where the paste would go.
         cx.update(|_, cx| {
@@ -12012,7 +12041,7 @@ mod tests {
             });
         });
         let moved = input.read_with(&cx, |state, _| state.paste_target());
-        assert_ne!(moved, target);
+        assert!(!input.read_with(&cx, |state, _| state.matches_paste_target(&target)));
 
         // Editing the text changes it too, even with the caret put back.
         cx.update(|window, cx| {
@@ -12024,7 +12053,7 @@ mod tests {
                     .replace_all(vec![CursorSelection::new(id, 1, 1)]);
             });
         });
-        assert_ne!(input.read_with(&cx, |state, _| state.paste_target()), moved);
+        assert!(!input.read_with(&cx, |state, _| state.matches_paste_target(&moved)));
     }
 
     #[gpui::test]

@@ -32,16 +32,56 @@ impl AgentKind {
 }
 
 pub fn from_codex(summary: &crate::agents::codex::Summary) -> ConversationSummary {
+    codex_summary(
+        summary.id.clone(),
+        summary.parent_thread_id.clone(),
+        summary.cwd.clone(),
+        summary.updated_at,
+        (!summary.title.is_empty()).then(|| summary.title.clone()),
+    )
+}
+
+pub fn from_codex_owned(summary: crate::agents::codex::Summary) -> ConversationSummary {
+    fn tight(text: String) -> String {
+        if text.capacity() == text.len() {
+            text
+        } else {
+            text.clone()
+        }
+    }
+
+    let cwd = if summary.cwd.capacity() == summary.cwd.as_os_str().len() {
+        summary.cwd
+    } else {
+        summary.cwd.clone()
+    };
+    let title = (!summary.title.is_empty()).then(|| tight(summary.title));
+    codex_summary(
+        tight(summary.id),
+        summary.parent_thread_id.map(tight),
+        cwd,
+        summary.updated_at,
+        title,
+    )
+}
+
+fn codex_summary(
+    id: String,
+    parent_thread_id: Option<String>,
+    cwd: PathBuf,
+    updated_at: i64,
+    title: Option<String>,
+) -> ConversationSummary {
     ConversationSummary {
-        key: ChatKey::Codex(summary.id.clone()),
+        key: ChatKey::Codex(id),
         proteus_session_id: None,
-        parent: summary.parent_thread_id.clone().map(ChatKey::Codex),
-        workspace_path: summary.cwd.clone(),
+        parent: parent_thread_id.map(ChatKey::Codex),
+        workspace_path: cwd,
         message_count: 0,
-        updated_at_ms: u64::try_from(summary.updated_at)
+        updated_at_ms: u64::try_from(updated_at)
             .ok()
             .map(|value| value.saturating_mul(1000)),
-        preview: (!summary.title.is_empty()).then(|| summary.title.clone()),
+        preview: title,
         activity: None,
     }
 }

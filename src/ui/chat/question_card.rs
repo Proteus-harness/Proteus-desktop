@@ -11,31 +11,30 @@ use proteus_contracts::contracts::{UserInputQuestion, UserInputRequest};
 use super::Chat;
 use super::activity_dock::ActivityId;
 use super::requests::panel_card;
+use super::user_input::UserInputDrafts;
 use crate::ui::kit;
 use crate::ui::kit::Hint as _;
 use crate::ui::kit::Pressable as _;
 
-impl Chat {
+impl UserInputDrafts {
     /// A `request_user_input` call, one question at a time: options with
     /// their numbers, a free answer, skipping and paging.
     pub(super) fn render_user_input(
         &mut self,
         request: &UserInputRequest,
         window: &mut Window,
-        cx: &mut Context<Self>,
+        cx: &mut Context<Chat>,
     ) -> AnyElement {
         let theme = cx.theme().clone();
         let rid = request.request_id.clone();
         let count = request.questions.len();
-        let page = self.user_input.page(request);
+        let page = self.page(request);
         let Some(question) = request.questions.get(page) else {
             return div().into_any_element();
         };
         let last = page + 1 == count;
-        let answered = self.user_input.is_answered(&rid, &question.id, cx);
-        let input = self
-            .user_input
-            .text_input(&rid, &question.id, question.is_secret, window, cx);
+        let answered = self.is_answered(&rid, &question.id, cx);
+        let input = self.text_input(&rid, &question.id, question.is_secret, window, cx);
         let title = request
             .title
             .clone()
@@ -152,12 +151,10 @@ impl Chat {
         question: &UserInputQuestion,
         ix: usize,
         option: &proteus_contracts::contracts::UserInputQuestionOption,
-        cx: &mut Context<Self>,
+        cx: &mut Context<Chat>,
     ) -> AnyElement {
         let theme = cx.theme();
-        let selected = self
-            .user_input
-            .is_selected(rid, &question.id, &option.label);
+        let selected = self.is_selected(rid, &question.id, &option.label);
         let (request, qid, label) = (rid.to_owned(), question.id.clone(), option.label.clone());
         let multi = question.multi_select;
         let badge = div()
@@ -210,7 +207,9 @@ impl Chat {
             }))
             .into_any_element()
     }
+}
 
+impl Chat {
     /// "Далее": the next question, or sending after the last one. An
     /// unanswered question stays.
     pub(super) fn next_question(&mut self, rid: &str, window: &mut Window, cx: &mut Context<Self>) {

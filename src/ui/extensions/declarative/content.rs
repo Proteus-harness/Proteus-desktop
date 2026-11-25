@@ -108,8 +108,31 @@ fn updated_content(
 
 fn source_label(source: &ContentSource) -> SharedString {
     match source {
-        ContentSource::Owned(source) => SharedString::from(source.clone()),
+        ContentSource::Owned(source) => SharedString::from(source.as_str()),
         ContentSource::Shared(source) => SharedString::from(Arc::clone(source)),
+    }
+}
+
+// The already-presented raw frame and its Copy button should share the same
+// immutable text. A renderer-only frame still defers source formatting.
+enum SourceCopy {
+    Presented(SharedString),
+    Deferred(Arc<Content>),
+}
+
+impl SourceCopy {
+    fn new(presented: Option<SharedString>, content: &Arc<Content>) -> Self {
+        match presented {
+            Some(source) => Self::Presented(source),
+            None => Self::Deferred(Arc::clone(content)),
+        }
+    }
+
+    fn text(&self) -> SharedString {
+        match self {
+            Self::Presented(source) => source.clone(),
+            Self::Deferred(content) => source_label(&content.source),
+        }
     }
 }
 
@@ -329,6 +352,7 @@ impl Render for ContentView {
             .set_descendants_active(enabled && !self.show_source && ready);
         crate::ui::layout_readiness::track(&self.layout_ready);
         let raw = self.show_source || !ready;
+        let mut copy_snapshot = None;
         let mut width = (!raw)
             .then(|| view.preferred_width())
             .flatten()
@@ -355,6 +379,7 @@ impl Render for ContentView {
                     gpui_kit::base::SelectableText::new("content-source-text", source)
                         .into_any_element()
                 } else {
+                    copy_snapshot = Some(source.clone());
                     code_block::source("content-source-scroll", source, cx)
                 }
             } else {
@@ -386,11 +411,11 @@ impl Render for ContentView {
             }));
         // Keep this frame's immutable revision; a later streaming update must
         // not change the source owned by an already rendered copy button.
-        let content = Arc::clone(&self.content);
+        let copy_source = SourceCopy::new(copy_snapshot, &self.content);
         code_block::shell(
             "copy-content-source",
             &self.content.language,
-            move |_, _| source_label(&content.source),
+            move |_, _| copy_source.text(),
             Some(toggle.into_any_element()),
             body.into_any_element(),
             cx,

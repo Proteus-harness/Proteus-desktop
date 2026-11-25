@@ -455,7 +455,7 @@ impl Chat {
                     return;
                 }
                 let empty =
-                    this.composer.read(cx).value().trim().is_empty() && this.attachments.is_empty();
+                    this.composer.read(cx).is_blank() && this.attachments.is_empty();
                 if !(empty && this.confirm_pending(window, cx)) {
                     this.send(window, cx);
                 }
@@ -479,7 +479,7 @@ impl Chat {
         self.session.transcript.entries().is_empty()
             && self.session.feedback.visible_sends().next().is_none()
             && !self.session.running()
-            && self.composer.read(cx).value().trim().is_empty()
+            && self.composer.read(cx).is_blank()
             && self.attachments.is_empty()
             && !self.attachments_loading
             && self.saved_drafts.is_empty()

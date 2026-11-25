@@ -24,14 +24,14 @@ pub(super) struct Plain {
 impl Plain {
     pub(super) fn new(source: &str) -> Self {
         Self {
-            source: source.to_owned().into(),
+            source: SharedString::from(source),
             open: false,
         }
     }
 
     pub(super) fn set_source(&mut self, source: &str) {
         if self.source.as_ref() != source {
-            self.source = source.to_owned().into();
+            self.source = SharedString::from(source);
         }
     }
 

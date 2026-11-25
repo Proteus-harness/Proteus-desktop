@@ -224,7 +224,7 @@ impl Chat {
                             })
                             .clone();
                         let selected = self.codex.as_ref().unwrap().selected.get(&key).cloned();
-                        answered &= !input.read(cx).value().trim().is_empty() || selected.is_some();
+                        answered &= !input.read(cx).is_blank() || selected.is_some();
                         let mut body = v_flex().gap_1().child(
                             div().text_sm().child(
                                 question
