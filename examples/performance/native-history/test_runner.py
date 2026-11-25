@@ -46,15 +46,40 @@ class ProcessGroups(unittest.TestCase):
 
     def test_rust_packages_and_workers_are_counted_as_extensions(self):
         root = Path('/portable/share/extensions')
+        core = Path('/portable/bin/proteus')
+        module = Path('/portable/bin/proteus-reference-module')
+        storage = Path('/portable/bin/proteus-session-storage-module')
+
+        def group(row):
+            return process_group(row, root, core=core, module=module, storage=storage)
+
         for executable in (root / 'markdown-render/bin/markdown-render',
                            root / 'files/bin/files', Path('/usr/bin/node'),
                            Path('/usr/bin/python3')):
-            self.assertEqual(process_group({'exe': str(executable)}, root), 'extensions')
-        self.assertEqual(process_group({'exe': '/usr/bin/node-22', 'name': 'node'}, root), 'extensions')
-        self.assertEqual(process_group({'exe': '/portable/share/extensions-old/bin/files'}, root), 'other')
-        self.assertEqual(process_group({'exe': '/portable/bin/proteus'}, root), 'backend')
-        self.assertEqual(process_group({'exe': '/portable/bin/proteus-reference-module'}, root), 'modules')
-        self.assertEqual(process_group({'exe': '/portable/bin/proteus-session-storage-module'}, root), 'modules')
+            self.assertEqual(group({'exe': str(executable)}), 'extensions')
+        self.assertEqual(group({'exe': '/usr/bin/node-22', 'name': 'node'}), 'extensions')
+        self.assertEqual(group({'exe': '/portable/share/extensions-old/bin/files'}), 'other')
+        self.assertEqual(group({'exe': str(core)}), 'backend')
+        self.assertEqual(group({'exe': str(module)}), 'modules')
+        self.assertEqual(group({'exe': str(storage)}), 'modules')
+
+    def test_exact_selected_paths_win_without_basename_or_argv_fallback(self):
+        extensions = Path('/portable/share/extensions')
+        core = Path('/alternate/core debug')
+        module = Path('/alternate/reference debug')
+        storage = extensions / 'nested/storage release'
+
+        def group(row):
+            return process_group(row, extensions, core=core, module=module, storage=storage)
+
+        for exe, expected in ((core, 'backend'), (module, 'modules'), (storage, 'modules')):
+            self.assertEqual(group({'exe': str(exe), 'argv': ['/unrelated/proteus']}), expected)
+        for unknown in ('/unrelated/proteus', '/unrelated/proteus-reference-module',
+                        '/unrelated/proteus-session-storage-module', str(core) + ' (deleted)',
+                        str(storage.name), '', None):
+            self.assertEqual(group({'exe': unknown, 'argv': [str(core)], 'name': 'proteus'}), 'other')
+        self.assertEqual(group({'name': 'node'}), 'extensions')
+        self.assertEqual(group({'exe': str(extensions / 'deep/old/proteus')}), 'extensions')
 
 
 class IdleCpu(unittest.TestCase):

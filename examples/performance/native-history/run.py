@@ -105,13 +105,14 @@ def traces(path):
     return result, windows
 
 
-def process_group(row, extensions):
-    path = Path(row.get('exe', ''))
-    executable = path.name
-    if executable == 'proteus':
+def process_group(row, extensions, *, core, module, storage):
+    exe = row.get('exe') or ''
+    if exe == str(core):
         return 'backend'
-    if executable in ('proteus-reference-module', 'proteus-session-storage-module'):
+    if exe in (str(module), str(storage)):
         return 'modules'
+    path = Path(exe)
+    executable = path.name
     if path.is_relative_to(extensions) or executable.startswith('python') or executable == 'node' or row.get('name') == 'node':
         return 'extensions'
     return 'other'
@@ -224,7 +225,7 @@ def run_case(args, case, workspace, config, restart, expected):
                        XDG_DATA_HOME=str(case / 'xdg-data'), XDG_CACHE_HOME=str(case / 'xdg-cache'))
 
     def classify(row):
-        return process_group(row, args.extensions)
+        return process_group(row, args.extensions, core=args.core, module=args.module, storage=args.storage)
 
     samples = []
     started = time.monotonic()
@@ -338,6 +339,8 @@ def main():
     for name in ('native', 'core', 'module', 'seeder', 'extensions', 'core_source', 'output', 'bgui'):
         setattr(args, name, getattr(args, name).resolve())
     args.storage = storage_binary(args.core, args.storage)
+    if args.core in (args.module, args.storage):
+        parser.error('--core must resolve to a different executable path than --module and --storage')
     assert args.repeats >= 1 and all(n > 0 for n in args.messages)
     assert args.interval >= .05 and args.idle >= 1 and args.settle >= 0
     assert os.environ.get('WAYLAND_DISPLAY'), 'launch through background-gui exec/run'
@@ -359,6 +362,8 @@ def main():
     workspace = args.output / 'workspace'
     workspace.mkdir()
     (workspace / 'AGENTS.md').write_text('Synthetic memory/startup benchmark. No model calls.\n')
+    seed_env = os.environ.copy()
+    seed_env['PROTEUS_TEST_SESSION_STORAGE_MODULE'] = str(args.storage)
     results = []
     for count in args.messages:
         for repeat in range(args.repeats):
@@ -368,7 +373,8 @@ def main():
             config = configs / 'bench.toml'
             config.write_text(profile(args.module, args.storage))
             seed = subprocess.run([str(args.seeder), str(case/'config'), str(workspace),
-                                   str(count), str(args.text_repeats)], capture_output=True, text=True, check=True)
+                                   str(count), str(args.text_repeats)],
+                                  env=seed_env, capture_output=True, text=True, check=True)
             save(case / 'seed.json', json.loads(seed.stdout))
             subprocess.run([sys.executable, str(args.core_source/'examples/performance/history-scale/verify.py'),
                             'seed', json.loads(seed.stdout)['session_dir'], str(count), str(args.text_repeats),
