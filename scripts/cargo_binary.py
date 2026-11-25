@@ -117,12 +117,15 @@ def build_binary(cwd, package, binary, flags, manifest, *, environ=None):
         artifact_manifest = message.get("manifest_path")
         if not isinstance(artifact_manifest, str):
             continue
+        target_name = target.get("name")
+        if isinstance(target_name, str) and target_name and target_name != binary:
+            continue
         artifact_manifest = Path(artifact_manifest)
         if not artifact_manifest.is_absolute():
             artifact_manifest = cwd / artifact_manifest
         if (
             artifact_manifest.resolve() != manifest
-            or target.get("name") != binary
+            or target_name != binary
             or target.get("kind") != ["bin"]
             or profile.get("test", False)
         ):

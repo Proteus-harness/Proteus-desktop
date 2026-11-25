@@ -250,8 +250,7 @@ def run_case(args, case, workspace, config, restart, expected):
             try:
                 while True:
                     assert process.poll() is None, log.read_text(errors='replace')[-4000:]
-                    stages, history = traces(log)
-                    if ready_at is None and f'chat.transcript.{args.readiness}' in stages:
+                    if ready_at is None and f'chat.transcript.{args.readiness}' in traces(log)[0]:
                         ready_at = time.monotonic()
                         recorder.mark('settle', external_readiness_observed_s=ready_at-started)
                     if ready_at is not None and time.monotonic()-ready_at >= args.settle:
