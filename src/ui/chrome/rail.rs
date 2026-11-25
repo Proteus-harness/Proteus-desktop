@@ -92,10 +92,12 @@ fn rail_button(
     cx: &App,
 ) -> Button {
     let theme = cx.theme();
-    let foreground = if active {
+    let foreground = if !active {
+        theme.muted_foreground
+    } else if theme.mode.is_dark() {
         white()
     } else {
-        theme.muted_foreground
+        theme.sidebar_foreground
     };
     kit::button(id)
         .custom(ButtonCustomVariant::new(cx).foreground(foreground))
