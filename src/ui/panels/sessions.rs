@@ -391,8 +391,12 @@ impl Workspace {
         let list = list(
             scroll.clone(),
             cx.processor(move |this, index: usize, _, cx| {
+                // Keep the list's wheel hitbox full width. GPUI Fast snaps
+                // virtual row origins, so apply the side insets to the row.
                 div()
                     .pb_0p5()
+                    .pl_2()
+                    .pr(padding)
                     .w_full()
                     .children(
                         items
@@ -403,8 +407,6 @@ impl Workspace {
             }),
         )
         .size_full()
-        .pl_2()
-        .pr(padding)
         .pb_2();
         let list = self
             .session_list_actions(v_flex().flex_1().min_h_0().relative(), cx)
