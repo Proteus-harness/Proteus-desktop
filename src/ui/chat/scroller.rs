@@ -112,6 +112,18 @@ struct Hold {
     until: Option<Instant>,
 }
 
+fn newer_edge(start: usize, threshold: usize, mut row_visible: impl FnMut(usize) -> bool) -> bool {
+    if start.saturating_add(1) >= threshold {
+        // The reader always protects at least its first resident row.
+        return true;
+    }
+
+    // A missing or clipped last required row rules out the entire prefix.
+    // When it fits, earlier rows can still be missing after remeasurement.
+    let last = threshold - 1;
+    row_visible(last) && (start..last).all(row_visible)
+}
+
 impl ChatScroller {
     pub(super) fn exclude_document_disk(&self, rows: Range<usize>, total: usize) {
         self.scrollbar.exclude_document_disk(rows, total);
@@ -365,13 +377,24 @@ impl ChatScroller {
     }
 
     fn page_edges(&self) -> (bool, bool) {
-        // The older edge only needs the first row. Walking measured bounds
-        // for the bottom can cross hundreds of folded, zero-height tool rows.
-        let older =
-            !self.following && self.list.logical_scroll_top().item_ix.min(self.row_count()) < 8;
-        let newer = self.archived
-            && !self.wheel_up
-            && self.visible_rows().end.saturating_add(8) >= self.row_count();
+        const PREFETCH_ROWS: usize = 8;
+        let check_newer = self.archived && !self.wheel_up;
+        if self.following && !check_newer {
+            return (false, false);
+        }
+
+        let count = self.row_count();
+        let start = self.list.logical_scroll_top().item_ix.min(count);
+        let older = !self.following && start < PREFETCH_ROWS;
+        let threshold = count.saturating_sub(PREFETCH_ROWS);
+        let newer = check_newer && {
+            let bottom = self.list.viewport_bounds().bottom();
+            newer_edge(start, threshold, |row| {
+                self.list
+                    .bounds_for_item(row)
+                    .is_some_and(|bounds| bounds.top() < bottom)
+            })
+        };
         (older, newer)
     }
 
@@ -730,7 +753,7 @@ impl ChatScroller {
 type RenderRow = Box<dyn FnMut(usize, &mut Window, &mut App) -> AnyElement>;
 type RenderFooter = Box<dyn FnMut(&mut Window, &mut App) -> AnyElement>;
 
-/// The list element; rows come from the caller's renderer.
+/// The list element; the caller's renderer supplies each row's layout.
 #[derive(IntoElement)]
 pub(super) struct ChatList {
     id: ElementId,
@@ -861,7 +884,7 @@ impl RenderOnce for ChatList {
             }
             measured_rows.measure_chat_row(
                 ix,
-                div().w_full().min_w_0().child(render_row(ix, window, cx)),
+                render_row(ix, window, cx),
                 row_context.is_complete(ix),
             )
         })

@@ -145,12 +145,12 @@ impl Chat {
             .and_then(|binding| binding.archive.as_ref())
             .unwrap_or_else(|| self.history.displayed(&self.session.transcript))
             .entries();
-        let Some(entry) = entries.get(ix) else {
-            return div().into_any_element();
+        let Some(entry) = entries
+            .get(ix)
+            .filter(|entry| !stamp::hidden(entries, entry))
+        else {
+            return div().w_full().min_w_0().into_any_element();
         };
-        if stamp::hidden(entries, entry) {
-            return div().into_any_element();
-        }
         if !last_chain
             .as_ref()
             .is_some_and(|chain| chain.rows.contains(&ix))
@@ -336,7 +336,7 @@ impl Chat {
         if !missing.is_empty() {
             self.fetch_images(missing, image_edge, cx);
         }
-        h_flex()
+        let row = h_flex()
             .group(super::turn_footer::GROUP)
             .on_prepaint(move |bounds, window, _| {
                 #[cfg(debug_assertions)]
@@ -374,8 +374,8 @@ impl Chat {
                     }),
                 row_id("enter", key),
                 fresh,
-            ))
-            .into_any_element()
+            ));
+        div().w_full().min_w_0().child(row).into_any_element()
     }
 
     /// Every call of a run as one block, spaced as their rows are at rest,

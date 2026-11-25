@@ -57,6 +57,8 @@ pub(super) fn row_context(
         if let Some(last) = entries
             .iter()
             .rposition(|entry| !super::stamp::hidden(entries, entry))
+            // A footer in the trailing run is already marked incomplete.
+            .filter(|row| !context.trailing.contains(row))
         {
             context.footer = if compact {
                 crate::transcript::tool_chain(entries, last).unwrap_or(last..last + 1)

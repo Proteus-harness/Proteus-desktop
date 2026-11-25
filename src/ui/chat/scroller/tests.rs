@@ -158,6 +158,8 @@ impl Render for DisclosureRows {
             self.scroller.clone(),
             move |ix, _, _| {
                 div()
+                    .w_full()
+                    .min_w_0()
                     .h(if ix == 3 { height } else { px(100.) })
                     .into_any_element()
             },
@@ -327,6 +329,78 @@ fn page_edges_match_measured_rows_before_and_after_the_archive_boundary() {
             }
         }
     }
+}
+
+#[test]
+fn newer_page_edge_uses_one_probe_when_the_required_row_is_offscreen() {
+    let mut looked_up = Vec::new();
+    assert!(!super::newer_edge(2, 192, |row| {
+        looked_up.push(row);
+        row < 185
+    }));
+    assert_eq!(looked_up, [191]);
+    assert!(super::newer_edge(191, 192, |_| panic!(
+        "the first row is enough"
+    )));
+    looked_up.clear();
+    assert!(super::newer_edge(187, 192, |row| {
+        looked_up.push(row);
+        true
+    }));
+    assert_eq!(looked_up, [191, 187, 188, 189, 190]);
+}
+
+#[test]
+fn newer_page_edge_matches_normal_visibility_for_folded_and_unmeasured_rows() {
+    struct Rows(gpui_kit::ListState);
+
+    impl Render for Rows {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            gpui_kit::list(self.0.clone(), |row, _, _| {
+                let height = if (1..=30).contains(&row) { 0. } else { 20. };
+                div().h(px(height)).into_any_element()
+            })
+            .size_full()
+        }
+    }
+
+    let mut app = ::gpui::TestAppContext::single();
+    let cx = app.add_empty_window();
+    let mut state = folded_tail(false);
+    state.archived = true;
+    state.list = state.list.measure_all();
+    let view = cx.update(|_, cx| cx.new(|_| Rows(state.list.clone())));
+    let draw = |cx: &mut ::gpui::VisualTestContext, height| {
+        cx.draw(
+            point(px(19.), px(13.)),
+            size(px(300.), px(height)),
+            |_, _| view.clone().into_any_element(),
+        );
+    };
+    let check = |state: &ChatScroller, expected| {
+        assert_eq!(state.page_edges().1, expected);
+        assert_eq!(state.visible_rows().end + 8 >= state.row_count(), expected);
+    };
+    draw(cx, 220.);
+    let boundary = state.list.bounds_for_item(41).unwrap();
+    assert_eq!(boundary.top(), state.list.viewport_bounds().bottom());
+    assert_eq!(state.list.bounds_for_item(15).unwrap().size.height, px(0.));
+    check(&state, false);
+
+    draw(cx, 221.);
+    check(&state, true);
+    state.list.remeasure_items(15..16);
+    assert!(state.list.bounds_for_item(15).is_none());
+    assert!(state.list.bounds_for_item(41).is_some());
+    check(&state, false);
+    state.list.remeasure_items(41..42);
+    check(&state, false);
+
+    state.list.scroll_to(ListOffset {
+        item_ix: 41,
+        offset_in_item: px(0.),
+    });
+    check(&state, true);
 }
 
 #[test]
