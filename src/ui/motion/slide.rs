@@ -101,8 +101,8 @@ impl SlideState {
         Self { progress, at: None }
     }
 
-    /// Keep the current position on reversal, and stop scheduling frames once
-    /// settled. Bound a delayed frame's step so resuming a window stays smooth.
+    /// Keep the current position on reversal and stop scheduling frames once
+    /// settled. A delayed frame advances along the same wall-clock transition.
     fn sample(
         &mut self,
         target: f32,
@@ -117,9 +117,9 @@ impl SlideState {
             self.at = None;
             return (target, false);
         }
-        let elapsed = self.at.map_or(0., |at| {
-            now.saturating_duration_since(at).as_secs_f32().min(0.05)
-        });
+        let elapsed = self
+            .at
+            .map_or(0., |at| now.saturating_duration_since(at).as_secs_f32());
         self.at = Some(now);
         let step = elapsed / duration.as_secs_f32();
         self.progress = if target > self.progress {
@@ -190,5 +190,16 @@ mod tests {
             (1., false)
         );
         assert!(state.at.is_none());
+    }
+
+    #[::core::prelude::v1::test]
+    fn dropped_frames_do_not_extend_the_transition() {
+        let now = Instant::now();
+        let mut state = SlideState::new(0.);
+        assert_eq!(state.sample(1., BASE, now, true), (0., true));
+        let (middle, running) = state.sample(1., BASE, now + BASE / 2, true);
+        assert!((middle - 0.5).abs() < f32::EPSILON);
+        assert!(running);
+        assert_eq!(state.sample(1., BASE, now + BASE, true), (1., false));
     }
 }

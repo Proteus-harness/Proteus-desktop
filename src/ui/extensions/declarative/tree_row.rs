@@ -17,7 +17,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::ops::Range;
 
-const HEIGHT: f32 = 24.;
+pub(super) const ROW_HEIGHT: f32 = 24.;
 /// Room before the first level.
 const INSET: f32 = 6.;
 /// Width of the chevron or, without chevrons, of the icon.
@@ -90,7 +90,7 @@ impl Tree {
             .tip_anchor(anchor)
             .relative()
             .w_full()
-            .h(prefs::scaled(HEIGHT))
+            .h(prefs::scaled(ROW_HEIGHT))
             .pl(prefs::scaled(start(row.depth)))
             .pr_1()
             .gap_1p5()

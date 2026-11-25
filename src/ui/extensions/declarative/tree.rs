@@ -3,14 +3,17 @@
 //! or shrinks, like every other disclosure.
 
 use super::fields::WidgetAction;
+use super::tree_row::ROW_HEIGHT;
 use crate::declarative::tree::Row;
-use crate::ui::motion;
+use crate::ui::{motion, prefs};
 use gpui_kit::component::v_flex;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
+
+const LIST_OVERDRAW: Pixels = px(240.);
 
 /// How rows are indented and joined.
 #[derive(Clone, Copy, PartialEq)]
@@ -67,7 +70,7 @@ impl Tree {
             layout,
             cursor: 0,
             focus: cx.focus_handle().tab_stop(true),
-            list: ListState::new(0, ListAlignment::Top, px(240.)),
+            list: ListState::new(0, ListAlignment::Top, LIST_OVERDRAW),
             folds: Vec::new(),
             entity: cx.entity_id(),
             view,
@@ -101,11 +104,6 @@ impl Tree {
             })
             .unwrap_or(self.cursor)
             .min(rows.len().saturating_sub(1));
-        for fold in folds(&self.rows, &rows) {
-            motion::toggled(self.fold_key(&fold.id), fold.open, cx);
-            self.folds.retain(|old| old.id != fold.id);
-            self.folds.push(fold);
-        }
         // Rows keep their measured heights where the ids stay in place.
         let (old, new) = (self.rows.len(), rows.len());
         let same = |a: &Row, b: &Row| a.id == b.id;
@@ -123,6 +121,32 @@ impl Tree {
             .count();
         self.list
             .splice(prefix..old - suffix, new - prefix - suffix);
+        // A fold builds every child as part of a single List item. Larger
+        // branches must use normal virtual rows, including on collapse,
+        // where keeping the children would also clone the whole branch.
+        let max_fold_rows = self.fold_row_limit(cx);
+        for (branch, open, child_rows) in fold_changes(&self.rows, &rows) {
+            let id = &rows[branch].id;
+            if let Some(index) = self.folds.iter().position(|fold| fold.id == *id) {
+                self.folds.remove(index);
+                self.list
+                    .remeasure_items(branch..children(&rows, branch).end);
+            }
+            if child_rows.len() > max_fold_rows {
+                continue;
+            }
+            let gone = if open {
+                Vec::new()
+            } else {
+                self.rows[child_rows].to_vec()
+            };
+            motion::toggled(Self::fold_key(self.entity, id), open, cx);
+            self.folds.push(Fold {
+                id: id.clone(),
+                open,
+                gone,
+            });
+        }
         self.rows = rows;
         self.cursor = self.step(self.cursor, 1);
         if moved {
@@ -131,8 +155,16 @@ impl Tree {
         cx.notify();
     }
 
-    fn fold_key(&self, id: &str) -> SharedString {
-        format!("tree-{}-{id}", self.entity).into()
+    fn fold_key(entity: EntityId, id: &str) -> SharedString {
+        format!("tree-{entity}-{id}").into()
+    }
+
+    fn fold_row_limit(&self, cx: &App) -> usize {
+        if self.natural {
+            return usize::MAX;
+        }
+        let viewport = self.list.viewport_bounds().size.height;
+        ((viewport + LIST_OVERDRAW * 2.) / px(ROW_HEIGHT * prefs::scale(cx))).ceil() as usize
     }
 
     /// Moving folds by row, dropping the ones that have settled.
@@ -140,45 +172,39 @@ impl Tree {
         if self.folds.is_empty() {
             return Vec::new();
         }
-        let mut settled = Vec::new();
-        let keys: Vec<_> = self
-            .folds
-            .iter()
-            .map(|fold| self.fold_key(&fold.id))
-            .collect();
-        let mut index = 0;
-        self.folds.retain(|fold| {
-            let moving = motion::moving(&keys[index], fold.open, cx);
-            index += 1;
-            if !moving {
-                settled.push(fold.id.clone());
-            }
-            moving
-        });
-        let at: HashMap<&str, usize> = self
-            .rows
+        let rows = &self.rows;
+        let at: HashMap<&str, usize> = rows
             .iter()
             .enumerate()
             .map(|(index, row)| (row.id.as_str(), index))
             .collect();
-        for id in settled {
-            if let Some(&branch) = at.get(id.as_str()) {
-                let end = children(&self.rows, branch).end;
-                self.list.remeasure_items(branch..end);
+        let max_fold_rows = self.fold_row_limit(cx);
+        let list = &self.list;
+        let entity = self.entity;
+        let mut spans = Vec::new();
+        self.folds.retain(|fold| {
+            let Some(&branch) = at.get(fold.id.as_str()) else {
+                return false;
+            };
+            let children = children(rows, branch);
+            let shown = if fold.open {
+                children.len()
+            } else {
+                fold.gone.len()
+            };
+            let key = Self::fold_key(entity, &fold.id);
+            if shown > max_fold_rows || !motion::moving(&key, fold.open, cx) {
+                list.remeasure_items(branch..children.end);
+                return false;
             }
-        }
-        self.folds
-            .iter()
-            .enumerate()
-            .filter_map(|(fold, item)| {
-                let branch = *at.get(item.id.as_str())?;
-                Some(Span {
-                    branch,
-                    children: children(&self.rows, branch),
-                    fold,
-                })
-            })
-            .collect()
+            spans.push(Span {
+                branch,
+                children,
+                fold: spans.len(),
+            });
+            true
+        });
+        spans
     }
 
     /// Row `index`, or the branch with its moving children, or nothing for
@@ -214,7 +240,7 @@ impl Tree {
                 .map(|(n, gone)| self.ghost(gone, n, cx))
                 .collect()
         };
-        let block = motion::reveal(self.fold_key(&fold.id), fold.open, cx, || {
+        let block = motion::reveal(Self::fold_key(self.entity, &fold.id), fold.open, cx, || {
             v_flex().w_full().children(block).into_any_element()
         });
         v_flex()
@@ -402,39 +428,29 @@ fn children(rows: &[Row], at: usize) -> Range<usize> {
     at + 1..end
 }
 
-/// Branches that opened or closed between two sets of rows and have
-/// children to show.
-fn folds(old: &[Row], new: &[Row]) -> Vec<Fold> {
+/// Each changed branch in the new list and its revealed/removed child range.
+fn fold_changes<'a>(
+    old: &'a [Row],
+    new: &'a [Row],
+) -> impl Iterator<Item = (usize, bool, Range<usize>)> + 'a {
     let before: HashMap<&str, (usize, bool)> = old
         .iter()
         .enumerate()
         .filter_map(|(index, row)| Some((row.id.as_str(), (index, row.expanded?))))
         .collect();
-    new.iter()
-        .enumerate()
-        .filter_map(|(index, row)| {
-            let open = row.expanded?;
-            let &(was_at, was_open) = before.get(row.id.as_str())?;
-            if was_open == open {
-                return None;
-            }
-            let gone = if open {
-                Vec::new()
-            } else {
-                old[children(old, was_at)].to_vec()
-            };
-            let shown = if open {
-                children(new, index).len()
-            } else {
-                gone.len()
-            };
-            (shown > 0).then(|| Fold {
-                id: row.id.clone(),
-                open,
-                gone,
-            })
-        })
-        .collect()
+    new.iter().enumerate().filter_map(move |(index, row)| {
+        let open = row.expanded?;
+        let &(was_at, was_open) = before.get(row.id.as_str())?;
+        if was_open == open {
+            return None;
+        }
+        let range = if open {
+            children(new, index)
+        } else {
+            children(old, was_at)
+        };
+        (!range.is_empty()).then_some((index, open, range))
+    })
 }
 
 #[cfg(test)]
@@ -442,6 +458,71 @@ mod navigation_tests {
     use super::*;
     use serde_json::json;
     use std::{cell::RefCell, rc::Rc};
+
+    #[::core::prelude::v1::test]
+    fn large_folders_keep_virtual_rows_and_preserve_the_cursor() {
+        let rows = |open: bool, count: usize| {
+            let mut rows = vec![
+                serde_json::from_value(json!({
+                    "id":"folder", "label":"folder", "expanded":open
+                }))
+                .unwrap(),
+            ];
+            rows.extend((0..count).map(|index| {
+                serde_json::from_value(json!({
+                    "id":format!("file-{index}"), "label":"file", "depth":1
+                }))
+                .unwrap()
+            }));
+            rows.push(serde_json::from_value(json!({"id":"sibling","label":"sibling"})).unwrap());
+            Arc::new(rows)
+        };
+        let mut app = ::gpui::TestAppContext::single();
+        app.update(|cx| {
+            gpui_kit::init(cx);
+            crate::ui::prefs::init_in_memory(cx);
+        });
+        let window = app.add_empty_window();
+        window.update(|_, cx| {
+            let tree = cx.new(|cx| {
+                Tree::new(
+                    rows(false, 0),
+                    Layout {
+                        indent: 16.,
+                        chevrons: true,
+                        guides: false,
+                    },
+                    false,
+                    WeakEntity::new_invalid(),
+                    cx,
+                    WidgetAction::new("files", |_, _, _| {}),
+                )
+            });
+            tree.update(cx, |tree, cx| {
+                tree.cursor = 1;
+                tree.set_rows(rows(true, 2), tree.layout, cx);
+                assert_eq!(tree.folds.len(), 1);
+                tree.set_rows(rows(false, 0), tree.layout, cx);
+                assert_eq!(tree.folds[0].gone.len(), 2);
+
+                tree.set_rows(rows(true, 100), tree.layout, cx);
+                assert!(tree.folds.is_empty());
+                assert_eq!(tree.list.item_count(), 102);
+                assert_eq!(tree.rows[tree.cursor].id, "sibling");
+                tree.set_rows(rows(false, 0), tree.layout, cx);
+                assert!(tree.folds.is_empty());
+                assert_eq!(tree.list.item_count(), 2);
+                assert_eq!(tree.rows[tree.cursor].id, "sibling");
+
+                // A small branch may receive more rows while opening.
+                tree.set_rows(rows(true, 2), tree.layout, cx);
+                assert_eq!(tree.folds.len(), 1);
+                tree.set_rows(rows(true, 100), tree.layout, cx);
+                assert!(tree.spans(cx).is_empty());
+                assert_eq!(tree.rows[tree.cursor].id, "sibling");
+            });
+        });
+    }
 
     #[::core::prelude::v1::test]
     fn all_collapsed_sections_remain_keyboard_reachable_and_expandable() {
