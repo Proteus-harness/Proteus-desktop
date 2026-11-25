@@ -300,6 +300,36 @@ fn folded_tail(autoscroll: bool) -> ChatScroller {
 }
 
 #[test]
+fn page_edges_match_measured_rows_before_and_after_the_archive_boundary() {
+    let mut state = folded_tail(false);
+    for row in [0, 7, 8, 41, 42, 49] {
+        state.list.scroll_to(ListOffset {
+            item_ix: row,
+            offset_in_item: px(0.),
+        });
+        let visible = state.visible_rows();
+        for archived in [false, true] {
+            for following in [false, true] {
+                for wheel_up in [false, true] {
+                    state.archived = archived;
+                    state.following = following;
+                    state.wheel_up = wheel_up;
+                    assert_eq!(
+                        state.page_edges(),
+                        (
+                            !following && visible.start < 8,
+                            archived
+                                && !wheel_up
+                                && visible.end.saturating_add(8) >= state.row_count()
+                        )
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn wheel_up_releases_a_short_resident_tail_without_any_pixel_movement() {
     let mut state = folded_tail(true);
     // Unmeasured/folded rows provide no local scroll room. Older history must

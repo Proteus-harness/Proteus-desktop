@@ -20,16 +20,7 @@ impl Render for Chat {
         motion::drive(window, cx);
         self.prepare_tool_diffs(cx);
         self.prepare_turn_stamp(cx);
-        let frame_at = Instant::now();
-        // The virtual list may measure every zero-height row of a collapsed
-        // run. Its rows share one run lookup for this render pass.
-        let chat = cx.entity();
-        let mut last_chain = 0..0;
-        let renderer = move |ix, window: &mut Window, cx: &mut App| {
-            chat.update(cx, |chat, cx| {
-                chat.render_row(ix, &mut last_chain, frame_at, window, cx)
-            })
-        };
+        let renderer = super::thread::thread_renderer(cx.entity(), Instant::now());
         let live = !self.archived();
         let activity = live.then(|| self.session.activity()).flatten();
         let thinking = activity.is_some();

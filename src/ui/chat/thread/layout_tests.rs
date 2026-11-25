@@ -3,6 +3,32 @@ use super::*;
 use ::gpui::{TestAppContext, VisualTestContext};
 use std::{cell::Cell, rc::Rc};
 
+#[::core::prelude::v1::test]
+fn folded_chain_skips_the_chat_update_for_its_measured_tail() {
+    let rows = 10..310;
+    let folded = ChainRender {
+        rows: rows.clone(),
+        open: false,
+        moving: None,
+    };
+    let moving = ChainRender {
+        rows: rows.clone(),
+        open: true,
+        moving: Some("chain".into()),
+    };
+    let open = ChainRender {
+        rows: rows.clone(),
+        open: true,
+        moving: None,
+    };
+    let updates = |chain: &ChainRender| rows.clone().filter(|index| !chain.hides(*index)).count();
+    assert_eq!(updates(&folded), 1);
+    assert_eq!(updates(&moving), 1);
+    assert_eq!(updates(&open), 300);
+    assert!(!folded.hides(rows.start - 1));
+    assert!(!folded.hides(rows.end));
+}
+
 #[derive(Clone, Copy)]
 enum Layout {
     Combined(usize),

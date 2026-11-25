@@ -364,6 +364,17 @@ impl ChatScroller {
         start..end.max(start.saturating_add(1)).min(self.row_count())
     }
 
+    fn page_edges(&self) -> (bool, bool) {
+        // The older edge only needs the first row. Walking measured bounds
+        // for the bottom can cross hundreds of folded, zero-height tool rows.
+        let older =
+            !self.following && self.list.logical_scroll_top().item_ix.min(self.row_count()) < 8;
+        let newer = self.archived
+            && !self.wheel_up
+            && self.visible_rows().end.saturating_add(8) >= self.row_count();
+        (older, newer)
+    }
+
     pub(super) fn set_history_range(
         &mut self,
         range: Option<HistoryRange>,
@@ -792,13 +803,7 @@ impl RenderOnce for ChatList {
             let now = Instant::now();
             let middle_active = state.step_middle(now, window.is_window_active(), cx);
             let running = state.step(now, motion::plays(cx));
-            let visible = state.visible_rows();
-            let edges = (
-                !state.following && visible.start < 8,
-                state.archived
-                    && !state.wheel_up
-                    && visible.end.saturating_add(8) >= state.row_count(),
-            );
+            let edges = state.page_edges();
             if edges.0 && !state.history_edges.0 {
                 cx.emit(HistoryEdge(super::history::Direction::Older));
             } else if edges.1 && !state.history_edges.1 {

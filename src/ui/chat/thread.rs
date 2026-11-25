@@ -20,6 +20,37 @@ use crate::ui::kit::{Pressable as _, SelectionCopyMenu as _};
 use crate::ui::motion::{self, fade_in_if};
 use crate::ui::{format, prefs};
 
+struct ChainRender {
+    rows: Range<usize>,
+    open: bool,
+    moving: Option<SharedString>,
+}
+
+impl ChainRender {
+    fn hides(&self, index: usize) -> bool {
+        (!self.open || self.moving.is_some())
+            && index != self.rows.start
+            && self.rows.contains(&index)
+    }
+}
+
+/// The list still measures folded members at zero height. Within this
+/// layout pass, those members can skip borrowing and rendering the chat.
+pub(super) fn thread_renderer(
+    chat: Entity<Chat>,
+    frame_at: Instant,
+) -> impl FnMut(usize, &mut Window, &mut App) -> AnyElement {
+    let mut chain: Option<ChainRender> = None;
+    move |index, window, cx| {
+        if chain.as_ref().is_some_and(|chain| chain.hides(index)) {
+            return div().into_any_element();
+        }
+        chat.update(cx, |chat, cx| {
+            chat.render_row(index, &mut chain, frame_at, window, cx)
+        })
+    }
+}
+
 impl Chat {
     fn complete_stamp_tail(&self) -> bool {
         self.codex
@@ -100,10 +131,10 @@ impl Chat {
             .position(|entry| entry.key == key)
     }
 
-    pub(super) fn render_row(
+    fn render_row(
         &mut self,
         ix: usize,
-        last_chain: &mut Range<usize>,
+        last_chain: &mut Option<ChainRender>,
         frame_at: Instant,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -120,33 +151,27 @@ impl Chat {
         if stamp::hidden(entries, entry) {
             return div().into_any_element();
         }
-        let compact = prefs::visual(cx).view.compact_tools;
-        let chain = if last_chain.contains(&ix) {
-            Some(last_chain.clone())
-        } else {
-            let chain = self.chain_at(ix, compact);
-            *last_chain = chain.clone().unwrap_or(0..0);
-            chain
-        };
-        let chain_head = chain.as_ref().map(|chain| entries[chain.start].key);
-        let chain_open = chain_head.is_some_and(|head| self.chain_open(head));
-        let chain_reveal = chain.as_ref().and_then(|chain| {
-            chain_reveal_key(cx.entity_id(), entries[chain.start].key, chain.len())
-        });
-        // Short runs grow as one block. Long open runs keep their virtual
-        // rows even when calls arrive during an existing transition.
-        let chain_moving = chain_reveal
+        if !last_chain
             .as_ref()
-            .is_some_and(|key| motion::moving_at(key, chain_open, frame_at, cx));
-        let chain_tail = chain.as_ref().is_some_and(|chain| ix != chain.start);
-        if chain_tail && (!chain_open || chain_moving) {
+            .is_some_and(|chain| chain.rows.contains(&ix))
+        {
+            *last_chain = self
+                .chain_at(ix, prefs::visual(cx).view.compact_tools)
+                .map(|rows| {
+                    let head = entries[rows.start].key;
+                    let open = self.chain_open(head);
+                    let moving = chain_reveal_key(cx.entity_id(), head, rows.len())
+                        .filter(|key| motion::moving_at(key, open, frame_at, cx));
+                    ChainRender { rows, open, moving }
+                });
+        }
+        let chain = last_chain.as_ref();
+        if chain.is_some_and(|chain| chain.hides(ix)) {
             return div().into_any_element();
         }
-        let end = if !chain_open || chain_moving {
-            chain.as_ref().map_or(ix + 1, |chain| chain.end)
-        } else {
-            ix + 1
-        };
+        let end = chain
+            .filter(|chain| !chain.open || chain.moving.is_some())
+            .map_or(ix + 1, |chain| chain.rows.end);
         let ending = stamp::turn_end(entries, end, self.complete_stamp_tail());
         let footer = ending.is_some();
         let time = ending.and_then(|ending| ending.time);
@@ -249,24 +274,18 @@ impl Chat {
                 };
                 render_subagent(entry.key, &agent, self.session.connected, cx)
             }
-            (Role::System, Some(tool), _) => match &chain {
-                Some(chain) if ix == chain.start => {
-                    let tools = entries[chain.clone()]
+            (Role::System, Some(tool), _) => match chain {
+                Some(chain) if ix == chain.rows.start => {
+                    let tools = entries[chain.rows.clone()]
                         .iter()
                         .filter_map(|entry| entry.tool.as_deref());
                     let header =
-                        render_chain_header(key, tools, chain_open, self.session.connected, cx);
-                    let calls = if chain_moving {
-                        let run = self.render_run(chain.clone(), frame_at, cx);
-                        motion::reveal_at(
-                            chain_reveal.unwrap_or_default(),
-                            chain_open,
-                            frame_at,
-                            cx,
-                            || run,
-                        )
+                        render_chain_header(key, tools, chain.open, self.session.connected, cx);
+                    let calls = if let Some(reveal) = &chain.moving {
+                        let run = self.render_run(chain.rows.clone(), frame_at, cx);
+                        motion::reveal_at(reveal.clone(), chain.open, frame_at, cx, || run)
                     } else {
-                        chain_open.then(|| {
+                        chain.open.then(|| {
                             let tool = render_tool(
                                 entry.key,
                                 tool,
@@ -311,6 +330,9 @@ impl Chat {
                 .w_full()
                 .into_any_element()
         };
+        #[cfg(debug_assertions)]
+        let trace_chain =
+            chain.map(|chain| (entries[chain.rows.start].key, chain.moving.is_some()));
         if !missing.is_empty() {
             self.fetch_images(missing, image_edge, cx);
         }
@@ -318,7 +340,7 @@ impl Chat {
             .group(super::turn_footer::GROUP)
             .on_prepaint(move |bounds, window, _| {
                 #[cfg(debug_assertions)]
-                if let Some(head) = chain_head {
+                if let Some((head, chain_moving)) = trace_chain {
                     super::tool_chain::trace_bounds(head, key, chain_moving, frame_at, bounds);
                 }
                 let visible = window.content_mask().bounds;
