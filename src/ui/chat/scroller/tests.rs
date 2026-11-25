@@ -12,6 +12,60 @@ struct DisclosureRows {
 }
 
 #[test]
+fn first_height_read_is_immediate_and_resize_loads_only_the_final_width_and_revision() {
+    let app = ::gpui::TestAppContext::single();
+    let key = super::HeightCacheKey {
+        identity: [1; 32],
+        revision: [2; 32],
+        layout: [0; 32],
+        prefix: 12,
+        base: None,
+    };
+    let metrics = [3; 32];
+    let scroller = app.update(|cx| {
+        cx.new(|cx| {
+            let mut state = ChatScroller::new(false);
+            state.height_requests = Some(Vec::new());
+            state.height_metrics = Some(metrics);
+            state.bind_height_cache(Some(key.clone()), cx);
+            state.update_viewport(size(px(640.), px(480.)), 0, cx);
+            assert_eq!(state.height_requests.as_ref().unwrap().len(), 1);
+            state
+        })
+    });
+    for width in 641..=650 {
+        app.executor().advance_clock(Duration::from_millis(20));
+        app.update(|cx| {
+            scroller.update(cx, |state, cx| {
+                state.update_viewport(size(px(width as f32), px(480.)), 0, cx)
+            })
+        });
+        app.run_until_parked();
+    }
+    let latest = super::HeightCacheKey {
+        revision: [4; 32],
+        ..key
+    };
+    app.update(|cx| scroller.update(cx, |state, cx| state.bind_height_cache(Some(latest), cx)));
+    app.executor().advance_clock(Duration::from_millis(100));
+    app.run_until_parked();
+    app.update(|cx| assert_eq!(scroller.read(cx).height_requests.as_ref().unwrap().len(), 1));
+
+    app.executor().advance_clock(Duration::from_millis(21));
+    app.run_until_parked();
+    app.update(|cx| {
+        let state = scroller.read(cx);
+        assert!(state.height_resize.is_none());
+        let requests = state.height_requests.as_ref().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[1].revision, [4; 32]);
+        let expected_layout =
+            super::height_hash([&metrics[..], &650f32.to_bits().to_le_bytes()].concat());
+        assert_eq!(requests[1].layout, expected_layout);
+    });
+}
+
+#[test]
 fn a_cancelled_context_request_drops_its_unresolved_fraction_without_moving_the_reader() {
     let mut app = ::gpui::TestAppContext::single();
     app.update(|cx| {

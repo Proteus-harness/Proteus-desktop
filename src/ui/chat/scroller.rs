@@ -85,7 +85,10 @@ pub(super) struct ChatScroller {
     renderer_generation: u64,
     height_key: Option<HeightCacheKey>,
     height_load: Option<Task<()>>,
+    height_resize: Option<(Instant, Task<()>)>,
     height_metrics: Option<[u8; 32]>,
+    #[cfg(test)]
+    height_requests: Option<Vec<HeightCacheKey>>,
     footer: FooterState,
     footer_height: Pixels,
     reading_gap: Pixels,
@@ -148,7 +151,10 @@ impl ChatScroller {
             renderer_generation: 0,
             height_key: None,
             height_load: None,
+            height_resize: None,
             height_metrics: None,
+            #[cfg(test)]
+            height_requests: None,
             footer: FooterState::default(),
             footer_height: px(0.),
             reading_gap: px(0.),
@@ -165,26 +171,47 @@ impl ChatScroller {
         if self.height_key == key {
             return;
         }
+        self.height_load = None;
         self.height_key = key;
         self.refresh_height_binding(cx);
     }
 
     fn refresh_height_binding(&mut self, cx: &mut Context<Self>) {
-        let Some(mut key) = self.height_key.clone() else {
+        if self.height_key.is_none() {
             self.height_load = None;
+            self.height_resize = None;
             self.scrollbar.unbind_height_cache();
             return;
-        };
-        let Some(size) = self.size.filter(|size| size.width > px(0.)) else {
+        }
+        if self.size.is_none_or(|size| size.width <= px(0.)) {
+            return;
+        }
+        // Font and renderer preferences follow the rendering window. Capture
+        // them here so the resize timer can load from the app context later.
+        self.height_metrics
+            .get_or_insert_with(|| super::height_layout_fingerprint(cx));
+        if self.height_resize.is_none() {
+            self.load_height_cache(cx);
+        }
+    }
+
+    fn load_height_cache(&mut self, cx: &mut Context<Self>) {
+        let (Some(mut key), Some(metrics), Some(size)) = (
+            self.height_key.clone(),
+            self.height_metrics,
+            self.size.filter(|size| size.width > px(0.)),
+        ) else {
             return;
         };
-        let metrics = *self
-            .height_metrics
-            .get_or_insert_with(|| super::height_layout_fingerprint(cx));
         let mut hash = Sha256::new();
         hash.update(metrics);
         hash.update(f32::from(size.width).to_bits().to_le_bytes());
         key.layout = hash.finalize().into();
+        #[cfg(test)]
+        if let Some(requests) = self.height_requests.as_mut() {
+            requests.push(key);
+            return;
+        }
         HistoryScrollbar::init_height_cache(cx);
         let Some(receiver) = self.scrollbar.bind_height_cache(key) else {
             return;
@@ -199,6 +226,42 @@ impl ChatScroller {
                 }
             });
         }));
+    }
+
+    /// Keep measuring resident rows at each width, but use a durable cache
+    /// key only after the resize settles. Reuse one timer across the gesture.
+    fn defer_height_binding(&mut self, cx: &mut Context<Self>) {
+        self.height_load = None;
+        self.scrollbar.unbind_height_cache();
+        if self.height_key.is_none() {
+            return;
+        }
+        let deadline = cx.background_executor().now() + motion::FAST;
+        if let Some((settle_at, _)) = self.height_resize.as_mut() {
+            *settle_at = deadline;
+            return;
+        }
+        let task = cx.spawn(async move |this, cx| {
+            let mut delay = motion::FAST;
+            loop {
+                cx.background_executor().timer(delay).await;
+                let Ok(Some(remaining)) = this.update(cx, |this, cx| {
+                    let (settle_at, _) = this.height_resize.as_ref()?;
+                    let remaining =
+                        settle_at.saturating_duration_since(cx.background_executor().now());
+                    if !remaining.is_zero() {
+                        return Some(remaining);
+                    }
+                    this.height_resize = None;
+                    this.load_height_cache(cx);
+                    None
+                }) else {
+                    break;
+                };
+                delay = remaining;
+            }
+        });
+        self.height_resize = Some((deadline, task));
     }
 
     pub(super) fn set_autoscroll(&mut self, autoscroll: bool, cx: &mut Context<Self>) {
@@ -443,6 +506,30 @@ impl ChatScroller {
             self.last_offset = None;
         }
         retained
+    }
+
+    fn update_viewport(
+        &mut self,
+        size: gpui_kit::Size<Pixels>,
+        renderer_generation: u64,
+        cx: &mut Context<Self>,
+    ) {
+        let old_width = self.size.map(|previous| previous.width);
+        let width_changed = old_width != Some(size.width);
+        if self.keep_end(size) {
+            cx.notify();
+        }
+        let resizing = width_changed
+            && (self.height_resize.is_some() || old_width.is_some_and(|width| width > px(0.)));
+        if resizing {
+            self.defer_height_binding(cx);
+        }
+        if self.renderer_generation != renderer_generation {
+            self.renderer_generation = renderer_generation;
+            self.remeasure(cx);
+        } else if width_changed {
+            self.refresh_height_binding(cx);
+        }
     }
 
     fn changed(&mut self, cx: &mut Context<Self>) {
@@ -832,19 +919,7 @@ impl RenderOnce for ChatList {
                         resized.update(cx, |state, cx| {
                             state.footer_viewport = bounds;
                             let generation = crate::ui::extensions::render_generation(cx);
-                            if state.renderer_generation != generation {
-                                state.renderer_generation = generation;
-                                state.remeasure(cx);
-                            }
-                            let width_changed = state
-                                .size
-                                .is_none_or(|size| size.width != bounds.size.width);
-                            if state.keep_end(bounds.size) {
-                                cx.notify();
-                            }
-                            if width_changed {
-                                state.refresh_height_binding(cx);
-                            }
+                            state.update_viewport(bounds.size, generation, cx);
                             // The footer itself may be outside native
                             // overdraw. Start with its real content; visible
                             // footer layout refines only the needed floor.
