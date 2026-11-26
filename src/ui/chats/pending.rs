@@ -18,7 +18,7 @@ pub(super) fn take<T: Copy>(
         return None;
     }
     opening.remove(id);
-    (spaces.contains(id) || spaces.roots().any(|root| root == id)).then(|| pending.get())
+    spaces.needs_chat(id).then(|| pending.get())
 }
 
 pub(super) fn may_focus(

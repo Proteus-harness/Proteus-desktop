@@ -63,11 +63,30 @@ fn detached_fragment_retains_ownership_without_reopening_root() {
     fragment.open("terminal:detached", |_| false);
     assert!(spaces.set_active(Some(FIRST), fragment.clone()));
     assert!(!spaces.contains(FIRST));
+    assert!(spaces.needs_chat(FIRST));
     assert_eq!(spaces.owner_of_chat(FIRST), Some(FIRST));
     assert!(!spaces.active_layout().contains(FIRST));
     spaces.select(FIRST);
     assert_eq!(spaces.active_layout(), &fragment);
     assert_eq!(spaces.validate(), Ok(()));
+}
+
+#[test]
+fn closing_the_last_tab_releases_root_context_but_preserves_reopen_history() {
+    let mut spaces = ChatSpaces::default();
+    spaces.select(FIRST);
+    let mut layout = spaces.active_layout().clone();
+    layout.close(FIRST);
+    spaces.save_active(layout);
+    spaces.select(SECOND);
+    assert!(!spaces.needs_chat(FIRST));
+    assert!(spaces.needs_chat(SECOND));
+    spaces.select(FIRST);
+    assert_eq!(
+        spaces.active_layout().closed_ids().collect::<Vec<_>>(),
+        [FIRST]
+    );
+    assert!(!spaces.needs_chat(FIRST));
 }
 
 #[test]

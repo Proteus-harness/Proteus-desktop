@@ -507,13 +507,19 @@ impl Chat {
 
     /// Nothing was said or typed here yet, so the chat can go unnoticed.
     pub fn is_blank(&self, cx: &App) -> bool {
-        self.session.transcript.entries().is_empty()
-            && self.session.feedback.visible_sends().next().is_none()
-            && !self.session.running()
-            && self.composer.read(cx).is_blank()
-            && self.attachments.is_empty()
-            && !self.attachments_loading
-            && self.saved_drafts.is_empty()
+        self.session.transcript.entries().is_empty() && !self.has_unfinished_work(cx)
+    }
+
+    pub(super) fn has_unfinished_work(&self, cx: &App) -> bool {
+        self.has_draft(cx)
+            || !self.saved_drafts.is_empty()
+            || self.session.feedback.visible_sends().next().is_some()
+            || self.session.running()
+            || self
+                .session
+                .pending
+                .as_ref()
+                .is_some_and(|pending| !pending.user_inputs.is_empty())
     }
 
     pub fn focus(&self, window: &mut Window, cx: &mut App) {

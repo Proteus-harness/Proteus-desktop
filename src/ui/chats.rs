@@ -559,6 +559,9 @@ impl Workspace {
                 {
                     cx.emit(HostEvent::RunSettled);
                 }
+                if !self.spaces.needs_chat(tab) && !chat.read(cx).has_unfinished_work(cx) {
+                    self.chats.remove(tab);
+                }
             }
             ChatEvent::CatalogUpdated => {
                 self.refresh_sessions(cx);
@@ -667,8 +670,11 @@ impl Workspace {
     /// Drops chats whose tabs closed and follows the layout to the active
     /// chat; extensions reread the session when it changes.
     pub(super) fn sync_chats(&mut self, layout: &TabLayout, cx: &mut Context<Self>) {
-        self.chats
-            .retain(|id, _| self.spaces.contains(id) || self.spaces.roots().any(|root| root == id));
+        self.chats.retain(|id, chat| {
+            self.spaces.needs_chat(id)
+                || (self.spaces.owner_of_chat(id) == Some(id.as_str())
+                    && chat.view.read(cx).has_unfinished_work(cx))
+        });
         self.opening_views
             .retain(|id, _| self.opening.contains_key(id) && self.spaces.contains(id));
         self.release_hidden_chat_activities(layout, cx);

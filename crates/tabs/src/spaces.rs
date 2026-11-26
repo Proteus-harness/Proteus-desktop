@@ -82,6 +82,18 @@ impl ChatSpaces {
         self.all_layouts().any(|layout| layout.contains(id))
     }
 
+    /// A document or child tab can still use its area's root chat as context.
+    /// Empty areas retain their layout and reopen history without a live chat.
+    pub fn needs_chat(&self, id: &str) -> bool {
+        self.contains(id)
+            || self.roots.get(id).is_some_and(|layout| {
+                layout
+                    .root
+                    .find_pane(&|pane| !pane.tabs.is_empty())
+                    .is_some()
+            })
+    }
+
     pub fn roots(&self) -> impl Iterator<Item = &str> {
         self.roots.keys().map(String::as_str)
     }
