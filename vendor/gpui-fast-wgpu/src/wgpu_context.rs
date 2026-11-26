@@ -148,13 +148,15 @@ impl WgpuContext {
     }
 
     #[cfg(not(target_family = "wasm"))]
-    fn new_with_options(
+    pub(crate) fn new_with_options(
         instance: wgpu::Instance,
         surface: &wgpu::Surface<'_>,
         compositor_gpu: Option<CompositorGpuHint>,
         reject_software: bool,
     ) -> anyhow::Result<Self> {
         let device_id_filter = Self::device_id_filter();
+        #[cfg(target_os = "linux")]
+        let compositor_gpu = compositor_gpu.or_else(boot_gpu_hint);
 
         // Select an adapter by actually testing surface configuration with the real device.
         // This is the only reliable way to determine compatibility on hybrid GPU systems.
@@ -473,8 +475,16 @@ impl WgpuContext {
 
     #[cfg(not(target_family = "wasm"))]
     pub fn instance(display: Option<Box<dyn wgpu::wgt::WgpuHasDisplayHandle>>) -> wgpu::Instance {
+        Self::instance_with(wgpu::Backends::VULKAN | wgpu::Backends::GL, display)
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    pub(crate) fn instance_with(
+        backends: wgpu::Backends,
+        display: Option<Box<dyn wgpu::wgt::WgpuHasDisplayHandle>>,
+    ) -> wgpu::Instance {
         wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::VULKAN | wgpu::Backends::GL,
+            backends,
             flags: wgpu::InstanceFlags::default(),
             backend_options: wgpu::BackendOptions::default(),
             memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
@@ -749,6 +759,41 @@ impl WgpuContext {
     pub fn errors(&self) -> &Arc<DeviceErrorState> {
         &self.errors
     }
+}
+
+// Some nested compositors do not report a dmabuf main device. Use the boot
+// display adapter as a sorting hint only; every candidate still has to present.
+#[cfg(target_os = "linux")]
+fn boot_gpu_hint() -> Option<CompositorGpuHint> {
+    use std::fs;
+    if [
+        "DRI_PRIME",
+        "__NV_PRIME_RENDER_OFFLOAD",
+        "MESA_VK_DEVICE_SELECT",
+    ]
+    .iter()
+    .any(|key| std::env::var_os(key).is_some())
+    {
+        return None;
+    }
+    fs::read_dir("/sys/class/drm")
+        .ok()?
+        .flatten()
+        .find_map(|entry| {
+            let name = entry.file_name();
+            let index = name.to_str()?.strip_prefix("card")?;
+            if index.parse::<u32>().is_err() {
+                return None;
+            }
+            let device = entry.path().join("device");
+            if fs::read_to_string(device.join("boot_vga")).ok()?.trim() != "1" {
+                return None;
+            }
+            Some(CompositorGpuHint {
+                vendor_id: parse_pci_id(&fs::read_to_string(device.join("vendor")).ok()?).ok()?,
+                device_id: parse_pci_id(&fs::read_to_string(device.join("device")).ok()?).ok()?,
+            })
+        })
 }
 
 #[cfg(not(target_family = "wasm"))]
