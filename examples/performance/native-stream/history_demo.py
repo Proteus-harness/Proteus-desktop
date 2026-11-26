@@ -144,6 +144,7 @@ def run(args):
                                        env=env, stdout=log, stderr=log, start_new_session=True)
             state["pid"] = process.pid
             started = time.monotonic()
+            last_report = None
             while not interrupted and not (args.output / "control/stop").exists():
                 if fixture.errors:
                     raise RuntimeError("; ".join(fixture.errors))
@@ -155,7 +156,13 @@ def run(args):
                     delivered(fixture)
                     state.update(launched_executable(process.pid), status="running")
                     print("READY", flush=True)
-                record(args.output, fixture, state)
+                # This demo only appends trace rows after preparing its snapshot;
+                # report state changes at READY and otherwise follows that trace.
+                with fixture.lock:
+                    report = (state["status"], len(fixture.trace))
+                if report != last_report:
+                    record(args.output, fixture, state)
+                    last_report = report
                 time.sleep(.1)
         state["status"] = "stopped"
     except BaseException as exc:

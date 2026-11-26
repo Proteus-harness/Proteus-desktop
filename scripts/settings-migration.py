@@ -235,7 +235,12 @@ def relocate(data, suffix, mappings, *, preferences_at=None):
         token = match.group()
         if token.startswith('#'):
             return token
-        original = tomllib.loads('value = ' + token)['value']
+        # Simple printable ASCII strings need no TOML escape decoding.
+        if (not token.startswith(('"""', "'''"))
+                and token.isascii() and token.isprintable() and '\\' not in token):
+            original = token[1:-1]
+        else:
+            original = tomllib.loads('value = ' + token)['value']
         moved = path_value(original)
         return json.dumps(moved, ensure_ascii=False) if moved != original else token
 

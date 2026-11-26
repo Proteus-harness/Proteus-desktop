@@ -132,7 +132,14 @@ def main():
             if path.is_file():
                 source.update(str(path.relative_to(ROOT)).encode())
                 source.update(path.read_bytes())
-    report = {"binary": str(binary), "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
+    binary_digest = hashlib.sha256()
+    with binary.open("rb") as stream, memoryview(bytearray(256 * 1024)) as buffer:
+        while True:
+            count = stream.readinto(buffer)
+            if not count:
+                break
+            binary_digest.update(buffer[:count])
+    report = {"binary": str(binary), "binary_sha256": binary_digest.hexdigest(),
         "terminal_sources_sha256": source.hexdigest(),
         "harness_sha256": {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
                            for path in (Path(__file__).resolve(), Path(__file__).with_name("lifecycle.py"))},

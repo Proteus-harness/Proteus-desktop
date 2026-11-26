@@ -5,7 +5,6 @@ Requires the background-gui helper and Pillow for PNG inspection only. It
 does not edit screenshots or interact with the user's display.
 """
 import argparse
-from collections import Counter
 import hashlib
 import json
 from pathlib import Path
@@ -13,7 +12,7 @@ import subprocess
 import sys
 import time
 
-from PIL import Image
+from PIL import Image, ImageChops
 
 HERE = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(HERE))
@@ -32,8 +31,24 @@ def colors(stage):
 
 def pixels(path, stage):
     with Image.open(path) as frame:
-        counts = Counter(frame.convert("RGB").getdata())
-    return [counts[color] for color in colors(stage)]
+        frame = frame.convert("RGB")
+    # Each channel differs between the two stage colors. A channel scores 0
+    # for the first, 2 for the second and 1 otherwise: only exact RGB matches
+    # can sum to 0 or 6. Keep the temporary channel buffers tile-sized.
+    tables = []
+    for first, second in zip(*colors(stage)):
+        table = bytearray([1]) * 256
+        table[first], table[second] = 0, 2
+        tables.append(table)
+    counts = [0, 0]
+    for top in range(0, frame.height, 64):
+        for left in range(0, frame.width, 1024):
+            tile = frame.crop((left, top, min(left + 1024, frame.width), min(top + 64, frame.height)))
+            r, g, b = (channel.point(table) for channel, table in zip(tile.split(), tables))
+            hist = ImageChops.add(ImageChops.add(r, g), b).histogram()
+            counts[0] += hist[0]
+            counts[1] += hist[6]
+    return counts
 
 
 def state(output):
