@@ -118,12 +118,15 @@ class ChatSpacesFixture(base.Fixture):
                                            "/history/tool-state")
         state = None
         if scoped:
-            allowed = ({"session_dir", "path"} if workspace_path
+            allowed = ({"session_dir", "view"} if path == "/workspace/changes"
+                       else {"session_dir", "path"} if workspace_path
                        else {"session_dir", "name"} if path == "/history/tool-state"
                        else {"session_dir"})
             base.require("session_dir" in query and set(query) <= allowed
                          and all(len(values) == 1 for values in query.values()),
                          f"Unexpected query for {path}; keys={sorted(query)}")
+            if path == "/workspace/changes" and "view" in query:
+                base.require(query["view"] == ["summary"], "Unknown Git changes view")
             if path == "/history/tool-state":
                 base.require(query.get("name") == ["update_plan"],
                              "Expected exact update_plan tool-state query")
@@ -166,7 +169,7 @@ class ChatSpacesFixture(base.Fixture):
                 try:
                     result = (workspace_files.listing(state, relative) if path == "/workspace/list"
                               else workspace_files.read(state, relative) if path == "/workspace/file"
-                              else workspace_files.changes())
+                              else workspace_files.changes(summary="view" in query))
                 except (OSError, ValueError) as exc:
                     h.reply(404, {"error": str(exc)})
                     return

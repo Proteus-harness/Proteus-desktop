@@ -36,7 +36,10 @@ def read(state, relative):
     return result
 
 
-def changes():
+def changes(summary=False):
+    if summary:
+        return {"repository": False, "branch": None, "detached_head": None, "upstream": None,
+                "ahead": 0, "behind": 0, "count": 0, "truncated": False}
     return {"repository": False, "branch": None, "head": None, "upstream": None,
             "ahead": 0, "behind": 0, "added": 0, "deleted": 0,
             "entries": [], "truncated": False}
