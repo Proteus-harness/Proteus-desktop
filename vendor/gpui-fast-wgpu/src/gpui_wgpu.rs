@@ -2,6 +2,8 @@
 mod cosmic_text_system;
 mod fast;
 mod wgpu_atlas;
+#[cfg(target_os = "linux")]
+mod intel_vulkan;
 mod wgpu_context;
 mod wgpu_renderer;
 

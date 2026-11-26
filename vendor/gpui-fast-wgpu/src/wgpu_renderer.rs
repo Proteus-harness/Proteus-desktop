@@ -309,7 +309,11 @@ impl WgpuRenderer {
         let mut ctx_ref = gpu_context.borrow_mut();
         let (context, surface) = match ctx_ref.as_mut() {
             Some(context) => {
-                let surface = create_surface(&context.instance, window_handle.as_raw())?;
+                let surface = create_surface(
+                    &context.instance,
+                    window_handle.as_raw(),
+                    context.display.as_deref(),
+                )?;
                 context.check_compatible_with_surface(&surface)?;
                 (context, surface)
             }
@@ -2125,7 +2129,11 @@ impl WgpuRenderer {
             .window_handle()
             .map_err(|e| anyhow::anyhow!("Failed to get window handle: {e}"))?;
 
-        let surface = create_surface(instance, window_handle.as_raw())?;
+        let display = self
+            .context
+            .as_ref()
+            .and_then(|shared| shared.borrow().as_ref().and_then(|ctx| ctx.display.clone()));
+        let surface = create_surface(instance, window_handle.as_raw(), display.as_deref())?;
 
         let width = (config.size.width.0 as u32).max(1);
         let height = (config.size.height.0 as u32).max(1);
@@ -2223,8 +2231,12 @@ impl WgpuRenderer {
             surface
         } else {
             let ctx_ref = gpu_context.borrow();
-            let instance = &ctx_ref.as_ref().unwrap().instance;
-            create_surface(instance, window_handle.as_raw())?
+            let ctx = ctx_ref.as_ref().unwrap();
+            create_surface(
+                &ctx.instance,
+                window_handle.as_raw(),
+                ctx.display.as_deref(),
+            )?
         };
 
         let config = WgpuSurfaceConfig {
@@ -2538,13 +2550,16 @@ where
     W: HasWindowHandle + HasDisplayHandle + std::fmt::Debug + Send + Sync + Clone + 'static,
 {
     let trace = std::env::var("PROTEUS_STARTUP_TRACE").as_deref() == Ok("1");
-    let open = |backends, hardware_only| -> anyhow::Result<_> {
-        let start = std::time::Instant::now();
-        let instance = WgpuContext::instance_with(backends, Some(Box::new(window.clone())));
-        let surface = create_surface(&instance, handle)?;
+    let setup = |instance: wgpu::Instance,
+                 display: Option<Arc<dyn wgpu::wgt::WgpuHasDisplayHandle>>,
+                 hardware_only,
+                 start: std::time::Instant|
+     -> anyhow::Result<_> {
+        let surface = create_surface(&instance, handle, display.as_deref())?;
         let instance_time = start.elapsed();
-        let context =
+        let mut context =
             WgpuContext::new_with_options(instance, &surface, compositor_gpu, hardware_only)?;
+        context.display = display;
         if trace {
             let info = context.adapter.get_info();
             eprintln!(
@@ -2560,6 +2575,16 @@ where
         Ok((context, surface))
     };
 
+    let open = |backends, hardware_only| {
+        let start = std::time::Instant::now();
+        setup(
+            WgpuContext::instance_with(backends, Some(Box::new(window.clone()))),
+            None,
+            hardware_only,
+            start,
+        )
+    };
+
     let native = wgpu::Backends::VULKAN | wgpu::Backends::GL;
     #[cfg(target_os = "linux")]
     {
@@ -2570,6 +2595,24 @@ where
                 "WGPU_BACKEND must include vulkan or gl"
             );
             return open(selected, reject_software);
+        }
+        let hint = compositor_gpu.or_else(crate::wgpu_context::boot_gpu_hint);
+        if crate::intel_vulkan::eligible(hint) {
+            let start = std::time::Instant::now();
+            let selected = crate::intel_vulkan::instance().and_then(|instance| {
+                let (context, surface) =
+                    setup(instance, Some(Arc::new(window.clone())), true, start)?;
+                let info = context.adapter.get_info();
+                anyhow::ensure!(
+                    hint.is_some_and(|h| info.vendor == h.vendor_id && info.device == h.device_id),
+                    "Intel ICD selected a different adapter"
+                );
+                Ok((context, surface))
+            });
+            match selected {
+                Ok(result) => return Ok(result),
+                Err(error) => log::debug!("Direct Intel driver unavailable: {error:#}"),
+            }
         }
         // EGL initializes drivers and creates a context even if Vulkan wins.
         // Only keep a Vulkan-only instance when it can present on real hardware.
@@ -2587,12 +2630,16 @@ where
 pub(crate) fn create_surface(
     instance: &wgpu::Instance,
     raw_window_handle: raw_window_handle::RawWindowHandle,
+    display: Option<&dyn wgpu::wgt::WgpuHasDisplayHandle>,
 ) -> anyhow::Result<wgpu::Surface<'static>> {
+    let raw_display_handle = display
+        .map(|owner| owner.display_handle().map(|h| h.as_raw()))
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("Failed to get display handle: {e}"))?;
     unsafe {
         instance
             .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
-                // Fall back to the display handle already provided via InstanceDescriptor::display.
-                raw_display_handle: None,
+                raw_display_handle,
                 raw_window_handle,
             })
             .map_err(|e| anyhow::anyhow!("{e}"))

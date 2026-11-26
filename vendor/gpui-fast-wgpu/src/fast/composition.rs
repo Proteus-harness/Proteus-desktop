@@ -34,7 +34,11 @@ impl WgpuRenderer {
         let context = context_ref
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("GPU context is not initialized"))?;
-        let surface = create_surface(&context.instance, window_handle.as_raw())?;
+        let surface = create_surface(
+            &context.instance,
+            window_handle.as_raw(),
+            context.display.as_deref(),
+        )?;
         context.check_compatible_with_surface(&surface)?;
         let mut renderer = Self::new_internal(
             Some(Rc::clone(gpu_context)),

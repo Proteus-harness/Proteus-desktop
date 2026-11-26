@@ -2668,6 +2668,7 @@ name = "gpui-fast-wgpu"
 version = "0.1.12"
 dependencies = [
  "anyhow",
+ "ash",
  "bytemuck",
  "cosmic-text",
  "etagere",
@@ -2675,6 +2676,7 @@ dependencies = [
  "gpui-pre-collections",
  "gpui-pre-util",
  "itertools 0.14.0",
+ "libloading",
  "log",
  "parking_lot",
  "profiling",

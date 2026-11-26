@@ -12,6 +12,9 @@ use wgpu::TextureFormat;
 #[derive(Clone)]
 pub struct WgpuContext {
     pub instance: wgpu::Instance,
+    // Imported Vulkan instances do not carry wgpu-core's display handle.
+    #[cfg(not(target_family = "wasm"))]
+    pub(crate) display: Option<Arc<dyn wgpu::wgt::WgpuHasDisplayHandle>>,
     pub adapter: wgpu::Adapter,
     pub device: Arc<wgpu::Device>,
     pub queue: Arc<wgpu::Queue>,
@@ -309,6 +312,7 @@ impl WgpuContext {
         let backend = WgpuBackend::Native(adapter.get_info().backend);
 
         Self {
+            display: None,
             instance,
             adapter,
             device: Arc::new(device),
@@ -764,7 +768,7 @@ impl WgpuContext {
 // Some nested compositors do not report a dmabuf main device. Use the boot
 // display adapter as a sorting hint only; every candidate still has to present.
 #[cfg(target_os = "linux")]
-fn boot_gpu_hint() -> Option<CompositorGpuHint> {
+pub(crate) fn boot_gpu_hint() -> Option<CompositorGpuHint> {
     use std::fs;
     if [
         "DRI_PRIME",

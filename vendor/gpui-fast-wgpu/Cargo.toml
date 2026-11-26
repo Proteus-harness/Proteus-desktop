@@ -59,6 +59,10 @@ doctest = false
 version = "=30.0.1"
 features = ["wgsl-in"]
 
+[target.'cfg(target_os = "linux")'.dependencies]
+ash = "0.38"
+libloading = "0.8"
+
 [dependencies.anyhow]
 version = "1.0.86"
 
