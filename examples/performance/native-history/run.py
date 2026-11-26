@@ -332,6 +332,8 @@ def main():
     parser.add_argument('--messages', type=int, nargs='+', default=[5000, 50000])
     parser.add_argument('--repeats', type=int, default=3)
     parser.add_argument('--text-repeats', type=int, default=4)
+    parser.add_argument('--append-chunk-rows', type=int,
+                        help='maximum messages per initial Append; default is one Append')
     parser.add_argument('--model-history-rows', type=int, default=argparse.SUPPRESS,
                         help='retain this many active model messages without truncating display history')
     parser.add_argument('--settle', type=float, default=5)
@@ -344,6 +346,8 @@ def main():
     parser.add_argument('--bgui-session', required=True)
     parser.add_argument('--bgui', type=Path, required=True)
     args = parser.parse_args()
+    if args.append_chunk_rows is not None and args.append_chunk_rows <= 0:
+        parser.error('--append-chunk-rows must be positive')
     model_rows = getattr(args, 'model_history_rows', None)
     if model_rows is not None and not 1 <= model_rows <= min(args.messages):
         parser.error('--model-history-rows must be between 1 and every --messages count')
@@ -387,6 +391,8 @@ def main():
                             str(count), str(args.text_repeats)]
             if model_rows is not None:
                 seed_command.append(str(model_rows))
+            if args.append_chunk_rows is not None:
+                seed_command.extend(('--append-chunk-rows', str(args.append_chunk_rows)))
             seed = subprocess.run(seed_command, env=seed_env, capture_output=True, text=True, check=True)
             seed_info = json.loads(seed.stdout)
             save(case / 'seed.json', seed_info)
@@ -397,6 +403,10 @@ def main():
                 verify_command.extend(('--model-history-rows', str(model_rows)))
             subprocess.run(verify_command, capture_output=True, check=True)
             expected = json.loads((case/'seed-verified.json').read_text())
+            if args.append_chunk_rows is not None:
+                appends = (count + args.append_chunk_rows - 1) // args.append_chunk_rows
+                if expected['history_mutations'] != appends + int(model_rows is not None):
+                    raise ValueError('unexpected number of seeded history mutations')
             if model_rows is not None and expected.get('model_history_rows') != model_rows:
                 raise ValueError('seed verifier returned a different model history count')
             expected.pop('ids')

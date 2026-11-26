@@ -58,6 +58,9 @@ python3 /absolute/background-gui/scripts/bgui.py run SESSION --cwd /absolute/Pro
   --bgui-session SESSION --bgui /absolute/background-gui/scripts/bgui.py
 ```
 
+Для истории, которая росла постепенно, передайте `--messages 50000 --append-chunk-rows 782`.
+Генератор запишет 64 отдельных Append, а стенд сверит их число с журналом.
+
 Повторите для `before` в новом output. Существующие output/case не
 перезаписываются. По окончании остановите собственный display через
 `bgui.py stop SESSION`. Пользовательские sessions/config не используются.
