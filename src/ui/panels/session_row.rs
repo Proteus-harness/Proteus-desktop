@@ -6,7 +6,7 @@ use crate::conversations::ConversationSummary;
 use crate::sessions::SessionMark;
 use crate::ui::context::RightClickMenu as _;
 use crate::ui::kit;
-use crate::ui::kit::ButtonLabel as _;
+use crate::ui::kit::{ButtonLabel as _, Hint as _};
 use crate::ui::motion::Spinner;
 use crate::ui::tip::{Tip as _, TooltipAnchor};
 use crate::ui::workspace::Workspace;
@@ -91,12 +91,67 @@ impl Workspace {
             };
         }
         let anchor = TooltipAnchor::default();
+        let hover_background = theme.sidebar.blend(if selected {
+            *theme.tokens.sidebar_accent
+        } else {
+            *theme.tokens.list_hover
+        });
+        let actions = || {
+            let pinned = mark.pinned;
+            let pin = kit::button(("session-pin", ix))
+                .icon(if pinned { Lucide::PinOff } else { Lucide::Pin })
+                .quiet(cx)
+                .xsmall()
+                .hint(session_menu::pin_label(pinned), cx)
+                .on_click({
+                    let dir = dir.clone();
+                    move |_, _, cx| {
+                        cx.stop_propagation();
+                        prefs::update(cx, |p| p.sessions.set_pinned(&dir, !pinned));
+                    }
+                });
+            let menu = crate::ui::context::menu_button(
+                ("session-dropdown", ix),
+                kit::button(("session-menu", ix))
+                    .icon(Lucide::Ellipsis)
+                    .quiet(cx)
+                    .xsmall(),
+                false,
+                {
+                    let (dir, mark) = (dir.clone(), mark.clone());
+                    let workspace = workspace.clone();
+                    move |menu, _, _| session_menu::build(menu, &dir, mark.clone(), &workspace)
+                },
+            );
+            h_flex()
+                .absolute()
+                .right_0()
+                .top_0()
+                .bottom_0()
+                .invisible()
+                .group_hover("session-row", |actions| actions.visible())
+                // Cover the caption's tail without changing its layout.
+                .child(div().w_4().h_full().bg(linear_gradient(
+                    90.,
+                    linear_color_stop(hover_background.opacity(0.), 0.),
+                    linear_color_stop(hover_background, 1.),
+                )))
+                .child(
+                    h_flex()
+                        .h_full()
+                        .gap_0p5()
+                        .bg(hover_background)
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .child(pin)
+                        .child(menu),
+                )
+        };
         h_flex()
             .id(("session", ix))
             .tip_anchor(anchor.clone())
             .group("session-row")
             .relative()
-            .pr_6()
+            .pr_1()
             .pl(rems(0.5 + depth.min(12) as f32 * 1.25))
             .py_1p5()
             .gap_2()
@@ -135,8 +190,10 @@ impl Workspace {
                 None => div()
                     .flex_1()
                     .min_w_0()
+                    .relative()
                     .text_sm()
                     .child(crate::ui::fade::caption("session-caption", title).anchor(anchor))
+                    .child(actions())
                     .into_any_element(),
             })
             .when(has_children, |item| {
@@ -167,29 +224,6 @@ impl Workspace {
                 )
             })
             .children(indicator)
-            .child(
-                div()
-                    .absolute()
-                    .right_1()
-                    .invisible()
-                    .group_hover("session-row", |menu| menu.visible())
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .child(crate::ui::context::menu_button(
-                        ("session-dropdown", ix),
-                        kit::button(("session-menu", ix))
-                            .icon(Lucide::Ellipsis)
-                            .quiet(cx)
-                            .xsmall(),
-                        false,
-                        {
-                            let (dir, mark) = (dir.clone(), mark.clone());
-                            let workspace = workspace.clone();
-                            move |menu, _, _| {
-                                session_menu::build(menu, &dir, mark.clone(), &workspace)
-                            }
-                        },
-                    )),
-            )
             .on_click(cx.listener({
                 let dir = dir.clone();
                 move |this, event: &ClickEvent, window, cx| {

@@ -141,26 +141,12 @@
       "sha256": "7c10e85f312c79dfccfa97fe97bb74c3d716a35f55e9701b30bc57e725ce1b44",
       "url": "https://github.com/microsoft/vscode/blob/366f292cd74138a3b5308e8cf2b43d6ff5b9458d/extensions/theme-solarized-light/themes/solarized-light-color-theme.json"
     },
-    "ayu-dark": {
-      "repository": "https://github.com/ayu-theme/vscode-ayu",
-      "commit": "605c9c8504682854d77adc0b630742182a86676b",
-      "path": "ayu-dark.json",
-      "sha256": "8d2d2ca525d8a5bd516e86fcbb41d6956f9fc43395921e8f06a7eceba780d8de",
-      "url": "https://github.com/ayu-theme/vscode-ayu/blob/605c9c8504682854d77adc0b630742182a86676b/ayu-dark.json"
-    },
     "ayu-light": {
       "repository": "https://github.com/ayu-theme/vscode-ayu",
       "commit": "605c9c8504682854d77adc0b630742182a86676b",
       "path": "ayu-light.json",
       "sha256": "10b4655242f94804b5f32c8d2b051a15cdd596e2deb1fb03f158f5bbd20d5002",
       "url": "https://github.com/ayu-theme/vscode-ayu/blob/605c9c8504682854d77adc0b630742182a86676b/ayu-light.json"
-    },
-    "ayu-dark-yaml": {
-      "repository": "https://github.com/ayu-theme/ayu-colors",
-      "commit": "c6e86054896ef10c69ba899dc11fdad0e004d4d3",
-      "path": "themes/dark.yaml",
-      "sha256": "331e54ec29839cfad80039663b56fbe669b67b3c8fbfac530d1c41f5e453b040",
-      "url": "https://github.com/ayu-theme/ayu-colors/blob/c6e86054896ef10c69ba899dc11fdad0e004d4d3/themes/dark.yaml"
     },
     "ayu-light-yaml": {
       "repository": "https://github.com/ayu-theme/ayu-colors",
@@ -314,9 +300,7 @@
     },
     "ayu": {
       "sources": [
-        "ayu-dark",
         "ayu-light",
-        "ayu-dark-yaml",
         "ayu-light-yaml"
       ],
       "tokens": {
@@ -327,9 +311,9 @@
         "popover": "ui.popup.bg / menu.background",
         "muted": "ui.panel.bg / editorWidget.background",
         "border": "ui.line / dropdown.border",
-        "active_tab": "ui.panel.bg / editorWidget.background (dark); surface.lift / editor.background (light)"
+        "active_tab": "surface.lift / editor.background"
       },
-      "note": "Official ayu-colors semantic tokens and generated VSCode JSON. Generated JSON resolves Dark surface.sunk to #010102. Panel here means ui.panel.bg (editorWidget), not VSCode panel.background. Border is ui.line; alpha comes from upstream. Moving rail from base to sunk and tab strip from lift to base are Proteus adaptations. Light settings cards use the imported list.even.background neutral to distinguish them from the editor."
+      "note": "Official ayu-colors semantic tokens and generated VSCode JSON. Panel here means ui.panel.bg (editorWidget), not VSCode panel.background. Border is ui.line; alpha comes from upstream. Moving rail from base to sunk and tab strip from lift to base are Proteus adaptations. Light settings cards use the imported list.even.background neutral to distinguish them from the editor."
     }
   },
   "variants": [
@@ -1096,54 +1080,6 @@
       ],
       "selection_minimum_srgb_ratio": 5.1199,
       "previous_preserved_payload_sha256": "9548a2e10bb74ce63ca40c72673f29cbe907a767bb423c1aa3d42a3c1e53da35"
-    },
-    {
-      "name": "Ayu Dark",
-      "file": "ayu.json",
-      "family": "ayu",
-      "profile": "dark",
-      "roles": {
-        "chrome": "#010102",
-        "sidebar": "#0d1017",
-        "content": "#0f121a",
-        "card": "#141821",
-        "popover": "#0f131a",
-        "muted": "#141821",
-        "border": "#1b1f29",
-        "active_tab": "#141821",
-        "accordion": "#191d25",
-        "secondary": "#1F2127",
-        "foreground": "#B3B1AD",
-        "muted_foreground": "#9d9f9f",
-        "hover_overlay": "#ffffff08",
-        "secondary_hover": "#23252c",
-        "secondary_pressed": "#26282f",
-        "chat_secondary_foreground": "#878c90",
-        "input_background": "#2d2f34",
-        "panel_header_hover": "#ffffff04"
-      },
-      "preserved_payload_sha256": "60ccf7ad62b63dc56118e1c1ddda8a0c5380298a2177cae786106deecc151fe6",
-      "tokens": {
-        "accordion": "Proteus subtle nested surface towards card; see nested_surface_policy",
-        "secondary": "GPUI Kit secondary.background",
-        "foreground": "GPUI Kit foreground",
-        "muted_foreground": "Midpoint of foreground and chat secondary, rounded half-up in sRGB",
-        "hover_overlay": "Proteus neutral overlay (8/255 alpha)",
-        "content": "Proteus 50:50 sRGB interpolation of authored sidebar and surface.lift / editor.background",
-        "secondary_hover": "GPUI Kit original alpha secondary.hover.background, flattened over secondary",
-        "secondary_pressed": "GPUI Kit original secondary.active.background",
-        "chat_secondary_foreground": "Proteus offline 1:1 sRGB mix: GPUI Kit foreground + authored syntax.comment",
-        "input_background": "existing GPUI Kit input.border, used as an opaque fill",
-        "panel_header_hover": "Proteus subtle neutral heading overlay, separate from list hover"
-      },
-      "muted_candidates": [
-        {
-          "token": "Midpoint of foreground and chat secondary",
-          "color": "#9d9f9f"
-        }
-      ],
-      "selection_minimum_srgb_ratio": 6.0482,
-      "previous_preserved_payload_sha256": "ff00d76e6fcea90d74d9cf24339613c9c063f32481eee1a4b40ae59b8810e559"
     }
   ],
   "preserved_payload_hash": "SHA256 of UTF-8 compact JSON with recursively sorted keys: {colors: all keys except fields, highlight: full original highlight}. Freeze every non-adapted field, including primary colors; neutral secondary state fields are explicitly excluded. previous_preserved_payload_sha256 records the prior baseline scope.",
@@ -1186,7 +1122,7 @@
     "selection": "Explicit authored neutral tokens with lower contrast than reply foreground where an authored candidate passes 4.5:1. This role is for operational chat captions only, not tool output, code, reply text, settings labels, or semantic status icons. Hover restores foreground on the compact caption. Custom themes without the role fall back to muted.foreground.",
     "exceptions": [
       "Tokyo Night and Storm use authored Moon fg_dark from the same family; their local comment tokens fail 4.5:1.",
-      "Ayu uses recorded static interpolations because authored secondary UI/comment candidates fail 4.5:1. Values are stored in JSON, not calculated at runtime."
+      "Ayu Light uses a recorded static interpolation because authored secondary UI/comment candidates fail 4.5:1. Values are stored in JSON, not calculated at runtime."
     ],
     "sources": [
       "cat-palette",
@@ -1195,27 +1131,9 @@
       "ever-workbench",
       "solar-dark",
       "solar-light",
-      "ayu-dark",
       "ayu-light"
     ],
     "interpolations": [
-      {
-        "name": "Ayu Dark",
-        "inputs": [
-          "#b3b1ad",
-          "#5a6673"
-        ],
-        "weights": [
-          1,
-          1
-        ],
-        "space": "sRGB, channel-wise arithmetic mean, round half-up",
-        "result": "#878c90",
-        "sources": [
-          "ayu-dark",
-          "GPUI Kit import foreground"
-        ]
-      },
       {
         "name": "Ayu Light",
         "inputs": [

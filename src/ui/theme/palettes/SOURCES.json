@@ -77,8 +77,7 @@
       "upstream_path": "themes/ayu.json",
       "url": "https://github.com/longbridge/gpui-kit/blob/46bf6d498fa101a3b11cc64e6d8c20d28d17b720/themes/ayu.json",
       "variants": [
-        "Ayu Light",
-        "Ayu Dark"
+        "Ayu Light"
       ]
     }
   ],

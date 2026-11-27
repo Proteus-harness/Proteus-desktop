@@ -85,15 +85,6 @@
         "content": "#002631"
       },
       {
-        "name": "Ayu Dark",
-        "file": "src/ui/theme/palettes/ayu.json",
-        "sidebar": "#0d1017",
-        "original_content": "#10141c",
-        "sidebar_srgb_hex": "#0d1017",
-        "original_content_srgb_hex": "#10141c",
-        "content": "#0f121a"
-      },
-      {
         "name": "Proteus Graphite",
         "file": "src/ui/theme/proteus.json",
         "sidebar": "#181818",
@@ -411,27 +402,6 @@
           "reference": "#cecece"
         },
         "primary_payload_sha256": "fdbaa28a43d3709b0bfc2e75c828a2aacc0ef246be122755f971252465c61d9b"
-      },
-      {
-        "name": "Ayu Dark",
-        "file": "src/ui/theme/palettes/ayu.json",
-        "mode": "dark",
-        "normal": "#1F2127",
-        "hover": {
-          "color": "#23252c",
-          "source": "GPUI Kit original alpha secondary.hover.background, flattened over secondary",
-          "kind": "flattened_legacy_overlay",
-          "overlay": "#26282f",
-          "alpha_byte": 153,
-          "normal": "#1F2127"
-        },
-        "pressed": {
-          "color": "#26282f",
-          "source": "GPUI Kit original secondary.active.background",
-          "kind": "authored",
-          "reference": "#26282f"
-        },
-        "primary_payload_sha256": "696a7aa013365397de787f521b4503458355b1cba56efe65badf66bce5782b92"
       },
       {
         "name": "Proteus Graphite",

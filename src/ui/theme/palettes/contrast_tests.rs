@@ -584,7 +584,10 @@ fn shared_ink_is_readable_on_selected_builtin_surfaces() {
 #[::core::prelude::v1::test]
 fn changing_palettes_preserves_shared_roles_within_each_mode() {
     let themes: Vec<_> = projected_themes().collect();
-    for (claude, ayu) in [("Claude Light", "Ayu Light"), ("Claude Dark", "Ayu Dark")] {
+    for (claude, other) in [
+        ("Claude Light", "Ayu Light"),
+        ("Claude Dark", "Proteus Graphite"),
+    ] {
         let find = |name: &str| {
             themes
                 .iter()
@@ -592,32 +595,35 @@ fn changing_palettes_preserves_shared_roles_within_each_mode() {
                 .unwrap()
         };
         let claude = find(claude);
-        let ayu = find(ayu);
-        assert_eq!(claude.mode, ayu.mode);
-        assert_ne!(claude.background, ayu.background);
-        assert_ne!(claude.group_box, ayu.group_box);
-        assert_ne!(claude.button_primary, ayu.button_primary);
-        assert_eq!(claude.tokens.border, ayu.tokens.border);
-        assert_eq!(claude.tokens.input, ayu.tokens.input);
-        assert_eq!(claude.tokens.foreground, ayu.tokens.foreground);
-        assert_eq!(claude.tokens.muted_foreground, ayu.tokens.muted_foreground);
+        let other = find(other);
+        assert_eq!(claude.mode, other.mode);
+        assert_ne!(claude.background, other.background);
+        assert_ne!(claude.group_box, other.group_box);
+        assert_ne!(claude.button_primary, other.button_primary);
+        assert_eq!(claude.tokens.border, other.tokens.border);
+        assert_eq!(claude.tokens.input, other.tokens.input);
+        assert_eq!(claude.tokens.foreground, other.tokens.foreground);
+        assert_eq!(
+            claude.tokens.muted_foreground,
+            other.tokens.muted_foreground
+        );
         assert_eq!(
             claude.tokens.primary_foreground,
-            ayu.tokens.primary_foreground
+            other.tokens.primary_foreground
         );
-        assert_eq!(claude.tokens.primary, ayu.tokens.primary);
-        assert_eq!(claude.tokens.success, ayu.tokens.success);
-        assert_eq!(claude.tokens.danger, ayu.tokens.danger);
-        assert_eq!(claude.tokens.warning, ayu.tokens.warning);
-        assert_eq!(claude.tokens.link, ayu.tokens.link);
-        assert_eq!(claude.tokens.ring, ayu.tokens.ring);
+        assert_eq!(claude.tokens.primary, other.tokens.primary);
+        assert_eq!(claude.tokens.success, other.tokens.success);
+        assert_eq!(claude.tokens.danger, other.tokens.danger);
+        assert_eq!(claude.tokens.warning, other.tokens.warning);
+        assert_eq!(claude.tokens.link, other.tokens.link);
+        assert_eq!(claude.tokens.ring, other.tokens.ring);
         assert_eq!(
             claude.tokens.switch_thumb_unchecked,
-            ayu.tokens.switch_thumb_unchecked
+            other.tokens.switch_thumb_unchecked
         );
         assert!(std::sync::Arc::ptr_eq(
             &claude.highlight_theme,
-            &ayu.highlight_theme
+            &other.highlight_theme
         ));
     }
 }

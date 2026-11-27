@@ -13,8 +13,8 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AvailableSpace, Bounds, Context, DismissEvent, ElementId, Entity,
     Focusable as _, Hsla, InteractiveElement, IntoElement, MouseButton, ParentElement as _, Pixels,
-    Refineable as _, RenderOnce, SharedString, StyleRefinement, Styled, Window, canvas, div, px,
-    size,
+    Refineable as _, Rems, RenderOnce, SharedString, StyleRefinement, Styled, Window, canvas, div,
+    px, size,
 };
 
 #[derive(Default)]
@@ -125,6 +125,7 @@ impl Styled for ContextMenu {
 impl RenderOnce for ContextMenu {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let settings_selector = self.settings_selector;
+        let inset = menu_inset(cx, settings_selector);
         let state = window.use_keyed_state(self.id.clone(), cx, |_, _| MenuState::default());
         let mut root = div().id(self.id.clone()).relative();
         root.style().refine(&self.style);
@@ -154,7 +155,7 @@ impl RenderOnce for ContextMenu {
                 })
                 .on_click(move |_, window, cx| {
                     cx.stop_propagation();
-                    click(&click_state, &click_build, window, cx);
+                    click(&click_state, &click_build, inset, window, cx);
                 })
                 .into_any_element(),
             Trigger::Split(main, arrow, chevron_color, disabled) => {
@@ -181,7 +182,7 @@ impl RenderOnce for ContextMenu {
                             .child(chevron)
                             .on_click(move |_, window, cx| {
                                 cx.stop_propagation();
-                                click(&click_state, &click_build, window, cx);
+                                click(&click_state, &click_build, inset, window, cx);
                             }),
                     )
                     .into_any_element()
@@ -214,7 +215,7 @@ impl RenderOnce for ContextMenu {
                         state.pointer_anchor =
                             at_pointer.then(|| Bounds::new(event.position, size(px(0.), px(0.))));
                     });
-                    open(&opened, &build, window, cx);
+                    open(&opened, &build, inset, window, cx);
                 }
             });
         let measuring = state.update(cx, |state, _| {
@@ -251,7 +252,7 @@ impl RenderOnce for ContextMenu {
             return root;
         };
         root.child(motion::popup(
-            div().relative().p(menu_inset(cx)).child(menu),
+            div().relative().p(inset).child(menu),
             ElementId::Name(format!("{:?}:popup", self.id).into()),
             if settings_selector {
                 frame.selector().align_end()
@@ -263,7 +264,7 @@ impl RenderOnce for ContextMenu {
     }
 }
 
-fn click(state: &Entity<MenuState>, build: &Build, window: &mut Window, cx: &mut App) {
+fn click(state: &Entity<MenuState>, build: &Build, inset: Rems, window: &mut Window, cx: &mut App) {
     let pressed_open = state.update(cx, |state, _| std::mem::take(&mut state.pressed_open));
     if pressed_open && !window.last_input_was_keyboard() {
         if let Some(menu) = state.read(cx).popup.current().cloned() {
@@ -271,25 +272,26 @@ fn click(state: &Entity<MenuState>, build: &Build, window: &mut Window, cx: &mut
         }
         return;
     }
-    open(state, build, window, cx);
+    open(state, build, inset, window, cx);
 }
 
-fn menu_inset(cx: &App) -> gpui_kit::Rems {
-    // The native menu already has 4 px of padding.
+fn menu_inset(cx: &App, settings_selector: bool) -> Rems {
+    // Settings lists use the native 4 px padding and the clearance their corners need.
+    let minimum = if settings_selector { 4. } else { 12. };
     let radius = f32::from(prefs::visual(cx).view.surface_radius);
-    prefs::scaled((radius * 0.3).ceil().max(12.) - 4.)
+    prefs::scaled((radius * 0.3).ceil().max(minimum) - 4.)
 }
 
 /// Builds the menu afresh, so its items reflect the moment it opens, and
 /// retains only its inert drawing while dismissal animates.
-fn open(state: &Entity<MenuState>, build: &Build, window: &mut Window, cx: &mut App) {
+fn open(state: &Entity<MenuState>, build: &Build, inset: Rems, window: &mut Window, cx: &mut App) {
     if let Some(menu) = state.read(cx).popup.current().cloned() {
         menu.update(cx, |_, cx| cx.emit(DismissEvent));
         return;
     }
     let build = build.clone();
     let previous_focus = window.focused(cx);
-    let inset = menu_inset(cx).to_pixels(window.rem_size()) * 2.;
+    let inset = inset.to_pixels(window.rem_size()) * 2.;
     let max_height = prefs::scaled(360.)
         .to_pixels(window.rem_size())
         .min((motion::popup_inner_height(window) - inset).max(px(0.)));

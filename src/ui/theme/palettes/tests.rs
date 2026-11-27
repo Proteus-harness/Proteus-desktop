@@ -240,8 +240,9 @@ fn explicit_builtin_roles_survive_schema_and_theme_resolution() {
             );
         }
     }
-    // One inventory assertion protects missing/duplicate bundled variants.
-    assert_eq!(seen.len(), 22);
+    assert_eq!(seen.len(), 21);
+    assert!(seen.contains("Ayu Light"));
+    assert!(!seen.contains("Ayu Dark"));
 }
 
 #[::core::prelude::v1::test]
@@ -320,5 +321,5 @@ fn structural_adaptation_preserves_all_other_imported_colors_and_highlights() {
         }
     }
     assert_eq!(seen.len(), variants.len());
-    assert_eq!(seen.len(), 15);
+    assert_eq!(seen.len(), 14);
 }

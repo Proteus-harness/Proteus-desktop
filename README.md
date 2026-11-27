@@ -704,7 +704,7 @@ ZIP с существующим id атомарно обновляет поль�
   Desktop — Claude Light и Claude Dark. Набор из GPUI Kit включает
   Catppuccin Latte/Frappe/Macchiato/Mocha, Tokyo Night/Storm/Moon,
   Gruvbox Light/Dark, Everforest Light/Dark, Solarized Light/Dark и
-  Ayu Light/Dark. Структурные поверхности явно сопоставлены именованным
+  Ayu Light. Структурные поверхности явно сопоставлены именованным
   цветам палитр и их официальных портов; источники и адаптации — в
   [SOURCES.json](src/ui/theme/palettes/SOURCES.json).
   Палитра меняет заливки. У каждого режима свои общие цвета текста, рамок,

@@ -21,6 +21,14 @@ pub(in crate::ui) struct Renaming {
     _events: Subscription,
 }
 
+pub(super) fn pin_label(pinned: bool) -> &'static str {
+    if pinned {
+        "Открепить"
+    } else {
+        "Закрепить сверху"
+    }
+}
+
 /// The menu of one row, both on right click and behind its «⋯» button.
 pub(super) fn build(
     menu: PopupMenu,
@@ -38,15 +46,10 @@ pub(super) fn build(
                     .ok();
             })
         };
-    let pin = if mark.pinned {
-        item("Открепить", |_, dir, _, cx| {
-            prefs::update(cx, |p| p.sessions.set_pinned(&dir, false))
-        })
-    } else {
-        item("Закрепить сверху", |_, dir, _, cx| {
-            prefs::update(cx, |p| p.sessions.set_pinned(&dir, true))
-        })
-    };
+    let pin = PopupMenuItem::new(pin_label(mark.pinned)).on_click({
+        let dir = dir.clone();
+        move |_, _, cx| prefs::update(cx, |p| p.sessions.set_pinned(&dir, !mark.pinned))
+    });
     let archive = if mark.archived {
         item("Вернуть из архива", |_, dir, _, cx| {
             prefs::update(cx, |p| p.sessions.set_archived(&dir, false))

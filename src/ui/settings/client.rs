@@ -497,8 +497,15 @@ fn theme_choice(
     cx: &App,
     apply: fn(&mut Preferences, String),
 ) -> AnyElement {
-    let items = theme::names(dark, cx)
-        .into_iter()
+    let names = theme::names(dark, cx);
+    let current = names
+        .iter()
+        .find(|name| name.as_ref() == current)
+        .or_else(|| names.first())
+        .map_or(current, |name| name.as_ref());
+    let items = names
+        .iter()
+        .cloned()
         .map(|name| MenuOption {
             label: theme::label(&name),
             checked: name.as_ref() == current,
