@@ -278,8 +278,6 @@ impl Chat {
                         .w_full()
                         .max_h(max_details)
                         .overflow_y_scroll()
-                        .border_b_1()
-                        .border_color(theme.border)
                         .when(!open, |body| {
                             body.capture_any_mouse_down(|_, _, cx| cx.stop_propagation())
                                 .capture_any_mouse_up(|_, _, cx| cx.stop_propagation())

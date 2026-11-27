@@ -48,8 +48,8 @@ pub(crate) use workspace_surface::WorkspaceSurface;
 /// Shared button captions and quiet surfaces. Icons, sizes, focus and
 /// keyboard behavior stay native.
 pub(crate) trait ButtonLabel {
-    /// Settings controls use the theme's input fill and a thin edge on
-    /// either panel surface, with native focus and disabled behavior.
+    /// Settings controls use the theme's input fill, with native focus
+    /// and disabled behavior.
     fn settings_control(self, cx: &App) -> Self;
 
     /// Transparent at rest; the same hover and committed fill as list rows,
@@ -72,8 +72,7 @@ impl ButtonLabel for Button {
                 .hover(fill.blend(theme.panel_header_hover))
                 .active(fill.blend(theme.list_active)),
         )
-        .border_1()
-        .border_color(theme.border)
+        .border_0()
     }
 
     fn quiet(self, cx: &App) -> Self {
