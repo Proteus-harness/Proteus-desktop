@@ -123,6 +123,8 @@ pub struct Workspace {
     pub(super) badges: HashMap<&'static str, AnyView>,
     pub(super) header_bounds: Rc<Cell<Bounds<Pixels>>>,
     pub(super) rail_bounds: Rc<Cell<Bounds<Pixels>>>,
+    /// Horizontal space outside the workspace, measured inside the window frame.
+    pub(super) workspace_insets: Rc<Cell<Pixels>>,
     pub(super) badge_arrangement: super::badges::BadgeArrangement,
     /// Size of the split whose divider is being dragged.
     pub(super) split_drag: Option<SplitResize>,
@@ -309,6 +311,7 @@ impl Workspace {
             badges: HashMap::new(),
             header_bounds: Rc::default(),
             rail_bounds: Rc::default(),
+            workspace_insets: Rc::default(),
             badge_arrangement: Default::default(),
             split_drag: None,
             sidebar_drag: None,

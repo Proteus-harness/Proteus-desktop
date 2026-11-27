@@ -107,9 +107,20 @@ impl Render for Workspace {
         motion::drive(window, cx);
         self.record_navigation(cx);
         let theme = cx.theme();
+        let workspace_insets = self.workspace_insets.clone();
+        let workspace = cx.weak_entity();
         let root = v_flex()
             .on_children_prepainted(kit::record_first_child(self.header_bounds.clone()))
             .size_full()
+            .on_prepaint(move |bounds, window, cx| {
+                let insets = (window.viewport_size().width - bounds.size.width).max(px(0.));
+                if workspace_insets.replace(insets) != insets {
+                    let workspace = workspace.clone();
+                    window.defer(cx, move |_, cx| {
+                        let _ = workspace.update(cx, |_, cx| cx.notify());
+                    });
+                }
+            })
             .track_focus(&self.focus_handle)
             .capture_any_mouse_down(|event: &MouseDownEvent, window, cx| {
                 if event.button == MouseButton::Left {
@@ -248,8 +259,8 @@ impl Render for Workspace {
                     )
                     .into_any_element(),
                     None => {
-                        let available = prefs::unscaled(window.viewport_size().width, window)
-                            - chrome::RAIL_WIDTH;
+                        let width = window.viewport_size().width - self.workspace_insets.get();
+                        let available = prefs::unscaled(width, window) - chrome::RAIL_WIDTH;
                         let max_sidebar = prefs::scaled((available - tabs::MIN_WIDTH).max(0.));
                         let (sidebar, extent) = self
                             .render_sidebar(max_sidebar, window, cx)
