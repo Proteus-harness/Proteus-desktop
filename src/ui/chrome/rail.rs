@@ -15,7 +15,7 @@ use crate::ui::workspace::Workspace;
 use crate::ui::{kit, panels, prefs};
 
 /// Rail width before zoom.
-const RAIL_WIDTH: f32 = 40.;
+pub(in crate::ui) const RAIL_WIDTH: f32 = 40.;
 
 impl Workspace {
     pub(in crate::ui) fn render_rail(&self, cx: &Context<Self>) -> impl IntoElement + use<> {

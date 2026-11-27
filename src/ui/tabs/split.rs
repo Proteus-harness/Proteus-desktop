@@ -10,7 +10,7 @@ use crate::ui::workspace::Workspace;
 use crate::ui::{divider, drag, prefs};
 
 /// Smallest pane while resizing.
-const MIN_WIDTH: f32 = 240.;
+pub(in crate::ui) const MIN_WIDTH: f32 = 240.;
 const MIN_HEIGHT: f32 = 160.;
 /// The line between panes, and the strip around it that can be dragged.
 pub(super) const DIVIDER: f32 = divider::WIDTH;

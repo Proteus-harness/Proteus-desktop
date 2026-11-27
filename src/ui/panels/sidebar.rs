@@ -44,6 +44,7 @@ impl Workspace {
 
     pub(in crate::ui) fn render_sidebar(
         &mut self,
+        max_width: Rems,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<(AnyElement, Rems)> {
@@ -63,7 +64,7 @@ impl Workspace {
                 return None;
             }
         };
-        let width = self.sidebar_width(cx);
+        let width = rems(self.sidebar_width(cx).0.min(max_width.0));
         let extent = if slides { width * progress } else { width };
         let content = motion::switch_in(
             div()
@@ -122,14 +123,7 @@ impl Workspace {
                 (open && progress == 1.)
                     .then(|| seam.render(grip, cx).absolute().right_0().top_0()),
             );
-        // While the seam is moving, the tabs keep the full workspace width
-        // behind its clip. The transcript reflows only at the open endpoint.
-        let workspace_overhang = if slides && (!open || progress < 1.) {
-            extent
-        } else {
-            Rems::ZERO
-        };
-        Some((slot.into_any_element(), workspace_overhang))
+        Some((slot.into_any_element(), extent))
     }
 
     /// Stores the width the side panel's edge was released at.

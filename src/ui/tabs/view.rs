@@ -17,10 +17,35 @@ impl Workspace {
     /// The tree of panes with their bars, contents and dividers.
     pub(in crate::ui) fn render_tabs(
         &mut self,
+        width: f32,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let layout = self.tab_layout(cx);
+        let mut layout = self.tab_layout(cx);
+        let compact = compact_chat_and_files(&layout, width);
+        let compact_changed = compact != self.compact_split;
+        self.compact_split = compact;
+        if let Some((chat, files)) = compact
+            && compact_changed
+            && layout.focused == files
+        {
+            let editor_focused = layout
+                .active(files)
+                .and_then(|id| self.documents.get(id))
+                .is_some_and(|editor| editor.focus.contains_focused(window, cx));
+            layout.focus(chat);
+            self.layout.focus(chat);
+            if editor_focused {
+                let workspace = cx.weak_entity();
+                window.defer(cx, move |window, cx| {
+                    let _ = workspace.update(cx, |this, cx| {
+                        if this.compact_split == compact && this.layout.focused == chat {
+                            this.focus_active(window, cx);
+                        }
+                    });
+                });
+            }
+        }
         if !cx.has_active_drag() {
             self.tab_drag = false;
             self.tab_drop = None;
@@ -30,14 +55,13 @@ impl Workspace {
         let running = self.tab_motion.tick(now);
         let frames = self.tab_area.get().and_then(|area| {
             // The layout is measured at 100% scale.
-            let scale = prefs::scale(cx);
-            let size = (area.width.as_f32() / scale, area.height.as_f32() / scale);
+            let size = (width, prefs::unscaled(area.height, window));
             let target = layout.rects_spaced(size.0, size.1, split::DIVIDER);
             let panes = self.tab_motion.panes();
             panes.retarget(
                 size,
                 target,
-                self.split_drag.is_some(),
+                self.split_drag.is_some() || compact_changed || compact.is_some(),
                 now,
                 crate::ui::motion::moves(cx),
             );
@@ -53,9 +77,19 @@ impl Workspace {
         )
         .absolute()
         .size_full();
-        let content = match frames {
-            Some(frames) => self.render_moving_panes(&frames, &layout, window, cx),
-            None => self.render_node(&layout.root, Vec::new(), &layout, window, cx),
+        let content = match (compact, frames) {
+            (Some(_), _) => self
+                .render_pane(
+                    layout
+                        .pane(layout.focused)
+                        .expect("focused pane is in the layout"),
+                    &layout,
+                    window,
+                    cx,
+                )
+                .into_any_element(),
+            (None, Some(frames)) => self.render_moving_panes(&frames, &layout, window, cx),
+            (None, None) => self.render_node(&layout.root, Vec::new(), &layout, window, cx),
         };
         div()
             .relative()
@@ -330,5 +364,82 @@ impl Workspace {
                         })),
                 )
             })
+    }
+}
+
+/// When the automatic chat/file split falls below the divider's minimum,
+/// show one full-width pane. Keep both panes and their shares in the tab tree
+/// so reopening a file and growing the window can use the same editor.
+fn compact_chat_and_files(layout: &TabLayout, width: f32) -> Option<(PaneId, PaneId)> {
+    let Node::Split(root) = &layout.root else {
+        return None;
+    };
+    let [first, second] = root.children.as_slice() else {
+        return None;
+    };
+    let (Node::Pane(first), Node::Pane(second)) = (&first.node, &second.node) else {
+        return None;
+    };
+    if root.axis != Axis::Row {
+        return None;
+    }
+    let is_chat = |pane: &Pane| pane.active.as_deref().is_some_and(tabs::is_chat);
+    let is_files = |pane: &Pane| {
+        !pane.tabs.is_empty()
+            && pane.tabs.iter().all(|tab| {
+                tabs::split_document(tab).is_some_and(|(extension, _)| extension == "files")
+            })
+    };
+    let pair = if is_chat(first) && is_files(second) {
+        (first.id, second.id)
+    } else if is_chat(second) && is_files(first) {
+        (second.id, first.id)
+    } else {
+        return None;
+    };
+    layout
+        .rects_spaced(width, 0., split::DIVIDER)
+        .iter()
+        .any(|(_, rect)| rect.w < split::MIN_WIDTH - 0.5)
+        .then_some(pair)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[::core::prelude::v1::test]
+    fn a_cramped_horizontal_chat_and_file_pair_compacts_without_changing_the_tree() {
+        let mut layout = TabLayout::default();
+        layout.open("chat:/fixture/chat", |_| true);
+        layout.open("files:notes.md", |_| true);
+        let chat = layout.pane_of("chat:/fixture/chat").unwrap();
+        let file = layout.pane_of("files:notes.md").unwrap();
+        let saved = layout.clone();
+        let minimum = 2. * split::MIN_WIDTH + split::DIVIDER;
+
+        assert_eq!(compact_chat_and_files(&layout, 960.), None);
+        assert_eq!(compact_chat_and_files(&layout, minimum), None);
+        assert_eq!(
+            compact_chat_and_files(&layout, minimum - 80.),
+            Some((chat, file))
+        );
+        assert_eq!(compact_chat_and_files(&layout, 960.), None);
+        assert_eq!(layout, saved);
+    }
+
+    #[::core::prelude::v1::test]
+    fn compact_pair_checks_actual_split_shares_and_the_type_of_the_pane() {
+        let mut layout = TabLayout::default();
+        layout.open("chat:/fixture/chat", |_| true);
+        layout.open("files:notes.md", |_| true);
+        let chat = layout.pane_of("chat:/fixture/chat").unwrap();
+        let file = layout.pane_of("files:notes.md").unwrap();
+        layout.set_sizes(&[], &[Size::Weight(3.), Size::Weight(1.)]);
+        assert_eq!(compact_chat_and_files(&layout, 850.), Some((chat, file)));
+        assert_eq!(compact_chat_and_files(&layout, 1000.), None);
+
+        layout.open_in("terminal:example", file, |_| false);
+        assert_eq!(compact_chat_and_files(&layout, 850.), None);
     }
 }

@@ -1,6 +1,4 @@
-//! The header every panel starts with: its title, then the panel's own
-//! actions and the button that hides the side panel, at the same height
-//! and padding for all panels.
+//! The shared header with the panel's title and its own actions.
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::*;
@@ -81,15 +79,5 @@ impl Workspace {
                         },
                     ))
             })
-            .child(
-                kit::button("panel-hide")
-                    .icon(Lucide::PanelLeftClose)
-                    .quiet(cx)
-                    .small()
-                    .hint("Скрыть панель", cx)
-                    .on_click(
-                        cx.listener(move |this, _, window, cx| this.press_panel(name, window, cx)),
-                    ),
-            )
     }
 }

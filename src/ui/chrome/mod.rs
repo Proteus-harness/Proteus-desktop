@@ -11,4 +11,5 @@ mod top;
 const BAR_HEIGHT: f32 = 34.;
 
 pub(super) use projects::{Projects, WorkspaceRequest, folder_name};
+pub(super) use rail::RAIL_WIDTH;
 pub(super) use top::picker_top_bar;

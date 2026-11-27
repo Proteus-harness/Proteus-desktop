@@ -142,6 +142,8 @@ pub struct Workspace {
     pub(super) tab_motion: TabMotion,
     /// Size of the tab area at the last paint.
     pub(super) tab_area: Rc<Cell<Option<Size<Pixels>>>>,
+    /// Chat and file panes sharing a single visible area at narrow widths.
+    pub(super) compact_split: Option<(PaneId, PaneId)>,
     pub(super) focus_handle: FocusHandle,
     _startup: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
@@ -318,6 +320,7 @@ impl Workspace {
             sessions_arrived: None,
             tab_motion: TabMotion::default(),
             tab_area: Rc::default(),
+            compact_split: None,
             focus_handle: cx.focus_handle(),
             _startup: None,
             _subscriptions: subscriptions,

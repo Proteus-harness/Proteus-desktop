@@ -248,32 +248,17 @@ impl Render for Workspace {
                     )
                     .into_any_element(),
                     None => {
-                        let (sidebar, overhang) = self
-                            .render_sidebar(window, cx)
-                            .map_or((None, Rems::ZERO), |(sidebar, overhang)| {
-                                (Some(sidebar), overhang)
+                        let available = prefs::unscaled(window.viewport_size().width, window)
+                            - chrome::RAIL_WIDTH;
+                        let max_sidebar = prefs::scaled((available - tabs::MIN_WIDTH).max(0.));
+                        let (sidebar, extent) = self
+                            .render_sidebar(max_sidebar, window, cx)
+                            .map_or((None, Rems::ZERO), |(sidebar, extent)| {
+                                (Some(sidebar), extent)
                             });
-                        let tabs = self.render_tabs(window, cx).into_any_element();
-                        let tabs = if overhang != Rems::ZERO {
-                            div()
-                                .relative()
-                                .flex_1()
-                                .min_w_0()
-                                .h_full()
-                                .overflow_x_hidden()
-                                .child(
-                                    h_flex()
-                                        .absolute()
-                                        .top_0()
-                                        .bottom_0()
-                                        .left_0()
-                                        .right(-overhang)
-                                        .child(tabs),
-                                )
-                                .into_any_element()
-                        } else {
-                            tabs
-                        };
+                        let remaining = available
+                            - prefs::unscaled(extent.to_pixels(window.rem_size()), window);
+                        let tabs = self.render_tabs(remaining.max(0.), window, cx);
                         motion::switch_in(
                             h_flex()
                                 .flex_1()
