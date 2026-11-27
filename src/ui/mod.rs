@@ -248,8 +248,32 @@ impl Render for Workspace {
                     )
                     .into_any_element(),
                     None => {
-                        let sidebar = self.render_sidebar(window, cx);
-                        let tabs = self.render_tabs(window, cx);
+                        let (sidebar, overhang) = self
+                            .render_sidebar(window, cx)
+                            .map_or((None, Rems::ZERO), |(sidebar, overhang)| {
+                                (Some(sidebar), overhang)
+                            });
+                        let tabs = self.render_tabs(window, cx).into_any_element();
+                        let tabs = if overhang != Rems::ZERO {
+                            div()
+                                .relative()
+                                .flex_1()
+                                .min_w_0()
+                                .h_full()
+                                .overflow_x_hidden()
+                                .child(
+                                    h_flex()
+                                        .absolute()
+                                        .top_0()
+                                        .bottom_0()
+                                        .left_0()
+                                        .right(-overhang)
+                                        .child(tabs),
+                                )
+                                .into_any_element()
+                        } else {
+                            tabs
+                        };
                         motion::switch_in(
                             h_flex()
                                 .flex_1()
