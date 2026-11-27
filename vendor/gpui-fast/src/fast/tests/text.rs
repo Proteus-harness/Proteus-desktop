@@ -155,7 +155,7 @@ fn probed_lines(
     window
         .update(cx, |view, _, _| {
             let layout = view.layout.borrow().clone().unwrap();
-            let inner = layout.0.borrow();
+            let inner = layout.measured.borrow();
             let lines = &inner.as_ref().unwrap().lines;
             (
                 lines.iter().map(|line| line.text.to_string()).collect(),
@@ -223,7 +223,7 @@ fn text_measured_again_after_a_recolor_is_shaped_in_the_new_color() {
     let wraps: usize = window
         .update(&mut cx, |view, _, _| {
             let layout = view.layout.borrow().clone().unwrap();
-            let inner = layout.0.borrow();
+            let inner = layout.measured.borrow();
             inner
                 .as_ref()
                 .unwrap()
@@ -268,7 +268,7 @@ fn text_kept_as_it_was_and_measured_again_lands_in_the_new_elements_layout() {
     let wraps: usize = window
         .update(&mut cx, |view, _, _| {
             let layout = view.layout.borrow().clone().unwrap();
-            let inner = layout.0.borrow();
+            let inner = layout.measured.borrow();
             let inner = inner.as_ref().unwrap();
             assert!(inner.size.unwrap().width <= px(60.));
             inner
@@ -284,7 +284,7 @@ fn text_kept_as_it_was_and_measured_again_lands_in_the_new_elements_layout() {
     let wraps: usize = window
         .update(&mut cx, |view, _, _| {
             let layout = view.layout.borrow().clone().unwrap();
-            let inner = layout.0.borrow();
+            let inner = layout.measured.borrow();
             inner
                 .as_ref()
                 .unwrap()
@@ -381,7 +381,7 @@ fn a_text_layout_held_from_an_earlier_frame_keeps_its_lines() {
         "the next frame should take the measurement over: {stats:?}"
     );
     let lines = held
-        .0
+        .measured
         .borrow()
         .as_ref()
         .map(|inner| inner.lines.len())
@@ -427,7 +427,7 @@ fn fitted_lines(cx: &mut TestAppContext, window: crate::WindowHandle<Fitted>) ->
     window
         .update(cx, |view, _, _| {
             let layout = view.layout.borrow().clone().unwrap();
-            let inner = layout.0.borrow();
+            let inner = layout.measured.borrow();
             let lines = &inner.as_ref().unwrap().lines;
             lines
                 .iter()
@@ -553,10 +553,11 @@ const DETACHED_TEXT: &str = "laid out where no layout reaches it";
 struct Detached {
     text: Option<crate::StyledText>,
     layout: std::rc::Rc<std::cell::RefCell<Option<crate::TextLayout>>>,
+    probe_width: Option<crate::Pixels>,
 }
 
 impl crate::Element for Detached {
-    type RequestLayoutState = ();
+    type RequestLayoutState = crate::LayoutId;
     type PrepaintState = ();
 
     fn id(&self) -> Option<crate::ElementId> {
@@ -573,15 +574,20 @@ impl crate::Element for Detached {
         _: Option<&crate::InspectorElementId>,
         window: &mut Window,
         cx: &mut crate::App,
-    ) -> (crate::LayoutId, ()) {
-        let mut text = crate::StyledText::new(DETACHED_TEXT);
+    ) -> (crate::LayoutId, Self::RequestLayoutState) {
+        let content = if self.probe_width.is_some() {
+            crate::SharedString::from(format!("{DETACHED_TEXT} ").repeat(8))
+        } else {
+            DETACHED_TEXT.into()
+        };
+        let mut text = crate::StyledText::new(content);
         *self.layout.borrow_mut() = Some(text.layout().clone());
-        crate::Element::request_layout(&mut text, None, None, window, cx);
+        let (node, ()) = crate::Element::request_layout(&mut text, None, None, window, cx);
         self.text = Some(text);
         let mut style = crate::Style::default();
         style.size.width = px(120.).into();
         style.size.height = px(40.).into();
-        (window.request_layout(style, [], cx), ())
+        (window.request_layout(style, [], cx), node)
     }
 
     fn prepaint(
@@ -589,10 +595,20 @@ impl crate::Element for Detached {
         _: Option<&crate::GlobalElementId>,
         _: Option<&crate::InspectorElementId>,
         bounds: crate::Bounds<crate::Pixels>,
-        _: &mut (),
+        node: &mut Self::RequestLayoutState,
         window: &mut Window,
         cx: &mut crate::App,
     ) {
+        if let Some(width) = self.probe_width {
+            window.compute_layout(
+                *node,
+                crate::size(
+                    crate::AvailableSpace::Definite(width),
+                    crate::AvailableSpace::MaxContent,
+                ),
+                cx,
+            );
+        }
         let text = self.text.as_mut().unwrap();
         crate::Element::prepaint(text, None, None, bounds, &mut (), window, cx);
     }
@@ -602,7 +618,7 @@ impl crate::Element for Detached {
         _: Option<&crate::GlobalElementId>,
         _: Option<&crate::InspectorElementId>,
         bounds: crate::Bounds<crate::Pixels>,
-        _: &mut (),
+        _: &mut Self::RequestLayoutState,
         _: &mut (),
         window: &mut Window,
         cx: &mut crate::App,
@@ -622,6 +638,7 @@ impl IntoElement for Detached {
 
 struct DetachedView {
     layout: std::rc::Rc<std::cell::RefCell<Option<crate::TextLayout>>>,
+    probe_width: Option<crate::Pixels>,
 }
 
 impl Render for DetachedView {
@@ -629,6 +646,7 @@ impl Render for DetachedView {
         div().size_full().child(Detached {
             text: None,
             layout: self.layout.clone(),
+            probe_width: self.probe_width,
         })
     }
 }
@@ -642,6 +660,7 @@ fn text_reaching_prepaint_unmeasured_is_measured_there_and_painted() {
     let layout = std::rc::Rc::default();
     let window = cx.add_window(|_, _| DetachedView {
         layout: std::rc::Rc::clone(&layout),
+        probe_width: None,
     });
     for _ in 0..3 {
         window.update(&mut cx, |_, _, cx| cx.notify()).unwrap();
@@ -650,10 +669,25 @@ fn text_reaching_prepaint_unmeasured_is_measured_there_and_painted() {
         let layout = layout.borrow().clone().unwrap();
         assert_eq!(layout.text(), DETACHED_TEXT);
         assert_eq!(
-            layout.0.borrow().as_ref().unwrap().wrap_width,
+            layout.measured.borrow().as_ref().unwrap().wrap_width,
             Some(px(120.))
         );
         // Paint goes ahead only for text that was measured and prepainted.
         assert_eq!(layout.bounds().size.width, px(120.));
     }
+}
+
+#[test]
+fn text_paints_the_placed_width_after_a_wide_measurement() {
+    let mut cx = TestAppContext::single();
+    let layout = std::rc::Rc::default();
+    let window = cx.add_window(|_, _| DetachedView {
+        layout: std::rc::Rc::clone(&layout),
+        probe_width: Some(px(500.)),
+    });
+    draw(&mut cx, window.into());
+    let layout = layout.borrow().clone().unwrap();
+    let measurement = layout.measured.borrow();
+    assert_eq!(measurement.as_ref().unwrap().wrap_width, Some(px(120.)));
+    assert!(layout.wrapped_text().lines().count() > 1);
 }

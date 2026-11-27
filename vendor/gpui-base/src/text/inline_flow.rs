@@ -74,86 +74,14 @@ pub(super) enum InlineFlowItem {
     },
 }
 
-#[derive(Clone)]
 pub(crate) struct InlineFlowLayoutState {
-    inputs: Rc<FlowLayoutInputs>,
+    typography: InlineFlowTypography,
     frame_state: Rc<RefCell<InlineFlowFrameState>>,
-    /// The last measurement on this request, which can be an intrinsic probe
-    /// at a different width from the layout Taffy actually placed.
+    /// The layout this element's last measurement returned, which is the
+    /// one to paint. Per element, not per state: two flows under the same
+    /// id (the same document shown twice) share the state's layouts but
+    /// paint their own.
     current: Rc<RefCell<Option<Rc<InlineFlowLayout>>>>,
-}
-
-struct FlowLayoutInputs {
-    key: Rc<FlowLayoutKey>,
-    objects: Vec<Option<MeasuredInlineObject>>,
-}
-
-impl InlineFlowLayoutState {
-    fn layout_at(
-        &self,
-        requested_width: Option<Pixels>,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> Rc<InlineFlowLayout> {
-        let typography = &self.inputs.key.typography;
-        let wrap_width = if typography.text_style.white_space == WhiteSpace::Normal {
-            requested_width
-        } else {
-            None
-        };
-        if let Some(layout) = self
-            .current
-            .borrow()
-            .as_ref()
-            .filter(|layout| layout.wrap_width == wrap_width)
-        {
-            return layout.clone();
-        }
-        let mut state = self.frame_state.borrow_mut();
-        // Other requests can share the same fallback id. Reassert the key
-        // before reading the shared cache, even in a deferred measurement.
-        state.set_key(self.inputs.key.clone());
-        let layout = state.layout_at(wrap_width).unwrap_or_else(|| {
-            let layout = window.with_rem_size(Some(typography.rem_size), |window| {
-                window.with_text_style(
-                    Some(typography.text_style.subtract(&Default::default())),
-                    |window| {
-                        layout_measured_flow(
-                            &self.inputs.key.items,
-                            &self.inputs.key.image_sizes,
-                            &self.inputs.objects,
-                            &typography.text_style,
-                            wrap_width,
-                            window,
-                            cx,
-                        )
-                    },
-                )
-            });
-            let layout = Rc::new(layout);
-            state.push_layout(layout.clone());
-            layout
-        });
-        *self.current.borrow_mut() = Some(layout.clone());
-        layout
-    }
-
-    fn placed_layout(
-        &self,
-        width: Pixels,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> Rc<InlineFlowLayout> {
-        if let Some(layout) = self
-            .current
-            .borrow()
-            .as_ref()
-            .filter(|layout| layout.wrap_width.is_none() && layout.size.width <= width)
-        {
-            return layout.clone();
-        }
-        self.layout_at(Some(width), window, cx)
-    }
 }
 
 /// What a flow keeps from one frame to the next, as GPUI element state under
@@ -477,25 +405,60 @@ impl Element for InlineFlow {
         let key = Rc::new(FlowLayoutKey {
             items: measure_items,
             image_sizes,
-            typography,
+            typography: typography.clone(),
         });
+        frame_state.borrow_mut().set_key(key.clone());
         let layout_state = InlineFlowLayoutState {
-            inputs: Rc::new(FlowLayoutInputs { key, objects }),
-            frame_state,
+            typography: typography.clone(),
+            frame_state: frame_state.clone(),
             current: Rc::default(),
         };
-        let measure = layout_state.clone();
+        let current = layout_state.current.clone();
 
-        let layout_id = window.request_measured_layout(
-            Default::default(),
+        let layout_id = window.request_measured_layout(Default::default(), {
             move |known_dimensions, available_space, window, cx| {
-                let width = known_dimensions.width.or(match available_space.width {
-                    AvailableSpace::Definite(width) => Some(width),
-                    _ => None,
+                let wrap_width = if typography.text_style.white_space == WhiteSpace::Normal {
+                    known_dimensions.width.or(match available_space.width {
+                        AvailableSpace::Definite(width) => Some(width),
+                        _ => None,
+                    })
+                } else {
+                    None
+                };
+                let mut state = frame_state.borrow_mut();
+                // Deferred callbacks may run after another leaf requested the
+                // same fallback id (notably spanless HTML). Its key and native
+                // objects must never replace this request's captured inputs.
+                state.set_key(key.clone());
+                if let Some(layout) = state.layout_at(wrap_width) {
+                    let size = layout.size;
+                    *current.borrow_mut() = Some(layout);
+                    return size;
+                }
+                let state = &mut *state;
+                let layout = window.with_rem_size(Some(typography.rem_size), |window| {
+                    window.with_text_style(
+                        Some(typography.text_style.subtract(&Default::default())),
+                        |window| {
+                            layout_measured_flow(
+                                &key.items,
+                                &key.image_sizes,
+                                &objects,
+                                &typography.text_style,
+                                wrap_width,
+                                window,
+                                cx,
+                            )
+                        },
+                    )
                 });
-                measure.layout_at(width, window, cx).size
-            },
-        );
+                let size = layout.size;
+                let layout = Rc::new(layout);
+                *current.borrow_mut() = Some(layout.clone());
+                state.push_layout(layout);
+                size
+            }
+        });
 
         (layout_id, layout_state)
     }
@@ -510,11 +473,10 @@ impl Element for InlineFlow {
         cx: &mut App,
     ) -> Self::PrepaintState {
         let frame_state = request_layout.frame_state.clone();
-        // Repeated viewport sizes can reuse the parent layout without asking
-        // this leaf to measure at the final width again. Paint from that
-        // width, even if the last callback was a probe at a wider one.
-        let layout = request_layout.placed_layout(bounds.size.width, window, cx);
-        let typography = &request_layout.inputs.key.typography;
+        let Some(layout) = request_layout.current.borrow().clone() else {
+            return Vec::new();
+        };
+        let typography = request_layout.typography.clone();
         let text_style = &typography.text_style;
         let mut elements = Vec::with_capacity(layout.fragments.len());
 
@@ -2216,48 +2178,6 @@ mod tests {
                     }
                 }
             }
-        });
-    }
-
-    #[test]
-    fn a_cached_narrow_placement_does_not_paint_the_last_wide_probe() {
-        use super::super::inline::test_fonts::{BODY, WideMonoTextSystem};
-        use gpui::{Empty, TestApp};
-
-        let mut app = TestApp::with_text_system(Arc::new(WideMonoTextSystem));
-        let mut window = app.open_window(|_, _| Empty);
-        window.update(|_, window, cx| {
-            let state = InlineFlowLayoutState {
-                inputs: Rc::new(FlowLayoutInputs {
-                    key: Rc::new(FlowLayoutKey {
-                        items: vec![MeasureItem::Text {
-                            text: "A paragraph with several words.".into(),
-                            links: vec![],
-                            highlights: vec![],
-                        }],
-                        image_sizes: vec![None],
-                        typography: InlineFlowTypography {
-                            text_style: TextStyle {
-                                font_family: BODY.into(),
-                                white_space: WhiteSpace::Normal,
-                                ..window.text_style()
-                            },
-                            rem_size: window.rem_size(),
-                            line_height: window.line_height(),
-                        },
-                    }),
-                    objects: vec![None],
-                }),
-                frame_state: Rc::default(),
-                current: Rc::default(),
-            };
-            let narrow = state.layout_at(Some(px(90.)), window, cx);
-            let wide = state.layout_at(Some(px(900.)), window, cx);
-            assert!(narrow.size.height > wide.size.height);
-
-            let placed = state.placed_layout(px(90.), window, cx);
-            assert!(Rc::ptr_eq(&placed, &narrow));
-            assert!(placed.size.width <= px(90.));
         });
     }
 

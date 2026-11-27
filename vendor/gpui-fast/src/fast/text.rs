@@ -251,7 +251,37 @@ pub(crate) fn prepaint_text(
     window: &mut Window,
     cx: &mut App,
 ) {
-    if layout.0.borrow().is_none() {
+    let width = bounds.size.width;
+    let needs_wrap = width > Pixels::ZERO
+        && layout.measured.borrow().as_ref().is_some_and(|inner| {
+            inner.truncate_width.is_none()
+                && inner.wrap_width != Some(width)
+                && (inner.size.is_some_and(|size| size.width > width.ceil())
+                    || inner
+                        .lines
+                        .iter()
+                        .any(|line| !line.wrap_boundaries.is_empty()))
+                && (inner.wrap_width.is_some()
+                    || window.text_style().white_space == WhiteSpace::Normal)
+        });
+    if needs_wrap
+        && let Some(node) = layout.node
+        && let Some(mut engine) = window.layout_engine.take()
+    {
+        // Taffy can reuse the geometry of an earlier width without calling
+        // the carried text measurement again. Restore the shaped lines for
+        // the placed width using the node's original runs and style.
+        if let Some(context) = engine.taffy.get_node_context_mut(node.into()) {
+            (context.measure)(
+                bounds.size.map(Some),
+                bounds.size.map(AvailableSpace::Definite),
+                window,
+                cx,
+            );
+        }
+        window.layout_engine = Some(engine);
+    }
+    if layout.measured.borrow().is_none() {
         report_unmeasured(
             "text reached prepaint unmeasured; measured there as plain text",
             text,
@@ -277,7 +307,7 @@ pub(crate) fn prepaint_text(
         };
         measure_text(&inputs, known, available, window, cx);
     }
-    if let Some(inner) = layout.0.borrow_mut().as_mut() {
+    if let Some(inner) = layout.measured.borrow_mut().as_mut() {
         inner.bounds = Some(bounds);
     }
 }
@@ -287,7 +317,7 @@ pub(crate) fn prepaint_text(
 /// See [`prepaint_text`].
 pub(crate) fn paintable(layout: &TextLayout, text: &str) -> bool {
     let paintable = layout
-        .0
+        .measured
         .borrow()
         .as_ref()
         .is_some_and(|inner| inner.bounds.is_some());
@@ -338,10 +368,10 @@ fn adopt_measurement(inputs: &TextMeasureInputs, previous: &dyn Any) -> Adopted 
     let layout = inputs.layout.borrow();
     if recolored {
         update_decoration_runs(&mut inner.lines, &inputs.runs());
-        *layout.0.borrow_mut() = Some(inner);
+        *layout.measured.borrow_mut() = Some(inner);
         Adopted::Measurement
     } else {
-        *layout.0.borrow_mut() = Some(inner);
+        *layout.measured.borrow_mut() = Some(inner);
         // The node keeps `previous`, which now keeps its measurement where
         // this element looks for it.
         *previous.layout.borrow_mut() = layout.clone();
@@ -353,7 +383,7 @@ fn adopt_measurement(inputs: &TextMeasureInputs, previous: &dyn Any) -> Adopted 
 /// [`measure_text`] answers from a measurement it holds, and one taken under
 /// another text's constraints would answer for those.
 fn forget_measurement(inputs: &TextMeasureInputs) {
-    inputs.layout.borrow().0.borrow_mut().take();
+    inputs.layout.borrow().measured.borrow_mut().take();
 }
 
 /// Measures text under the constraints Taffy offers, keeping the result in
@@ -413,7 +443,7 @@ fn measure_text(
     // `text_laid_out_from_the_cache_paints_the_lines_of_its_box`): answering
     // an unconstrained probe with that would size a box as wide as its
     // content to the narrow width, for good.
-    if let Some(text_layout) = layout.0.borrow().as_ref()
+    if let Some(text_layout) = layout.measured.borrow().as_ref()
         && let Some(size) = text_layout.size
         && (wrap_width == text_layout.wrap_width
             || (wrap_width.is_none()
@@ -480,7 +510,7 @@ fn measure_text(
         .shape_text(text, font_size, &runs, wrap_width, text_style.line_clamp)
         .log_err()
     else {
-        layout.0.borrow_mut().replace(TextLayoutInner {
+        layout.measured.borrow_mut().replace(TextLayoutInner {
             lines: Default::default(),
             len: 0,
             line_height,
@@ -498,7 +528,7 @@ fn measure_text(
         size.height += line_size.height;
         size.width = size.width.max(line_size.width).ceil();
     }
-    layout.0.borrow_mut().replace(TextLayoutInner {
+    layout.measured.borrow_mut().replace(TextLayoutInner {
         lines,
         len,
         line_height,
@@ -569,12 +599,12 @@ pub(crate) fn update_decoration_runs(lines: &mut [WrappedLine], runs: &[TextRun]
 /// element kept by a view reused as it was, say, or a caller's clone of a
 /// `StyledText`'s layout), and then it is copied, so it still answers.
 fn carry_measurement(layout: &TextLayout) -> Option<TextLayoutInner> {
-    if Rc::strong_count(&layout.0) == 1 {
-        let mut inner = layout.0.borrow_mut().take()?;
+    if Rc::strong_count(&layout.measured) == 1 {
+        let mut inner = layout.measured.borrow_mut().take()?;
         inner.bounds = None;
         Some(inner)
     } else {
-        layout.0.borrow().as_ref().map(copy_measurement)
+        layout.measured.borrow().as_ref().map(copy_measurement)
     }
 }
 

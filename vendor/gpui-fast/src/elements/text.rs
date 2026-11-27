@@ -612,7 +612,10 @@ impl IntoElement for StyledText {
 
 /// The Layout for TextElement. This can be used to map indices to pixels and vice versa.
 #[derive(Default, Clone)]
-pub struct TextLayout(pub(crate) Rc<RefCell<Option<TextLayoutInner>>>);
+pub struct TextLayout {
+    pub(crate) measured: Rc<RefCell<Option<TextLayoutInner>>>,
+    pub(crate) node: Option<LayoutId>,
+}
 
 #[derive(Clone, Copy)]
 enum TextPaintPass {
@@ -633,13 +636,15 @@ pub(crate) struct TextLayoutInner {
 
 impl TextLayout {
     fn layout(
-        &self,
+        &mut self,
         text: SharedString,
         runs: Option<Vec<TextRun>>,
         window: &mut Window,
         fast_cx: &mut App,
     ) -> LayoutId {
-        crate::fast::text::layout_text(self, text, runs, window, fast_cx)
+        let node = crate::fast::text::layout_text(self, text, runs, window, fast_cx);
+        self.node = Some(node);
+        node
     }
 
     fn paint(&self, text: &str, window: &mut Window, cx: &mut App) {
@@ -669,7 +674,7 @@ impl TextLayout {
         window: &mut Window,
         cx: &mut App,
     ) -> anyhow::Result<()> {
-        let element_state = self.0.borrow();
+        let element_state = self.measured.borrow();
         let element_state = element_state
             .as_ref()
             .context("measurement has not been performed")?;
@@ -710,7 +715,7 @@ impl TextLayout {
 
     /// Get the byte index into the input of the pixel position.
     pub fn index_for_position(&self, mut position: Point<Pixels>) -> Result<usize, usize> {
-        let element_state = self.0.borrow();
+        let element_state = self.measured.borrow();
         let element_state = element_state
             .as_ref()
             .expect("measurement has not been performed");
@@ -744,7 +749,7 @@ impl TextLayout {
 
     /// Get the pixel position for the given byte index.
     pub fn position_for_index(&self, index: usize) -> Option<Point<Pixels>> {
-        let element_state = self.0.borrow();
+        let element_state = self.measured.borrow();
         let element_state = element_state
             .as_ref()
             .expect("measurement has not been performed");
@@ -775,7 +780,7 @@ impl TextLayout {
 
     /// Retrieve the layout for the line containing the given byte index.
     pub fn line_layout_for_index(&self, index: usize) -> Option<Arc<WrappedLineLayout>> {
-        let element_state = self.0.borrow();
+        let element_state = self.measured.borrow();
         let element_state = element_state
             .as_ref()
             .expect("measurement has not been performed");
@@ -798,7 +803,7 @@ impl TextLayout {
 
     /// Retrieve all line layouts in source order.
     pub fn line_layouts(&self) -> SmallVec<[Arc<WrappedLineLayout>; 1]> {
-        self.0
+        self.measured
             .borrow()
             .as_ref()
             .expect("measurement has not been performed")
@@ -810,22 +815,22 @@ impl TextLayout {
 
     /// The bounds of this layout.
     pub fn bounds(&self) -> Bounds<Pixels> {
-        self.0.borrow().as_ref().unwrap().bounds.unwrap()
+        self.measured.borrow().as_ref().unwrap().bounds.unwrap()
     }
 
     /// The line height for this layout.
     pub fn line_height(&self) -> Pixels {
-        self.0.borrow().as_ref().unwrap().line_height
+        self.measured.borrow().as_ref().unwrap().line_height
     }
 
     /// The UTF-8 length of the underlying text.
     pub fn len(&self) -> usize {
-        self.0.borrow().as_ref().unwrap().len
+        self.measured.borrow().as_ref().unwrap().len
     }
 
     /// The text for this layout.
     pub fn text(&self) -> String {
-        self.0
+        self.measured
             .borrow()
             .as_ref()
             .unwrap()
@@ -839,7 +844,7 @@ impl TextLayout {
     pub fn wrapped_text(&self) -> String {
         let mut accumulator = String::new();
 
-        for wrapped in self.0.borrow().as_ref().unwrap().lines.iter() {
+        for wrapped in self.measured.borrow().as_ref().unwrap().lines.iter() {
             let mut seen = 0;
             for boundary in wrapped.layout.wrap_boundaries.iter() {
                 let index = wrapped.layout.unwrapped_layout.runs[boundary.run_ix].glyphs
