@@ -157,7 +157,7 @@ impl SettingsView {
                 .tab_stop(selected)
                 .when(selected, |item| item.track_focus(&self.nav_focus))
                 .w_full()
-                .h_8()
+                .h(kit::compact_row_height())
                 .flex_none()
                 .px_2()
                 .gap_2()
@@ -184,6 +184,7 @@ impl SettingsView {
                             div()
                                 .flex_1()
                                 .min_w_0()
+                                .line_height(kit::compact_row_line_height())
                                 .child(faded(title).report_clipping(clipped)),
                         )
                         .when(dot, |item| item.child(changed_dot(cx)))
@@ -197,7 +198,7 @@ impl SettingsView {
         let heading = |text: &'static str| {
             div()
                 .px_2()
-                .pt_4()
+                .pt_3()
                 .pb_1()
                 .text_xs()
                 .font_semibold()
@@ -245,7 +246,7 @@ impl SettingsView {
                     .min_h_0()
                     .px_2()
                     .pb_3()
-                    .gap_0p5()
+                    .gap(kit::compact_row_gap())
                     .child(heading("Proteus"))
                     .children(slots.into_iter().map(|page| item(page, cx)))
                     .child(heading("Подключения"))
@@ -296,7 +297,7 @@ impl SettingsView {
             .px_2()
             .pt_1()
             .pb_3()
-            .gap_0p5()
+            .gap(kit::compact_row_gap())
             .children(hits.into_iter().enumerate().map(|(ix, hit)| {
                 let (icon, title, place) = (
                     page_icon(&hit.target.page),

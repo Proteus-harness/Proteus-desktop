@@ -441,7 +441,7 @@ impl Workspace {
                 // Keep the list's wheel hitbox full width. GPUI Fast snaps
                 // virtual row origins, so apply the side insets to the row.
                 div()
-                    .pb_0p5()
+                    .pb(kit::compact_row_gap())
                     .pl_2()
                     .pr(padding)
                     .w_full()
@@ -560,9 +560,9 @@ impl Workspace {
         };
         let body = motion::reveal_at(fold.key.clone(), fold.open, at, cx, || {
             v_flex()
-                .gap_0p5()
-                .when(fold.before, |stack| stack.pb_0p5())
-                .when(!fold.before, |stack| stack.pt_0p5())
+                .gap(kit::compact_row_gap())
+                .when(fold.before, |stack| stack.pb(kit::compact_row_gap()))
+                .when(!fold.before, |stack| stack.pt(kit::compact_row_gap()))
                 .children(
                     fold.body
                         .iter()

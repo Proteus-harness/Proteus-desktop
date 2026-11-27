@@ -4,6 +4,7 @@ use gpui_kit::*;
 use proteus_contracts::app_protocol::AppRunStatus;
 use proteus_contracts::app_protocol::config::ConfigSummary;
 use proteus_contracts::app_protocol::http::SendRequest;
+use proteus_contracts::app_protocol::settings::{SessionSettingChoice, SessionSettingControl};
 use proteus_contracts::contracts::{ApprovalCacheScope, UserInputRequest, UserInputResponse};
 use proteus_contracts::domain::{MessageId, RunOptions};
 
@@ -23,43 +24,24 @@ impl Chat {
         self.call(
             cx,
             move |api| api.local_config(&dir),
-            move |this, config, cx| {
+            move |this, mut config, cx| {
                 if this.config_generation != generation {
                     return;
                 }
-                this.apply_local_config(config, cx);
+                this.apply_local_config(&mut config, cx);
             },
         );
     }
 
     pub(in crate::ui) fn apply_local_config(
         &mut self,
-        mut config: ConfigSummary,
+        config: &mut ConfigSummary,
         cx: &mut Context<Self>,
     ) {
         if let Some(previous) = &self.session.config {
-            // Keep discovered choices usable while the next catalog loads.
-            // The local response already knows which providers are configured.
-            let providers: std::collections::HashSet<_> = config
-                .model_options
-                .iter()
-                .map(|option| option.provider.as_str())
-                .collect();
-            let cached: Vec<_> = previous
-                .model_options
-                .iter()
-                .filter(|option| providers.contains(option.provider.as_str()))
-                .collect();
-            let keys: std::collections::HashSet<_> = cached
-                .iter()
-                .map(|option| (option.provider.as_str(), option.name.as_str()))
-                .collect();
-            config
-                .model_options
-                .retain(|option| !keys.contains(&(option.provider.as_str(), option.name.as_str())));
-            config.model_options.extend(cached.into_iter().cloned());
+            retain_local_catalog(config, previous);
         }
-        self.apply_config(config, cx);
+        self.apply_config(config.clone(), cx);
         let generation = self.config_generation;
         let dir = self.session.dir.clone();
         self.call_result(
@@ -467,5 +449,149 @@ impl Chat {
         }
         self.session.config = Some(std::sync::Arc::new(config));
         cx.emit(ChatEvent::state_changed());
+    }
+}
+
+/// Keep discovered choices usable while the next catalog loads. The local
+/// reply determines which providers still exist and which model was applied.
+fn retain_local_catalog(local: &mut ConfigSummary, previous: &ConfigSummary) {
+    use std::collections::HashSet;
+
+    let providers: HashSet<_> = local
+        .model_options
+        .iter()
+        .map(|option| option.provider.as_str())
+        .collect();
+    let cached: Vec<_> = previous
+        .model_options
+        .iter()
+        .filter(|option| providers.contains(option.provider.as_str()))
+        .collect();
+    let keys: HashSet<_> = cached
+        .iter()
+        .map(|option| (option.provider.as_str(), option.name.as_str()))
+        .collect();
+    local
+        .model_options
+        .retain(|option| !keys.contains(&(option.provider.as_str(), option.name.as_str())));
+    local.model_options.extend(cached.iter().copied().cloned());
+
+    let Some(model) = local.model.as_ref() else {
+        return;
+    };
+    let Some(option) = cached
+        .iter()
+        .find(|option| option.provider == model.provider && option.name == model.name)
+        .filter(|option| !option.reasoning_efforts.is_empty())
+    else {
+        return;
+    };
+    let Some(SessionSettingControl::Select { value, options }) = local
+        .session_settings
+        .iter_mut()
+        .find(|setting| setting.id == "reasoning_effort")
+        .map(|setting| &mut setting.control)
+    else {
+        return;
+    };
+    let Some(default) = options.iter().find(|option| option.value == "_default") else {
+        return;
+    };
+    // A local acknowledgement confirms the actual effort, but its options
+    // may still be the configured fallback. Reuse the exact model's cached
+    // options only if they can represent that confirmed value.
+    if value != "_default"
+        && value.strip_prefix("effort:").is_none_or(|confirmed| {
+            !option
+                .reasoning_efforts
+                .iter()
+                .any(|effort| effort == confirmed)
+        })
+    {
+        return;
+    }
+    let default = default.clone();
+    options.clear();
+    options.push(default);
+    options.extend(
+        option
+            .reasoning_efforts
+            .iter()
+            .map(|effort| SessionSettingChoice {
+                value: format!("effort:{effort}"),
+                name: effort.clone(),
+                description: None,
+            }),
+    );
+    local
+        .reasoning
+        .effort_options
+        .clone_from(&option.reasoning_efforts);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proteus_contracts::app_protocol::config::{ConfigModel, ModelOption};
+    use proteus_contracts::app_protocol::settings::SessionSetting;
+
+    #[::core::prelude::v1::test]
+    fn a_local_model_ack_retains_only_its_exact_catalog_efforts() {
+        let option = |provider: &str, effort: &str| ModelOption {
+            provider: provider.into(),
+            name: "shared".into(),
+            reasoning_efforts: vec![effort.into(), "high".into()],
+            ..Default::default()
+        };
+        let previous = ConfigSummary {
+            model_options: vec![option("old", "old-only"), option("new", "medium")],
+            ..Default::default()
+        };
+        let local = |value: &str| ConfigSummary {
+            model: Some(ConfigModel {
+                provider: "new".into(),
+                name: "shared".into(),
+                ..Default::default()
+            }),
+            model_options: vec![ModelOption {
+                reasoning_efforts: Vec::new(),
+                ..option("new", "unused")
+            }],
+            session_settings: vec![SessionSetting {
+                id: "reasoning_effort".into(),
+                name: "Reasoning".into(),
+                category: None,
+                control: SessionSettingControl::Select {
+                    value: value.into(),
+                    options: ["_default", "effort:none"]
+                        .map(|value| SessionSettingChoice {
+                            value: value.into(),
+                            name: value.into(),
+                            description: None,
+                        })
+                        .into(),
+                },
+            }],
+            ..Default::default()
+        };
+
+        let mut known = local("effort:high");
+        retain_local_catalog(&mut known, &previous);
+        assert_eq!(known.model_options, [option("new", "medium")]);
+        assert_eq!(known.reasoning.effort_options, ["medium", "high"]);
+        let SessionSettingControl::Select { value, options } = &known.session_settings[0].control
+        else {
+            panic!("expected effort selector");
+        };
+        assert_eq!(value, "effort:high");
+        let values: Vec<_> = options.iter().map(|option| option.value.as_str()).collect();
+        assert_eq!(values, ["_default", "effort:medium", "effort:high"]);
+
+        let mut unmatched = local("effort:none");
+        retain_local_catalog(&mut unmatched, &previous);
+        assert_eq!(
+            unmatched.session_settings,
+            local("effort:none").session_settings
+        );
     }
 }

@@ -27,7 +27,12 @@ pub(crate) fn disclosure_header(
         .gap_2()
         .disclosure_surface(cx);
     match density {
-        DisclosureDensity::Settings => header.px_4().py_2p5().text_sm(),
+        DisclosureDensity::Settings => header
+            .px_4()
+            .min_h(super::compact_row_height())
+            .py(super::compact_row_gap() / 2.)
+            .line_height(super::compact_row_line_height())
+            .text_sm(),
         // Compact hosts retain their inherited text size and existing inset.
         DisclosureDensity::Compact => header.px_2().py_1p5(),
     }

@@ -14,7 +14,9 @@ use gpui_kit::component::FocusableExt as _;
 use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants as _};
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::input::{Input, InputState, Textarea, TextareaState};
-use gpui_kit::{App, ElementId, MouseButton, SharedString, StatefulInteractiveElement, Styled};
+use gpui_kit::{
+    App, ElementId, MouseButton, Rems, SharedString, StatefulInteractiveElement, Styled,
+};
 
 use super::prefs;
 use super::tip::{Tip as _, TooltipContent};
@@ -44,6 +46,19 @@ pub(crate) use settings_row::{SettingsRow, settings_row};
 pub(crate) use surface::{surface, surface_highlight};
 pub(crate) use typography::MetricText;
 pub(crate) use workspace_surface::WorkspaceSurface;
+
+/// Caption and row metrics shared by the chat list and settings navigation.
+pub(crate) fn compact_row_line_height() -> Rems {
+    prefs::scaled(23.)
+}
+
+pub(crate) fn compact_row_height() -> Rems {
+    compact_row_line_height() + prefs::scaled(4.)
+}
+
+pub(crate) fn compact_row_gap() -> Rems {
+    prefs::scaled(2.)
+}
 
 /// Shared button captions and quiet surfaces. Icons, sizes, focus and
 /// keyboard behavior stay native.

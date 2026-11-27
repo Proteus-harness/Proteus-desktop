@@ -106,7 +106,7 @@ pub(super) fn section(
 ) -> Div {
     let theme = cx.theme();
     v_flex()
-        .gap_2()
+        .gap_1p5()
         .child(
             h_flex()
                 .gap_3()
@@ -163,7 +163,7 @@ pub(super) fn nested_group(
     kit::surface(
         v_flex()
             .disclosure_frame(cx)
-            .m_2()
+            .m_1p5()
             .child(header)
             .children(body),
         cx,
@@ -172,14 +172,14 @@ pub(super) fn nested_group(
 
 /// Equal side insets, without a separate rule under the chevron.
 pub(super) fn nested(body: impl IntoElement) -> Div {
-    div().px_2().pb_2().child(body)
+    div().px_2().pb_1p5().child(body)
 }
 
 /// Muted explanatory text inside a card or under a heading.
 pub(super) fn note(text: impl Into<SharedString>, cx: &App) -> Div {
     div()
         .px_4()
-        .py_3()
+        .py_2()
         .text_sm()
         .text_color(cx.theme().muted_foreground)
         .child(text.into())
@@ -398,7 +398,8 @@ pub(super) fn radio_card(
         .gap_3()
         .items_start()
         .px_4()
-        .py_3()
+        .min_h(kit::compact_row_height())
+        .py_1()
         .surface_frame(cx)
         .cursor_pointer()
         .pressable(cx)

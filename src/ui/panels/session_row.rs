@@ -100,7 +100,7 @@ impl Workspace {
             };
         }
         let anchor = TooltipAnchor::default();
-        let caption_height = prefs::scaled(23.);
+        let caption_height = kit::compact_row_line_height();
         let hover_background = theme.sidebar.blend(if selected {
             *theme.tokens.sidebar_accent
         } else {
@@ -163,7 +163,7 @@ impl Workspace {
             .relative()
             .pr_1()
             .pl(rems(0.5 + depth.min(12) as f32 * 1.25))
-            .py_0p5()
+            .h(kit::compact_row_height())
             .gap_2()
             .rounded(theme.radius)
             .cursor_pointer()

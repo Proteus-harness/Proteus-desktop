@@ -77,6 +77,10 @@ impl DeclarativeView {
         self.surface == SurfaceKind::Page
     }
 
+    pub(super) fn popup_page(&self) -> bool {
+        self.surface == SurfaceKind::Popup
+    }
+
     pub(super) fn new(
         runtime: Entity<Runtime>,
         host: crate::ui::extensions::Host,

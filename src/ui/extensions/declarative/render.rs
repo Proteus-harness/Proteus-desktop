@@ -570,6 +570,7 @@ impl DeclarativeView {
                         key.clone(),
                         body.into_any_element(),
                     )
+                    .resize(path == "root" && self.popup_page())
                     .into_any_element(),
                     None => body.into_any_element(),
                 }

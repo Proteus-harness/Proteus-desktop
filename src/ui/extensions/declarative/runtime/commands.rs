@@ -134,7 +134,7 @@ impl Runtime {
                     return;
                 }
                 let route = request.route(this);
-                let (config, catalog_pending, error) = match result {
+                let (mut config, catalog_pending, error) = match result {
                     Ok((config, pending)) => (Some(config), pending, None),
                     Err(error) => (None, false, Some(format!("{error:#}"))),
                 };
@@ -143,9 +143,11 @@ impl Runtime {
                     && let Some(chat) = host.chat(cx)
                 {
                     chat.update(cx, |chat, cx| {
-                        if let Some(config) = &config {
+                        if let Some(config) = &mut config {
                             if catalog_pending {
-                                chat.apply_local_config(config.clone(), cx);
+                                // The command result and state update must
+                                // carry the same retained catalog choices.
+                                chat.apply_local_config(config, cx);
                             } else {
                                 chat.apply_config(config.clone(), cx);
                             }

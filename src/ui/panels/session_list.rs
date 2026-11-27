@@ -11,6 +11,7 @@ use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::*;
 
 use super::sessions::ItemId;
+use crate::ui::kit;
 use crate::ui::workspace::Workspace;
 
 const LIST_CONTEXT: &str = "ProteusSessionList";
@@ -180,7 +181,7 @@ impl SessionList {
 }
 
 fn row_height(window: &Window) -> Pixels {
-    rems(2.).to_pixels(window.rem_size())
+    (kit::compact_row_height() + kit::compact_row_gap()).to_pixels(window.rem_size())
 }
 
 impl Workspace {

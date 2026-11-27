@@ -152,8 +152,8 @@ impl SettingsView {
         };
         let key = format!("{:?}", self.page);
         let column = page_column(cx)
-            .pb_10()
-            .gap_6()
+            .pb_8()
+            .gap_4()
             .child(
                 h_flex()
                     .gap_4()
@@ -178,7 +178,7 @@ impl SettingsView {
             .min_h_full()
             .items_center()
             .px_8()
-            .pt_8()
+            .pt_6()
             // The bottom padding is part of the page, so the floor that
             // keeps the scroll position counts it.
             .child(floor(
