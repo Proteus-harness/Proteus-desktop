@@ -86,7 +86,8 @@ pub(super) fn divider(
     let seam = match axis {
         Axis::Row => divider::ResizeSeam::vertical(visible_start, px(0.)),
         Axis::Column => divider::ResizeSeam::plain(axis),
-    };
+    }
+    .quiet();
     let grip = seam
         .grip(name.clone(), cx)
         .on_drag(drag, move |drag, _, _, cx| {

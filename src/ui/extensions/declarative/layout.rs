@@ -49,7 +49,7 @@ impl DeclarativeView {
                     .into_any_element(),
                 _ => self.node(child, &path, cx),
             };
-            if greedy(child) {
+            if greedy(child) || (self.is_document() && matches!(child, Node::Content { .. })) {
                 return element;
             }
             // The fill root has no padding so lists and editors reach the

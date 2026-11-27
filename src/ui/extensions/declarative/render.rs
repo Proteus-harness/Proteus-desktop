@@ -3,6 +3,7 @@
 use crate::ui::kit::Frame as _;
 use gpui_kit::component::input::Textarea;
 use gpui_kit::component::menu::PopupMenu;
+use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -395,12 +396,26 @@ impl DeclarativeView {
                 .get(id)
                 .map(|text| text.element())
                 .unwrap_or_else(|| div().into_any_element()),
-            Node::Content { id, .. } => self
-                .fields
-                .contents
-                .get(id)
-                .map(|content| content.element())
-                .unwrap_or_else(|| div().into_any_element()),
+            Node::Content { id, .. } => {
+                let content = self
+                    .fields
+                    .contents
+                    .get(id)
+                    .map(|content| content.element());
+                if self.is_document() {
+                    v_flex()
+                        .flex_1()
+                        .min_h_0()
+                        .min_w_0()
+                        .p_3()
+                        .children(content)
+                        .overflow_y_scrollbar()
+                        .id(SharedString::from(format!("document-content-{id}")))
+                        .into_any_element()
+                } else {
+                    content.unwrap_or_else(|| div().into_any_element())
+                }
+            }
             Node::Code {
                 id,
                 text,
@@ -429,7 +444,13 @@ impl DeclarativeView {
                         .codes
                         .get(id)
                         .and_then(super::fields::Code::editor)
-                        .map(|editor| super::code_block::readonly_editor(editor, cx).h_full()),
+                        .map(|editor| {
+                            super::code_block::readonly_editor(editor, cx)
+                                .when(self.is_document(), |editor| {
+                                    editor.bg(cx.theme().background)
+                                })
+                                .h_full()
+                        }),
                 )
                 .into_any_element(),
             Node::Diff { id, height, .. } => div()

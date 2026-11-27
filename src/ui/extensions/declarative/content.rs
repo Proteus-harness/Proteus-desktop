@@ -1,4 +1,4 @@
-//! Generic retained chat content surface. Language registration belongs to
+//! Generic retained chat and document content. Registration belongs to
 //! packages; the native shell only owns source, copy, fallback and lifetime.
 
 use std::sync::Arc;
@@ -202,7 +202,7 @@ impl ContentView {
         }
     }
 
-    /// An ordinary reply uses the chat's shared turn footer for copy actions.
+    /// Full-body content uses the surrounding view's layout and actions.
     pub(in crate::ui) fn body(
         host: Host,
         id: String,
@@ -216,15 +216,16 @@ impl ContentView {
     }
 
     /// Nested content routing is generic; a renderer never names a package.
-    pub(in crate::ui) fn child(
+    pub(super) fn child(
         host: Host,
         id: String,
         language: &str,
         source: &str,
+        body: bool,
         window: &mut Window,
         cx: &mut App,
-    ) -> Option<Entity<Self>> {
-        Self::child_with_context(
+    ) -> Entity<Self> {
+        let view = Self::child_with_context(
             host,
             id,
             language,
@@ -232,7 +233,9 @@ impl ContentView {
             serde_json::Value::Null,
             window,
             cx,
-        )
+        );
+        view.update(cx, |view, _| view.body = body);
+        view
     }
 
     pub(super) fn inline(
@@ -243,15 +246,16 @@ impl ContentView {
         window: &mut Window,
         cx: &mut App,
     ) -> Option<Entity<Self>> {
-        Self::child_with_context(
-            host,
+        let extension = language_renderer(language, cx)?;
+        Some(Self::child_with_context(
+            host.with_extension(extension),
             id,
             language,
             source,
             serde_json::json!({"presentation":"inline"}),
             window,
             cx,
-        )
+        ))
     }
 
     fn child_with_context(
@@ -262,16 +266,14 @@ impl ContentView {
         context: serde_json::Value,
         window: &mut Window,
         cx: &mut App,
-    ) -> Option<Entity<Self>> {
-        let extension = language_renderer(language, cx)?;
-        let host = host.with_extension(extension);
+    ) -> Entity<Self> {
         let content = Content {
             language: language.into(),
             source: source.into(),
             context,
             source_revision: Some(0),
         };
-        Some(cx.new(|cx| Self::new(host, id, content, Arc::from(""), window, cx)))
+        cx.new(|cx| Self::new(host, id, content, Arc::from(""), window, cx))
     }
 
     /// Inline content consumes the accepted atomic SVG directly, without the
@@ -376,8 +378,7 @@ impl Render for ContentView {
                 let source = source_label(&self.content.source);
                 width = Some(super::code_geometry::Width::Source(source.clone()));
                 if self.body {
-                    gpui_kit::base::SelectableText::new("content-source-text", source)
-                        .into_any_element()
+                    code_block::body_source(source).into_any_element()
                 } else {
                     copy_snapshot = Some(source.clone());
                     code_block::source("content-source-scroll", source, cx)

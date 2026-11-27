@@ -54,8 +54,8 @@ impl ResizeSeam {
         }
     }
 
-    /// Adjacent surface fills already separate the sidebar from the chat.
-    /// Keep its drag target and hover mark without an idle hairline.
+    /// Let the workspace background show through between adjacent surfaces.
+    /// Keep the drag target and the shared sidebar-colored hover/held mark.
     pub(super) fn quiet(mut self) -> Self {
         self.idle_line = false;
         self

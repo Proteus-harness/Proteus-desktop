@@ -252,6 +252,10 @@ pub(super) fn source(id: impl Into<ElementId>, text: SharedString, cx: &App) -> 
     source_body(id.into(), text, cx)
 }
 
+pub(super) fn body_source(text: SharedString) -> gpui_kit::base::SelectableText {
+    gpui_kit::base::SelectableText::new("content-source-text", text)
+}
+
 fn source_body(id: ElementId, text: SharedString, _: &App) -> AnyElement {
     Source { id, text }.into_any_element()
 }
@@ -357,13 +361,15 @@ fn source_view(
 pub(super) struct SourceBlock {
     language: String,
     source: SharedString,
+    body: bool,
 }
 
 impl SourceBlock {
-    pub(super) fn new(language: &str, source: &str) -> Self {
+    pub(super) fn new(language: &str, source: &str, body: bool) -> Self {
         Self {
             language: language.into(),
             source: SharedString::from(source),
+            body,
         }
     }
 
@@ -377,6 +383,9 @@ impl SourceBlock {
 
 impl Render for SourceBlock {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.body {
+            return body_source(self.source.clone()).into_any_element();
+        }
         let copy_source = self.source.clone();
         shell(
             "copy-code-source",
@@ -387,6 +396,7 @@ impl Render for SourceBlock {
             cx,
         )
         .fit(Width::Source(self.source.clone()))
+        .into_any_element()
     }
 }
 

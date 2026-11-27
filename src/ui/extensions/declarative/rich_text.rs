@@ -1,7 +1,7 @@
 //! Retained native text and nested content. Producers choose formatting and
 //! language; this adapter only mounts public widgets and keeps selection.
 
-use super::{code_block, content::ContentView, view::DeclarativeView};
+use super::{code_block, content, content::ContentView, view::DeclarativeView};
 use gpui_kit::component::text::{TextView, TextViewState};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -113,7 +113,12 @@ impl DeclarativeView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let renderer = super::content::language_renderer(language, cx);
+        let document = self.is_document();
+        let renderer = if document {
+            content::format(language, cx).or_else(|| content::language_renderer(language, cx))
+        } else {
+            content::language_renderer(language, cx)
+        };
         if let Some(content) = self.fields.contents.get_mut(id)
             && content.language == language
             && content.renderer == renderer
@@ -128,9 +133,17 @@ impl DeclarativeView {
             }
             return;
         }
-        let view = self
-            .host(cx)
-            .and_then(|host| ContentView::child(host, id.into(), language, source, window, cx));
+        let view = self.host(cx).zip(renderer).map(|(host, extension)| {
+            ContentView::child(
+                host.with_extension(extension),
+                id.into(),
+                language,
+                source,
+                document,
+                window,
+                cx,
+            )
+        });
         if let Some(view) = &view {
             view.read(cx).set_layout_parent(self.layout_owner.as_ref());
         }
@@ -144,7 +157,7 @@ impl DeclarativeView {
         });
         let fallback = view
             .is_none()
-            .then(|| cx.new(|_| code_block::SourceBlock::new(language, source)));
+            .then(|| cx.new(|_| code_block::SourceBlock::new(language, source, document)));
         let content = Content {
             language: language.into(),
             renderer,

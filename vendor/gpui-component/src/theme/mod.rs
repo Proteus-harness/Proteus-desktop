@@ -427,10 +427,9 @@ impl Theme {
                 .with_mode(self.scrollbar_mode)
                 .with_motion(scrollbar_motion(self.scrollbar_mode))
                 .with_styles(
+                    // Base keeps the track transparent in every state. The
+                    // thumb uses the theme colors while the full strip remains interactive.
                     gpui_base::ScrollbarStyles::default()
-                        .track(|style| style.bg(self.scrollbar))
-                        .track_hover(|style| style.bg(self.scrollbar))
-                        .track_active(|style| style.bg(self.scrollbar).border_color(self.border))
                         .thumb(|style| {
                             style
                                 .bg(self.tokens.scrollbar_thumb)

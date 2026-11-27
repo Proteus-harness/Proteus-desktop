@@ -148,6 +148,10 @@ impl DeclarativeView {
         self.focus.clone()
     }
 
+    pub(super) fn is_document(&self) -> bool {
+        self.surface == SurfaceKind::Document
+    }
+
     pub(super) fn host(&self, cx: &App) -> Option<crate::ui::extensions::Host> {
         self.runtime.read(cx).host_for(&self.view).cloned()
     }
