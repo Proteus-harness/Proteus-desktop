@@ -195,15 +195,16 @@ impl Workspace {
                         }
                     }))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .child(
+                    .child(Styled::h(
+                        // Input::h is only used for multiline inputs.
                         kit::input(&input)
                             .appearance(false)
                             .aria_label("Название сессии")
                             .text_sm()
                             .line_height(caption_height)
-                            .h(caption_height)
                             .p_0(),
-                    )
+                        caption_height,
+                    ))
                     .into_any_element(),
                 None => div()
                     .flex_1()
