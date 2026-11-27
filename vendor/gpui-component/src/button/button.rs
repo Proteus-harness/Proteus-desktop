@@ -1124,7 +1124,7 @@ impl ButtonVariant {
             Self::Success => cx.theme().tokens.button_success.into(),
             Self::Info => cx.theme().tokens.button_info.into(),
             Self::Ghost | Self::Link | Self::Text => cx.theme().transparent.into(),
-            Self::Custom(colors) => colors.color.mix_oklab(cx.theme().transparent, 0.2).into(),
+            Self::Custom(colors) => colors.color.into(),
         }
     }
 

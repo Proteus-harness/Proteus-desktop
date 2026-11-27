@@ -387,7 +387,7 @@ impl Render for FontControl {
         root.child(motion::popup(
             body,
             "font-popup-motion",
-            frame.selector().align_end(),
+            frame.align_end(),
             cx,
         ))
     }

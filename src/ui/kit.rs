@@ -151,14 +151,13 @@ pub(crate) fn input(state: &gpui_kit::Entity<InputState>) -> Input {
         .border_color(gpui_kit::transparent_black())
 }
 
-/// Shared frame and clipped child paint for menus and popovers.
+/// Flat surface with clipped child paint for menus and popovers.
 pub(crate) fn popup_surface(cx: &App) -> gpui_kit::Div {
     use gpui_kit::{Styled as _, div};
     div()
         .bg(cx.theme().popover)
         .text_color(cx.theme().popover_foreground)
         .surface_frame(cx)
-        .border_color(cx.theme().border)
         .overflow_hidden()
 }
 

@@ -24,7 +24,7 @@ mod picker;
 mod prefs;
 mod projects;
 mod render_image;
-mod reorder;
+pub(crate) mod reorder;
 mod search;
 mod selection;
 mod settings;

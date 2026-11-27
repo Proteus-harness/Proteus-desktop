@@ -596,8 +596,7 @@ fn upload_bar_path(bounds: Bounds<Pixels>, percent: f32, radius: Pixels) -> Opti
 fn remove_button(id: ElementId, on_remove: ControlHandler, cx: &App) -> Button {
     let tokens = cx.theme().semantic_tokens();
     Button::new((id, "remove"))
-        // The custom variant thins its color to 20%; the disc must stay
-        // opaque, so the surface is set on the instance instead.
+        // Keep the disc opaque and let the variant provide hover and press colors.
         .custom(
             ButtonCustomVariant::new(cx)
                 .hover(tokens.colors.muted)

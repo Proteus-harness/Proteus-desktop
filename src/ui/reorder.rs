@@ -3,8 +3,10 @@
 //! identities and contents; gesture, preview, insertion geometry and motion
 //! are shared. A drop can reorder the source list or use its explicit removal target.
 
+use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Instant;
@@ -123,6 +125,99 @@ pub(crate) fn controls(child: impl IntoElement) -> Div {
         .flex_none()
         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
         .child(child)
+}
+
+struct VirtualDrag<G> {
+    group: G,
+    id: SharedString,
+}
+
+struct RowPreview {
+    label: SharedString,
+    size: Size<Pixels>,
+}
+
+impl Render for RowPreview {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        drag::lifted(
+            div()
+                .flex()
+                .items_center()
+                .w(self.size.width)
+                .h(self.size.height)
+                .px_2()
+                .text_sm()
+                .overflow_hidden()
+                .child(fade::faded(self.label.clone())),
+            cx,
+        )
+    }
+}
+
+/// Reorder within one group of a virtual list. Only a visible row is needed
+/// to choose the insertion edge; the caller still owns data and persistence.
+pub(crate) fn virtual_row<G: Clone + PartialEq + 'static>(
+    row: Stateful<Div>,
+    group: G,
+    id: SharedString,
+    source_key: SharedString,
+    label: SharedString,
+    moved: impl Fn(&SharedString, bool, &mut App) + 'static,
+    cx: &App,
+) -> Stateful<Div> {
+    let bounds = Rc::new(Cell::new(Bounds::<Pixels>::default()));
+    let target = VirtualDrag {
+        group: group.clone(),
+        id: id.clone(),
+    };
+    let valid = move |dragged: &VirtualDrag<G>| dragged.group == group && dragged.id != id;
+    let valid_drop = valid.clone();
+    let faded = drag::is_source(source_key.as_ref(), cx);
+    row.cursor_grab()
+        .when(faded, |row| row.opacity(drag::SOURCE_OPACITY))
+        .on_drag(target, {
+            let bounds = bounds.clone();
+            move |_, _, _, cx| {
+                drag::start(source_key.clone(), cx);
+                cx.new(|_| RowPreview {
+                    label: label.clone(),
+                    size: bounds.get().size,
+                })
+            }
+        })
+        .on_drop({
+            let bounds = bounds.clone();
+            move |dragged: &VirtualDrag<G>, window, cx| {
+                if valid_drop(dragged) {
+                    let after = window.mouse_position().y >= bounds.get().center().y;
+                    moved(&dragged.id, after, cx);
+                }
+            }
+        })
+        .child(
+            canvas(
+                {
+                    let bounds = bounds.clone();
+                    move |rect, _, _| bounds.set(rect)
+                },
+                |_, (), _, _| {},
+            )
+            .absolute()
+            .inset_0(),
+        )
+        .child(div().absolute().inset_0().drag_over::<VirtualDrag<G>>(
+            move |style, dragged, window, cx| {
+                if !valid(dragged) {
+                    return style;
+                }
+                let style = style.border_color(cx.theme().ring);
+                if window.mouse_position().y >= bounds.get().center().y {
+                    style.border_b_1()
+                } else {
+                    style.border_t_1()
+                }
+            },
+        ))
 }
 
 #[derive(Default)]

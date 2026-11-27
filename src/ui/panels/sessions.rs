@@ -41,6 +41,13 @@ pub(super) enum ItemId {
     Empty,
 }
 
+#[derive(PartialEq, Eq)]
+pub(super) enum OrderGroup {
+    Pinned,
+    Project(Rc<Path>),
+    Children(Rc<ChatKey>),
+}
+
 struct Item {
     content: Content,
     fold: Option<Fold>,
@@ -71,6 +78,7 @@ enum Content {
         ordinal: usize,
         look: Look,
         has_children: bool,
+        order_group: Option<Rc<OrderGroup>>,
     },
     Empty,
 }
@@ -164,7 +172,22 @@ struct SessionLayout<'a> {
 }
 
 impl SessionLayout<'_> {
-    fn add(&mut self, row: &Row, depth: usize, items: &mut Vec<Item>, cx: &App) {
+    fn order_group(
+        &self,
+        len: usize,
+        group: impl FnOnce() -> OrderGroup,
+    ) -> Option<Rc<OrderGroup>> {
+        (!self.searching && len > 1).then(|| Rc::new(group()))
+    }
+
+    fn add(
+        &mut self,
+        row: &Row,
+        depth: usize,
+        order_group: Option<&Rc<OrderGroup>>,
+        items: &mut Vec<Item>,
+        cx: &App,
+    ) {
         let dir = &row.summary.key;
         let open = self.searching
             || self.branches.contains(dir)
@@ -184,15 +207,29 @@ impl SessionLayout<'_> {
                 branch_fits,
             },
             has_children: !row.children.is_empty(),
+            order_group: order_group.cloned(),
         });
         self.ordinal += 1;
+        let child_group = if row.mark.archived {
+            None
+        } else {
+            self.order_group(row.children.len(), || {
+                OrderGroup::Children(Rc::new(dir.clone()))
+            })
+        };
         if !row.children.is_empty()
             && branch_fits
             && let key = branch_key(dir)
             && self.moving(&key, open, cx)
         {
             let mut body = Vec::new();
-            self.add_all(&row.children, depth + 1, &mut body, cx);
+            self.add_all(
+                &row.children,
+                depth + 1,
+                child_group.as_ref(),
+                &mut body,
+                cx,
+            );
             Fold {
                 key,
                 open,
@@ -203,14 +240,21 @@ impl SessionLayout<'_> {
         } else {
             items.push(item);
             if open {
-                self.add_all(&row.children, depth + 1, items, cx);
+                self.add_all(&row.children, depth + 1, child_group.as_ref(), items, cx);
             }
         }
     }
 
-    fn add_all(&mut self, rows: &[Row], depth: usize, items: &mut Vec<Item>, cx: &App) {
+    fn add_all(
+        &mut self,
+        rows: &[Row],
+        depth: usize,
+        order_group: Option<&Rc<OrderGroup>>,
+        items: &mut Vec<Item>,
+        cx: &App,
+    ) {
         for row in rows {
-            self.add(row, depth, items, cx);
+            self.add(row, depth, order_group, items, cx);
         }
     }
 
@@ -250,7 +294,8 @@ impl Workspace {
         let mut items = Vec::new();
         if !listing.pinned.is_empty() {
             items.push(Item::new(Content::Heading("Закреплённые")));
-            layout.add_all(&listing.pinned, 0, &mut items, cx);
+            let group = layout.order_group(listing.pinned.len(), || OrderGroup::Pinned);
+            layout.add_all(&listing.pinned, 0, group.as_ref(), &mut items, cx);
         }
         if !listing.projects.is_empty() {
             items.push(Item::new(Content::Heading("Проекты")));
@@ -276,9 +321,11 @@ impl Workspace {
             let more = more_key(project.path);
             let animate_more = project.rows.len().saturating_sub(PROJECT_ROWS) <= layout.limit;
             let more_moving = animate_more && layout.moving(&more, all, cx);
+            let group =
+                layout.order_group(project.rows.len(), || OrderGroup::Project(path.clone()));
             let (hidden, rest) =
                 project_rows::visit(&project.rows, current.as_ref(), all, more_moving, |row| {
-                    layout.add(row, 1, &mut body, cx)
+                    layout.add(row, 1, group.as_ref(), &mut body, cx)
                 });
             let has_more = self
                 .codex_catalogs
@@ -295,7 +342,7 @@ impl Workspace {
                 if more_moving {
                     let mut extra = Vec::new();
                     for row in rest {
-                        layout.add(row, 1, &mut extra, cx);
+                        layout.add(row, 1, group.as_ref(), &mut extra, cx);
                     }
                     Fold {
                         key: more,
@@ -324,7 +371,7 @@ impl Workspace {
         if layout.searching {
             if !listing.archived.is_empty() {
                 items.push(Item::new(Content::Heading("Архив")));
-                layout.add_all(&listing.archived, 0, &mut items, cx);
+                layout.add_all(&listing.archived, 0, None, &mut items, cx);
             }
         } else if listing.archived_count > 0 {
             let animate = listing.archived_count <= layout.limit;
@@ -334,7 +381,7 @@ impl Workspace {
             });
             if archive_moving && animate {
                 let mut body = Vec::new();
-                layout.add_all(&listing.archived, 0, &mut body, cx);
+                layout.add_all(&listing.archived, 0, None, &mut body, cx);
                 Fold {
                     key: ARCHIVE.into(),
                     open: self.show_archived,
@@ -345,7 +392,7 @@ impl Workspace {
             } else {
                 items.push(toggle);
                 if self.show_archived {
-                    layout.add_all(&listing.archived, 0, &mut items, cx);
+                    layout.add_all(&listing.archived, 0, None, &mut items, cx);
                 }
             }
         }
@@ -451,6 +498,7 @@ impl Workspace {
                 ordinal,
                 look,
                 has_children,
+                order_group,
             } => {
                 let Some(summary) = self
                     .sessions
@@ -474,6 +522,7 @@ impl Workspace {
                             mark,
                             *has_children,
                             *look,
+                            order_group.clone(),
                             cx,
                         )),
                         ElementId::Name(format!("session-enter-{key}").into()),
@@ -743,6 +792,7 @@ mod tests {
                 branch_fits: true,
             },
             has_children: false,
+            order_group: None,
         })
     }
 

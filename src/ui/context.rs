@@ -89,10 +89,10 @@ pub(crate) fn split_button(
 }
 
 impl ContextMenu {
-    /// Settings fields and their open lists share a thin border and a right
-    /// edge. A chevron alone does not give chat menus this field styling.
+    /// Style the trigger as a settings field and align its menu to the right.
     pub(crate) fn settings_selector(mut self) -> Self {
         self.settings_selector = true;
+        self.align_end = true;
         self
     }
 
@@ -125,7 +125,7 @@ impl Styled for ContextMenu {
 impl RenderOnce for ContextMenu {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let settings_selector = self.settings_selector;
-        let inset = menu_inset(cx, settings_selector);
+        let inset = menu_inset(cx);
         let state = window.use_keyed_state(self.id.clone(), cx, |_, _| MenuState::default());
         let mut root = div().id(self.id.clone()).relative();
         root.style().refine(&self.style);
@@ -254,11 +254,7 @@ impl RenderOnce for ContextMenu {
         root.child(motion::popup(
             div().relative().p(inset).child(menu),
             ElementId::Name(format!("{:?}:popup", self.id).into()),
-            if settings_selector {
-                frame.selector().align_end()
-            } else {
-                if align_end { frame.align_end() } else { frame }
-            },
+            if align_end { frame.align_end() } else { frame },
             cx,
         ))
     }
@@ -275,11 +271,10 @@ fn click(state: &Entity<MenuState>, build: &Build, inset: Rems, window: &mut Win
     open(state, build, inset, window, cx);
 }
 
-fn menu_inset(cx: &App, settings_selector: bool) -> Rems {
-    // Settings lists use the native 4 px padding and the clearance their corners need.
-    let minimum = if settings_selector { 4. } else { 12. };
+fn menu_inset(cx: &App) -> Rems {
+    // The native menu already has 4 px of padding. Add only the corner clearance.
     let radius = f32::from(prefs::visual(cx).view.surface_radius);
-    prefs::scaled((radius * 0.3).ceil().max(minimum) - 4.)
+    prefs::scaled(((radius * 0.3).ceil() - 4.).max(0.))
 }
 
 /// Builds the menu afresh, so its items reflect the moment it opens, and

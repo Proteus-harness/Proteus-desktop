@@ -1,5 +1,5 @@
 //! Marks the user keeps on saved sessions on this device: a custom title,
-//! pinning and the archive. The server knows nothing about them; deleting a
+//! pinning, order and the archive. The server knows nothing about them; deleting a
 //! session goes to the server and only forgets the marks here.
 
 use std::collections::{BTreeMap, HashMap};
@@ -18,6 +18,8 @@ pub struct SessionMark {
     pub title: Option<String>,
     pub pinned: bool,
     pub archived: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    order: Option<usize>,
 }
 
 impl SessionMark {
@@ -86,6 +88,9 @@ impl SessionMarks {
 
     pub fn set_pinned(&mut self, dir: &ChatKey, pinned: bool) {
         self.change(dir, |mark| {
+            if mark.pinned != pinned || (pinned && mark.archived) {
+                mark.order = None;
+            }
             mark.pinned = pinned;
             if pinned {
                 mark.archived = false;
@@ -96,6 +101,9 @@ impl SessionMarks {
     /// Archiving hides a session from the list and unpins it.
     pub fn set_archived(&mut self, dir: &ChatKey, archived: bool) {
         self.change(dir, |mark| {
+            if mark.archived != archived || (archived && mark.pinned) {
+                mark.order = None;
+            }
             mark.archived = archived;
             if archived {
                 mark.pinned = false;
@@ -110,6 +118,33 @@ impl SessionMarks {
     /// Title the user gave a session, if any.
     pub fn title(&self, dir: &ChatKey) -> Option<&str> {
         self.0.get(&key(dir))?.title.as_deref()
+    }
+
+    /// Move a chat next to a sibling in the current, unfiltered tree.
+    pub fn reorder(
+        &mut self,
+        sessions: &[ConversationSummary],
+        source: &ChatKey,
+        target: &ChatKey,
+        after: bool,
+    ) {
+        let listing = self.arrange(
+            sessions,
+            &View {
+                archived: false,
+                search: "",
+            },
+        );
+        let Some((group, at)) = sibling_group(&listing, source, target) else {
+            return;
+        };
+        let mut order: Vec<_> = group.iter().map(|row| row.summary.key.clone()).collect();
+        let before = order.get(at + usize::from(after)).cloned();
+        if crate::ui::reorder::move_before(&mut order, source, before.as_ref()) {
+            for (rank, key) in order.iter().enumerate() {
+                self.change(key, |mark| mark.order = Some(rank));
+            }
+        }
     }
 
     /// Build a summary-only forest. Pins and archive membership belong to
@@ -200,10 +235,11 @@ impl SessionMarks {
             pending.extend(&children[i]);
         }
         for i in order.into_iter().rev() {
-            let descendants = children[i]
+            let mut descendants: Vec<_> = children[i]
                 .iter()
                 .filter_map(|child| rows[*child].take())
                 .collect();
+            sort_siblings(&mut descendants);
             rows[i].as_mut().unwrap().children = descendants;
         }
         let mut listing = Listing {
@@ -237,6 +273,10 @@ impl SessionMarks {
             }
         }
         drop(project_indices);
+        sort_siblings(&mut listing.pinned);
+        for project in &mut listing.projects {
+            sort_siblings(&mut project.rows);
+        }
         let newest_first = |project: &Project<'_>| std::cmp::Reverse(project.updated_at_ms());
         if listing.projects.len() <= 2 {
             // At most one comparison, so a key cache would only add an allocation.
@@ -247,6 +287,41 @@ impl SessionMarks {
         }
         listing
     }
+}
+
+/// New chats keep their automatic position ahead of manually ordered siblings.
+fn sort_siblings(rows: &mut [Row<'_>]) {
+    if rows.len() > 1 && rows.iter().any(|row| row.mark.order.is_some()) {
+        rows.sort_by_key(|row| row.mark.order);
+    }
+}
+
+fn sibling_group<'r, 's>(
+    listing: &'r Listing<'s>,
+    source: &ChatKey,
+    target: &ChatKey,
+) -> Option<(&'r [Row<'s>], usize)> {
+    let mut pending = vec![listing.pinned.as_slice()];
+    pending.extend(
+        listing
+            .projects
+            .iter()
+            .map(|project| project.rows.as_slice()),
+    );
+    while let Some(rows) = pending.pop() {
+        if rows.iter().any(|row| &row.summary.key == source) {
+            return rows
+                .iter()
+                .position(|row| &row.summary.key == target)
+                .map(|at| (rows, at));
+        }
+        pending.extend(
+            rows.iter()
+                .filter(|row| !row.children.is_empty())
+                .map(|row| row.children.as_slice()),
+        );
+    }
+    None
 }
 
 /// What the list is asked to show.
@@ -492,6 +567,75 @@ mod tests {
             shown(&listing),
             ["/s/b1", "/s/a1", "/s/a2", "/s/c1"].map(key)
         );
+    }
+
+    #[test]
+    fn project_order_survives_reload_and_new_chats_keep_their_automatic_position() {
+        let mut sessions = vec![
+            changed("/s/a", "/a", Some(90), None),
+            changed("/s/b", "/a", Some(80), None),
+            changed("/s/c", "/a", Some(70), None),
+        ];
+        let mut marks = SessionMarks::default();
+        marks.reorder(&sessions, &key("/s/a"), &key("/s/c"), true);
+        marks = serde_json::from_value(serde_json::to_value(&marks).unwrap()).unwrap();
+
+        sessions.insert(0, changed("/s/new", "/a", Some(100), None));
+        let listing = marks.arrange(&sessions, &view(false, ""));
+        assert_eq!(
+            dirs(&listing.projects[0].rows),
+            ["/s/new", "/s/b", "/s/c", "/s/a"].map(key)
+        );
+    }
+
+    #[test]
+    fn drops_stay_within_projects_pins_and_sibling_branches() {
+        let mut a1 = changed("/s/a1", "/a", Some(140), None);
+        let mut a2 = changed("/s/a2", "/a", Some(135), None);
+        a1.parent = Some(key("/s/a"));
+        a2.parent = a1.parent.clone();
+        let mut c1 = changed("/s/c1", "/a", Some(130), None);
+        c1.parent = Some(key("/s/c"));
+        let sessions = [
+            a1,
+            a2,
+            c1,
+            changed("/s/a", "/a", Some(120), None),
+            changed("/s/c", "/a", Some(110), None),
+            changed("/s/b", "/b", Some(100), None),
+            changed("/s/d", "/b", Some(90), None),
+            changed("/s/e", "/b", Some(80), None),
+            changed("/s/f", "/b", Some(70), None),
+        ];
+        let mut marks = SessionMarks::default();
+        marks.set_pinned(&key("/s/d"), true);
+        marks.set_pinned(&key("/s/e"), true);
+        marks.set_archived(&key("/s/f"), true);
+        let before = marks.clone();
+        for (source, target) in [
+            ("/s/a", "/s/b"),
+            ("/s/d", "/s/b"),
+            ("/s/b", "/s/f"),
+            ("/s/a1", "/s/c1"),
+            ("/s/a", "/s/a1"),
+        ] {
+            marks.reorder(&sessions, &key(source), &key(target), true);
+        }
+        assert_eq!(marks, before);
+
+        marks.reorder(&sessions, &key("/s/a1"), &key("/s/a2"), true);
+        marks.reorder(&sessions, &key("/s/c"), &key("/s/a"), false);
+        marks.reorder(&sessions, &key("/s/d"), &key("/s/e"), true);
+        let listing = marks.arrange(&sessions, &view(false, ""));
+        assert_eq!(dirs(&listing.pinned), ["/s/e", "/s/d"].map(key));
+        assert_eq!(dirs(&listing.projects[0].rows), ["/s/c", "/s/a"].map(key));
+        assert_eq!(
+            dirs(&listing.projects[0].rows[1].children),
+            ["/s/a2", "/s/a1"].map(key)
+        );
+
+        marks.set_pinned(&key("/s/d"), false);
+        assert_eq!(marks.get(&key("/s/d")), Default::default());
     }
 
     #[test]

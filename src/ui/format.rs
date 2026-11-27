@@ -1,6 +1,7 @@
-use chrono::{Datelike, Local, TimeZone, Timelike};
+use chrono::Utc;
 
 use crate::conversations::ConversationSummary;
+use crate::settings::catalog::plural;
 
 pub fn session_title(session: &ConversationSummary) -> String {
     clip(crate::sessions::preview_title(session), 80)
@@ -86,41 +87,38 @@ pub fn editor_preview(chars: impl Iterator<Item = char>) -> Option<String> {
     None
 }
 
-const MONTHS: [&str; 12] = [
-    "янв.",
-    "февр.",
-    "мар.",
-    "апр.",
-    "мая",
-    "июн.",
-    "июл.",
-    "авг.",
-    "сент.",
-    "окт.",
-    "нояб.",
-    "дек.",
-];
+/// Time elapsed since the last change, displayed when the hint opens.
+pub fn relative_age(updated_at_ms: u64) -> String {
+    let now_ms = u64::try_from(Utc::now().timestamp_millis()).unwrap_or_default();
+    format_age(now_ms.saturating_sub(updated_at_ms) / 1_000)
+}
 
-/// Local date and time like "11 окт., 14:05".
-pub fn local_time(seconds: u64) -> String {
-    let Some(time) = i64::try_from(seconds)
-        .ok()
-        .and_then(|seconds| Local.timestamp_opt(seconds, 0).single())
-    else {
-        return seconds.to_string();
+fn format_age(seconds: u64) -> String {
+    let (count, one, few, many) = match seconds {
+        0..=59 => return "только что".to_owned(),
+        60..=3_599 => (seconds / 60, "минуту", "минуты", "минут"),
+        3_600..=86_399 => (seconds / 3_600, "час", "часа", "часов"),
+        _ => (seconds / 86_400, "день", "дня", "дней"),
     };
-    format!(
-        "{} {}, {:02}:{:02}",
-        time.day(),
-        MONTHS[time.month0() as usize],
-        time.hour(),
-        time.minute()
-    )
+    format!("{} назад", plural(count as usize, one, few, many))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn session_age_uses_completed_units_and_russian_forms() {
+        assert_eq!(format_age(59), "только что");
+        assert_eq!(format_age(60), "1 минуту назад");
+        assert_eq!(format_age(3_599), "59 минут назад");
+        assert_eq!(format_age(3_600), "1 час назад");
+        assert_eq!(format_age(7_200), "2 часа назад");
+        assert_eq!(format_age(86_399), "23 часа назад");
+        assert_eq!(format_age(86_400), "1 день назад");
+        assert_eq!(format_age(3 * 86_400), "3 дня назад");
+        assert_eq!(format_age(11 * 86_400), "11 дней назад");
+    }
 
     #[test]
     fn clip_keeps_utf8_without_an_artificial_ellipsis() {

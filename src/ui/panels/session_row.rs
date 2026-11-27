@@ -1,7 +1,12 @@
 //! A saved conversation row and its disclosure, activity and context menu.
 // Адаптировано из Zed: crates/project_panel/src/project_panel.rs
 
-use super::{session_menu, sessions::branch_key};
+use std::rc::Rc;
+
+use super::{
+    session_menu,
+    sessions::{OrderGroup, branch_key},
+};
 use crate::conversations::ConversationSummary;
 use crate::sessions::SessionMark;
 use crate::ui::context::RightClickMenu as _;
@@ -10,7 +15,7 @@ use crate::ui::kit::{ButtonLabel as _, Hint as _};
 use crate::ui::motion::Spinner;
 use crate::ui::tip::{Tip as _, TooltipAnchor};
 use crate::ui::workspace::Workspace;
-use crate::ui::{format, motion, prefs};
+use crate::ui::{format, motion, prefs, reorder};
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -36,6 +41,7 @@ impl Workspace {
         mark: SessionMark,
         has_children: bool,
         look: Look,
+        order_group: Option<Rc<OrderGroup>>,
         cx: &Context<Self>,
     ) -> impl IntoElement {
         let Look {
@@ -52,6 +58,7 @@ impl Workspace {
             .as_ref()
             .filter(|renaming| renaming.key == dir)
             .map(|renaming| renaming.input.clone());
+        let order_group = order_group.filter(|_| self.renaming.is_none());
         let status = summary.activity.as_ref().map(|activity| activity.status);
         let live = self
             .chats
@@ -80,7 +87,9 @@ impl Workspace {
             .title
             .clone()
             .unwrap_or_else(|| format::session_title(summary));
+        let title: SharedString = title.into();
         let mut details = details(summary);
+        let last_change = summary.updated_at_ms;
         if matches!(dir, crate::tabs::ChatKey::Codex(_)) {
             details[0] = match live {
                 Some(
@@ -91,6 +100,7 @@ impl Workspace {
             };
         }
         let anchor = TooltipAnchor::default();
+        let caption_height = prefs::scaled(23.);
         let hover_background = theme.sidebar.blend(if selected {
             *theme.tokens.sidebar_accent
         } else {
@@ -146,14 +156,14 @@ impl Workspace {
                         .child(menu),
                 )
         };
-        h_flex()
+        let row = h_flex()
             .id(("session", ix))
             .tip_anchor(anchor.clone())
             .group("session-row")
             .relative()
             .pr_1()
             .pl(rems(0.5 + depth.min(12) as f32 * 1.25))
-            .py_1p5()
+            .py_0p5()
             .gap_2()
             .rounded(theme.radius)
             .cursor_pointer()
@@ -185,14 +195,25 @@ impl Workspace {
                         }
                     }))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .child(kit::input(&input).xsmall())
+                    .child(
+                        kit::input(&input)
+                            .appearance(false)
+                            .aria_label("Название сессии")
+                            .text_sm()
+                            .line_height(caption_height)
+                            .h(caption_height)
+                            .p_0(),
+                    )
                     .into_any_element(),
                 None => div()
                     .flex_1()
                     .min_w_0()
                     .relative()
                     .text_sm()
-                    .child(crate::ui::fade::caption("session-caption", title).anchor(anchor))
+                    .line_height(caption_height)
+                    .child(
+                        crate::ui::fade::caption("session-caption", title.clone()).anchor(anchor),
+                    )
                     .child(actions())
                     .into_any_element(),
             })
@@ -234,16 +255,51 @@ impl Workspace {
             }))
             .tip_element(move |_, cx| {
                 let muted = cx.theme().muted_foreground;
+                let last_change = last_change.map(|timestamp| {
+                    format!("Последнее действие: {}", format::relative_age(timestamp))
+                });
                 v_flex().max_w(prefs::scaled(360.)).gap_0p5().children(
-                    details
+                    last_change
                         .iter()
+                        .chain(&details)
                         .map(|line| div().text_xs().text_color(muted).child(line.clone())),
                 )
-            })
-            .right_click_menu(move |menu, _, _| {
-                session_menu::build(menu, &dir, mark.clone(), &workspace)
-            })
-            .trigger_style(StyleRefinement::default().w_full())
+            });
+        let row = if let Some(group) = order_group {
+            let owner = cx.entity_id();
+            let id = dir.tab_id();
+            let source_key = format!("session-order:{owner:?}:{id}").into();
+            let target = dir.clone();
+            let workspace = workspace.clone();
+            reorder::virtual_row(
+                row,
+                (owner, group),
+                id.into(),
+                source_key,
+                title,
+                move |source, after, cx| {
+                    let Some(source) = crate::tabs::chat_key(source.as_ref()) else {
+                        return;
+                    };
+                    let _ = workspace.update(cx, |this, cx| {
+                        if this.session_list.search.is_empty() && this.renaming.is_none() {
+                            prefs::update(cx, |prefs| {
+                                prefs
+                                    .sessions
+                                    .reorder(&this.sessions, &source, &target, after)
+                            });
+                        }
+                    });
+                },
+                cx,
+            )
+        } else {
+            row
+        };
+        row.right_click_menu(move |menu, _, _| {
+            session_menu::build(menu, &dir, mark.clone(), &workspace)
+        })
+        .trigger_style(StyleRefinement::default().w_full())
     }
 }
 
@@ -262,9 +318,6 @@ fn details(summary: &ConversationSummary) -> Vec<String> {
     }
     if matches!(summary.key, crate::tabs::ChatKey::Proteus(_)) {
         lines.push(format!("Сообщений: {}", summary.message_count));
-    }
-    if let Some(updated) = summary.updated_at_ms {
-        lines.push(format!("Изменена: {}", format::local_time(updated / 1000)));
     }
     lines.push(format!("Папка: {}", summary.workspace_path.display()));
     lines.push(format!("ID: {}", summary.key));
