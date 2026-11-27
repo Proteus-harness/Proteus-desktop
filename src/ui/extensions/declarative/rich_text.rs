@@ -50,6 +50,7 @@ impl RichText {
     pub(super) fn element(&self) -> AnyElement {
         TextView::new(&self.state)
             .selectable(true)
+            .inline_code_style(StyleRefinement::default().bg(transparent_black()).px_0())
             .markdown_extensions(self.slots.extensions.clone())
             .into_any_element()
     }
