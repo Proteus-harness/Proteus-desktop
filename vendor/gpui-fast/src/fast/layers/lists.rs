@@ -1766,7 +1766,23 @@ pub(crate) fn begin_list(
     state: &crate::StateInner,
     bounds: Bounds<Pixels>,
 ) {
-    if !COMPILED || !LIST_LAYERS || paint::inside_layer(window) || !list_layers_active(window, cx) {
+    if !COMPILED || !LIST_LAYERS {
+        return;
+    }
+    if state
+        .last_layout_bounds
+        .is_some_and(|last| last.size.width != bounds.size.width)
+    {
+        // List::prepaint has already invalidated its row heights. The old
+        // layer still supplies fallback heights for unmeasured rows, which
+        // can place the reading anchor against the old line breaks.
+        if !window.fast_layers.layers.is_empty() {
+            let id = list_id(window, &state.version);
+            window.fast_layers.layers.remove(&id);
+        }
+        return;
+    }
+    if paint::inside_layer(window) || !list_layers_active(window, cx) {
         return;
     }
     let version = state.version.clone();

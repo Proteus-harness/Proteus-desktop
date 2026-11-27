@@ -509,11 +509,9 @@ impl ChatScroller {
         cx.notify();
     }
 
-    /// A new width re-measures every row and keeps the top one in place, so
-    /// the end would drop out of view; a new height (the composer growing,
-    /// a request card) keeps the top too and cuts the last lines until the
-    /// glide brings them back. A following list stays at its end. Called
-    /// before the list lays out at `size`.
+    /// A following list stays at its end. In history, keep the reader's
+    /// relative position in the top row when its text reflows. Called before
+    /// the list lays out at `size`.
     fn keep_end(&mut self, size: gpui_kit::Size<Pixels>) -> bool {
         self.scrollbar.set_viewport_width(size.width);
         let last = self.size.replace(size);
@@ -533,11 +531,17 @@ impl ChatScroller {
         if resized {
             self.wheel.invalidate(&self.list);
         }
-        if resized && self.following {
-            self.list.scroll_to_end();
-            // Rows above are unmeasured now, so the offset reads lower
-            // without the user scrolling.
-            self.last_offset = None;
+        if resized {
+            if self.following {
+                self.list.scroll_to_end();
+                // Rows above are unmeasured now, so the offset reads lower
+                // without the user scrolling.
+                self.last_offset = None;
+            } else if last.is_some_and(|last| last.width != size.width) {
+                // Save the fraction before GPUI invalidates the old heights.
+                // An absolute offset can extend past the rewrapped row.
+                self.list.remeasure();
+            }
         }
         retained
     }

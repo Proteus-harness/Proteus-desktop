@@ -1,9 +1,10 @@
 //! The side panel between the rail and the tabs: one panel at a time,
 //! opened from the rail, as wide as its edge is dragged; a double click on
-//! the edge gives back the default width. Panel content fades in at its
-//! final size.
+//! the edge gives back the default width. The panel slides within a
+//! fixed-width slot.
 
 use gpui_kit::component::ActiveTheme as _;
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::preferences::{SIDEBAR_WIDTH, SidebarPreferences};
@@ -46,7 +47,22 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let panel = self.shown_panel(cx)?;
+        let shown = self.shown_panel(cx);
+        let open = shown.is_some();
+        let slides = motion::moves(cx);
+        let duration = if slides { motion::BASE } else { motion::FAST };
+        let progress = motion::blend("sidebar".into(), open, duration, window, cx);
+        let panel = match shown {
+            Some(panel) => {
+                self.sidebar_last = Some(panel.name);
+                panel
+            }
+            None if progress > 0. => super::info(self.sidebar_last?, cx)?,
+            None => {
+                self.sidebar_last = None;
+                return None;
+            }
+        };
         let width = self.sidebar_width(cx);
         let content = motion::switch_in(
             div()
@@ -68,36 +84,50 @@ impl Workspace {
                     this.reset_sidebar_resize(cx);
                 }
             }));
-        // The background stays outside the fade, so a switched panel does
-        // not flash the window color through.
         let theme = cx.theme();
-        // Give the transcript its final viewport on the first frame. A
-        // width tween invalidates every cached row height at each step.
-        let side = div()
-            .flex()
+        let body = div()
+            .absolute()
+            .left(if slides {
+                width * (progress - 1.)
+            } else {
+                rems(0.)
+            })
+            .top_0()
+            .h_full()
+            .w(width)
+            .pr(prefs::scaled(divider::WIDTH))
+            .overflow_hidden()
+            .opacity(if slides { 1. } else { progress })
             .bg(theme.sidebar)
+            .text_color(theme.sidebar_foreground)
+            .child(content);
+        // The transcript changes width once at each toggle. Moving or
+        // fading the body paints the transition without resizing its rows.
+        let slot = div()
+            .relative()
             .flex_none()
             .h_full()
             .w(width)
             .overflow_hidden()
+            .child(body)
+            .when(!open, |slot| {
+                slot.capture_any_mouse_down(|_, window, cx| {
+                    window.prevent_default();
+                    cx.stop_propagation();
+                })
+                .capture_any_mouse_up(|_, _, cx| cx.stop_propagation())
+            })
             .on_drag_move::<SidebarDrag>(cx.listener(
                 |this, event: &DragMoveEvent<SidebarDrag>, _, cx| {
                     let offset = event.event.position.x - event.bounds.left();
                     this.move_sidebar_resize(offset, cx);
                 },
             ))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .h_full()
-                    .overflow_hidden()
-                    .bg(theme.sidebar)
-                    .text_color(theme.sidebar_foreground)
-                    .child(content),
-            )
-            .child(seam.render(grip, cx));
-        Some(side.into_any_element())
+            .children(
+                (open && progress == 1.)
+                    .then(|| seam.render(grip, cx).absolute().right_0().top_0()),
+            );
+        Some(slot.into_any_element())
     }
 
     /// Stores the width the side panel's edge was released at.
