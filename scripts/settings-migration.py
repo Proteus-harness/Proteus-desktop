@@ -373,7 +373,7 @@ def with_idle_workers(data, stock_path):
     components = expected.get('components', {})
     if expected.get('include') or any('release_when_idle' in c for c in components.values()):
         return data
-    stock = tomllib.loads(stock_path.read_text(encoding='utf-8'))['components']
+    stock = tomllib.loads(stock_path.read_text(encoding='utf-8')).get('components', {})
     updated = set()
     for name, component in components.items():
         reference = stock.get(name, {})
