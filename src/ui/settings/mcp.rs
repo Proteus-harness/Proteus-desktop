@@ -192,7 +192,7 @@ impl SettingsView {
                     .px_4()
                     .pb_2()
                     .text_sm()
-                    .text_color(theme.danger)
+                    .text_color(crate::ui::theme::danger_text(&theme))
                     .child(error.clone()),
             );
         } else if !state.enabled {

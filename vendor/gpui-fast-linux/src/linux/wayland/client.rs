@@ -392,13 +392,15 @@ pub(crate) struct WaylandClientState {
     repeat: KeyRepeat,
     pub modifiers: Modifiers,
     pub capslock: Capslock,
-    axis_source: AxisSource,
+    axis_source: Option<AxisSource>,
+    finger_axes: u8,
+    axes_received: u8,
+    axes_stopped: u8,
     pub mouse_location: Option<Point<Pixels>>,
     continuous_scroll_delta: Option<Point<Pixels>>,
     discrete_scroll_delta: Option<Point<f32>>,
     vertical_modifier: f32,
     horizontal_modifier: f32,
-    scroll_event_received: bool,
     enter_token: Option<()>,
     button_pressed: Option<MouseButton>,
     mouse_focused_window: Option<WaylandWindowStatePtr>,
@@ -1140,8 +1142,10 @@ impl WaylandConnection {
                 platform: false,
             },
             capslock: Capslock { on: false },
-            scroll_event_received: false,
-            axis_source: AxisSource::Wheel,
+            axis_source: None,
+            finger_axes: 0,
+            axes_received: 0,
+            axes_stopped: 0,
             mouse_location: None,
             continuous_scroll_delta: None,
             discrete_scroll_delta: None,
@@ -2478,6 +2482,9 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                     });
                     state.mouse_focused_window = None;
                     state.mouse_location = None;
+                    state.finger_axes = 0;
+                    state.axes_received = 0;
+                    state.axes_stopped = 0;
                     state.button_pressed = None;
                     state.cursor_hidden_window = None;
 
@@ -2635,16 +2642,14 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
             wl_pointer::Event::AxisSource {
                 axis_source: WEnum::Value(axis_source),
             } => {
-                state.axis_source = axis_source;
+                state.axis_source = Some(axis_source);
             }
             wl_pointer::Event::Axis {
                 axis: WEnum::Value(axis),
                 value,
                 ..
             } => {
-                if state.axis_source == AxisSource::Wheel {
-                    return;
-                }
+                state.axes_received |= 1 << axis as u32;
                 let axis = if state.modifiers.shift {
                     wl_pointer::Axis::HorizontalScroll
                 } else {
@@ -2655,7 +2660,6 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                     wl_pointer::Axis::HorizontalScroll => state.horizontal_modifier,
                     _ => 1.0,
                 };
-                state.scroll_event_received = true;
                 let scroll_delta = state
                     .continuous_scroll_delta
                     .get_or_insert(point(px(0.0), px(0.0)));
@@ -2674,7 +2678,6 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                 axis: WEnum::Value(axis),
                 discrete,
             } => {
-                state.scroll_event_received = true;
                 let axis = if state.modifiers.shift {
                     wl_pointer::Axis::HorizontalScroll
                 } else {
@@ -2701,7 +2704,6 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                 axis: WEnum::Value(axis),
                 value120,
             } => {
-                state.scroll_event_received = true;
                 let axis = if state.modifiers.shift {
                     wl_pointer::Axis::HorizontalScroll
                 } else {
@@ -2725,35 +2727,57 @@ impl Dispatch<wl_pointer::WlPointer, ()> for WaylandClientStatePtr {
                     _ => unreachable!(),
                 }
             }
+            wl_pointer::Event::AxisStop {
+                axis: WEnum::Value(axis),
+                ..
+            } => {
+                state.axes_stopped |= 1 << axis as u32;
+            }
             wl_pointer::Event::Frame => {
-                if state.scroll_event_received {
-                    state.scroll_event_received = false;
-                    let continuous = state.continuous_scroll_delta.take();
-                    let discrete = state.discrete_scroll_delta.take();
-                    if let Some(continuous) = continuous {
-                        if let Some(window) = state.mouse_focused_window.clone() {
-                            let input = PlatformInput::Scroll(ScrollEvent {
-                                position: state.mouse_location.unwrap(),
-                                delta: ScrollDelta::Pixels(continuous),
-                                modifiers: state.modifiers,
-                                touch_phase: TouchPhase::Moved,
-                                source: ScrollSource::Pointer,
-                            });
-                            drop(state);
-                            window.handle_input(input);
-                        }
-                    } else if let Some(discrete) = discrete
-                        && let Some(window) = state.mouse_focused_window.clone()
-                    {
-                        let input = PlatformInput::Scroll(ScrollEvent {
-                            position: state.mouse_location.unwrap(),
-                            delta: ScrollDelta::Lines(discrete),
-                            modifiers: state.modifiers,
+                let axis_source = state.axis_source.take();
+                let received = std::mem::take(&mut state.axes_received);
+                let stopped = std::mem::take(&mut state.axes_stopped);
+                let continuous = state.continuous_scroll_delta.take();
+                let discrete = state.discrete_scroll_delta.take();
+                let finger = axis_source == Some(AxisSource::Finger)
+                    || (axis_source.is_none() && discrete.is_none() && state.finger_axes != 0);
+                let ended = if finger {
+                    let active = state.finger_axes | received;
+                    state.finger_axes = active & !stopped;
+                    active != 0 && state.finger_axes == 0
+                } else {
+                    false
+                };
+                if let (Some(window), Some(position)) =
+                    (state.mouse_focused_window.clone(), state.mouse_location)
+                {
+                    let modifiers = state.modifiers;
+                    let source = if finger {
+                        ScrollSource::Touchpad
+                    } else {
+                        ScrollSource::Pointer
+                    };
+                    let delta = discrete
+                        .map(ScrollDelta::Lines)
+                        .or_else(|| continuous.map(ScrollDelta::Pixels));
+                    drop(state);
+                    if let Some(delta) = delta {
+                        window.handle_input(PlatformInput::Scroll(ScrollEvent {
+                            position,
+                            delta,
+                            modifiers,
                             touch_phase: TouchPhase::Moved,
-                            source: ScrollSource::Pointer,
-                        });
-                        drop(state);
-                        window.handle_input(input);
+                            source,
+                        }));
+                    }
+                    if ended {
+                        window.handle_input(PlatformInput::Scroll(ScrollEvent {
+                            position,
+                            delta: ScrollDelta::Pixels(point(px(0.), px(0.))),
+                            modifiers,
+                            touch_phase: TouchPhase::Ended,
+                            source: ScrollSource::Touchpad,
+                        }));
                     }
                 }
             }

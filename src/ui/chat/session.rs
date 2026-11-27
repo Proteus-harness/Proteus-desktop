@@ -246,6 +246,16 @@ impl Session {
             .rev()
             .filter_map(|entry| entry.tool.as_ref())
             .find(|tool| super::tool_row::is_running(&tool.status));
+        if tool.is_none()
+            && self.transcript.entries().last().is_some_and(|entry| {
+                entry.streaming
+                    && entry.role == crate::transcript::Role::Assistant
+                    && entry.tool.is_none()
+                    && !entry.text.is_empty()
+            })
+        {
+            return None;
+        }
         Some(Activity {
             text: tool.map_or_else(
                 || {

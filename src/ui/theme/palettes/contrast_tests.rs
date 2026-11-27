@@ -482,7 +482,7 @@ fn tool_and_navigation_glyphs_are_readable_in_each_bundled_palette() {
     use gpui_kit::component::IconTone::{Danger, Muted, Normal, Selected, Success, Warning};
     for theme in projected_themes() {
         for tone in [Normal, Muted, Selected, Success, Warning, Danger] {
-            let ink = super::super::icons::color(tone, theme.mode);
+            let ink = super::super::icons::color(tone, &theme);
             for surface in [theme.background, theme.sidebar] {
                 let ratio = contrast(ink, composite(surface.into(), theme.background.into()));
                 assert!(

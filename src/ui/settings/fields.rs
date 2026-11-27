@@ -149,9 +149,12 @@ impl SettingsView {
                     .text_color(theme.muted_foreground)
                     .child(unit)
             });
-        let error = text
-            .and_then(|text| text.error.clone())
-            .map(|error| div().text_xs().text_color(theme.danger).child(error));
+        let error = text.and_then(|text| text.error.clone()).map(|error| {
+            div()
+                .text_xs()
+                .text_color(crate::ui::theme::danger_text(&theme))
+                .child(error)
+        });
         let control = v_flex()
             .gap_1()
             .when(stretch, |column| column.w_full())

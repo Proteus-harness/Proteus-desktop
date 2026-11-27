@@ -3474,7 +3474,13 @@ impl Window {
     /// the contents of the new [`Scene`], use [`Self::present`].
     #[profiling::function]
     pub fn draw(&mut self, cx: &mut App) -> ArenaClearNeeded {
-        cx.with_window_global_scope(self.handle.id, |cx| self.draw_in_window_scope(cx))
+        let started = self.begin_frame_sample();
+        let result =
+            cx.with_window_global_scope(self.handle.id, |cx| self.draw_in_window_scope(cx));
+        if let Some(started) = started {
+            self.end_frame_sample(started);
+        }
+        result
     }
 
     fn draw_in_window_scope(&mut self, cx: &mut App) -> ArenaClearNeeded {

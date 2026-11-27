@@ -74,6 +74,12 @@ pub(super) fn layer() -> impl IntoElement {
                     fling::stop();
                     return;
                 }
+                if event.touch_phase == TouchPhase::Ended && event.source == ScrollSource::Touchpad
+                {
+                    fling::end(window);
+                    cx.stop_propagation();
+                    return;
+                }
                 let fast = event.modifiers.control;
                 // Replayed events go out without Ctrl.
                 let modifiers = Modifiers {
@@ -83,7 +89,13 @@ pub(super) fn layer() -> impl IntoElement {
                 let speed = if fast { FAST } else { 1. };
                 match event.delta {
                     ScrollDelta::Pixels(pixels) if coasts(cx) => {
-                        fling::track(event.position, pixels * speed, modifiers, window);
+                        fling::track(
+                            event.position,
+                            pixels * speed,
+                            modifiers,
+                            event.source == ScrollSource::Touchpad,
+                            window,
+                        );
                     }
                     _ => fling::stop(),
                 }

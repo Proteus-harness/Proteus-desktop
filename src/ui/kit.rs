@@ -151,14 +151,14 @@ pub(crate) fn input(state: &gpui_kit::Entity<InputState>) -> Input {
         .border_color(gpui_kit::transparent_black())
 }
 
-/// One opaque popup with clipped child paint. Menus share the flat surface of
-/// fields and cards, without a decorative outline or outer shadow.
+/// Shared frame and clipped child paint for menus and popovers.
 pub(crate) fn popup_surface(cx: &App) -> gpui_kit::Div {
     use gpui_kit::{Styled as _, div};
     div()
         .bg(cx.theme().popover)
         .text_color(cx.theme().popover_foreground)
         .surface_frame(cx)
+        .border_color(cx.theme().border)
         .overflow_hidden()
 }
 
@@ -428,8 +428,9 @@ pub(crate) trait Hint: Sized {
 
 impl Hint for Button {
     fn hint_keys(self, text: &str, keys: Option<&str>, _: &App) -> Self {
+        let button = self.named_icon(text.to_owned());
         button_hints(
-            self,
+            button,
             Some(text.to_owned().into()),
             keys.map(|keys| keys.to_owned().into()),
         )

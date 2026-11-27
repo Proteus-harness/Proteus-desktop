@@ -395,7 +395,7 @@ impl SettingsView {
         parts.extend(cx.global::<ThemeProblems>().0.iter().map(|problem| {
             div()
                 .text_sm()
-                .text_color(cx.theme().danger)
+                .text_color(crate::ui::theme::danger_text(cx.theme()))
                 .child(format!("Тема не прочитана: {problem}"))
                 .into_any_element()
         }));
@@ -482,7 +482,7 @@ impl SettingsView {
         .map(|problem| {
             div()
                 .text_sm()
-                .text_color(cx.theme().danger)
+                .text_color(crate::ui::theme::danger_text(cx.theme()))
                 .child(problem)
                 .into_any_element()
         })

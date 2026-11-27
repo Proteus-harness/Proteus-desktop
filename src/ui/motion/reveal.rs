@@ -204,8 +204,12 @@ impl Element for Reveal {
                 });
             }
             Flow::Popup => {
-                let mask = self.popup_mask(bounds);
-                window.with_content_mask(Some(mask), |window| self.child.prepaint(window, cx));
+                if self.progress.is_none() {
+                    self.child.prepaint(window, cx);
+                } else {
+                    let mask = self.popup_mask(bounds);
+                    window.with_content_mask(Some(mask), |window| self.child.prepaint(window, cx));
+                }
                 return;
             }
         }
@@ -233,8 +237,12 @@ impl Element for Reveal {
             Flow::Clipped { visible: false, .. } => return,
             Flow::Clipped { visible: true, .. } => {}
             Flow::Popup => {
-                let mask = self.popup_mask(bounds);
-                window.with_content_mask(Some(mask), |window| self.child.paint(window, cx));
+                if self.progress.is_none() {
+                    self.child.paint(window, cx);
+                } else {
+                    let mask = self.popup_mask(bounds);
+                    window.with_content_mask(Some(mask), |window| self.child.paint(window, cx));
+                }
                 return;
             }
         }

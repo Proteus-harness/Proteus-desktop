@@ -50,6 +50,7 @@ pub(super) fn start(events: async_channel::Receiver<PumpItem>, cx: &mut Context<
                 // Copies of other sessions' activity and runtime events
                 // without a trace in the chat leave it as drawn.
                 if shown {
+                    Window::record_frame_pump_notification();
                     cx.notify();
                 }
             });
@@ -251,6 +252,12 @@ impl Chat {
                             self.fresh_requests.mark(key);
                         }
                     }
+                    self.approvals_in_flight.retain(|id| {
+                        snapshot
+                            .approvals
+                            .iter()
+                            .any(|request| &request.approval_id == id)
+                    });
                     session.feedback.queued(&snapshot.queued_user_messages);
                     session.pending = Some(*snapshot);
                 }

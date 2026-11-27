@@ -92,12 +92,16 @@ impl SettingsView {
         }
         let problems = modes::problems(&self.draft);
         if !problems.is_empty() {
-            body =
-                body.child(v_flex().gap_1().children(
-                    problems.into_iter().map(|problem| {
-                        div().text_sm().text_color(cx.theme().danger).child(problem)
-                    }),
-                ));
+            body = body.child(
+                v_flex()
+                    .gap_1()
+                    .children(problems.into_iter().map(|problem| {
+                        div()
+                            .text_sm()
+                            .text_color(crate::ui::theme::danger_text(cx.theme()))
+                            .child(problem)
+                    })),
+            );
         }
         vec![
             self.mode_section(cx),

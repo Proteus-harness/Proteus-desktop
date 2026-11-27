@@ -125,6 +125,10 @@ impl DiffView {
         }
     }
 
+    pub fn has_files(&self) -> bool {
+        !self.files.is_empty()
+    }
+
     pub fn set_patch(&mut self, patch: &str, info: &[FileInfo], cx: &mut Context<Self>) {
         self.update_patch(patch, info, || PatchSource::Embedded(patch.into()), cx);
     }
@@ -561,12 +565,12 @@ pub(in crate::ui) fn stat(added: usize, removed: usize, cx: &App) -> Div {
         .text_xs()
         .child(
             div()
-                .text_color(cx.theme().green)
+                .text_color(crate::ui::theme::success_text(cx.theme()))
                 .child(format!("+{added}")),
         )
         .child(
             div()
-                .text_color(cx.theme().red)
+                .text_color(crate::ui::theme::danger_text(cx.theme()))
                 .child(format!("−{removed}")),
         )
 }

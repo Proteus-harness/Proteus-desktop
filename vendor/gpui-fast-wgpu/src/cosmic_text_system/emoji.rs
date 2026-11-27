@@ -23,8 +23,11 @@ impl CosmicTextSystemState {
                 ))
             })
             .last();
-        let resolved = face
-            .and_then(|(id, family)| self.font_id_for_cosmic_id(id).ok().map(|id| (id, family)));
+        let resolved = face.and_then(|(id, family)| {
+            self.font_id_for_cosmic_id(id, Weight::NORMAL)
+                .ok()
+                .map(|id| (id, family))
+        });
         self.preferred_emoji_font = Some(resolved.clone());
         resolved
     }

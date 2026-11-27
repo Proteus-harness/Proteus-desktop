@@ -155,7 +155,7 @@ impl SettingsView {
                         .into_any_element(),
                     Some(Content::Failed(error)) => {
                         note(format!("Не удалось прочитать инструкцию: {error}"), cx)
-                            .text_color(cx.theme().danger)
+                            .text_color(crate::ui::theme::danger_text(cx.theme()))
                             .into_any_element()
                     }
                     _ => h_flex()

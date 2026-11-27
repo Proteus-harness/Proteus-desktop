@@ -94,7 +94,9 @@ pub(super) fn fill(
         } else if danger {
             let label = item.label.clone();
             PopupMenuItem::element(move |_, cx| {
-                div().text_color(cx.theme().danger).child(label.clone())
+                div()
+                    .text_color(crate::ui::theme::danger_text(cx.theme()))
+                    .child(label.clone())
             })
         } else {
             PopupMenuItem::new(item.label.clone())

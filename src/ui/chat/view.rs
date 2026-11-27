@@ -1,10 +1,12 @@
+use gpui_kit::component::scroll::Scrollbar;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::time::Instant;
 
 use super::Chat;
-use super::scroller::{ChatList, FooterState};
+use super::row_layout::RowContext;
+use super::scroller::{ChatList, ChatScroller, FooterState};
 use crate::ui::{motion, prefs};
 
 impl Render for Chat {
@@ -12,6 +14,11 @@ impl Render for Chat {
     /// Files dropped anywhere on it attach to the draft.
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.ensure_readonly_history(cx);
+        let thread_entering = self
+            .transcript_entered_at
+            .get_or_insert_with(Instant::now)
+            .elapsed()
+            < motion::BASE;
         if !self.display_transcript().entries().is_empty() {
             crate::startup_trace::first("chat.transcript.render");
             if self.api.is_none() && self.codex.is_none() && self.readonly.is_none() {
@@ -23,7 +30,6 @@ impl Render for Chat {
         motion::drive(window, cx);
         self.prepare_tool_diffs(cx);
         self.prepare_turn_stamp(cx);
-        let renderer = super::thread::thread_renderer(cx.entity(), Instant::now());
         let live = !self.archived();
         let activity = live.then(|| self.session.activity()).flatten();
         let thinking = activity.is_some();
@@ -39,17 +45,23 @@ impl Render for Chat {
                 .flatten()
                 .map(|(send, previous)| (send.id.clone(), send.status(), previous)),
         };
-        let footer = cx.processor(|this, thinking: bool, _, cx| {
-            this.render_feedback(thinking, cx)
-                .unwrap_or_else(|| div().into_any_element())
-        });
         let running = self.session.connected && self.session.running();
-        let scrollbar = self.scroller.read(cx).scrollbar();
+        // The track spans the composer, while its handle measures the list.
+        let scrollbar = Scrollbar::vertical(&self.scrollbar)
+            .id("chat-scrollbar")
+            .viewport_from_layout()
+            .scroll_viewport_from_handle();
         let row_context = super::row_layout::row_context(
             self.display_transcript().entries(),
             prefs::visual(cx).view.compact_tools,
             self.history.range(&self.session.transcript),
         );
+        self.thread_view.update(cx, |thread, cx| {
+            thread.row_context = row_context;
+            thread.footer = footer_state;
+            thread.running = running;
+            cx.notify();
+        });
         v_flex()
             .id("chat")
             .relative()
@@ -60,7 +72,7 @@ impl Render for Chat {
             .size_full()
             .drag_over::<ExternalPaths>(|chat, _, _, cx| chat.bg(cx.theme().drop_target))
             .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
-                if this.readonly.is_none() {
+                if this.readonly.is_none() && this.session.connected {
                     this.attach_files(paths.paths(), cx)
                 }
             }))
@@ -71,16 +83,32 @@ impl Render for Chat {
                     .w_full()
                     .flex_1()
                     .min_h_0()
-                    .child(
-                        ChatList::new("thread", self.scroller.clone(), renderer)
-                            .scrollbar(false)
-                            .row_context(row_context)
-                            .footer(footer_state, move |window, cx| footer(thinking, window, cx))
-                            .running(running),
-                    )
+                    .child(self.thread_view.clone())
                     .children(self.render_notice(cx)),
                 "thread-enter",
-                true,
+                thread_entering,
+            ))
+            .capture_action(cx.listener(
+                |this, _: &gpui_kit::component::input::Copy, window, cx| {
+                    if this.readonly.is_none()
+                        && this.composer.focus_handle(cx).is_focused(window)
+                        && this.composer.read(cx).selected_range().is_empty()
+                        && this.stop_from_keyboard(cx)
+                    {
+                        cx.stop_propagation();
+                    }
+                },
+            ))
+            .capture_action(cx.listener(
+                |this, _: &gpui_kit::component::input::Escape, window, cx| {
+                    if this.readonly.is_none()
+                        && this.composer.focus_handle(cx).is_focused(window)
+                        && (this.deny_pending(cx)
+                            || (!this.has_draft(cx) && this.stop_from_keyboard(cx)))
+                    {
+                        cx.stop_propagation();
+                    }
+                },
             ))
             .capture_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 if this.readonly.is_some() {
@@ -90,8 +118,16 @@ impl Render for Chat {
                 let handled = match keystroke.key.as_str() {
                     // A popup or a free-answer field owns its Escape. Only
                     // the composer offers the chat's deny shortcut.
+                    "enter"
+                        if keystroke.modifiers == Modifiers::secondary_key(cx)
+                            && this.composer.focus_handle(cx).is_focused(window)
+                            && !this.has_draft(cx) =>
+                    {
+                        this.approve_from_composer(event.is_held, cx)
+                    }
                     "escape" if this.composer.focus_handle(cx).is_focused(window) => {
                         this.deny_pending(cx)
+                            || (!this.has_draft(cx) && this.stop_from_keyboard(cx))
                     }
                     key if !keystroke.modifiers.modified() => key
                         .parse::<usize>()
@@ -106,6 +142,54 @@ impl Render for Chat {
                 view.child(self.render_composer(window, cx))
             })
             .child(div().absolute().inset_0().child(scrollbar))
+    }
+}
+
+pub(super) struct ChatListView {
+    chat: WeakEntity<Chat>,
+    scroller: Entity<ChatScroller>,
+    row_context: RowContext,
+    footer: FooterState,
+    running: bool,
+    _scroll: Subscription,
+}
+
+impl ChatListView {
+    pub(super) fn new(
+        chat: WeakEntity<Chat>,
+        scroller: Entity<ChatScroller>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let scroll = cx.observe(&scroller, |_, _, cx| cx.notify());
+        Self {
+            chat,
+            scroller,
+            row_context: RowContext::default(),
+            footer: FooterState::default(),
+            running: false,
+            _scroll: scroll,
+        }
+    }
+}
+
+impl Render for ChatListView {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let Some(chat) = self.chat.upgrade() else {
+            return Empty.into_any_element();
+        };
+        let renderer = super::thread::thread_renderer(chat.clone(), Instant::now());
+        let thinking = self.footer.thinking;
+        ChatList::new("thread", self.scroller.clone(), renderer)
+            .scrollbar(false)
+            .step_on_frame()
+            .row_context(self.row_context.clone())
+            .footer(self.footer.clone(), move |_, cx| {
+                chat.read(cx)
+                    .render_feedback(thinking, cx)
+                    .unwrap_or_else(|| Empty.into_any_element())
+            })
+            .running(self.running)
+            .into_any_element()
     }
 }
 

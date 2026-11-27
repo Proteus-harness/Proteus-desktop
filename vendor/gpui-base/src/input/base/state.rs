@@ -487,6 +487,7 @@ pub struct InputBaseState<M: InputModeKind> {
     pub(super) masked: bool,
     pub(super) clean_on_escape: bool,
     pub(super) submit_on_enter: bool,
+    submit_on_secondary_enter: bool,
     /// Overrides for [`Self::text_input_configuration`].
     pub(super) input_action: Option<TextInputAction>,
     pub(super) autocorrect: Option<bool>,
@@ -1013,6 +1014,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             masked: false,
             clean_on_escape: false,
             submit_on_enter: false,
+            submit_on_secondary_enter: false,
             input_action: None,
             autocorrect: None,
             autocapitalize: None,
@@ -1526,6 +1528,12 @@ impl<M: InputModeKind> InputBaseState<M> {
     pub fn set_submit_on_enter(&mut self, submit: bool, cx: &mut Context<Self>) {
         self.submit_on_enter = submit;
         cx.notify();
+    }
+
+    /// Let the secondary Enter key emit a submit event without adding a newline.
+    pub fn submit_on_secondary_enter(mut self) -> Self {
+        self.submit_on_secondary_enter = true;
+        self
     }
 
     /// Set the action a software keyboard shows on its enter key, like Search
@@ -2395,7 +2403,9 @@ impl<M: InputModeKind> InputBaseState<M> {
         // (without Shift) is treated as submit: propagate the action and emit
         // PressEnter without inserting a newline. `Shift+Enter` still inserts
         // a newline.
-        let insert_newline = self.is_multi_line() && (!self.submit_on_enter || action.shift);
+        let secondary_submit = self.submit_on_secondary_enter && action.secondary;
+        let insert_newline =
+            self.is_multi_line() && (!self.submit_on_enter || action.shift) && !secondary_submit;
 
         if insert_newline {
             if !self.selections.is_single() {

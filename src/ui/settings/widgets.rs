@@ -68,11 +68,11 @@ pub(super) fn operation_status(
                         .items_start()
                         .text_sm()
                         .text_color(if error {
-                            theme.danger
+                            crate::ui::theme::danger_text(theme)
                         } else if pending {
                             theme.muted_foreground
                         } else {
-                            theme.success
+                            crate::ui::theme::success_text(theme)
                         })
                         .child(div().flex_none().mt_0p5().child(if pending {
                             crate::ui::motion::Spinner::new().small().into_any_element()
@@ -111,7 +111,6 @@ pub(super) fn section(
             h_flex()
                 .gap_3()
                 .items_end()
-                .px_1()
                 .child(
                     v_flex()
                         .flex_1()
@@ -335,13 +334,19 @@ pub(super) fn chip(text: impl Into<SharedString>, tone: Tone, cx: &App) -> Div {
         Tone::Warning => theme.warning,
         Tone::Danger => theme.danger,
     };
+    let ink = match tone {
+        Tone::Success => crate::ui::theme::success_text(theme),
+        Tone::Warning => crate::ui::theme::warning_text(theme),
+        Tone::Danger => crate::ui::theme::danger_text(theme),
+        _ => color,
+    };
     div()
         .flex_none()
         .px_1p5()
         .py(px(1.))
         .rounded(theme.radius / 2.)
         .text_xs()
-        .text_color(color)
+        .text_color(ink)
         .bg(color.opacity(0.1))
         .child(text.into())
 }

@@ -86,7 +86,10 @@ fn sources(view: &Entity<SettingsView>, cx: &App) -> AnyElement {
                                     .cloned()
                                     .chain((more > 0).then(|| format!("…и ещё {more}")))
                                     .map(|problem| {
-                                        div().text_xs().text_color(theme.warning).child(problem)
+                                        div()
+                                            .text_xs()
+                                            .text_color(crate::ui::theme::warning_text(&theme))
+                                            .child(problem)
                                     })
                             })),
                     )

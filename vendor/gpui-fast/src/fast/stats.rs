@@ -3,7 +3,11 @@
 
 use crate::{TaffyLayoutEngine, Window};
 use scheduler::Instant;
-use std::time::Duration;
+use std::sync::{
+    OnceLock,
+    atomic::{AtomicU64, Ordering},
+};
+use std::time::{Duration, Instant as WallClock};
 
 /// Counters describing the work the layout engine performed, for benchmarking
 /// and profiling.
@@ -138,7 +142,6 @@ impl FramePhaseTimes {
     }
 
     /// Zeroes the times, leaving a phase being timed to go on being timed.
-    #[cfg(any(test, feature = "test-support"))]
     fn reset(&mut self) {
         self.build = Duration::ZERO;
         self.prepaint = Duration::ZERO;
@@ -189,14 +192,12 @@ impl MeasureTally {
 
 impl TaffyLayoutEngine {
     /// Counters for the work performed since the last call to [`Self::reset_stats`].
-    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn stats(&self) -> LayoutStats {
         self.retention.stats
     }
 
     /// Zeroes the counters returned by [`Self::stats`].
     /// From then on the times are kept too.
-    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn reset_stats(&mut self) {
         self.retention.stats = LayoutStats::default();
         self.retention.timed = true;
@@ -237,7 +238,6 @@ impl Window {
     /// than only moving it around: `nodes_reused` against `nodes_created` shows
     /// how much of the tree survived the frame, and `style_writes` shows how
     /// much of it was dirtied again anyway.
-    #[cfg(any(test, feature = "test-support"))]
     pub fn layout_stats(&self) -> LayoutStats {
         let phases = &self.fast_layout.phase_times;
         let (lines_shaped, shape_time) = self.text_system().shaping_stats();
@@ -252,7 +252,6 @@ impl Window {
     }
 
     /// Zeroes the counters reported by [`Window::layout_stats`].
-    #[cfg(any(test, feature = "test-support"))]
     pub fn reset_layout_stats(&mut self) {
         self.fast_layout.phase_times.reset();
         self.layout_engine.as_mut().unwrap().reset_stats();
@@ -303,5 +302,77 @@ impl Window {
             )
         }));
         lines
+    }
+}
+
+static PUMP_NOTIFICATIONS: AtomicU64 = AtomicU64::new(0);
+
+pub(crate) fn frame_stats_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var("PROTEUS_FRAME_STATS").as_deref() == Ok("1"))
+}
+
+pub(crate) struct FrameSamples {
+    since: WallClock,
+    draws: Vec<Duration>,
+}
+
+impl Window {
+    /// Record an application stream notification when frame statistics are enabled.
+    pub fn record_frame_pump_notification() {
+        if frame_stats_enabled() {
+            PUMP_NOTIFICATIONS.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    pub(crate) fn begin_frame_sample(&mut self) -> Option<WallClock> {
+        if !frame_stats_enabled() {
+            return None;
+        }
+        let now = WallClock::now();
+        if self.fast_layout.frame_samples.is_none() {
+            self.reset_layout_stats();
+            self.fast_layout.frame_samples = Some(FrameSamples {
+                since: now,
+                draws: Vec::new(),
+            });
+        }
+        Some(now)
+    }
+
+    pub(crate) fn end_frame_sample(&mut self, started: WallClock) {
+        let now = WallClock::now();
+        let samples = self.fast_layout.frame_samples.as_mut().unwrap();
+        samples.draws.push(now - started);
+        let interval = now - samples.since;
+        if interval < Duration::from_secs(1) {
+            return;
+        }
+        samples.draws.sort_unstable();
+        let count = samples.draws.len();
+        let percentile = |percentage: usize| {
+            samples.draws[(count * percentage).div_ceil(100) - 1].as_secs_f64() * 1000.
+        };
+        let (p50, p95) = (percentile(50), percentile(95));
+        samples.draws.clear();
+        samples.since = now;
+        let stats = self.layout_stats();
+        let ms = |time: Duration| time.as_secs_f64() * 1000.;
+        eprintln!(
+            "PROTEUS_FRAME_STATS window={:?} interval_ms={:.0} frames={} draw_p50_ms={p50:.3} draw_p95_ms={p95:.3} views_built={} views_reused={} build_time_ms={:.3} prepaint_time_ms={:.3} paint_time_ms={:.3} lines_shaped={} layer_frames_composited={} layer_frames_repainted={} pump_notify_total={}",
+            self.window_handle().window_id(),
+            ms(interval),
+            count,
+            stats.views_built,
+            stats.views_reused,
+            ms(stats.build_time),
+            ms(stats.prepaint_time),
+            ms(stats.paint_time),
+            stats.lines_shaped,
+            stats.layer_frames_composited,
+            stats.layer_frames_repainted,
+            PUMP_NOTIFICATIONS.load(Ordering::Relaxed),
+        );
+        self.reset_layout_stats();
     }
 }

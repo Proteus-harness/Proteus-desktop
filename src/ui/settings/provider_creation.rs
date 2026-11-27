@@ -193,7 +193,7 @@ impl SettingsView {
                 .map(|error| error.to_string());
             rows.extend(problem.as_ref().map(|error| {
                 note(error.clone(), cx)
-                    .text_color(cx.theme().danger)
+                    .text_color(crate::ui::theme::danger_text(cx.theme()))
                     .into_any_element()
             }));
             rows.push(
@@ -243,7 +243,7 @@ impl SettingsView {
         }
         rows.extend(state.error.as_ref().map(|error| {
             note(error.clone(), cx)
-                .text_color(cx.theme().danger)
+                .text_color(crate::ui::theme::danger_text(cx.theme()))
                 .into_any_element()
         }));
         section(

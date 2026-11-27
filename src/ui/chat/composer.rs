@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use gpui_kit::component::button::ButtonVariants as _;
-use gpui_kit::component::input::Textarea;
+use gpui_kit::component::input::{Textarea, TextareaState};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
@@ -50,6 +50,7 @@ impl Chat {
                 })
                 .w_full()
                 .max_w(prefs::chat_width(cx))
+                .children(self.render_connection_banner(cx))
                 .children(dock.map(|dock| {
                     div()
                         .mx_3()
@@ -70,40 +71,68 @@ impl Chat {
         )
     }
 
+    fn render_connection_banner(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if self.session.connected || self.session.link_error.is_none() {
+            return None;
+        }
+        let theme = cx.theme();
+        let can_restart = self.core_connection().filter(|_| {
+            self.backend_stopped
+                && self
+                    .workspace
+                    .upgrade()
+                    .is_some_and(|workspace| workspace.read(cx).can_restart_core())
+        });
+        let workspace = self.workspace.clone();
+        Some(
+            h_flex()
+                .min_h(prefs::scaled(36.))
+                .mb_2()
+                .px_3()
+                .gap_2()
+                .justify_between()
+                .rounded(theme.radius)
+                .border_1()
+                .border_color(theme.warning.opacity(0.4))
+                .bg(theme.warning.opacity(0.12))
+                .text_color(crate::ui::theme::warning_text(theme))
+                .text_sm()
+                .child(if self.restarting_backend {
+                    "Запускаю агента…"
+                } else {
+                    "Нет связи с агентом"
+                })
+                .children(can_restart.map(|connection| {
+                    kit::button("restart-agent")
+                        .faded_label("Перезапустить")
+                        .small()
+                        .disabled(self.restarting_backend)
+                        .on_click(move |_, _, cx| {
+                            workspace
+                                .update(cx, |workspace, cx| workspace.restart_core(connection, cx))
+                                .ok();
+                        })
+                }))
+                .into_any_element(),
+        )
+    }
+
     fn render_input_box(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        self.update_send_button(cx);
         let session = &self.session;
+        if self.composer_input.read(cx).connected != session.connected {
+            self.composer_input.update(cx, |input, cx| {
+                input.connected = session.connected;
+                cx.notify();
+            });
+        }
         let running = session.running();
-        let ready = session.connected;
         let queued = session
             .pending
             .as_ref()
             .map(|pending| pending.queued_user_messages.as_slice())
             .unwrap_or_default();
 
-        let keys = match prefs::current(cx).send {
-            crate::preferences::SendMode::Enter => "Enter",
-            crate::preferences::SendMode::CtrlEnter => "Ctrl+Enter",
-        };
-        let send = kit::icon_button("send")
-            .icon(IconName::ArrowUp)
-            .hint_keys(
-                if running && self.supports_core() {
-                    "В очередь"
-                } else {
-                    "Send"
-                },
-                Some(keys),
-                cx,
-            )
-            .primary()
-            .small()
-            .disabled(
-                !ready
-                    || !self.has_draft(cx)
-                    || self.attachments_loading
-                    || (self.codex.is_some() && running),
-            )
-            .on_click(cx.listener(|this, _, window, cx| this.send(window, cx)));
         let attach = kit::button("attach")
             .when(!self.attachments_loading, |button| {
                 button.icon(IconName::Plus)
@@ -121,13 +150,20 @@ impl Chat {
             )
             .quiet(cx)
             .small()
-            .disabled(self.attachments_loading)
+            .disabled(!session.connected || self.attachments_loading)
             .on_click(cx.listener(|this, _, window, cx| this.choose_images(window, cx)));
-        let chat = cx.entity().downgrade();
-        let stop = running.then(|| {
+        let stop = (session.connected && running).then(|| {
             kit::icon_button("stop")
                 .icon(IconName::Square)
-                .hint("Остановить", cx)
+                .hint_keys(
+                    "Остановить",
+                    Some(if cx.platform_info().is_mac() {
+                        "Esc / ⌘C"
+                    } else {
+                        "Esc / Ctrl+C"
+                    }),
+                    cx,
+                )
                 .danger()
                 .small()
                 .on_click(cx.listener(|this, _, _, cx| this.stop(cx)))
@@ -153,25 +189,123 @@ impl Chat {
                 }),
             )
             .children(self.render_attachments(cx))
-            .child(kit::contain_scroll(
-                Textarea::new(&self.composer)
-                    .font_family(prefs::user_chat_font(cx))
-                    .text_size(prefs::chat_text(cx))
-                    .appearance(false)
-                    .bordered(false)
-                    .on_paste(move |item, _, cx| {
-                        chat.update(cx, |this, cx| this.attach_clipboard(item, cx))
-                            .unwrap_or(false)
-                    }),
-            ))
+            .child(self.composer_input.clone())
             .child(
                 h_flex()
                     .flex_wrap()
                     .gap_x_2()
                     .gap_y_1()
                     .children(self.supports_core().then_some(attach))
-                    .child(h_flex().ml_auto().gap_2().children(stop).child(send)),
+                    .child(
+                        h_flex()
+                            .ml_auto()
+                            .gap_2()
+                            .children(stop)
+                            .child(self.send_button.clone()),
+                    ),
             )
+    }
+}
+
+/// InputBase reads its state while building its frame. Keep that dependency
+/// inside this view so cursor and text edits do not invalidate the thread.
+pub(super) struct ComposerInput {
+    chat: WeakEntity<Chat>,
+    state: Entity<TextareaState>,
+    connected: bool,
+}
+
+impl ComposerInput {
+    pub(super) fn new(chat: WeakEntity<Chat>, state: Entity<TextareaState>) -> Self {
+        Self {
+            chat,
+            state,
+            connected: false,
+        }
+    }
+}
+
+impl Render for ComposerInput {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let chat = self.chat.clone();
+        kit::contain_scroll(
+            Textarea::new(&self.state)
+                .font_family(prefs::user_chat_font(cx))
+                .text_size(prefs::chat_text(cx))
+                .disabled(!self.connected)
+                .appearance(false)
+                .bordered(false)
+                .on_paste(move |item, _, cx| {
+                    chat.update(cx, |this, cx| this.attach_clipboard(item, cx))
+                        .unwrap_or(false)
+                }),
+        )
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct SendButtonState {
+    enabled: bool,
+    queues: bool,
+    enter_sends: bool,
+}
+
+pub(super) struct SendButton {
+    chat: WeakEntity<Chat>,
+    state: Option<SendButtonState>,
+}
+
+impl SendButton {
+    pub(super) fn new(chat: WeakEntity<Chat>) -> Self {
+        Self { chat, state: None }
+    }
+}
+
+impl Chat {
+    pub(super) fn update_send_button(&self, cx: &mut Context<Self>) {
+        let running = self.session.running();
+        let state = SendButtonState {
+            enabled: self.session.connected
+                && (!self.composer_blank || !self.attachments.is_empty())
+                && !self.attachments_loading
+                && !(self.codex.is_some() && running),
+            queues: running && self.supports_core(),
+            enter_sends: self.enter_sends,
+        };
+        if self.send_button.read(cx).state != Some(state) {
+            self.send_button.update(cx, |button, cx| {
+                button.state = Some(state);
+                cx.notify();
+            });
+        }
+    }
+}
+
+impl Render for SendButton {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let state = self
+            .state
+            .expect("composer sets send state before rendering");
+        let text = if state.queues {
+            "В очередь"
+        } else {
+            "Отправить"
+        };
+        let keys = if state.enter_sends {
+            "Enter"
+        } else {
+            "Ctrl+Enter"
+        };
+        let chat = self.chat.clone();
+        kit::icon_button("send")
+            .icon(IconName::ArrowUp)
+            .hint_keys(text, Some(keys), cx)
+            .primary()
+            .small()
+            .disabled(!state.enabled)
+            .on_click(move |_, window, cx| {
+                chat.update(cx, |this, cx| this.send(window, cx)).ok();
+            })
     }
 }
 

@@ -459,6 +459,14 @@ impl Button {
         self
     }
 
+    /// Supply a name for a button whose content has no visible label.
+    pub fn named_icon(mut self, label: impl Into<SharedString>) -> Self {
+        if self.label.is_none() && self.accessibility_label.is_none() {
+            self.accessibility_label = Some(label.into());
+        }
+        self
+    }
+
     /// Set the icon of the button, if the Button have no label, the button well in Icon Button mode.
     pub fn icon(mut self, icon: impl Into<ButtonIcon>) -> Self {
         self.icon = Some(icon.into());
@@ -861,8 +869,17 @@ impl RenderOnce for Button {
             })
             .refine_style(&self.content_style)
             .when_some(self.icon, |this, icon| {
-                let icon = if disabled && cx.has_global::<crate::IconColorPolicy>() {
-                    icon.muted()
+                let icon = if matches!(style, ButtonVariant::Primary) {
+                    let foreground = if disabled {
+                        disabled_style.fg
+                    } else if selected {
+                        selected_style.fg
+                    } else {
+                        normal_style.fg
+                    };
+                    icon.tone(crate::IconTone::Custom(foreground))
+                } else if disabled && cx.has_global::<crate::IconColorPolicy>() {
+                    icon.tone(crate::IconTone::Muted)
                 } else {
                     icon
                 };

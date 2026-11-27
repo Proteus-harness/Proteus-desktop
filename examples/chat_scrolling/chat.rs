@@ -23,6 +23,17 @@ mod history {
     }
 }
 
+mod row_layout {
+    #[derive(Default)]
+    pub(super) struct RowContext;
+
+    impl RowContext {
+        pub(super) fn is_complete(&self, _: usize) -> bool {
+            true
+        }
+    }
+}
+
 const ROWS: usize = 400;
 
 fn height_layout_fingerprint(_: &App) -> [u8; 32] {
@@ -214,7 +225,7 @@ impl Render for Fixture {
                                 .child(format!("Row {row}: {} physical pixels", heights[row]))
                                 .into_any_element()
                         },
-                    ).footer(scroller::FooterState { thinking, ..Default::default() }, move |_, _| {
+                    ).step_on_frame().footer(scroller::FooterState { thinking, ..Default::default() }, move |_, _| {
                         let geometry = footer.clone();
                         div().w_full().when(thinking, |this| {
                             this.child(div().h(px(32.)).on_prepaint(move |bounds, _, _| {

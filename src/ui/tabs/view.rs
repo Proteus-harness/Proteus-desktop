@@ -315,7 +315,7 @@ impl Workspace {
                 div()
                     .text_xs()
                     .text_center()
-                    .text_color(theme.danger)
+                    .text_color(crate::ui::theme::danger_text(&theme))
                     .child(notice)
             }))
             .when(self.chats.is_empty(), |column| {

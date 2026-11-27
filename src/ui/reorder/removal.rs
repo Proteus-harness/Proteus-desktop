@@ -56,7 +56,7 @@ impl RemovalTarget {
             .border_dashed()
             .border_color(theme.danger)
             .text_sm()
-            .text_color(theme.danger)
+            .text_color(crate::ui::theme::danger_text(&theme))
             .drag_over::<Dragged>(move |style, dragged, _, cx| {
                 if dragged.list == list {
                     style.bg(cx.theme().danger.opacity(0.15))

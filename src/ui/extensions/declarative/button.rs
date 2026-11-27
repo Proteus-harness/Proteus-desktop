@@ -143,6 +143,11 @@ pub(super) fn button(
         ElementId::Name(format!("decl-split-{path}").into()),
         button,
         arrow,
+        match variant {
+            Variant::Primary => cx.theme().primary_foreground,
+            Variant::Danger => cx.theme().danger_foreground,
+            _ => cx.theme().muted_foreground,
+        },
         *disabled,
         move |popup, _, _| menu::fill(popup, &items, &view),
     )

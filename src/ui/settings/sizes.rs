@@ -160,7 +160,7 @@ pub(super) fn slider(state: &Entity<SliderState>, unit: &'static str, cx: &App) 
         .w(prefs::scaled(240.))
         .min_w_0()
         .max_w_full()
-        .gap_2()
+        .gap_3()
         .child(div().flex_1().min_w_0().child(Slider::new(state).compact()))
         .child(
             div()

@@ -166,9 +166,12 @@ impl Chat {
                         .child(model_menu)
                         .child(effort_menu),
                 )
-                .children(
-                    error.map(|error| div().text_xs().text_color(cx.theme().danger).child(error)),
-                )
+                .children(error.map(|error| {
+                    div()
+                        .text_xs()
+                        .text_color(crate::ui::theme::danger_text(cx.theme()))
+                        .child(error)
+                }))
                 .children(plan.filter(|steps| !steps.is_empty()).map(|steps| {
                     v_flex()
                         .gap_1()

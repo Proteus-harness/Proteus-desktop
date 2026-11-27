@@ -147,7 +147,7 @@ pub(in crate::ui) fn controls(
     .map(|problem| {
         div()
             .text_sm()
-            .text_color(cx.theme().danger)
+            .text_color(crate::ui::theme::danger_text(cx.theme()))
             .child(problem)
             .into_any_element()
     })

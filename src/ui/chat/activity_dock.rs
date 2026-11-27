@@ -135,7 +135,7 @@ impl Chat {
         if let Some(pending) = &self.session.pending {
             activities.extend(pending.approvals.iter().map(|request| Activity {
                 id: ActivityId::Approval(request.approval_id.clone()),
-                label: format!("Approval · {}", request.call.name),
+                label: "Нужно разрешение".to_owned(),
                 icon: approval_icon(request),
                 summary: None,
             }));
@@ -201,6 +201,20 @@ impl Chat {
                     .find(|activity| activity.summary.is_some())
             })
             .and_then(|activity| activity.summary.clone());
+        let approval_target = self.activity_dock.pending_target();
+        let (mut approval_preview, approval_actions) = approval_target
+            .as_ref()
+            .and_then(|activity| {
+                let expanded = selected.as_ref() == Some(activity);
+                self.render_pending_approval(
+                    activity,
+                    expanded,
+                    expanded || motion::moving(&activity.key(cx.entity_id()), expanded, cx),
+                    window,
+                    cx,
+                )
+            })
+            .map_or((None, None), |(preview, actions)| (preview, Some(actions)));
         let mut triggers = Vec::new();
         let mut details = Vec::new();
         for activity in activities {
@@ -251,7 +265,11 @@ impl Chat {
                     .get_mut(id)
                     .and_then(|contribution| contribution.details(true, window, cx))
                     .map(|surface| div().p_3().child(surface.view).into_any_element()),
-                ref id => self.render_request(id, window, cx),
+                ActivityId::Approval(_) if approval_target.as_ref() == Some(&activity.id) => {
+                    approval_preview.take()
+                }
+                ActivityId::Approval(_) => None,
+                ActivityId::Question(id) => self.render_question(&id, window, cx),
             };
             if let Some(content) = content {
                 details.extend(motion::reveal(key.clone(), open, cx, || {
@@ -282,6 +300,7 @@ impl Chat {
             v_flex()
                 .w_full()
                 .children(details)
+                .children(approval_actions)
                 .child(
                     h_flex()
                         .id("composer-activity-strip")
@@ -330,20 +349,19 @@ impl Chat {
         }
     }
 
-    /// Empty-composer Enter first reveals a folded request. Approval is
-    /// dispatched only after its details have actually been visible.
-    pub(super) fn open_pending_activity(
+    /// Returns true only when the details were already selected.
+    pub(super) fn reveal_pending_activity(
         &mut self,
+        id: &ActivityId,
         cx: &mut Context<Self>,
-    ) -> Option<(ActivityId, bool)> {
-        let id = self.activity_dock.pending_target()?;
-        let open = self.activity_dock.selected.as_ref() == Some(&id);
-        if !open {
-            let old = self.activity_dock.selected.replace(id.clone());
-            self.animate_dock_change(old, cx);
-            cx.notify();
+    ) -> bool {
+        if self.activity_dock.selected() == Some(id) {
+            return true;
         }
-        Some((id, open))
+        let old = self.activity_dock.selected.replace(id.clone());
+        self.animate_dock_change(old, cx);
+        cx.notify();
+        false
     }
 }
 

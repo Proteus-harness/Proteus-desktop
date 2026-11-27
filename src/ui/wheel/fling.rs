@@ -1,8 +1,5 @@
-//! Inertia of touchpad scrolling. Wayland tells when the fingers leave the
-//! pad, but gpui drops that event, so a pause in pixel scrolling stands in
-//! for it: content flicked fast enough keeps gliding with the speed the
-//! fingers had at the end and slows down as on ice. A new scroll or a click
-//! stops it.
+//! Touchpad inertia starts when fingers lift. Platforms that report precise
+//! deltas without an end event use a short pause as a fallback.
 
 use std::cell::RefCell;
 use std::time::{Duration, Instant};
@@ -30,8 +27,10 @@ const FRICTION_SECONDS: f32 = 0.4;
 enum State {
     #[default]
     Idle,
-    /// Fingers move; waiting for the pause that ends the gesture.
-    Tracking,
+    /// Fingers move; wait for release, or a pause when the source has no phase.
+    Tracking {
+        explicit_end: bool,
+    },
     Gliding,
 }
 
@@ -60,6 +59,7 @@ pub(super) fn track(
     position: Point<Pixels>,
     delta: Point<Pixels>,
     modifiers: Modifiers,
+    explicit_end: bool,
     window: &mut Window,
 ) {
     let now = Instant::now();
@@ -73,7 +73,7 @@ pub(super) fn track(
         }
         let since = fling
             .last_report
-            .filter(|_| fling.state == State::Tracking)
+            .filter(|_| matches!(fling.state, State::Tracking { .. }))
             .map(|last| now.duration_since(last));
         let dt = since.unwrap_or(REPORT).max(REPORT).as_secs_f32();
         let speed = point(f32::from(delta.x) / dt, f32::from(delta.y) / dt);
@@ -91,13 +91,49 @@ pub(super) fn track(
         fling.last_report = Some(now);
         fling.position = position;
         fling.modifiers = modifiers;
-        fling.state = State::Tracking;
-        !std::mem::replace(&mut fling.looping, true)
+        fling.state = State::Tracking { explicit_end };
+        !explicit_end && !std::mem::replace(&mut fling.looping, true)
     });
     if start {
         let generation = FLING.with_borrow(|fling| fling.generation);
         window.on_next_frame(move |window, cx| tick(window, cx, generation));
     }
+}
+
+pub(super) fn end(window: &mut Window) {
+    let generation = FLING.with_borrow_mut(|fling| {
+        if fling.window != Some(window.window_handle().window_id())
+            || fling.state != (State::Tracking { explicit_end: true })
+        {
+            return None;
+        }
+        if fling.last_report.is_some_and(|at| at.elapsed() >= PAUSE) {
+            fling.state = State::Idle;
+            return None;
+        }
+        if start_glide(fling) && !std::mem::replace(&mut fling.looping, true) {
+            Some(fling.generation)
+        } else {
+            None
+        }
+    });
+    if let Some(generation) = generation {
+        window.on_next_frame(move |window, cx| tick(window, cx, generation));
+    }
+}
+
+fn start_glide(fling: &mut Fling) -> bool {
+    let velocity = fling.velocity;
+    let size = velocity.x.hypot(velocity.y);
+    if fling.reports < 2 || size < MIN_SPEED {
+        fling.state = State::Idle;
+        return false;
+    }
+    let scale = size.min(MAX_SPEED) / size;
+    fling.velocity = point(velocity.x * scale, velocity.y * scale);
+    fling.last_frame = None;
+    fling.state = State::Gliding;
+    true
 }
 
 pub(super) fn stop() {
@@ -113,24 +149,12 @@ fn tick(window: &mut Window, cx: &mut App, generation: u64) {
     let now = Instant::now();
     let step = FLING.with_borrow_mut(|fling| match fling.state {
         State::Idle => None,
-        State::Tracking => {
+        State::Tracking { explicit_end: true } => None,
+        State::Tracking {
+            explicit_end: false,
+        } => {
             let last = fling.last_report?;
-            if now.duration_since(last) < PAUSE {
-                return None;
-            }
-            let velocity = fling.velocity;
-            let size = velocity.x.hypot(velocity.y);
-            // A single report is a nudge rather than a flick.
-            if fling.reports < 2 || size < MIN_SPEED {
-                fling.state = State::Idle;
-                return None;
-            }
-            let scale = size.min(MAX_SPEED) / size;
-            fling.velocity = point(velocity.x * scale, velocity.y * scale);
-            // Catching up the pause in one frame would read as a jump.
-            fling.last_frame = None;
-            fling.state = State::Gliding;
-            Some(advance(fling, now))
+            (now.duration_since(last) >= PAUSE && start_glide(fling)).then(|| advance(fling, now))
         }
         State::Gliding => Some(advance(fling, now)),
     });
@@ -149,7 +173,13 @@ fn tick(window: &mut Window, cx: &mut App, generation: u64) {
         );
     }
     let more = FLING.with_borrow_mut(|fling| {
-        fling.looping = fling.state != State::Idle;
+        fling.looping = matches!(
+            fling.state,
+            State::Gliding
+                | State::Tracking {
+                    explicit_end: false
+                }
+        );
         fling.looping
     });
     if more {

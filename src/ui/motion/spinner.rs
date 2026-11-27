@@ -17,11 +17,16 @@ const TURN: Duration = Duration::from_millis(1_200);
 #[derive(IntoElement)]
 pub(in crate::ui) struct Spinner {
     size: Size,
+    id: ElementId,
 }
 
 impl Spinner {
+    #[track_caller]
     pub(in crate::ui) fn new() -> Self {
-        Self { size: Size::Medium }
+        Self {
+            size: Size::Medium,
+            id: ElementId::CodeLocation(*std::panic::Location::caller()),
+        }
     }
 }
 
@@ -34,6 +39,28 @@ impl Sizable for Spinner {
 
 impl RenderOnce for Spinner {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let view = window.with_global_id(self.id, |id, window| {
+            window.with_element_state(id, |view: Option<Entity<SpinnerView>>, _| {
+                let view = view.unwrap_or_else(|| cx.new(|_| SpinnerView { size: self.size }));
+                if view.read(cx).size != self.size {
+                    view.update(cx, |view, cx| {
+                        view.size = self.size;
+                        cx.notify();
+                    });
+                }
+                (view.clone(), view)
+            })
+        });
+        div().child(view)
+    }
+}
+
+struct SpinnerView {
+    size: Size,
+}
+
+impl Render for SpinnerView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let turn = if super::plays(cx) {
             ticker::next_tick(window, cx);
             ticker::phase(TURN)

@@ -201,7 +201,7 @@ impl Api {
         approval_id: &str,
         approved: bool,
         cache: ApprovalCacheScope,
-    ) -> Result<Value> {
+    ) -> Result<()> {
         let body = ApprovalRequest {
             id: Some(request_id("approval")),
             approval_id: approval_id.to_owned(),
@@ -209,7 +209,10 @@ impl Api {
             note: None,
             cache,
         };
-        self.command("/approval", Some(session_dir), &body)
+        let response = self.command_response(&self.agent, "/approval", Some(session_dir), &body)?;
+        proteus_client_common::response::command_value(response)
+            .map(|_| ())
+            .map_err(anyhow::Error::msg)
     }
 
     pub fn answer_user_input(
@@ -389,12 +392,12 @@ impl Api {
         let response = request.call()?;
         let status = response.status();
         let body = response.into_body();
-        let body = if matches!(path, "/history/page" | "/history/cached-tail") && status.is_success()
-        {
-            read_history_body(body)?
-        } else {
-            body.into_with_config().read_to_string()?
-        };
+        let body =
+            if matches!(path, "/history/page" | "/history/cached-tail") && status.is_success() {
+                read_history_body(body)?
+            } else {
+                body.into_with_config().read_to_string()?
+            };
         if !status.is_success() {
             bail!("GET {path} failed with {status}: {body}");
         }
@@ -417,6 +420,18 @@ impl Api {
         session_dir: Option<&Path>,
         body: &B,
     ) -> Result<T> {
+        let response = self.command_response(agent, path, session_dir, body)?;
+        proteus_client_common::response::command_output(response)
+            .map_err(|error| anyhow!("{path}: {error}"))
+    }
+
+    fn command_response<B: Serialize>(
+        &self,
+        agent: &ureq::Agent,
+        path: &str,
+        session_dir: Option<&Path>,
+        body: &B,
+    ) -> Result<StdioOutput> {
         let _trace = crate::startup_trace::span(path);
         let mut request = agent
             .post(format!("{}{path}", self.origin))
@@ -427,11 +442,7 @@ impl Api {
         let response = request.send_json(body)?;
         let status = response.status();
         let text = response.into_body().into_with_config().read_to_string()?;
-        match serde_json::from_str::<StdioOutput>(&text) {
-            Ok(output) => proteus_client_common::response::command_output(output)
-                .map_err(|error| anyhow!("{path}: {error}")),
-            Err(_) => Err(anyhow!("POST {path} failed with {status}: {text}")),
-        }
+        serde_json::from_str(&text).map_err(|_| anyhow!("POST {path} failed with {status}: {text}"))
     }
 }
 

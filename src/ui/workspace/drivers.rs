@@ -34,6 +34,16 @@ pub(super) fn core(
 }
 
 impl Workspace {
+    pub(in crate::ui) fn can_restart_core(&self) -> bool {
+        matches!(self.target, crate::launch::Target::Spawn { .. })
+    }
+
+    pub(in crate::ui) fn restart_core(&self, connection: u64, cx: &mut Context<Self>) {
+        if self.can_restart_core() {
+            self.windows.restart_core(self, connection, cx);
+        }
+    }
+
     pub(in crate::ui) fn core_context(&self) -> bool {
         !matches!(self.space_root_key(), Some(crate::tabs::ChatKey::Codex(_)))
     }

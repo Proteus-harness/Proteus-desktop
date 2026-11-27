@@ -90,7 +90,7 @@ impl SettingsView {
                         .flex_1()
                         .min_w_0()
                         .text_sm()
-                        .text_color(theme.danger)
+                        .text_color(crate::ui::theme::danger_text(&theme))
                         .child(error.clone()),
                 )
                 .child(

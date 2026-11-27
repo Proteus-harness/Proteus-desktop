@@ -38,7 +38,9 @@ pub(super) use disclosure::{
 };
 pub(super) use enter::{fade_in_if, late_in, rise_in, rise_in_if, stagger_in, switch_in};
 pub(super) use number::Number;
-pub(super) use popup::{Popup, PopupPanel, popup, popup_inner_height, restore_focus};
+pub(super) use popup::{
+    Popup, PopupPanel, popup, popup_inner_height, popup_inner_width, restore_focus,
+};
 pub(super) use reveal::PopupOrigin;
 pub(super) use shimmer::Shimmer;
 pub(super) use slide::{Slide, blend, glide};
@@ -132,24 +134,35 @@ impl Tween {
 
 /// Keys that changed a moment ago: lets list rows animate only right after
 /// they appeared, not every time they scroll back into view.
-#[derive(Default)]
 pub(super) struct Recent {
     marks: HashMap<u64, Instant>,
+    window: Duration,
+}
+
+impl Default for Recent {
+    fn default() -> Self {
+        Self::with_window(Duration::from_millis(400))
+    }
 }
 
 impl Recent {
-    const WINDOW: Duration = Duration::from_millis(400);
+    pub(super) fn with_window(window: Duration) -> Self {
+        Self {
+            marks: HashMap::new(),
+            window,
+        }
+    }
 
     pub(super) fn mark(&mut self, key: u64) {
         let now = Instant::now();
         self.marks
-            .retain(|_, at| now.duration_since(*at) < Self::WINDOW);
+            .retain(|_, at| now.duration_since(*at) < self.window);
         self.marks.insert(key, now);
     }
 
     pub(super) fn is_fresh(&self, key: u64) -> bool {
         self.marks
             .get(&key)
-            .is_some_and(|at| at.elapsed() < Self::WINDOW)
+            .is_some_and(|at| at.elapsed() < self.window)
     }
 }

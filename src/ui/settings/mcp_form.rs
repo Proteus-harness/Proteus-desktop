@@ -238,7 +238,12 @@ impl SettingsView {
                 }
             })
             .child(control)
-            .children(error.map(|error| div().text_xs().text_color(theme.danger).child(error)));
+            .children(error.map(|error| {
+                div()
+                    .text_xs()
+                    .text_color(crate::ui::theme::danger_text(&theme))
+                    .child(error)
+            }));
         let (title, about, key) = describe_field(field);
         let changed = saved.is_some_and(|saved| mcp_text(saved, field) != mcp_text(server, field));
         let title = row_title(

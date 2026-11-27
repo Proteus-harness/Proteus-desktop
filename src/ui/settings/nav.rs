@@ -233,7 +233,7 @@ impl SettingsView {
                             header.child(
                                 div()
                                     .text_xs()
-                                    .text_color(theme.warning)
+                                    .text_color(crate::ui::theme::warning_text(&theme))
                                     .child("Только чтение"),
                             )
                         },

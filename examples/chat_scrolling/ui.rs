@@ -37,6 +37,7 @@ mod motion {
     ) -> impl gpui_kit::IntoElement {
         gpui_kit::component::Icon::new(gpui_kit::component::IconName::Ellipsis)
     }
+    pub const FAST: std::time::Duration = std::time::Duration::from_millis(120);
     pub const SLOW: std::time::Duration = std::time::Duration::from_millis(260);
     pub fn plays(_: &gpui_kit::App) -> bool {
         PLAYS.load(Ordering::Relaxed)

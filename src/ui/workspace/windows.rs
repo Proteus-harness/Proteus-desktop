@@ -30,6 +30,7 @@ struct Group {
     core: Arc<Mutex<Option<CoreConnection>>>,
     codex: Arc<Mutex<Option<CodexService>>>,
     windows: Vec<(WeakEntity<Workspace>, ChatSpaces)>,
+    restarting_core: bool,
     quitting: bool,
 }
 
@@ -242,6 +243,10 @@ impl WindowGroup {
             .collect();
         for view in views {
             view.update(cx, |this, cx| {
+                for chat in this.chats.values() {
+                    chat.view
+                        .update(cx, |chat, cx| chat.core_stopped(connection, report, cx));
+                }
                 if this
                     .api
                     .as_ref()
@@ -250,13 +255,109 @@ impl WindowGroup {
                     return;
                 }
                 this.api = None;
-                this.notice = Some(report.to_owned().into());
+                this.notice = Some("Нет связи с агентом".into());
                 // A Core failure cannot hide another driver's running turn or Stop.
                 this.status = Status::Ready;
                 cx.notify();
             })
             .ok();
         }
+    }
+
+    /// Reconnect the retained chats in every window without replacing their drafts.
+    pub(in crate::ui) fn restart_core(
+        &self,
+        source: &Workspace,
+        connection: u64,
+        cx: &mut Context<Workspace>,
+    ) {
+        {
+            let mut group = self.0.borrow_mut();
+            if group.restarting_core || group.quitting {
+                return;
+            }
+            group.restarting_core = true;
+        }
+        let mut chats = Vec::new();
+        let mut collect = |view: &Workspace, cx: &mut App| {
+            for chat in view.chats.values() {
+                if chat.view.read(cx).core_connection() == Some(connection) {
+                    let dir = chat.view.read(cx).session.dir.clone();
+                    chat.view
+                        .update(cx, |chat, cx| chat.set_restarting_backend(true, cx));
+                    chats.push((dir, chat.view.downgrade()));
+                }
+            }
+        };
+        collect(source, cx);
+        for (view, _) in &self.0.borrow().windows {
+            if view.entity_id() != cx.entity_id() {
+                view.update(cx, |workspace, cx| collect(workspace, cx)).ok();
+            }
+        }
+        let dirs: std::collections::HashSet<_> = chats.iter().map(|(dir, _)| dir.clone()).collect();
+        let group = self.clone();
+        let core = self.core_slot();
+        let options = source.core_options();
+        cx.spawn(async move |_, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let (api, exited) = super::drivers::core(&core, &options)?;
+                    let resumed: std::collections::HashMap<_, _> = dirs
+                        .into_iter()
+                        .map(|dir| {
+                            let result = api
+                                .resume(&dir)
+                                .map(|_| ())
+                                .map_err(|error| format!("{error:#}"));
+                            (dir, result)
+                        })
+                        .collect();
+                    Ok::<_, anyhow::Error>((api, exited, resumed))
+                })
+                .await;
+            group.0.borrow_mut().restarting_core = false;
+            cx.update(|cx| match result {
+                Ok((api, exited, resumed)) => {
+                    let views: Vec<_> = group
+                        .0
+                        .borrow()
+                        .windows
+                        .iter()
+                        .map(|(view, _)| view.clone())
+                        .collect();
+                    let mut exited = exited;
+                    for view in views {
+                        view.update(cx, |view, cx| {
+                            if let Some(exited) = exited.take() {
+                                group.watch_backend(api.connection_id(), exited, cx);
+                            }
+                            view.api = Some(api.clone());
+                            view.notice = None;
+                            cx.notify();
+                        })
+                        .ok();
+                    }
+                    for (dir, chat) in chats {
+                        let result = resumed[&dir].clone().map_err(anyhow::Error::msg);
+                        chat.update(cx, |chat, cx| {
+                            chat.finish_backend_restart(api.clone(), result, cx)
+                        })
+                        .ok();
+                    }
+                }
+                Err(error) => {
+                    for (_, chat) in chats {
+                        chat.update(cx, |chat, cx| {
+                            chat.backend_restart_failed(&format!("{error:#}"), cx);
+                        })
+                        .ok();
+                    }
+                }
+            });
+        })
+        .detach();
     }
 
     pub(in crate::ui) fn persist(&self, id: EntityId, layout: &ChatSpaces, cx: &mut App) {

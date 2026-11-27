@@ -36,7 +36,7 @@ mod wheel;
 pub(super) use footer::FooterState;
 use middle::MiddleScroll;
 pub(super) use scrollbar::HeightCacheKey;
-use scrollbar::HistoryScrollbar;
+pub(super) use scrollbar::HistoryScrollbar;
 #[cfg(debug_assertions)]
 use scrollbar::scroll_trace;
 pub(super) use scrollbar::{HistoryRange, ScrollTarget};
@@ -71,6 +71,7 @@ pub(super) struct ChatScroller {
     /// Offset seen on the previous frame, to tell the user's scrolling apart.
     last_offset: Option<Pixels>,
     last_frame: Option<Instant>,
+    frame_step_window: Option<WindowId>,
     /// Content changed since the last frame; the new size is known only after
     /// the next layout.
     dirty: bool,
@@ -129,13 +130,8 @@ impl ChatScroller {
         self.scrollbar.exclude_document_disk(rows, total);
     }
 
-    /// The track spans the chat column, including its fixed composer. The
-    /// logical viewport remains the native message list's measured viewport.
-    pub(super) fn scrollbar(&self) -> gpui_kit::component::scroll::Scrollbar {
-        gpui_kit::component::scroll::Scrollbar::vertical(&self.scrollbar)
-            .id("chat-scrollbar")
-            .viewport_from_layout()
-            .scroll_viewport_from_handle()
+    pub(super) fn scrollbar_handle(&self) -> HistoryScrollbar {
+        self.scrollbar.clone()
     }
 
     pub(super) fn new(autoscroll: bool) -> Self {
@@ -152,6 +148,7 @@ impl ChatScroller {
             autoscroll,
             last_offset: None,
             last_frame: None,
+            frame_step_window: None,
             dirty: false,
             size: None,
             hold: None,
@@ -620,6 +617,18 @@ impl ChatScroller {
                 }
     }
 
+    fn step_frame(&mut self, now: Instant, cx: &mut Context<Self>) -> bool {
+        let running = self.step(now, motion::plays(cx));
+        let edges = self.page_edges();
+        if edges.0 && !self.history_edges.0 {
+            cx.emit(HistoryEdge(super::history::Direction::Older));
+        } else if edges.1 && !self.history_edges.1 {
+            cx.emit(HistoryEdge(super::history::Direction::Newer));
+        }
+        self.history_edges = edges;
+        running
+    }
+
     /// Advance following by one frame; returns whether another frame is needed.
     fn step(&mut self, now: Instant, animate: bool) -> bool {
         let positioning = self.scrollbar.settle();
@@ -782,6 +791,7 @@ pub(super) struct ChatList {
     footer: Option<(FooterState, RenderFooter)>,
     running: bool,
     scrollbar: bool,
+    step_on_frame: bool,
 }
 
 impl ChatList {
@@ -798,6 +808,7 @@ impl ChatList {
             footer: None,
             running: false,
             scrollbar: true,
+            step_on_frame: false,
         }
     }
 
@@ -820,6 +831,11 @@ impl ChatList {
         self
     }
 
+    pub(super) fn step_on_frame(mut self) -> Self {
+        self.step_on_frame = true;
+        self
+    }
+
     pub(super) fn scrollbar(mut self, visible: bool) -> Self {
         self.scrollbar = visible;
         self
@@ -834,7 +850,8 @@ impl RenderOnce for ChatList {
         };
         let reading_gap =
             crate::ui::prefs::scaled(super::composer::INPUT_GAP).to_pixels(window.rem_size());
-        let (running, middle_active) = self.state.update(cx, |state, cx| {
+        let window_id = window.window_handle().window_id();
+        let (running, middle_active, schedule_step) = self.state.update(cx, |state, cx| {
             let gap_changed = state.set_reading_gap(reading_gap);
             if state.update_footer(footer_state) || gap_changed {
                 cx.notify();
@@ -844,17 +861,28 @@ impl RenderOnce for ChatList {
             }
             let now = Instant::now();
             let middle_active = state.step_middle(now, window.is_window_active(), cx);
-            let running = state.step(now, motion::plays(cx));
-            let edges = state.page_edges();
-            if edges.0 && !state.history_edges.0 {
-                cx.emit(HistoryEdge(super::history::Direction::Older));
-            } else if edges.1 && !state.history_edges.1 {
-                cx.emit(HistoryEdge(super::history::Direction::Newer));
+            let running = !self.step_on_frame && state.step_frame(now, cx);
+            let schedule_step = self.step_on_frame && state.frame_step_window != Some(window_id);
+            if schedule_step {
+                state.frame_step_window = Some(window_id);
             }
-            state.history_edges = edges;
-            (running, middle_active)
+            (running, middle_active, schedule_step)
         });
-        if running {
+        if schedule_step {
+            let state = self.state.downgrade();
+            window.on_next_frame(move |_, cx| {
+                state
+                    .update(cx, |state, cx| {
+                        if state.frame_step_window == Some(window_id) {
+                            state.frame_step_window = None;
+                            if state.step_frame(Instant::now(), cx) {
+                                cx.notify();
+                            }
+                        }
+                    })
+                    .ok();
+            });
+        } else if running {
             window.request_animation_frame();
         }
         if middle_active {

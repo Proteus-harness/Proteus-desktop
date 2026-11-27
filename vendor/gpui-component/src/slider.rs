@@ -188,7 +188,7 @@ impl RenderOnce for Slider {
         let compact_hit = rem_size * (24. / 16.);
         let compact_thumb = rem_size * (14. / 16.);
         let compact_marker = rem_size * (3. / 16.);
-        let compact_track = rem_size * (8. / 16.);
+        let compact_track = rem_size * (4. / 16.);
         let compact_offset = (compact_track - compact_hit) / 2.;
 
         let bar_color = self
@@ -375,6 +375,7 @@ impl RenderOnce for Slider {
                                     .when(self.compact, |this| this.w(compact_track))
                                     .when(!self.compact, |this| this.w_1p5())
                             })
+                            .when(self.compact, |this| this.bg(cx.theme().border))
                             .when(!self.compact, |this| {
                                 this.bg(bar_color.opacity(0.2))
                                     .active(|this| this.bg(bar_color.opacity(0.4)))

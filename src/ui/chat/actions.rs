@@ -239,6 +239,14 @@ impl Chat {
         .detach();
     }
 
+    pub(super) fn stop_from_keyboard(&mut self, cx: &mut Context<Self>) -> bool {
+        if !self.session.connected || !self.session.running() {
+            return false;
+        }
+        self.stop(cx);
+        true
+    }
+
     pub(super) fn stop(&mut self, cx: &mut Context<Self>) {
         if self.codex.is_some() {
             self.stop_codex(cx);
@@ -267,8 +275,8 @@ impl Chat {
         );
     }
 
-    /// Answers an approval; `cache` lets the server repeat a yes without
-    /// asking.
+    /// Resolve only the displayed live requests. Retain acknowledged IDs until
+    /// the SSE snapshot removes them so key repeats and clicks cannot resend.
     pub(super) fn resolve_approval(
         &mut self,
         approval_id: String,
@@ -276,45 +284,110 @@ impl Chat {
         cache: ApprovalCacheScope,
         cx: &mut Context<Self>,
     ) {
+        self.resolve_approvals(&[approval_id], approved, cache, cx);
+    }
+
+    pub(super) fn resolve_approvals(
+        &mut self,
+        ids: &[String],
+        approved: bool,
+        cache: ApprovalCacheScope,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.session.connected || !self.supports_core() {
+            return;
+        }
+        let Some(pending) = self.session.pending.as_ref() else {
+            return;
+        };
+        let live: Vec<_> = ids
+            .iter()
+            .filter(|id| {
+                pending
+                    .approvals
+                    .iter()
+                    .any(|request| &request.approval_id == *id)
+                    && self.approvals_in_flight.insert((*id).clone())
+            })
+            .cloned()
+            .collect();
+        if live.is_empty() {
+            return;
+        }
         let dir = self.session.dir.clone();
-        self.call(
+        let connection = self.core_connection();
+        self.call_result(
             cx,
-            move |api| api.approve(&dir, &approval_id, approved, cache),
-            |_, _, _| {},
+            move |api| {
+                let errors: Vec<_> = live
+                    .into_iter()
+                    .filter_map(|id| {
+                        api.approve(&dir, &id, approved, cache)
+                            .err()
+                            .map(|error| (id, format!("{error:#}")))
+                    })
+                    .collect();
+                Ok(errors)
+            },
+            move |chat, result, cx| {
+                if chat.core_connection() != connection {
+                    return;
+                }
+                if let Ok(errors) = result
+                    && !errors.is_empty()
+                {
+                    for (id, _) in &errors {
+                        chat.approvals_in_flight.remove(id);
+                    }
+                    let details = errors
+                        .into_iter()
+                        .map(|(_, error)| error)
+                        .collect::<Vec<_>>()
+                        .join(
+                            "
+",
+                        );
+                    chat.show_error(
+                        format!(
+                            "Не удалось передать решение агенту.
+{details}"
+                        ),
+                        cx,
+                    );
+                }
+            },
         );
     }
 
-    /// Empty-composer Enter follows the visible dock section. A collapsed
-    /// request first opens; a second Enter answers its displayed details.
-    pub(super) fn confirm_pending(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        let Some((activity, open)) = self.open_pending_activity(cx) else {
+    pub(super) fn advance_pending_question(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(ActivityId::Question(id)) = self.activity_dock.pending_target()
+            && self.user_input_request(&id).is_some()
+            && self.reveal_pending_activity(&ActivityId::Question(id.clone()), cx)
+        {
+            self.next_question(&id, window, cx);
+        }
+    }
+
+    /// An explicit shortcut answers only the approval whose details are visible.
+    pub(super) fn approve_from_composer(&mut self, held: bool, cx: &mut Context<Self>) -> bool {
+        let Some(ActivityId::Approval(id)) = self.activity_dock.pending_target() else {
             return false;
         };
-        if !open {
-            return true;
+        let activity = ActivityId::Approval(id.clone());
+        if !held
+            && self.session.connected
+            && self.session.pending.as_ref().is_some_and(|pending| {
+                pending
+                    .approvals
+                    .iter()
+                    .any(|request| request.approval_id == id)
+            })
+            && !super::requests::request_fresh(&activity, self)
+            && self.reveal_pending_activity(&activity, cx)
+        {
+            self.resolve_approval(id, true, ApprovalCacheScope::None, cx);
         }
-        match activity {
-            ActivityId::Approval(id) => {
-                let live = self.session.pending.as_ref().is_some_and(|pending| {
-                    pending
-                        .approvals
-                        .iter()
-                        .any(|request| request.approval_id == id)
-                });
-                if live {
-                    self.resolve_approval(id, true, ApprovalCacheScope::None, cx);
-                }
-                live
-            }
-            ActivityId::Question(id) => {
-                let live = self.user_input_request(&id).is_some();
-                if live {
-                    self.next_question(&id, window, cx);
-                }
-                live
-            }
-            ActivityId::Extension(_) => false,
-        }
+        true
     }
 
     /// Composer Escape denies only the approval whose details are visible.

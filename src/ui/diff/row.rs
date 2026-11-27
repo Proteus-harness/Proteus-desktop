@@ -53,7 +53,7 @@ fn number(value: Option<usize>, cx: &App) -> Div {
         .w(prefs::scaled(44.))
         .pr_2()
         .text_right()
-        .text_color(cx.theme().muted_foreground.opacity(0.65))
+        .text_color(cx.theme().muted_foreground)
         .child(value.map(|n| n.to_string()).unwrap_or_default())
 }
 

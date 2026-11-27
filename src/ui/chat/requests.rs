@@ -1,6 +1,7 @@
 use crate::ui::kit::ButtonLabel as _;
 use std::borrow::Cow;
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::sync::Arc;
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::ButtonVariants as _;
@@ -17,7 +18,7 @@ use super::activity_dock::ActivityId;
 use crate::tool_display;
 use crate::ui::fade::faded;
 use crate::ui::format;
-use crate::ui::kit;
+use crate::ui::kit::{self, Hint as _};
 use crate::ui::prefs;
 
 const PREVIEW_LINES: usize = 24;
@@ -25,28 +26,52 @@ const PREVIEW_CHARS: usize = 6_000;
 const JUSTIFICATION: &str = "justification";
 
 impl Chat {
-    /// Only the selected pending request mounts interactive controls in the
-    /// common composer dock. Transcript rows remain ordinary history.
-    pub(super) fn render_request(
-        &mut self,
+    /// The selected approval keeps its action bar when its preview is folded.
+    pub(super) fn render_pending_approval(
+        &self,
         activity: &ActivityId,
+        expanded: bool,
+        preview_visible: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<(Option<AnyElement>, AnyElement)> {
+        let ActivityId::Approval(id) = activity else {
+            return None;
+        };
+        let pending = self.session.pending.as_ref()?;
+        let request = pending
+            .approvals
+            .iter()
+            .find(|item| &item.approval_id == id)?;
+        let identical = pending
+            .approvals
+            .iter()
+            .filter(|other| {
+                request.call.name == other.call.name
+                    && request.call.args == other.call.args
+                    && request.preview == other.preview
+            })
+            .map(|other| other.approval_id.clone())
+            .collect();
+        let actions = render_approval_actions(request, identical, expanded, cx);
+        let preview = preview_visible.then(|| render_approval_preview(request, window, cx));
+        Some((preview, actions))
+    }
+
+    pub(super) fn render_question(
+        &mut self,
+        id: &str,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let pending = self.session.pending.as_ref()?;
-        match activity {
-            ActivityId::Approval(id) => pending
-                .approvals
-                .iter()
-                .find(|request| &request.approval_id == id)
-                .map(|request| render_approval(request, cx)),
-            ActivityId::Question(id) => pending
-                .user_inputs
-                .iter()
-                .find(|request| &request.request_id == id)
-                .map(|request| self.user_input.render_user_input(request, window, cx)),
-            ActivityId::Extension(_) => None,
-        }
+        let request = self
+            .session
+            .pending
+            .as_ref()?
+            .user_inputs
+            .iter()
+            .find(|request| request.request_id == id)?;
+        Some(self.user_input.render_user_input(request, window, cx))
     }
 }
 
@@ -112,12 +137,20 @@ fn approval_reason(request: &AppApprovalRequest) -> Option<String> {
         .and_then(Value::as_str)
         .unwrap_or(&request.reason)
         .trim();
+    if reason.starts_with("codex policy requires approval for tool") {
+        return None;
+    }
     (!reason.is_empty()).then(|| reason.to_owned())
 }
 
 /// The text worth reading before allowing: the server preview, the
 /// tool's main argument or the other arguments.
 fn approval_body(request: &AppApprovalRequest) -> Option<Cow<'_, str>> {
+    if request.call.name == tool_display::APPLY_PATCH
+        && let Some(patch) = tool_display::patch_text(&request.call.args)
+    {
+        return Some(Cow::Borrowed(patch));
+    }
     if let Some(preview) = &request.preview {
         return preview.body.as_deref().map(Cow::Borrowed);
     }
@@ -194,26 +227,22 @@ fn key_hint(key: &'static str) -> Div {
     div().ml_1().text_xs().opacity(0.6).child(key)
 }
 
-fn render_approval(request: &AppApprovalRequest, cx: &mut Context<Chat>) -> AnyElement {
-    let theme = cx.theme();
-    let summary = request
-        .preview
-        .as_ref()
-        .map(|preview| preview.summary.clone())
-        .filter(|summary| !summary.trim().is_empty());
-    let full_body = approval_body(request);
-    let body = full_body
-        .as_ref()
-        .map(|body| format::clip_block(body, PREVIEW_LINES, PREVIEW_CHARS));
-    let truncated = full_body
-        .as_ref()
-        .is_some_and(|body| body.len() > PREVIEW_CHARS || body.lines().count() > PREVIEW_LINES);
-
+fn render_approval_actions(
+    request: &AppApprovalRequest,
+    identical: Vec<String>,
+    expanded: bool,
+    cx: &mut Context<Chat>,
+) -> AnyElement {
+    let shortcut = if cx.platform_info().is_mac() {
+        "⌘Enter"
+    } else {
+        "Ctrl+Enter"
+    };
     let id = request.approval_id.clone();
     let (approve_id, deny_id) = (id.clone(), id.clone());
     let allow = kit::button(SharedString::from(format!("approve-{id}")))
         .faded_label("Разрешить один раз")
-        .child(key_hint("⏎"))
+        .children(expanded.then(|| key_hint(shortcut)))
         .primary()
         .small()
         .on_click(cx.listener(move |this, _, window, cx| {
@@ -221,18 +250,16 @@ fn render_approval(request: &AppApprovalRequest, cx: &mut Context<Chat>) -> AnyE
             this.focus(window, cx);
         }));
     let choices = cache_choices(request);
-    let allow = if choices.is_empty() {
-        allow.into_any_element()
-    } else {
+    let always = (!choices.is_empty()).then(|| {
         let chat = cx.entity().downgrade();
         let menu_id = id.clone();
-        crate::ui::context::split_button(
+        crate::ui::context::menu_button(
             SharedString::from(format!("approve-menu-{id}")),
-            allow,
-            kit::button(SharedString::from(format!("approve-arrow-{id}")))
-                .primary()
+            kit::button(SharedString::from(format!("approve-always-{id}")))
+                .faded_label("Разрешать всегда")
+                .hint("Выбрать, какие действия разрешать автоматически", cx)
                 .small(),
-            false,
+            true,
             move |menu, _, _| {
                 choices.iter().fold(menu, |menu, &(label, scope)| {
                     let (chat, id) = (chat.clone(), menu_id.clone());
@@ -246,8 +273,93 @@ fn render_approval(request: &AppApprovalRequest, cx: &mut Context<Chat>) -> AnyE
                 })
             },
         )
+        .align_end()
+    });
+    // The identical requests describe the same operation, including its
+    // arguments and scope. The bulk action submits only the IDs shown here.
+    let all = (identical.len() > 1).then(|| {
+        kit::button(SharedString::from(format!("approve-all-{id}")))
+            .faded_label(format!("Все {}", identical.len()))
+            .hint("Разрешить одинаковые запросы один раз", cx)
+            .small()
+            .on_click(cx.listener(move |chat, _, window, cx| {
+                chat.resolve_approvals(&identical, true, ApprovalCacheScope::None, cx);
+                chat.focus(window, cx);
+            }))
+    });
+    let card_id = id.clone();
+    h_flex()
+        .id(SharedString::from(format!("approval-actions-{id}")))
+        .px_3()
+        .py_2()
+        .justify_end()
+        .flex_wrap()
+        .gap_2()
+        .capture_key_down(cx.listener(move |chat, event: &KeyDownEvent, _, cx| {
+            if event.keystroke.key == "enter"
+                && (event.is_held || request_fresh(&ActivityId::Approval(card_id.clone()), chat))
+            {
+                cx.stop_propagation();
+            }
+        }))
+        .child(
+            kit::button(SharedString::from(format!("deny-{deny_id}")))
+                .faded_label("Отклонить")
+                .children(expanded.then(|| key_hint("Esc")))
+                .small()
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.resolve_approval(deny_id.clone(), false, ApprovalCacheScope::None, cx);
+                    this.focus(window, cx);
+                })),
+        )
+        .child(allow)
+        .children(always)
+        .children(all)
         .into_any_element()
-    };
+}
+
+fn render_approval_preview(
+    request: &AppApprovalRequest,
+    window: &mut Window,
+    cx: &mut Context<Chat>,
+) -> AnyElement {
+    let theme = cx.theme().clone();
+    let summary = request
+        .preview
+        .as_ref()
+        .map(|preview| {
+            if preview.affected_files.is_empty() {
+                preview.summary.clone()
+            } else {
+                preview.affected_files.join(", ")
+            }
+        })
+        .filter(|summary| !summary.trim().is_empty());
+    let full_body = approval_body(request);
+    let body = full_body
+        .as_ref()
+        .map(|body| format::clip_block(body, PREVIEW_LINES, PREVIEW_CHARS));
+    let truncated = full_body
+        .as_ref()
+        .is_some_and(|body| body.len() > PREVIEW_CHARS || body.lines().count() > PREVIEW_LINES);
+
+    let id = request.approval_id.clone();
+    let patch = full_body.as_deref().filter(|patch| {
+        (request.call.name == tool_display::APPLY_PATCH
+            || request
+                .preview
+                .as_ref()
+                .is_some_and(|preview| preview.kind == "patch"))
+            && patch.len() <= 64 * 1024
+    });
+    let diff = patch.and_then(|patch| {
+        let diff = window.use_keyed_state(
+            SharedString::from(format!("approval-diff-{id}")),
+            cx,
+            |_, cx| crate::ui::diff::DiffView::new(Arc::new(patch.to_owned()), Vec::new(), cx),
+        );
+        diff.read(cx).has_files().then_some(diff)
+    });
     panel_card(cx)
         .gap_2()
         .child(
@@ -259,7 +371,11 @@ fn render_approval(request: &AppApprovalRequest, cx: &mut Context<Chat>) -> AnyE
                         .small()
                         .tone(IconTone::Muted),
                 )
-                .child(div().font_medium().child(request.call.name.clone()))
+                .child(div().font_medium().child(match approval_icon(request) {
+                    Lucide::FilePen => "Нужно разрешение на изменение файлов",
+                    Lucide::SquareTerminal => "Нужно разрешение на выполнение команды",
+                    _ => "Нужно разрешение на вызов инструмента",
+                }))
                 .children(summary.map(|summary| {
                     div()
                         .min_w_0()
@@ -269,7 +385,11 @@ fn render_approval(request: &AppApprovalRequest, cx: &mut Context<Chat>) -> AnyE
                 })),
         )
         .children(approval_reason(request).map(|reason| div().text_sm().child(reason)))
-        .children(body.map(|body| {
+        .children(
+            diff.clone()
+                .map(|diff| div().w_full().h(prefs::scaled(220.)).child(diff)),
+        )
+        .children(body.filter(|_| diff.is_none()).map(|body| {
             kit::code_surface(cx)
                 .id(SharedString::from(format!("approval-body-{id}")))
                 .max_h(prefs::scaled(280.))
@@ -313,26 +433,5 @@ fn render_approval(request: &AppApprovalRequest, cx: &mut Context<Chat>) -> AnyE
                     });
                 })
         }))
-        .child(
-            h_flex()
-                .justify_end()
-                .gap_2()
-                .child(
-                    kit::button(SharedString::from(format!("deny-{deny_id}")))
-                        .faded_label("Отклонить")
-                        .child(key_hint("Esc"))
-                        .small()
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.resolve_approval(
-                                deny_id.clone(),
-                                false,
-                                ApprovalCacheScope::None,
-                                cx,
-                            );
-                            this.focus(window, cx);
-                        })),
-                )
-                .child(allow),
-        )
         .into_any_element()
 }

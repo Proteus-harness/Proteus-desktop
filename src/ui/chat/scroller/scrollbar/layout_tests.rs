@@ -415,8 +415,8 @@ fn native_wheel_observer_cannot_reanchor_the_thumb_before_parent_replays_pixels(
         control_wheel.push(px(1800.), &control.list);
         observed_wheel.push(px(1800.), &observed.list);
         for frame in 0..9 {
-            control_wheel.step(&control.list, px(400.));
-            observed_wheel.step(&observed.list, px(400.));
+            control_wheel.step(&control.list, px(400.), px(0.));
+            observed_wheel.step(&observed.list, px(400.), px(0.));
             draw(cx, &control, range);
             draw(cx, &observed, range);
             control_wheel

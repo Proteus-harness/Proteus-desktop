@@ -314,16 +314,19 @@ impl Launcher {
                                     .child("Выберите рабочую папку агента."),
                             ),
                     )
-                    .children(
-                        error.map(|error| div().text_sm().text_color(theme.danger).child(error)),
-                    )
+                    .children(error.map(|error| {
+                        div()
+                            .text_sm()
+                            .text_color(crate::ui::theme::danger_text(&theme))
+                            .child(error)
+                    }))
                     .when(has_recent, |column| {
                         column.child(
                             v_flex()
                                 .gap_1()
                                 .child(
                                     div()
-                                        .px_3()
+                                        .px_2()
                                         .text_xs()
                                         .font_semibold()
                                         .text_color(theme.muted_foreground)

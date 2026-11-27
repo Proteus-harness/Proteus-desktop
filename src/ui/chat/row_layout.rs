@@ -4,7 +4,7 @@ use std::ops::Range;
 use super::history::Direction;
 use crate::transcript::{Change, Entry, affected_rows};
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct RowContext {
     leading: Range<usize>,
     trailing: Range<usize>,

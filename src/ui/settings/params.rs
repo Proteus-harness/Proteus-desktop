@@ -168,11 +168,12 @@ impl SettingsView {
                 .gap_1p5()
                 .px(if embedded { rems(1.) } else { rems(0.) })
                 .children(field.map(|field| self.text_area(&field.input, cx)))
-                .children(
-                    field
-                        .and_then(|field| field.error.clone())
-                        .map(|error| div().text_xs().text_color(theme.danger).child(error)),
-                )
+                .children(field.and_then(|field| field.error.clone()).map(|error| {
+                    div()
+                        .text_xs()
+                        .text_color(crate::ui::theme::danger_text(&theme))
+                        .child(error)
+                }))
                 .children(hint.map(|hint| {
                     div()
                         .text_xs()

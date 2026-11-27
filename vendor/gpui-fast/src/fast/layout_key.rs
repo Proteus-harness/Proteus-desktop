@@ -3,7 +3,7 @@
 
 use crate::{
     AnyElement, App, AvailableSpace, ElementId, Pixels, SharedString, Size, Window,
-    fast::stats::FramePhaseTimes,
+    fast::stats::{FramePhaseTimes, FrameSamples},
 };
 use collections::FxHasher;
 use smallvec::SmallVec;
@@ -27,6 +27,7 @@ pub(crate) struct WindowLayout {
     prepaint_scope: u64,
     /// How long each phase of the frame took. See [`FramePhaseTimes`].
     pub(crate) phase_times: FramePhaseTimes,
+    pub(crate) frame_samples: Option<FrameSamples>,
 }
 
 impl Default for WindowLayout {
@@ -36,6 +37,7 @@ impl Default for WindowLayout {
             root_index: 0,
             prepaint_scope: LAYOUT_ROOT_SEED,
             phase_times: FramePhaseTimes::default(),
+            frame_samples: None,
         }
     }
 }

@@ -307,7 +307,7 @@ fn render_face(face: &Face, style: FaceStyle, cx: &App) -> Rc<dyn Fn() -> AnyEle
             let color = if display == RingDisplay::Number {
                 super::render::tone_color(*tone, cx)
             } else {
-                crate::ui::theme::glyph_color(super::render::icon_tone(*tone), cx.theme().mode)
+                crate::ui::theme::glyph_color(super::render::icon_tone(*tone), cx.theme())
             };
             Rc::new(move || metric_face(id.clone(), title.clone(), percent, color, display))
         }

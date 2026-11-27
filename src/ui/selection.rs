@@ -64,12 +64,17 @@ pub(crate) fn menu_option_with_color(
             .shape_line(label.clone(), font, &[style.to_run(label.len())], None)
             .width()
             .ceil();
+        let check_size = prefs::scaled(14.);
+        let gap = prefs::scaled(8.);
         h_flex()
             .id("menu-option")
             .aria_label(label.clone())
             .aria_selected(selected)
             .relative()
-            .w(natural_width)
+            .w(natural_width
+                + check_size.to_pixels(window.rem_size())
+                + gap.to_pixels(window.rem_size()))
+            .gap(gap)
             .min_w_0()
             .flex_grow(1.)
             .text_sm()
@@ -95,6 +100,12 @@ pub(crate) fn menu_option_with_color(
                     .flex_1()
                     .min_w_0()
                     .child(super::fade::caption("menu-option-caption", label.clone())),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .size(check_size)
+                    .children(selected.then(|| Icon::new(IconName::Check).size(check_size))),
             )
     })
 }

@@ -549,6 +549,8 @@ pub enum ScrollSource {
     /// apart from wheel notches.
     #[default]
     Pointer,
+    /// A trackpad with explicit gesture completion from the platform.
+    Touchpad,
     /// A pan of a finger on a touchscreen, recognized by GPUI, including the
     /// momentum GPUI synthesizes after the finger lifts.
     Touch,

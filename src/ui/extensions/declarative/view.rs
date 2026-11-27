@@ -419,7 +419,7 @@ impl DeclarativeView {
             .child(
                 div()
                     .text_sm()
-                    .text_color(theme.danger)
+                    .text_color(crate::ui::theme::danger_text(&theme))
                     .child("Расширение не отвечает"),
             )
             .child(

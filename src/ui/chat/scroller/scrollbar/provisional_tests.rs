@@ -176,14 +176,14 @@ fn pending_native_rows_measure_a_prepended_page_before_queued_wheel_up_consumes_
     );
     wheel.invalidate(&bar.list);
     assert!(
-        wheel.step(&bar.list, px(400.)),
+        wheel.step(&bar.list, px(400.), px(0.)),
         "no layout means no replay yet"
     );
     assert_eq!(bar.list.logical_scroll_top().item_ix, 50);
     for _ in 0..8 {
         paint(cx);
         wheel.painted.set(Some(bar.list.logical_scroll_top()));
-        if !wheel.step(&bar.list, px(400.)) {
+        if !wheel.step(&bar.list, px(400.), px(0.)) {
             break;
         }
     }

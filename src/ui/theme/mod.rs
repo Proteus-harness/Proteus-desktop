@@ -4,7 +4,7 @@
 
 mod fonts;
 mod icons;
-pub(in crate::ui) use icons::color as glyph_color;
+pub(in crate::ui) use icons::{color as glyph_color, danger_text, success_text, warning_text};
 mod interaction;
 mod palettes;
 mod surface_palette;

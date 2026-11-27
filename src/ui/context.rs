@@ -12,7 +12,7 @@ use gpui_kit::component::*;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AvailableSpace, Bounds, Context, DismissEvent, ElementId, Entity,
-    Focusable as _, InteractiveElement, IntoElement, MouseButton, ParentElement as _, Pixels,
+    Focusable as _, Hsla, InteractiveElement, IntoElement, MouseButton, ParentElement as _, Pixels,
     Refineable as _, RenderOnce, SharedString, StyleRefinement, Styled, Window, canvas, div, px,
     size,
 };
@@ -40,12 +40,13 @@ pub(crate) struct ContextMenu {
     style: StyleRefinement,
     at_pointer: bool,
     settings_selector: bool,
+    align_end: bool,
 }
 
 enum Trigger {
     Element(AnyElement),
     Button(Button, bool),
-    Split(Button, Button, bool),
+    Split(Button, Button, Hsla, bool),
 }
 
 /// A dropdown anchored to the entire button, sharing context-menu motion.
@@ -62,6 +63,7 @@ pub(crate) fn menu_button(
         style: StyleRefinement::default(),
         at_pointer: false,
         settings_selector: false,
+        align_end: false,
     }
 }
 
@@ -71,16 +73,18 @@ pub(crate) fn split_button(
     id: impl Into<ElementId>,
     main: Button,
     arrow: Button,
+    chevron_color: Hsla,
     disabled: bool,
     build: impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static,
 ) -> ContextMenu {
     ContextMenu {
         id: id.into(),
-        trigger: Trigger::Split(main, arrow, disabled),
+        trigger: Trigger::Split(main, arrow, chevron_color, disabled),
         build: std::rc::Rc::new(build),
         style: StyleRefinement::default(),
         at_pointer: false,
         settings_selector: false,
+        align_end: false,
     }
 }
 
@@ -94,6 +98,11 @@ impl ContextMenu {
 
     /// Text selection menus belong beside the selected text. They still use
     /// the shared popup, sizing, focus restoration and reversible motion.
+    pub(crate) fn align_end(mut self) -> Self {
+        self.align_end = true;
+        self
+    }
+
     pub(crate) fn at_pointer(mut self) -> Self {
         self.at_pointer = true;
         self
@@ -125,7 +134,8 @@ impl RenderOnce for ContextMenu {
         let build = self.build;
         let measure_build = build.clone();
         let menu_open = state.read(cx).popup.is_open();
-        let disabled = matches!(&self.trigger, Trigger::Split(_, _, true));
+        let disabled = matches!(&self.trigger, Trigger::Split(_, _, _, true));
+        let align_end = self.align_end || matches!(&self.trigger, Trigger::Split(..));
         let at_pointer = self.at_pointer;
         let (click_state, click_build) = (state.clone(), build.clone());
         let trigger = match self.trigger {
@@ -147,11 +157,11 @@ impl RenderOnce for ContextMenu {
                     click(&click_state, &click_build, window, cx);
                 })
                 .into_any_element(),
-            Trigger::Split(main, arrow, disabled) => {
+            Trigger::Split(main, arrow, chevron_color, disabled) => {
                 let chevron = motion::menu_chevron(
                     ElementId::Name(format!("{:?}:chevron", self.id).into()),
                     menu_open,
-                    cx.theme().muted_foreground,
+                    chevron_color,
                     motion::moves(cx),
                 );
                 h_flex()
@@ -240,19 +250,13 @@ impl RenderOnce for ContextMenu {
         let Some((menu, frame)) = shown else {
             return root;
         };
-        // Native items already have 4 px of padding. Keep their rectangular
-        // paint inside the shared corner even at the largest surface radius.
-        let inset = (f32::from(prefs::visual(cx).view.surface_radius) * 0.3)
-            .ceil()
-            .max(4.)
-            - 4.;
         root.child(motion::popup(
-            div().relative().p(prefs::scaled(inset)).child(menu),
+            div().relative().p(menu_inset(cx)).child(menu),
             ElementId::Name(format!("{:?}:popup", self.id).into()),
             if settings_selector {
                 frame.selector().align_end()
             } else {
-                frame
+                if align_end { frame.align_end() } else { frame }
             },
             cx,
         ))
@@ -270,6 +274,12 @@ fn click(state: &Entity<MenuState>, build: &Build, window: &mut Window, cx: &mut
     open(state, build, window, cx);
 }
 
+fn menu_inset(cx: &App) -> gpui_kit::Rems {
+    // The native menu already has 4 px of padding.
+    let radius = f32::from(prefs::visual(cx).view.surface_radius);
+    prefs::scaled((radius * 0.3).ceil().max(12.) - 4.)
+}
+
 /// Builds the menu afresh, so its items reflect the moment it opens, and
 /// retains only its inert drawing while dismissal animates.
 fn open(state: &Entity<MenuState>, build: &Build, window: &mut Window, cx: &mut App) {
@@ -279,20 +289,18 @@ fn open(state: &Entity<MenuState>, build: &Build, window: &mut Window, cx: &mut 
     }
     let build = build.clone();
     let previous_focus = window.focused(cx);
-    let margin = prefs::scaled(16.).to_pixels(window.rem_size());
-    let room = window.viewport_size();
+    let inset = menu_inset(cx).to_pixels(window.rem_size()) * 2.;
     let max_height = prefs::scaled(360.)
         .to_pixels(window.rem_size())
-        .min((room.height - margin).max(px(0.)));
+        .min((motion::popup_inner_height(window) - inset).max(px(0.)));
+    let max_width = prefs::scaled(560.)
+        .to_pixels(window.rem_size())
+        .min((motion::popup_inner_width(window) - inset).max(px(0.)));
     let menu = PopupMenu::build(window, cx, move |menu, window, cx| {
         let menu = menu
             .appearance(false)
             .min_w(px(0.))
-            .max_w(
-                prefs::scaled(560.)
-                    .to_pixels(window.rem_size())
-                    .min((room.width - margin).max(px(0.))),
-            )
+            .max_w(max_width)
             .max_h(max_height);
         build(menu, window, cx).scrollable(false)
     });
@@ -336,6 +344,7 @@ pub(crate) trait RightClickMenu: InteractiveElement + IntoElement + Sized + 'sta
             style: StyleRefinement::default(),
             at_pointer: false,
             settings_selector: false,
+            align_end: false,
         }
     }
 }

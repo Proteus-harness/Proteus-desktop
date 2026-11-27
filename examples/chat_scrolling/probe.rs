@@ -42,6 +42,74 @@ fn press(position: Point<Pixels>) -> MouseDownEvent {
     }
 }
 
+async fn verify_burst(
+    this: &WeakEntity<Fixture>,
+    window: AnyWindowHandle,
+    cx: &mut AsyncApp,
+    origin: Point<Pixels>,
+    delta: f32,
+    samples: &mut Vec<serde_json::Value>,
+) -> anyhow::Result<()> {
+    let requested = -f64::from(delta) * 18.;
+    // Unknown rows are deliberately taller than the measured overdraw. All
+    // events arrive before another real layout; no direct list calls occur.
+    let before = sample(this, cx)?;
+    let first_frame = this.read_with(cx, |this, _| this.geometry.frames.borrow().len())?;
+    window.update(cx, |_, window, cx| {
+        for _ in 0..18 {
+            window.dispatch_event(
+                ScrollEvent {
+                    position: origin,
+                    delta: ScrollDelta::Pixels(point(px(0.), px(delta))),
+                    ..Default::default()
+                }
+                .to_platform_input(),
+                cx,
+            );
+        }
+    })?;
+    let mut after = sample(this, cx)?;
+    for _ in 0..100 {
+        pause(cx, 50).await;
+        after = sample(this, cx)?;
+        if (offset(&after) - offset(&before) - requested).abs() < 2. {
+            break;
+        }
+    }
+    samples.push(
+        serde_json::json!({"stage":"burst-wheel", "requested_pixels":requested,
+        "before":before, "after":after}),
+    );
+    anyhow::ensure!(
+        (offset(&after) - offset(&before) - requested).abs() < 2.,
+        "18 wheel events did not travel {requested} physical pixels: {}",
+        offset(&after) - offset(&before)
+    );
+    let frames = this.read_with(cx, |this, _| {
+        this.geometry.frames.borrow()[first_frame..].to_vec()
+    })?;
+    let mut previous = offset(&before);
+    let mut largest_step: f64 = 0.;
+    for frame in &frames {
+        largest_step = largest_step.max((offset(frame) - previous).abs());
+        previous = offset(frame);
+    }
+    let max_step = if delta < 0. { 400. } else { 200. };
+    let min_frames = (requested.abs() / max_step).ceil() as usize;
+    samples.push(serde_json::json!({"stage":"burst-wheel-real-layouts",
+        "requested_pixels":requested, "largest_physical_step":largest_step, "frames":frames}));
+    anyhow::ensure!(
+        frames.len() >= min_frames && (previous - offset(&after)).abs() < 2.,
+        "physical frame trace missed wheel layouts"
+    );
+    anyhow::ensure!(
+        largest_step <= max_step + 0.5,
+        "wheel crossed unmeasured rows in one layout: {largest_step} physical pixels"
+    );
+
+    Ok(())
+}
+
 async fn stopped(
     name: &str,
     this: &WeakEntity<Fixture>,
@@ -230,59 +298,8 @@ async fn verify(
     )?;
     pause(cx, 100).await;
 
-    // Unknown rows are deliberately taller than the measured overdraw. All
-    // events arrive before another real layout; no direct list calls occur.
-    let before = sample(this, cx)?;
-    let first_frame = this.read_with(cx, |this, _| this.geometry.frames.borrow().len())?;
-    window.update(cx, |_, window, cx| {
-        for _ in 0..18 {
-            window.dispatch_event(
-                ScrollEvent {
-                    position: origin,
-                    delta: ScrollDelta::Pixels(point(px(0.), px(-180.))),
-                    ..Default::default()
-                }
-                .to_platform_input(),
-                cx,
-            );
-        }
-    })?;
-    let mut after = sample(this, cx)?;
-    for _ in 0..100 {
-        pause(cx, 50).await;
-        after = sample(this, cx)?;
-        if (offset(&after) - offset(&before) - 3240.).abs() < 2. {
-            break;
-        }
-    }
-    samples.push(
-        serde_json::json!({"stage":"burst-wheel", "requested_pixels":3240,
-        "before":before, "after":after}),
-    );
-    anyhow::ensure!(
-        (offset(&after) - offset(&before) - 3240.).abs() < 2.,
-        "18 wheel events did not travel exactly 3240 physical pixels: {}",
-        offset(&after) - offset(&before)
-    );
-    let frames = this.read_with(cx, |this, _| {
-        this.geometry.frames.borrow()[first_frame..].to_vec()
-    })?;
-    let mut previous = offset(&before);
-    let mut largest_step: f64 = 0.;
-    for frame in &frames {
-        largest_step = largest_step.max((offset(frame) - previous).abs());
-        previous = offset(frame);
-    }
-    anyhow::ensure!(
-        frames.len() >= 17 && (previous - offset(&after)).abs() < 2.,
-        "physical frame trace missed wheel layouts"
-    );
-    samples.push(serde_json::json!({"stage":"burst-wheel-real-layouts",
-        "largest_physical_step":largest_step, "frames":frames}));
-    anyhow::ensure!(
-        largest_step <= 200.5,
-        "wheel crossed unmeasured rows in one layout: {largest_step} physical pixels"
-    );
+    verify_burst(this, window, cx, origin, -180., samples).await?;
+    verify_burst(this, window, cx, origin, 180., samples).await?;
 
     // A click/hold and ten-pixel wobble remain within the deadzone.
     send(window, cx, press(origin))?;

@@ -96,7 +96,7 @@ pub enum IconTone {
 }
 
 /// Optional application policy for rendering glyphs independently of text palettes.
-pub struct IconColorPolicy(pub fn(IconTone, crate::ThemeMode) -> Hsla);
+pub struct IconColorPolicy(pub fn(IconTone, &crate::Theme) -> Hsla);
 impl gpui::Global for IconColorPolicy {}
 
 #[derive(Clone, IntoElement)]
@@ -178,7 +178,7 @@ impl Icon {
 
     fn apply_color_policy(mut self, cx: &App) -> Self {
         if let Some(policy) = cx.try_global::<IconColorPolicy>() {
-            self.text_color = Some((policy.0)(self.tone, cx.theme().mode));
+            self.text_color = Some((policy.0)(self.tone, cx.theme()));
         }
         self
     }

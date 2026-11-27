@@ -181,7 +181,7 @@ impl SettingsView {
         let Some(values) = array(spec.effective()) else {
             return div()
                 .text_sm()
-                .text_color(cx.theme().warning)
+                .text_color(crate::ui::theme::warning_text(cx.theme()))
                 .child("Здесь сохранён не список. Проверьте значение в JSON.")
                 .into_any_element();
         };

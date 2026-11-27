@@ -166,7 +166,7 @@ impl Render for ConfigPicker {
                 body.child(
                     div()
                         .text_sm()
-                        .text_color(cx.theme().warning)
+                        .text_color(crate::ui::theme::warning_text(cx.theme()))
                         .child(problem),
                 )
             })

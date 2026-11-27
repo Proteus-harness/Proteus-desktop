@@ -12,11 +12,16 @@ use gpui_kit::*;
 
 use super::{PopupOrigin, SLOW, ease_enter};
 
-const POPUP_MARGIN: Pixels = px(8.);
+const POPUP_MARGIN: Pixels = px(12.);
 
 /// Space available inside the two 1 px frame edges of an unattached popup.
 pub(in crate::ui) fn popup_inner_height(window: &Window) -> Pixels {
     (Positioner::available_height(window, POPUP_MARGIN) - px(2.)).max(px(0.))
+}
+
+/// Horizontal space inside an unattached popup's frame and viewport margins.
+pub(in crate::ui) fn popup_inner_width(window: &Window) -> Pixels {
+    (window.viewport_size().width - (POPUP_MARGIN + px(1.)) * 2.).max(px(0.))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -252,7 +257,7 @@ impl<T> Popup<T> {
             open: self.presence.open,
             placement: Placement::Bottom,
             align: Align::Start,
-            gap: px(4.),
+            gap: px(8.),
             attachment: None,
             bordered: false,
             progress,
@@ -296,6 +301,11 @@ pub(in crate::ui) fn popup(
                 Placement::Left => surface.border_r_0().rounded_tr(px(0.)).rounded_br(px(0.)),
                 Placement::Right => surface.border_l_0().rounded_tl(px(0.)).rounded_bl(px(0.)),
             }
+        })
+        .when(frame.attachment.is_none(), |surface| {
+            surface.shadow(vec![
+                BoxShadow::new(px(0.), px(8.), black().opacity(0.4)).blur_radius(px(24.)),
+            ])
         })
         .relative()
         .child(element)

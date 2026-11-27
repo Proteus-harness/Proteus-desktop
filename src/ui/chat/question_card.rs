@@ -122,7 +122,11 @@ impl UserInputDrafts {
             )
             .child(
                 kit::button(SharedString::from(format!("question-go-{rid}")))
-                    .faded_label(if last { "Send" } else { "Далее" })
+                    .faded_label(if last {
+                        "Отправить"
+                    } else {
+                        "Далее"
+                    })
                     .primary()
                     .small()
                     .disabled(!answered)

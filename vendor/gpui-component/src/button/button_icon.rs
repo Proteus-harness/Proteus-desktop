@@ -31,9 +31,9 @@ impl ButtonIcon {
         }
     }
 
-    pub(crate) fn muted(mut self) -> Self {
+    pub(crate) fn tone(mut self, tone: crate::IconTone) -> Self {
         if let ButtonIconVariant::Icon(icon) = self.icon {
-            self.icon = ButtonIconVariant::Icon(icon.tone(crate::IconTone::Muted));
+            self.icon = ButtonIconVariant::Icon(icon.tone(tone));
         }
         self
     }

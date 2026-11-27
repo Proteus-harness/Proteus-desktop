@@ -68,7 +68,11 @@ impl SettingsView {
                             .gap_3()
                             .items_center()
                             .max_w(prefs::scaled(560.))
-                            .child(div().text_color(cx.theme().danger).child(error.clone()))
+                            .child(
+                                div()
+                                    .text_color(crate::ui::theme::danger_text(cx.theme()))
+                                    .child(error.clone()),
+                            )
                             .child(
                                 kit::button("settings-retry")
                                     .faded_label("Повторить")

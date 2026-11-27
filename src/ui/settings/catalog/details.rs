@@ -276,7 +276,12 @@ impl SettingsView {
                     .children(
                         item.present
                             .and_then(|package| package.problem.clone())
-                            .map(|problem| div().text_xs().text_color(theme.danger).child(problem)),
+                            .map(|problem| {
+                                div()
+                                    .text_xs()
+                                    .text_color(crate::ui::theme::danger_text(&theme))
+                                    .child(problem)
+                            }),
                     )
                     .child(
                         div()

@@ -156,6 +156,8 @@ impl ChatEvent {
 
 pub(super) struct Chat {
     api: Option<Api>,
+    restarting_backend: bool,
+    backend_stopped: bool,
     codex: Option<codex::Binding>,
     readonly: Option<readonly::Binding>,
     workspace: WeakEntity<crate::ui::workspace::Workspace>,
@@ -165,7 +167,13 @@ pub(super) struct Chat {
     context_requests: context_requests::ContextRequests,
     history: history::History,
     scroller: Entity<ChatScroller>,
+    thread_view: Entity<view::ChatListView>,
+    scrollbar: scroller::HistoryScrollbar,
     composer: Entity<TextareaState>,
+    composer_input: Entity<composer::ComposerInput>,
+    composer_blank: bool,
+    send_button: Entity<composer::SendButton>,
+    transcript_entered_at: Option<std::time::Instant>,
     /// A separate view owns animation ticks so they never repaint the thread.
     thinking_caption: Entity<super::motion::Shimmer>,
     composer_strip_bounds: Rc<Cell<Bounds<Pixels>>>,
@@ -191,6 +199,7 @@ pub(super) struct Chat {
     turn_copy: turn_footer::CopyState,
     /// Approval and question cards that just arrived, for enter motion.
     fresh_requests: Recent,
+    approvals_in_flight: HashSet<String>,
     user_input: UserInputDrafts,
     /// Retained selection of the common strip above the input.
     activity_dock: activity_dock::DockState,
@@ -298,6 +307,62 @@ impl Chat {
         self.load_config(cx);
     }
 
+    pub(super) fn core_stopped(&mut self, connection: u64, report: &str, cx: &mut Context<Self>) {
+        if self.core_connection() != Some(connection) {
+            return;
+        }
+        self._pump = None;
+        self.config_generation = self.config_generation.wrapping_add(1);
+        self.session.stream_disconnected(report.to_owned());
+        self.backend_stopped = true;
+        self.session.pending = None;
+        self.approvals_in_flight.clear();
+        cx.emit(ChatEvent::state_changed());
+        cx.notify();
+    }
+
+    pub(super) fn core_connection(&self) -> Option<u64> {
+        self.api.as_ref().map(Api::connection_id)
+    }
+
+    pub(super) fn set_restarting_backend(&mut self, restarting: bool, cx: &mut Context<Self>) {
+        self.restarting_backend = restarting;
+        cx.notify();
+    }
+
+    pub(super) fn finish_backend_restart(
+        &mut self,
+        api: Api,
+        result: anyhow::Result<()>,
+        cx: &mut Context<Self>,
+    ) {
+        self.set_restarting_backend(false, cx);
+        match result {
+            Ok(()) => {
+                self.backend_stopped = false;
+                self.attach_core(api, None, cx);
+            }
+            Err(error) => self.show_error(
+                format!(
+                    "Не удалось восстановить чат.
+{error:#}"
+                ),
+                cx,
+            ),
+        }
+    }
+
+    pub(super) fn backend_restart_failed(&mut self, detail: &str, cx: &mut Context<Self>) {
+        self.set_restarting_backend(false, cx);
+        self.show_error(
+            format!(
+                "Не удалось запустить агента.
+{detail}"
+            ),
+            cx,
+        );
+    }
+
     fn base(
         api: Option<Api>,
         workspace: WeakEntity<crate::ui::workspace::Workspace>,
@@ -308,12 +373,14 @@ impl Chat {
     ) -> Self {
         let autoscroll = prefs::visual(cx).view.autoscroll;
         let scroller = cx.new(|_| ChatScroller::new(autoscroll));
+        let scrollbar = scroller.read(cx).scrollbar_handle();
         let enter_sends = prefs::current(cx).send == SendMode::Enter;
         let composer = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(1, 12)
                 .placeholder("Сообщение для Proteus")
                 .submit_on_enter(enter_sends)
+                .submit_on_secondary_enter()
         });
         let subscriptions = vec![
             cx.subscribe(&scroller, |this, _, event: &scroller::HistoryEdge, cx| {
@@ -332,8 +399,15 @@ impl Chat {
         ];
         let visual_subscriptions = Self::observe_visual_preferences(window, cx);
         let composer_events = Self::subscribe_composer(&composer, window, cx);
+        let chat = cx.weak_entity();
+        let send_button = cx.new(|_| composer::SendButton::new(chat.clone()));
+        let composer_input =
+            cx.new(|_| composer::ComposerInput::new(chat.clone(), composer.clone()));
+        let thread_view = cx.new(|cx| view::ChatListView::new(chat, scroller.clone(), cx));
         Self {
             api,
+            restarting_backend: false,
+            backend_stopped: false,
             workspace,
             codex: None,
             readonly: None,
@@ -342,7 +416,13 @@ impl Chat {
             context_requests: context_requests::ContextRequests::default(),
             history: history::History::default(),
             scroller,
+            thread_view,
+            scrollbar,
             composer,
+            composer_input,
+            composer_blank: true,
+            send_button,
+            transcript_entered_at: None,
             thinking_caption: cx.new(|_| super::motion::Shimmer::new("Думаю")),
             composer_strip_bounds: Rc::default(),
             attachments: Attachments::default(),
@@ -358,7 +438,8 @@ impl Chat {
             fresh_rows: Recent::default(),
             stamp_tail: None,
             turn_copy: Default::default(),
-            fresh_requests: Recent::default(),
+            fresh_requests: Recent::with_window(std::time::Duration::from_millis(500)),
+            approvals_in_flight: HashSet::new(),
             user_input: UserInputDrafts::default(),
             activity_dock: activity_dock::DockState::default(),
             extension_activities: HashMap::new(),
@@ -472,7 +553,11 @@ impl Chat {
                     return;
                 }
                 if matches!(event, InputEvent::Change) {
-                    cx.notify();
+                    let blank = this.composer.read(cx).is_blank();
+                    if this.composer_blank != blank {
+                        this.composer_blank = blank;
+                        this.update_send_button(cx);
+                    }
                     return;
                 }
                 let InputEvent::PressEnter { secondary, shift } = *event else {
@@ -485,9 +570,10 @@ impl Chat {
                 if !sends {
                     return;
                 }
-                let empty =
-                    this.composer.read(cx).is_blank() && this.attachments.is_empty();
-                if !(empty && this.confirm_pending(window, cx)) {
+                let empty = this.composer.read(cx).is_blank() && this.attachments.is_empty();
+                if empty {
+                    this.advance_pending_question(window, cx);
+                } else {
                     this.send(window, cx);
                 }
             },

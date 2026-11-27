@@ -60,7 +60,7 @@ impl SettingsView {
                 .map(|problem| {
                     div()
                         .text_sm()
-                        .text_color(cx.theme().danger)
+                        .text_color(crate::ui::theme::danger_text(cx.theme()))
                         .child(problem)
                         .into_any_element()
                 }),
@@ -194,7 +194,10 @@ impl SettingsView {
                             .gap_1()
                             .child(kit::input(&input.state).small().w_full())
                             .children(input.error.clone().map(|error| {
-                                div().text_xs().text_color(cx.theme().danger).child(error)
+                                div()
+                                    .text_xs()
+                                    .text_color(crate::ui::theme::danger_text(cx.theme()))
+                                    .child(error)
                             }));
                         rows.push(field_row(field.title(), editor, Fit::Fill).into_any_element());
                     }

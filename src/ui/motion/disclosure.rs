@@ -19,7 +19,9 @@ pub(in crate::ui) fn chevron(
     color: Hsla,
     cx: &App,
 ) -> AnyElement {
-    let icon = Icon::new(IconName::ChevronRight).xsmall().text_color(color);
+    let icon = Icon::new(IconName::ChevronRight)
+        .xsmall()
+        .tone(gpui_kit::component::IconTone::Custom(color));
     if !moves(cx) {
         let angle = if open { FRAC_PI_2 } else { 0. };
         return icon.rotate(radians(angle)).into_any_element();
@@ -37,7 +39,9 @@ pub(in crate::ui) fn menu_chevron(
     color: Hsla,
     animate: bool,
 ) -> AnyElement {
-    let icon = Icon::new(IconName::ChevronDown).xsmall().text_color(color);
+    let icon = Icon::new(IconName::ChevronDown)
+        .xsmall()
+        .tone(gpui_kit::component::IconTone::Custom(color));
     let target = std::f32::consts::PI;
     if !animate {
         return icon
