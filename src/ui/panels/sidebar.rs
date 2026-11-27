@@ -1,9 +1,9 @@
 //! The side panel between the rail and the tabs: one panel at a time,
 //! opened from the rail, as wide as its edge is dragged; a double click on
-//! the edge gives back the default width. It slides open and closed, and a
-//! panel replacing another fades in.
+//! the edge gives back the default width. Panel content fades in at its
+//! final size.
 
-use gpui_kit::component::{ActiveTheme as _, h_flex};
+use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::*;
 
 use crate::preferences::{SIDEBAR_WIDTH, SidebarPreferences};
@@ -46,24 +46,13 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let shown = self.shown_panel(cx);
-        let open = motion::glide("sidebar".into(), shown.is_some(), motion::BASE, window, cx);
-        // A closed panel keeps showing while it slides away.
-        let panel = match shown {
-            Some(panel) => {
-                self.sidebar_last = Some(panel.name);
-                panel
-            }
-            None if open > 0. => super::info(self.sidebar_last?, cx)?,
-            None => return None,
-        };
+        let panel = self.shown_panel(cx)?;
         let width = self.sidebar_width(cx);
-        let content = motion::fade_in_if(
+        let content = motion::switch_in(
             div()
                 .size_full()
                 .child(self.render_panel(&panel, window, cx)),
             ElementId::Name(format!("sidebar-panel-{}", panel.name).into()),
-            true,
         );
         let name = SharedString::from("sidebar-edge");
         let header = prefs::scaled(crate::ui::tabs::BAR_HEIGHT).to_pixels(cx.theme().font_size);
@@ -82,12 +71,15 @@ impl Workspace {
         // The background stays outside the fade, so a switched panel does
         // not flash the window color through.
         let theme = cx.theme();
+        // Give the transcript its final viewport on the first frame. A
+        // width tween invalidates every cached row height at each step.
         let side = div()
             .flex()
             .bg(theme.sidebar)
             .flex_none()
             .h_full()
             .w(width)
+            .overflow_hidden()
             .on_drag_move::<SidebarDrag>(cx.listener(
                 |this, event: &DragMoveEvent<SidebarDrag>, _, cx| {
                     let offset = event.event.position.x - event.bounds.left();
@@ -105,16 +97,7 @@ impl Workspace {
                     .child(content),
             )
             .child(seam.render(grip, cx));
-        // The panel keeps its width and slides out from under the rail, so
-        // its content does not reflow while it opens or closes.
-        let slot = h_flex()
-            .flex_none()
-            .h_full()
-            .justify_end()
-            .overflow_hidden()
-            .w(width * open)
-            .child(side);
-        Some(slot.into_any_element())
+        Some(side.into_any_element())
     }
 
     /// Stores the width the side panel's edge was released at.

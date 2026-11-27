@@ -128,9 +128,6 @@ pub struct Workspace {
     pub(super) split_drag: Option<SplitResize>,
     /// Width of the side panel while its edge is dragged.
     pub(super) sidebar_drag: Option<f32>,
-    /// The panel the side panel showed last, kept on screen while it
-    /// slides closed.
-    pub(super) sidebar_last: Option<&'static str>,
     /// A tab is being dragged, so panes show where it can go.
     pub(super) tab_drag: bool,
     pub(super) tab_arrangement: super::tabs::TabArrangement,
@@ -311,7 +308,6 @@ impl Workspace {
             badge_arrangement: Default::default(),
             split_drag: None,
             sidebar_drag: None,
-            sidebar_last: None,
             tab_drag: false,
             tab_arrangement: Default::default(),
             tab_drop: None,

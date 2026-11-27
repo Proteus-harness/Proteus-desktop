@@ -4,7 +4,7 @@
 //! - `enter`: fades and rises of freshly shown blocks, staggered list rows;
 //! - `disclosure`: chevrons and blocks that open and close;
 //! - `collapse`: a measured horizontal reveal for strips of tabs;
-//! - `transition`: measured height and fade when a stable host changes page;
+//! - `transition`: a fade in natural layout when a stable host changes page;
 //! - `number`: counters that glide to new values;
 //! - `spinner`: the loading spinner;
 //! - `ticker`: the shared low-rate clock of looping animations.
