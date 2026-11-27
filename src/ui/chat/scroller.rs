@@ -619,7 +619,12 @@ impl ChatScroller {
     /// Advance following by one frame; returns whether another frame is needed.
     fn step(&mut self, now: Instant, animate: bool) -> bool {
         let positioning = self.scrollbar.settle();
-        let wheeling = self.wheel.step(&self.list, OVERDRAW);
+        let forward_room = if self.dirty || positioning {
+            px(0.)
+        } else {
+            self.list.viewport_bounds().size.height - EDGE * 2.
+        };
+        let wheeling = self.wheel.step(&self.list, OVERDRAW, forward_room);
         let offset = self.scroll_offset();
         let may_resume = self.autoscroll && !self.archived && !self.wheel_up;
         let gap = (self.following || may_resume).then(|| self.gap(Some(offset)));

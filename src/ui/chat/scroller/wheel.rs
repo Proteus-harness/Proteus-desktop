@@ -24,10 +24,23 @@ impl WheelScroll {
         }
     }
 
-    /// At most one step per layout, shorter than the list's measured overdraw.
-    pub(super) fn step(&mut self, list: &ListState, overdraw: Pixels) -> bool {
+    /// At most one step per layout. Toward newer rows, a large burst may
+    /// move farther if its next anchor is still inside the painted viewport.
+    /// Toward older rows, overdraw alone does not prove that the heights
+    /// ahead of the current anchor have settled yet.
+    pub(super) fn step(
+        &mut self,
+        list: &ListState,
+        overdraw: Pixels,
+        forward_room: Pixels,
+    ) -> bool {
         if self.remaining != px(0.) && self.painted.take().is_some() {
-            let distance = self.remaining.clamp(-overdraw / 2., overdraw / 2.);
+            let normal = overdraw / 2.;
+            let forward = (self.remaining / 2.)
+                .min(forward_room)
+                .min(overdraw)
+                .max(normal);
+            let distance = self.remaining.clamp(-normal, forward);
             self.remaining -= distance;
             list.scroll_by(distance);
             self.anchor = Some(list.logical_scroll_top());
@@ -65,14 +78,14 @@ mod tests {
             wheel.push(px(-180.), &list);
         }
         assert_eq!(list.logical_scroll_top().item_ix, 0);
-        assert!(wheel.step(&list, px(400.)));
+        assert!(wheel.step(&list, px(400.), px(0.)));
         assert_eq!(list.logical_scroll_top().item_ix, 10);
-        assert!(wheel.step(&list, px(400.)));
+        assert!(wheel.step(&list, px(400.), px(0.)));
         assert_eq!(list.logical_scroll_top().item_ix, 10);
         wheel.painted.set(Some(list.logical_scroll_top()));
-        assert!(wheel.step(&list, px(400.)));
+        assert!(wheel.step(&list, px(400.), px(0.)));
         wheel.painted.set(Some(list.logical_scroll_top()));
-        assert!(!wheel.step(&list, px(400.)));
+        assert!(!wheel.step(&list, px(400.), px(0.)));
         assert_eq!(list.logical_scroll_top().item_ix, 27);
         assert_eq!(list.logical_scroll_top().offset_in_item, px(0.));
     }
@@ -89,12 +102,12 @@ mod tests {
         wheel.painted.set(Some(list.logical_scroll_top()));
         wheel.push(px(-600.), &list);
         wheel.push(px(600.), &list);
-        assert!(!wheel.step(&list, px(400.)));
+        assert!(!wheel.step(&list, px(400.), px(0.)));
         assert_eq!(list.logical_scroll_top().offset_in_item, px(7.));
         wheel.push(px(-600.), &list);
         wheel.clear(&list);
         wheel.painted.set(Some(list.logical_scroll_top()));
-        assert!(!wheel.step(&list, px(400.)));
+        assert!(!wheel.step(&list, px(400.), px(0.)));
         assert_eq!(list.logical_scroll_top().item_ix, 20);
     }
 
@@ -118,12 +131,37 @@ mod tests {
         // zero-height rows either. It joins the same pending pixel request.
         list.scroll_by(px(180.));
         wheel.push(px(-180.), &list);
-        assert!(wheel.step(&list, px(400.)));
+        assert!(wheel.step(&list, px(400.), px(0.)));
         assert_eq!(list.logical_scroll_top().item_ix, 70);
         assert_eq!(list.logical_scroll_top().offset_in_item, px(7.));
         wheel.painted.set(Some(list.logical_scroll_top()));
-        assert!(wheel.step(&list, px(400.)));
+        assert!(wheel.step(&list, px(400.), px(0.)));
         assert_eq!(list.logical_scroll_top().item_ix, 80);
         assert_eq!(list.logical_scroll_top().offset_in_item, px(7.));
+    }
+
+    #[test]
+    fn large_forward_input_uses_painted_room_without_changing_the_destination() {
+        let list =
+            ListState::new(1000, ListAlignment::Top, px(400.)).with_uniform_item_height(px(20.));
+        let start = ListOffset {
+            item_ix: 400,
+            offset_in_item: px(7.),
+        };
+        list.scroll_to(start);
+        let mut wheel = WheelScroll::default();
+        wheel.painted.set(Some(start));
+        wheel.push(px(-3600.), &list);
+        assert!(wheel.step(&list, px(400.), px(340.)));
+        assert_eq!(list.logical_scroll_top().item_ix, 417);
+        for _ in 0..11 {
+            wheel.painted.set(Some(list.logical_scroll_top()));
+            if !wheel.step(&list, px(400.), px(340.)) {
+                break;
+            }
+        }
+        let top = list.logical_scroll_top();
+        assert_eq!(top.item_ix, 580);
+        assert_eq!(top.offset_in_item, start.offset_in_item);
     }
 }
