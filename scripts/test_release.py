@@ -178,7 +178,7 @@ class MetadataTests(unittest.TestCase):
                 path.mkdir(parents=True)
                 for name in ("LICENSE", "NOTICE"):
                     (path / name).write_text(relative + name)
-            for vendored_name in ("gpui-fast-wgpu", "gpui-component"):
+            for vendored_name in ("gpui-fast-linux", "gpui-fast-wgpu", "gpui-component"):
                 vendored = roots[0] / "vendor" / vendored_name
                 vendored.mkdir(parents=True)
                 for name in ("LICENSE.upstream", "README.proteus.md"):
@@ -206,6 +206,10 @@ class MetadataTests(unittest.TestCase):
             install_notices(portable, *roots)
             self.assertEqual((portable / "share/licenses/Proteus-core/LICENSE").read_text(), "core")
             self.assertTrue((portable / "share/licenses/Proteus-modules/tool/codex-patch/NOTICE").is_file())
+            self.assertEqual(
+                (portable / "share/licenses/Proteus-desktop/vendor/gpui-fast-linux/LICENSE.upstream").read_text(),
+                "synthetic gpui-fast-linux LICENSE.upstream",
+            )
             self.assertEqual(
                 (portable / "share/licenses/Proteus-desktop/vendor/gpui-fast-wgpu/LICENSE.upstream").read_text(),
                 "synthetic gpui-fast-wgpu LICENSE.upstream",

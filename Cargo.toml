@@ -2,10 +2,11 @@
 resolver = "2"
 members = ["crates/client-common", "crates/diff", "crates/tabs", "crates/codex-client", "crates/terminal"]
 default-members = [".", "crates/diff", "crates/tabs"]
-exclude = ["vendor/gpui-fast", "vendor/gpui-fast-wgpu", "vendor/gpui-component", "vendor/gpui-base"]
+exclude = ["vendor/gpui-fast", "vendor/gpui-fast-linux", "vendor/gpui-fast-wgpu", "vendor/gpui-component", "vendor/gpui-base"]
 
 [patch.crates-io]
 gpui-fast = { path = "vendor/gpui-fast" }
+gpui-fast-linux = { path = "vendor/gpui-fast-linux" }
 ghostty-vt = { path = "vendor/ghostty-vt" }
 ghostty-vt-sys = { path = "vendor/ghostty-vt-sys" }
 gpui-fast-wgpu = { path = "vendor/gpui-fast-wgpu" }

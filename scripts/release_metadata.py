@@ -98,7 +98,7 @@ def install_module_notices(target, modules):
 
 
 def install_desktop_notices(target, desktop):
-    for vendored in ("vendor/gpui-fast-wgpu", "vendor/gpui-component"):
+    for vendored in ("vendor/gpui-fast-linux", "vendor/gpui-fast-wgpu", "vendor/gpui-component"):
         for name in ("LICENSE.upstream", "README.proteus.md"):
             destination = target / "Proteus-desktop" / vendored / name
             destination.parent.mkdir(parents=True, exist_ok=True)
