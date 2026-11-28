@@ -67,6 +67,9 @@ pub(crate) trait ButtonLabel {
     /// and disabled behavior.
     fn settings_control(self, cx: &App) -> Self;
 
+    /// A settings dropdown with a quiet edge and the hover fill while open.
+    fn settings_selector(self, cx: &App) -> Self;
+
     /// Transparent at rest; the same hover and committed fill as list rows,
     /// without the native Ghost variant's extra dark-mode attenuation.
     fn quiet(self, cx: &App) -> Self;
@@ -78,16 +81,13 @@ pub(crate) trait ButtonLabel {
 
 impl ButtonLabel for Button {
     fn settings_control(self, cx: &App) -> Self {
-        let theme = cx.theme();
-        let fill = theme.input_background();
-        self.custom(
-            ButtonCustomVariant::new(cx)
-                .color(fill)
-                .foreground(theme.foreground)
-                .hover(fill.blend(theme.panel_header_hover))
-                .active(fill.blend(theme.list_active)),
-        )
-        .border_0()
+        self.custom(settings_button_variant(cx, false)).border_0()
+    }
+
+    fn settings_selector(self, cx: &App) -> Self {
+        self.custom(settings_button_variant(cx, true))
+            .border_1()
+            .border_on_hover(true)
     }
 
     fn quiet(self, cx: &App) -> Self {
@@ -112,6 +112,18 @@ impl ButtonLabel for Button {
                     .child(super::fade::faded(label).report_clipping(clipped))
                     .into_any_element()
             })
+    }
+}
+
+fn settings_button_variant(cx: &App, selector: bool) -> ButtonCustomVariant {
+    let theme = cx.theme();
+    let fill = theme.input_background();
+    let hover = fill.blend(theme.panel_header_hover);
+    let variant = ButtonCustomVariant::new(cx).color(fill).hover(hover);
+    if selector {
+        variant.active(hover).border(theme.foreground.opacity(0.14))
+    } else {
+        variant.active(fill.blend(theme.list_active))
     }
 }
 

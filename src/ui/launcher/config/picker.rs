@@ -28,7 +28,7 @@ pub(in crate::ui) fn config_selector(
         .offset(px(4.))
         .trigger(
             kit::button("config-open-agent")
-                .settings_control(cx)
+                .settings_selector(cx)
                 .small()
                 .icon(Lucide::ChevronDown)
                 .faded_label("Сменить"),

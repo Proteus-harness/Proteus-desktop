@@ -39,6 +39,7 @@ impl From<Pixels> for ButtonRounded {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ButtonCustomVariant {
     color: Hsla,
+    border: Option<Hsla>,
     foreground: Hsla,
     shadow: bool,
     hover: Hsla,
@@ -103,6 +104,7 @@ impl ButtonCustomVariant {
     pub fn new(cx: &App) -> Self {
         Self {
             color: cx.theme().transparent,
+            border: None,
             foreground: cx.theme().foreground,
             hover: cx.theme().transparent,
             active: cx.theme().transparent,
@@ -113,6 +115,12 @@ impl ButtonCustomVariant {
     /// Set background color, default is transparent.
     pub fn color(mut self, color: Hsla) -> Self {
         self.color = color;
+        self
+    }
+
+    /// Set the border color shared by the button's interactive states.
+    pub fn border(mut self, color: Hsla) -> Self {
+        self.border = Some(color);
         self
     }
 
@@ -1214,13 +1222,13 @@ impl ButtonVariant {
                 }
             }
             Self::Ghost | Self::Link | Self::Text => cx.theme().transparent,
-            Self::Custom(colors) => {
+            Self::Custom(colors) => colors.border.unwrap_or_else(|| {
                 if outline {
                     colors.color.mix_oklab(transparent_white(), 0.4)
                 } else {
                     colors.color
                 }
-            }
+            }),
         }
     }
 
