@@ -53,7 +53,7 @@ pub(crate) fn compact_row_line_height() -> Rems {
 }
 
 pub(crate) fn compact_row_height() -> Rems {
-    compact_row_line_height() + prefs::scaled(4.)
+    prefs::scaled(28.)
 }
 
 pub(crate) fn compact_row_gap() -> Rems {

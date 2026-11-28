@@ -1,13 +1,21 @@
 // Адаптировано из Zed: crates/settings_ui/src/settings_ui.rs (render_settings_item_layout)
-//! Shared settings geometry. The caption keeps its intrinsic width while
-//! the control gives up spare room. Only after the control reaches its usable
-//! minimum does the caption shrink. Multiline editors explicitly go below.
+//! Shared settings geometry. Short controls align to the right, long inputs
+//! wrap below their caption if the form is narrow, and multiline editors
+//! always go below.
 
-use gpui_kit::component::{h_flex, v_flex};
-use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::component::h_flex;
 use gpui_kit::*;
 
 use crate::ui::prefs;
+
+pub(super) fn settings_row_height() -> Rems {
+    // A card's transparent separator supplies the extra pixel between rows.
+    prefs::scaled(35.)
+}
+
+pub(super) fn settings_row_padding() -> Rems {
+    prefs::scaled(4.)
+}
 
 #[derive(IntoElement)]
 pub(crate) struct SettingsRow {
@@ -63,36 +71,42 @@ impl RenderOnce for SettingsRow {
             .text_sm()
             .line_height(super::compact_row_line_height())
             .child(self.title);
+        let row = div().flex().min_w_0().px_4();
         let mut row = if self.below {
-            v_flex()
-                .min_w_0()
-                .px_4()
+            row.flex_col()
                 .py_1p5()
                 .gap_1p5()
                 .child(title)
                 .child(div().w_full().min_w_0().child(self.control))
         } else {
-            h_flex()
-                .min_w_0()
-                .px_4()
-                .min_h(super::compact_row_height())
-                .py(super::compact_row_gap() / 2.)
-                .gap_2()
-                .items_center()
-                .child(title.flex_initial())
-                .child(
+            let row = row
+                .flex_row()
+                .min_h(settings_row_height())
+                .py(settings_row_padding())
+                .gap_x_2()
+                .items_center();
+            if self.fill_control {
+                row.w_full()
+                    .flex_wrap()
+                    .gap_y_1p5()
+                    // Keep the full caption width available on a wrapped line.
+                    .child(title.flex_initial().max_w_full())
+                    .child(
+                        div()
+                            .flex_1()
+                            .flex_basis(prefs::scaled(self.minimum_control_width.max(192.)))
+                            .min_w_0()
+                            .child(self.control),
+                    )
+            } else {
+                row.child(title.flex_initial()).child(
                     h_flex()
                         .flex_1()
                         .min_w(prefs::scaled(self.minimum_control_width))
                         .justify_end()
-                        .child(
-                            div()
-                                .min_w_0()
-                                .max_w_full()
-                                .when(self.fill_control, |control| control.flex_1())
-                                .child(self.control),
-                        ),
+                        .child(div().min_w_0().max_w_full().child(self.control)),
                 )
+            }
         };
         row.style().refine(&self.style);
         row

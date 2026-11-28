@@ -139,7 +139,10 @@ impl SettingsView {
         let line = disclosure(
             hashed_id("mcp", &key),
             open,
-            server.name.to_string(),
+            div().flex_1().min_w_0().child(crate::ui::fade::caption(
+                hashed_id("mcp-name", &key),
+                server.name.to_string(),
+            )),
             changed,
             move |cx| {
                 let _ = view.update(cx, |this, cx| this.toggle_open(&toggle_key, cx));
@@ -163,11 +166,7 @@ impl SettingsView {
                 this.update_draft(cx, |draft| draft.set_mcp(&name, checked));
             }));
         // The whole row is one hover target, so the switch sits inside it.
-        let header = line
-            .pr_4()
-            .child(div().flex_1())
-            .children(chips)
-            .child(switch);
+        let header = line.children(chips).child(switch);
         let content = self.reveal(&key, cx, || self.mcp_details(server, cx));
         nested_group(
             self.spotted(&spot::mcp(server.name), header.into_any_element(), cx),

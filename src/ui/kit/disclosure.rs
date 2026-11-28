@@ -8,6 +8,7 @@ use gpui_kit::component::h_flex;
 use gpui_kit::{App, Div, ElementId, InteractiveElement, Stateful, Styled};
 
 use super::Pressable as _;
+use super::settings_row::{settings_row_height, settings_row_padding};
 
 #[derive(Clone, Copy)]
 pub(crate) enum DisclosureDensity {
@@ -29,8 +30,8 @@ pub(crate) fn disclosure_header(
     match density {
         DisclosureDensity::Settings => header
             .px_4()
-            .min_h(super::compact_row_height())
-            .py(super::compact_row_gap() / 2.)
+            .min_h(settings_row_height())
+            .py(settings_row_padding())
             .line_height(super::compact_row_line_height())
             .text_sm(),
         // Compact hosts retain their inherited text size and existing inset.

@@ -109,11 +109,14 @@ pub(super) fn section(
         .gap_1p5()
         .child(
             h_flex()
-                .gap_3()
+                .flex_wrap()
+                .gap_x_3()
+                .gap_y_1p5()
                 .items_end()
                 .child(
                     v_flex()
                         .flex_1()
+                        .flex_basis(prefs::scaled(200.))
                         .min_w_0()
                         .gap_0p5()
                         .child(div().text_sm().font_semibold().child(title.into()))
@@ -124,7 +127,7 @@ pub(super) fn section(
                                 .child(hint)
                         })),
                 )
-                .children(action),
+                .children(action.map(|action| div().ml_auto().max_w_full().child(action))),
         )
         .child(body)
 }
@@ -185,9 +188,8 @@ pub(super) fn note(text: impl Into<SharedString>, cx: &App) -> Div {
         .child(text.into())
 }
 
-/// Title on the left and a shrinking control on the right. Explicit multiline
-/// controls go below; ordinary parameters stay on one line. The description lives in
-/// a tooltip on the title, so rows stay one line high.
+/// Title with a compact control or an editor below. Descriptions use the
+/// title's tooltip.
 pub(super) fn row(
     title: impl Into<SharedString>,
     description: Option<SharedString>,
@@ -227,7 +229,7 @@ pub(super) fn row_with_reset(
 pub(super) enum Fit {
     /// At its content width on the right, shrinking with the available row.
     Fixed,
-    /// Uses the space available to the right of its label.
+    /// Fills the remaining width or wraps below the label in a narrow form.
     Fill,
     /// Under the title at full width.
     Below,
@@ -241,7 +243,7 @@ pub(super) fn field_row(
 ) -> kit::SettingsRow {
     let row = kit::settings_row(title, control, matches!(fit, Fit::Below));
     match fit {
-        Fit::Fill => row.minimum_control_width(64.).fill_control(),
+        Fit::Fill => row.fill_control(),
         _ => row,
     }
 }

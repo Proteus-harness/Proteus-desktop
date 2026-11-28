@@ -99,7 +99,7 @@ impl SettingsView {
                         .min_w_0()
                         .min_h_0()
                         .items_center()
-                        .px_8()
+                        .px(page_gutter())
                         .pt_8()
                         .pb_10()
                         // The extension owns its scroll container; constrain
@@ -153,7 +153,7 @@ impl SettingsView {
         let key = format!("{:?}", self.page);
         let column = page_column(cx)
             .pb_8()
-            .gap_4()
+            .gap(prefs::scaled(20.))
             .child(
                 h_flex()
                     .gap_4()
@@ -177,7 +177,7 @@ impl SettingsView {
             .w_full()
             .min_h_full()
             .items_center()
-            .px_8()
+            .px(page_gutter())
             .pt_6()
             // The bottom padding is part of the page, so the floor that
             // keeps the scroll position counts it.
@@ -288,37 +288,13 @@ impl SettingsView {
             ("Изменений нет".to_string(), theme.muted_foreground)
         };
         let target_unavailable = snapshot.is_none_or(|snapshot| snapshot.target_path.is_none());
-        h_flex()
+        let actions = h_flex()
             .flex_none()
-            .h(prefs::scaled(56.))
-            .px_6()
-            .gap_3()
-            .items_center()
-            .border_t_1()
-            .border_color(theme.transparent)
-            .bg(theme.background)
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .text_sm()
-                            .text_color(tone)
-                            .when(dirty && !self.saving, |line| line.child(changed_dot(cx)))
-                            .child(div().child(faded(status))),
-                    )
-                    .when(target_unavailable, |bar| {
-                        bar.child(
-                            div()
-                                .text_xs()
-                                .text_color(theme.muted_foreground)
-                                .child("Файл профиля недоступен"),
-                        )
-                    }),
-            )
+            .flex_wrap()
+            .max_w_full()
+            .ml_auto()
+            .justify_end()
+            .gap_2()
             .when(!dirty, |bar| {
                 bar.child(
                     kit::button("settings-reload")
@@ -353,7 +329,43 @@ impl SettingsView {
                     .disabled(!self.can_save())
                     .hint_keys("Записать изменения в профиль", Some("Ctrl+S"), cx)
                     .on_click(cx.listener(|this, _, _, cx| this.save(cx))),
+            );
+        h_flex()
+            .flex_none()
+            .min_h(prefs::scaled(56.))
+            .px(page_gutter())
+            .py_2()
+            .flex_wrap()
+            .gap_x_3()
+            .gap_y_1()
+            .items_center()
+            .border_t_1()
+            .border_color(theme.transparent)
+            .bg(theme.background)
+            .child(
+                v_flex()
+                    .flex_1()
+                    .flex_basis(prefs::scaled(120.))
+                    .min_w_0()
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .items_center()
+                            .text_sm()
+                            .text_color(tone)
+                            .when(dirty && !self.saving, |line| line.child(changed_dot(cx)))
+                            .child(div().min_w_0().child(faded(status))),
+                    )
+                    .when(target_unavailable, |bar| {
+                        bar.child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child("Файл профиля недоступен"),
+                        )
+                    }),
             )
+            .child(actions)
     }
 }
 
@@ -364,6 +376,11 @@ fn page_column(cx: &App) -> Div {
         .w_full()
         .min_w_0()
         .max_w(prefs::zoomed(prefs::visual(cx).view.settings_width, cx))
+}
+
+/// Reserve a smaller gutter when the settings pane itself is narrow.
+fn page_gutter() -> DefiniteLength {
+    relative(0.03)
 }
 
 fn centered(content: impl IntoElement) -> AnyElement {
