@@ -15,7 +15,7 @@ use gpui_kit::component::button::{Button, ButtonCustomVariant, ButtonVariants as
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::input::{Input, InputState, Textarea, TextareaState};
 use gpui_kit::{
-    App, ElementId, MouseButton, Rems, SharedString, StatefulInteractiveElement, Styled,
+    App, ElementId, Hsla, MouseButton, Rems, SharedString, StatefulInteractiveElement, Styled,
 };
 
 use super::prefs;
@@ -121,10 +121,14 @@ fn settings_button_variant(cx: &App, selector: bool) -> ButtonCustomVariant {
     let hover = fill.blend(theme.panel_header_hover);
     let variant = ButtonCustomVariant::new(cx).color(fill).hover(hover);
     if selector {
-        variant.active(hover).border(theme.foreground.opacity(0.14))
+        variant.active(hover).border(settings_selector_border(cx))
     } else {
         variant.active(fill.blend(theme.list_active))
     }
+}
+
+pub(crate) fn settings_selector_border(cx: &App) -> Hsla {
+    cx.theme().foreground.opacity(0.14)
 }
 
 thread_local! {

@@ -251,6 +251,11 @@ impl RenderOnce for ContextMenu {
         let Some((menu, frame)) = shown else {
             return root;
         };
+        let frame = if settings_selector {
+            frame.border_color(super::kit::settings_selector_border(cx))
+        } else {
+            frame
+        };
         root.child(motion::popup(
             div().relative().p(inset).child(menu),
             ElementId::Name(format!("{:?}:popup", self.id).into()),

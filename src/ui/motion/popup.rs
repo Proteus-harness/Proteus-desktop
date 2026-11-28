@@ -47,6 +47,7 @@ pub(in crate::ui) struct PopupFrame {
     align: Align,
     gap: Pixels,
     attachment: Option<PopupPanel>,
+    border_color: Option<Hsla>,
     progress: f32,
     effect: Effect,
     anchor: Bounds<Pixels>,
@@ -60,6 +61,13 @@ impl PopupFrame {
         self.align = Align::End;
         self
     }
+
+    /// Tint the existing frame without changing its layout or reveal bounds.
+    pub fn border_color(mut self, color: Hsla) -> Self {
+        self.border_color = Some(color);
+        self
+    }
+
     /// Join this popup to a panel edge without covering either frame.
     pub fn attached(mut self, panel: PopupPanel) -> Self {
         self.placement = panel.placement;
@@ -251,6 +259,7 @@ impl<T> Popup<T> {
             align: Align::Start,
             gap: px(8.),
             attachment: None,
+            border_color: None,
             progress,
             effect,
             anchor: self.anchor.unwrap_or_default(),
@@ -273,6 +282,9 @@ pub(in crate::ui) fn popup(
         .and_then(|position| position.placement)
         .unwrap_or(frame.placement);
     let surface = crate::ui::kit::popup_surface(cx)
+        .when_some(frame.border_color, |surface, color| {
+            surface.border_color(color)
+        })
         .when_some(frame.attachment, |surface, panel| {
             let surface = surface.bg(panel.background);
             let limit = fixed.map_or(panel.bounds.size, |position| position.bounds.size);

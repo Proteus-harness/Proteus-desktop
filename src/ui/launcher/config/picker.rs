@@ -56,7 +56,11 @@ pub(in crate::ui) fn config_selector(
             let width = prefs::scaled(440.)
                 .to_pixels(window.rem_size())
                 .min((window.viewport_size().width - px(16.)).max(px(0.)));
-            kit::popup_surface(cx).w(width).p_2().child(picker)
+            kit::popup_surface(cx)
+                .border_color(kit::settings_selector_border(cx))
+                .w(width)
+                .p_2()
+                .child(picker)
         })
 }
 
